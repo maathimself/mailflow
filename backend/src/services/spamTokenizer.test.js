@@ -5,7 +5,6 @@ import {
   normalizeToken,
   extractFlagFeatures,
   tokenFingerprint,
-  EXECUTABLE_EXTENSIONS,
   MAX_BODY_CHARS,
   MAX_TOKENS,
 } from './spamTokenizer.js';
@@ -237,10 +236,28 @@ describe('tokenFingerprint', () => {
   });
 });
 
-describe('EXECUTABLE_EXTENSIONS', () => {
-  it('covers common executable extensions', () => {
-    for (const ext of ['exe', 'scr', 'js', 'vbs', 'bat', 'cmd', 'jar', 'sh', 'ps1']) {
-      expect(EXECUTABLE_EXTENSIONS.has(ext), `${ext} should be executable`).toBe(true);
+describe('attachment_is_executable (#457)', () => {
+  const flag = attachments => extractFlagFeatures({ subject: '', body: '', attachments }).attachment_is_executable;
+
+  it('means the BLOCK tier: files that run code when opened', () => {
+    for (const filename of ['invoice.exe', 'run.ps1', 'shortcut.lnk', 'disk.iso', 'install.sh']) {
+      expect(flag([{ filename }]), filename).toBe(1);
     }
+    for (const filename of ['budget.xlsm', 'login.html', 'notes.rb', 'App.class', 'report.pdf']) {
+      expect(flag([{ filename }]), filename).toBe(0);
+    }
+  });
+
+  it('falls back to the stored MIME type when the part has no extension', () => {
+    // walkStructure names an unnamed attachment "attachment" and stores its MIME type as `type`;
+    // the fallback read `contentType`, which stored attachments never have.
+    expect(flag([{ filename: 'attachment', type: 'application/x-msdownload' }])).toBe(1);
+    expect(flag([{ filename: 'attachment', type: 'application/x-msdos-program' }])).toBe(1);
+  });
+
+  it('does not take ordinary Office files for programs', () => {
+    expect(flag([{ filename: 'attachment', type: 'application/vnd.ms-excel' }])).toBe(0);
+    expect(flag([{ filename: 'attachment', type: 'application/vnd.ms-powerpoint' }])).toBe(0);
+    expect(flag([{ filename: 'attachment', type: 'application/pdf' }])).toBe(0);
   });
 });

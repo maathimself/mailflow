@@ -125,3 +125,24 @@ export async function openForwardFromMessage(message, { openCompose, getMessageB
     })),
   });
 }
+
+// "Forward as attachment" (#466): the original goes as an .eml attachment with every header
+// intact, which is what abuse desks such as SpamCop and IT teams need; an inline forward keeps
+// only the body. The server fetches the raw source at send time, so its size is not known here.
+export function openForwardAsAttachmentFromMessage(message, { openCompose }) {
+  const subject = (message.subject || '').replace(/[\r\n]+/g, ' ');
+  openCompose({
+    subject: subject.startsWith('Fwd:') ? subject : `Fwd: ${subject}`,
+    body: '',
+    accountId: message.account_id,
+    isForward: true,
+    forwardedAttachments: [{
+      messageId: message.id,
+      asMessage: true,
+      // Named as the server will name it: a slash or backslash in the subject becomes "_".
+      filename: `${subject.trim().replace(/[/\\]/g, '_') || 'message'}.eml`,
+      type: 'message/rfc822',
+      size: null,
+    }],
+  });
+}

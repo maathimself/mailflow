@@ -3,11 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { unreadBadge } from '../utils/unreadBadge.js';
 import { api } from '../utils/api.js';
+import { signOut } from '../utils/signOut.js';
 import { resolveThreadMessages } from '../utils/threadActions.js';
 import { folderDisplayName } from '../utils/folderDisplay.js';
 import {
   activateOnKey,
   buildFolderTree,
+  subtreeUnread,
   collapsedTooltip,
   FOLDER_ORDER_DRAG_TYPE,
   folderDropPosition,
@@ -505,27 +507,8 @@ export default function Sidebar() {
     return () => { cancelled = true; };
   }, []);
 
-  const handleLogout = async () => {
-    // The logout response may carry an OIDC end-session URL when the account signed in
-    // through a provider with RP-initiated logout enabled; navigating there also clears
-    // the upstream SSO session. Falls back to /login otherwise. (#310)
-    const res = await api.logout().catch(() => ({}));
-    // Appearance/localization prefs (theme, font, layout, language) are deliberately
-    // NOT cleared: keeping them means the login screen and the next visit retain the
-    // last-used look instead of snapping back to the default dark theme (issue #208).
-    // They are re-synced from the account's server-side preferences after login.
-    // The keys below are mailbox/session state that can reference the previous user's
-    // accounts or folders, so they are cleared on sign-out.
-    [
-      'mailflow_notification_sound', 'mailflow_custom_sound', 'mailflow_custom_sound_name',
-      'mailflow_page_size', 'mailflow_scroll_mode', 'mailflow_sync_interval',
-      'mailflow_threaded_view', 'mailflow_plaintext_email',
-      'mailflow_hover_quick_actions', 'mailflow_swipe_actions',
-      'mailflow_expanded_accounts', 'mailflow_collapsed_folders',
-    ].forEach(k => localStorage.removeItem(k));
-    setUser(null);
-    window.location.href = res?.endSessionUrl || '/login';
-  };
+  // Clears this user's mailbox state and follows the SSO end-session URL when there is one (#310).
+  const handleLogout = () => signOut({ setUser });
 
   const isUnified = selectedAccountId === null;
 
@@ -1518,11 +1501,16 @@ export default function Sidebar() {
                             <button onClick={() => setRenamingFolder(null)} style={{ background: 'var(--bg-tertiary)', border: 'none', borderRadius: 4, color: 'var(--text-secondary)', padding: '2px 6px', cursor: 'pointer', fontSize: 11 }}>✕</button>
                           </div>
                         ) : (
-                          !folder.no_select && (() => {
-                            const b = unreadBadge({ count: folder.unread_count, known: folder.counts_known !== false,
-                              stale: folder.counts_stale, observedAt: folder.server_counts_at });
+                          (() => {
+                            // Collapsed with subfolders: the total including them (#536).
+                            const rolledUp = hasChildren && !isExpanded;
+                            if (folder.no_select && !rolledUp) return null;
+                            const b = rolledUp
+                              ? unreadBadge(subtreeUnread(node, path => accountHiddenPaths.includes(path)))
+                              : unreadBadge({ count: folder.unread_count, known: folder.counts_known !== false,
+                                stale: folder.counts_stale, observedAt: folder.server_counts_at });
                             return b && (
-                              <span title={b.title} style={{ fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 8, flexShrink: 0 }}>
+                              <span title={rolledUp ? `${b.title}, including subfolders` : b.title} style={{ fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 8, flexShrink: 0 }}>
                                 {b.text}
                               </span>
                             );

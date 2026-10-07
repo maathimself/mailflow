@@ -382,3 +382,40 @@ describe('POST /api/accounts/:id/spam/reset-training (GDPR per-account)', () => 
     expect(body).toMatchObject({ ok: true, deletedTrainingRecords: 7, deletedModel: true });
   });
 });
+
+describe('GET /api/spam/explain (#457)', () => {
+  const stored = {
+    method: 'rules', blendedScore: 0.9, rulesScore: 0.9, mlProbability: null, mlConfidence: null,
+    rulesFired: [{ name: 'ATTACHMENT_EXECUTABLE', weight: 0.6 }, { name: 'AUTH_DKIM_FAIL', weight: 0.4 }],
+    topTokens: [{ token: '__attachment_is_executable__', contribution: 1.2 }],
+  };
+
+  it('replays the inputs recorded with the verdict instead of recomputing', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: MESSAGE_ID, owner_id: USER_ID, spam_verdict: 'spam', spam_score_ml: 0.9, spam_details: stored, attachments: [] }] });
+    const { server, base } = await startServer();
+    try {
+      const res = await fetch(`${base}/api/spam/explain?messageId=${MESSAGE_ID}`);
+      const body = await res.json();
+      expect(res.status).toBe(200);
+      expect(body.replayed).toBe(true);
+      expect(body.rulesFired).toEqual(stored.rulesFired); // incl. the auth rule a recompute cannot see
+      expect(body.rulesScore).toBe(0.9);
+      expect(body.confidence).toBe(0.9);
+      expect(body.mlTopTokens).toEqual(stored.topTokens);
+      expect(scoreRules).not.toHaveBeenCalled();
+      expect(classifyMessage).not.toHaveBeenCalled();
+    } finally { server.close(); }
+  });
+
+  it('recomputes only for a verdict with no recorded inputs', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: MESSAGE_ID, owner_id: USER_ID, spam_verdict: 'spam', spam_details: null, attachments: [] }] });
+    getModelForUser.mockResolvedValue(null);
+    const { server, base } = await startServer();
+    try {
+      const body = await (await fetch(`${base}/api/spam/explain?messageId=${MESSAGE_ID}`)).json();
+      expect(body.replayed).toBe(false);
+      expect(scoreRules).toHaveBeenCalled();
+      expect(body.rulesFired).toEqual([{ name: 'SUBJECT_PHARMA_KEYWORDS', weight: 0.5 }]);
+    } finally { server.close(); }
+  });
+});

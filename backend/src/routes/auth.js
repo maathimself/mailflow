@@ -581,6 +581,15 @@ router.post('/logout', async (req, res) => {
       .catch(err => console.error('logout: failed to delete trusted device:', err.message));
   }
 
+  // A push subscription belongs to the user, not the session, so without this the
+  // signed-out user's new-mail notifications keep arriving on this device. Only this
+  // browser's endpoint goes; the user's other devices keep theirs.
+  const pushEndpoint = req.body?.pushEndpoint;
+  if (userId && pushEndpoint && typeof pushEndpoint === 'string') {
+    query('DELETE FROM push_subscriptions WHERE user_id = $1 AND endpoint = $2', [userId, pushEndpoint])
+      .catch(err => console.error('logout: failed to delete push subscription:', err.message));
+  }
+
   // If this session signed in via an OIDC provider with RP-initiated logout enabled,
   // build the end-session URL (using the still-present id_token) before destroying the
   // session. buildEndSessionUrl never throws and returns null when it does not apply, so
@@ -1075,6 +1084,7 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
           transport = createSmtpTransport(acctResolved, {
             port: acct.smtp_port,
             secure: acct.smtp_port === 465,
+            requireTLS: acct.smtp_port !== 465 && !policy.allowInsecureTls,
             auth: smtpAuth, tls: acctTls,
           });
           fromHeader = `${acct.name} <${acct.email_address}>`;

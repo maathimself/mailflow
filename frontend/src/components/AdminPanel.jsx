@@ -6462,11 +6462,13 @@ function RulesTab() {
   function actionSummary(rule) {
     const acts = Array.isArray(rule.actions) ? rule.actions : [];
     if (!acts.length) return '—';
-    const labels = { mark_read: t('admin.rules.actionMarkRead'), star: t('admin.rules.actionStar'), forward: t('admin.rules.actionForward'), archive: t('admin.rules.actionArchive'), delete: t('admin.rules.actionDelete'), move: t('admin.rules.actionMove') };
-    // Show the move destination so same-named rules are tellable apart at a glance.
-    return acts.map(a => a.type === 'move' && a.value
-      ? `${labels.move} → ${a.value}`
-      : (labels[a.type] || a.type)).join(', ');
+    const labels = { mark_read: t('admin.rules.actionMarkRead'), star: t('admin.rules.actionStar'), forward: t('admin.rules.actionForward'), archive: t('admin.rules.actionArchive'), delete: t('admin.rules.actionDelete'), move: t('admin.rules.actionMove'), set_category: t('admin.rules.actionSetCategory') };
+    // Show the move destination and the category so same-named rules are tellable apart at a glance.
+    return acts.map(a => {
+      if (a.type === 'move' && a.value) return `${labels.move} → ${a.value}`;
+      if (a.type === 'set_category' && a.value) return `${labels.set_category} → ${t(`messageList.categories.${a.value}`)}`;
+      return labels[a.type] || a.type;
+    }).join(', ');
   }
 
   const FIELDS = [
@@ -6486,6 +6488,7 @@ function RulesTab() {
     { value: 'ends_with',    label: t('admin.rules.opEndsWith') },
   ];
   const HEADER_OPERATORS = [...OPERATORS, { value: 'regex', label: t('admin.rules.opRegex') }];
+  const RULE_CATEGORIES = ['primary', 'newsletter', 'promotion', 'automated', 'social'];
   const ACTION_TYPES = [
     { type: 'mark_read', label: t('admin.rules.actionMarkRead') },
     { type: 'star',      label: t('admin.rules.actionStar') },
@@ -6493,6 +6496,7 @@ function RulesTab() {
     { type: 'archive',   label: t('admin.rules.actionArchive') },
     { type: 'delete',    label: t('admin.rules.actionDelete') },
     { type: 'move',      label: t('admin.rules.actionMove') },
+    { type: 'set_category', label: t('admin.rules.actionSetCategory') },
   ];
 
   if (formMode) {
@@ -6701,6 +6705,19 @@ function RulesTab() {
                     />
                   );
                 })()}
+                {type === 'set_category' && checked && (
+                  <select
+                    aria-label={t('admin.rules.actionSetCategory')}
+                    style={{ ...inputStyle, marginTop: 6, marginLeft: 22 }}
+                    value={fd.actions.find(action => action.type === 'set_category')?.value || ''}
+                    onChange={event => setActionValue('set_category', event.target.value)}
+                  >
+                    <option value="">{t('admin.rules.actionSetCategorySelect')}</option>
+                    {RULE_CATEGORIES.map(cat => (
+                      <option key={cat} value={cat}>{t(`messageList.categories.${cat}`)}</option>
+                    ))}
+                  </select>
+                )}
                 {type === 'forward' && checked && (
                   <input
                     type="email"

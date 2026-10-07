@@ -20,6 +20,22 @@ function getKey() {
   return _cachedKey;
 }
 
+// A key for one purpose, derived from ENCRYPTION_KEY with HKDF, so a value keyed with it never
+// uses the key that encrypts credentials, and each purpose gets an unrelated key. Null unless
+// ENCRYPTION_KEY is 32 bytes of hex: index.js checks only its length, and 64 characters that
+// are not hex parse to an empty key, which would make every derived value public.
+const _derivedKeys = new Map();
+
+export function deriveKey(purpose) {
+  const cached = _derivedKeys.get(purpose);
+  if (cached) return cached;
+  const key = getKey();
+  if (!key || key.length !== 32) return null;
+  const derived = Buffer.from(crypto.hkdfSync('sha256', key, Buffer.alloc(0), `mailflow:${purpose}`, 32));
+  _derivedKeys.set(purpose, derived);
+  return derived;
+}
+
 // Returns a prefixed string: enc:v1:<iv_hex>:<tag_hex>:<ciphertext_hex>
 // Throws if ENCRYPTION_KEY is not configured — callers must not silently store plaintext credentials.
 export function encrypt(plaintext) {

@@ -2,7 +2,7 @@
   "name": "mailflow-frontend",
   "productName": "MailFlow",
   "desktopName": "MailFlow",
-  "version": "3.8.2",
+  "version": "3.8.3",
   "description": "A self-hosted, unified webmail client.",
   "homepage": "https://mailflow.sh",
   "author": {
@@ -138,8 +138,8 @@
     }
   },
   "dependencies": {
-    "@capacitor/android": "^8.3.4",
-    "@capacitor/core": "^8.3.4",
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
     "@tiptap/core": "^3.31.3",
@@ -167,7 +167,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.3.4",
+    "@capacitor/cli": "^8.5.2",
     "@eslint/js": "^10.0.1",
     "@vitejs/plugin-react": "^6.0.2",
     "autoprefixer": "^10.4.18",

@@ -145,6 +145,18 @@
       "someRejected": "O servidor de e-mail recusou a entrega para {{addresses}}.",
       "action": "Ver"
     },
+    "undoSend": {
+      "sending": "Enviando \"{{subject}}\"…",
+      "undone": "Envio desfeito",
+      "reopenLater": "Ela reabre quando você fechar a mensagem que está escrevendo",
+      "notSent": "Sua mensagem não foi enviada",
+      "lost": "O servidor reiniciou antes do envio, então a mensagem não foi entregue.",
+      "unknown": "Não foi possível confirmar se sua mensagem foi enviada",
+      "unknownBody": "Confira a pasta Enviados antes de enviá-la de novo.",
+      "reopen": "Reabrir",
+      "tooLate": "Tarde demais para desfazer: a mensagem já está sendo enviada",
+      "undoFailed": "Não foi possível desfazer: o servidor não respondeu"
+    },
     "toolbar": {
       "removeTable": "Remover tabela",
       "typography": "Tipografia",
@@ -404,6 +416,11 @@
       "automated": "Automáticos",
       "social": "Social"
     },
+    "categoryAlways": {
+      "done": "E-mails de {{value}} agora vão para {{category}}",
+      "doneBody": "Salvo como regra da caixa de entrada; os e-mails já recebidos também foram atualizados.",
+      "failed": "Não foi possível salvar a categoria deste remetente"
+    },
     "changeLayout": "Alterar layout",
     "layouts": {
       "focused": {
@@ -498,6 +515,7 @@
     "reply": "Responder",
     "replyAll": "Responder a todos",
     "forward": "Encaminhar",
+    "forwardAsAttachment": "Encaminhar como anexo",
     "moveToFolder": "Mover",
     "archive": "Arquivar",
     "snooze": {
@@ -508,6 +526,9 @@
       "custom": "Personalizado..."
     },
     "categorize": "Categorizar como…",
+    "categoryAlwaysSender": "Sempre para este remetente",
+    "categoryAlwaysDomain": "Sempre para este domínio",
+    "categoryAlwaysFor": "Sempre para {{value}}",
     "createRule": "Criar regra a partir da mensagem",
     "addToBlockList": "Adicionar à lista de bloqueio",
     "markAsSpam": "Marcar como spam",
@@ -817,6 +838,8 @@
       "actionMove": "Mover para pasta",
       "actionForward": "Encaminhar para",
       "actionForwardPlaceholder": "destinatario@exemplo.com",
+      "actionSetCategory": "Definir categoria",
+      "actionSetCategorySelect": "Selecione uma categoria…",
       "actionMovePlaceholder": "Caminho IMAP exato da pasta (ex.: Trabalho ou INBOX/Trabalho)",
       "actionMoveSelectFolder": "Selecione uma pasta…",
       "actionMoveRequiresAccount": "Requer uma conta específica",

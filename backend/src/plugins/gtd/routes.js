@@ -88,9 +88,9 @@ router.get('/sections', async (req, res) => {
 // The image type is decided by magic bytes inside importPet, so the payload's declared
 // mime is irrelevant. The storage slug is derived server-side from the session user (one
 // custom slot per user), so the client cannot choose the storage key. Defense is the
-// route body limit (index.js) + the size/magic-byte/parse checks inside importPet. The
-// chosen slug is persisted separately as a user preference (gtdPetSlug via PATCH
-// /auth/preferences); this route only acquires the assets.
+// route body limit (middleware/bodyParsers.js) + the size/magic-byte/parse checks inside
+// importPet. The chosen slug is persisted separately as a user preference (gtdPetSlug via
+// PATCH /auth/preferences); this route only acquires the assets.
 router.post('/pet/import', async (req, res) => {
   const { petJson, sheet } = req.body || {};
   if (typeof petJson !== 'string' || typeof sheet !== 'string') {

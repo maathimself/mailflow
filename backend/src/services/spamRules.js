@@ -1,6 +1,6 @@
 // Rules engine for the antispam classifier (v0.2) — Layer 1, always-on.
 //
-// 14 hand-crafted heuristic rules, evaluated as pure functions. The engine
+// 15 hand-crafted heuristic rules, evaluated as pure functions. The engine
 // provides a deterministic baseline that works even with zero ML training
 // records. Weights and logic are the authoritative values from
 // .hermes/design/spam-rules-detailed.md (maintainer-reviewed); auth-header
@@ -10,8 +10,7 @@
 // explainRules() returns per-rule detail for the "Why?" modal.
 
 import { parseAuthResults, hasTrustedAuthResults } from './spamParser.js';
-import { EXECUTABLE_EXTENSIONS } from './spamTokenizer.js';
-import { DECOY } from './attachmentExtensions.js';
+import { BLOCK, WARN, DECOY } from './attachmentExtensions.js';
 
 // ---------------------------------------------------------------------------
 // Rule 3 — pharmaceutical spam keywords (highest-confidence rule, ~zero FP)
@@ -190,6 +189,14 @@ function attachmentExtension(filename) {
   return null;
 }
 
+function attachmentInTier(email, tier) {
+  const attachments = Array.isArray(email.attachments) ? email.attachments : [];
+  return attachments.some(a => {
+    const ext = attachmentExtension(a.filename || a.name);
+    return ext !== null && tier.has(ext);
+  });
+}
+
 function listOfHeaders(headers) {
   if (!headers) return {};
   const map = {};
@@ -230,7 +237,7 @@ function hasMailingListHeaders(headers) {
 }
 
 // ---------------------------------------------------------------------------
-// The 14 rules. Signature: (email, ctx) => boolean
+// The 15 rules. Signature: (email, ctx) => boolean
 // ctx = { authResults, userContacts, headers }
 // ---------------------------------------------------------------------------
 
@@ -306,16 +313,19 @@ const RULES = [
       return Boolean(from && replyTo && from !== replyTo);
     },
   },
+  // Attachment risk follows the tiers in attachmentExtensions.js (#457). A file that runs code
+  // when opened (BLOCK) weighs 0.6. One that can carry active content the user still has to enable
+  // or open, such as Office macros or an HTML login page (WARN), weighs 0.3: ordinary senders mail
+  // .xlsm files, so a macro workbook plus a shouty subject must stay below a spam verdict.
   {
     name: 'ATTACHMENT_EXECUTABLE',
     weight: 0.6,
-    test: (email) => {
-      const attachments = Array.isArray(email.attachments) ? email.attachments : [];
-      return attachments.some(a => {
-        const ext = attachmentExtension(a.filename || a.name);
-        return ext !== null && EXECUTABLE_EXTENSIONS.has(ext);
-      });
-    },
+    test: (email) => attachmentInTier(email, BLOCK),
+  },
+  {
+    name: 'ATTACHMENT_ACTIVE_CONTENT',
+    weight: 0.3,
+    test: (email) => attachmentInTier(email, WARN),
   },
   {
     name: 'ATTACHMENT_DOUBLE_EXT',
@@ -328,7 +338,7 @@ const RULES = [
         if (parts.length < 3) return false; // need name + 2 extensions
         const last = parts[parts.length - 1].toLowerCase();
         const penultimate = parts[parts.length - 2].toLowerCase();
-        return EXECUTABLE_EXTENSIONS.has(last) && DECOY.has(penultimate);
+        return BLOCK.has(last) && DECOY.has(penultimate);
       });
     },
   },
@@ -368,7 +378,7 @@ const RULES = [
   },
 ];
 
-// Gmail-local-part normalization (rule 14): lowercase, strip +tag, strip
+// Gmail-local-part normalization (FROM_IN_USER_CONTACTS): lowercase, strip +tag, strip
 // dots on gmail/googlemail (john.doe@gmail.com ≡ johndoe@gmail.com).
 export function normalizeContactAddress(address) {
   if (!address) return null;
@@ -386,13 +396,13 @@ export function normalizeContactAddress(address) {
   return `${stripped}@${domain}`;
 }
 
-// Attachment rules deduplicate: if both ATTACHMENT_EXECUTABLE and
-// ATTACHMENT_DOUBLE_EXT fire, keep only the max weight (0.6), not the
-// sum (0.9) — same threat counted once.
-const ATTACHMENT_RULES = new Set(['ATTACHMENT_EXECUTABLE', 'ATTACHMENT_DOUBLE_EXT']);
+// Attachment rules deduplicate: when several fire (an executable that is also a disguised
+// double extension, or a message with both an executable and a macro file), keep only the
+// max weight, not the sum: the attachment risk is counted once.
+const ATTACHMENT_RULES = new Set(['ATTACHMENT_EXECUTABLE', 'ATTACHMENT_ACTIVE_CONTENT', 'ATTACHMENT_DOUBLE_EXT']);
 
 /**
- * Score an email with the 14-rule engine.
+ * Score an email with the 15-rule engine.
  *
  * @param {Object} email
  *   { subject, body, from?, replyTo?, attachments?, headers? }

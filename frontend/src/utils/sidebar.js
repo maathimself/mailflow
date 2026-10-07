@@ -99,6 +99,31 @@ export function normalizeFolderOrder(folders, savedOrder = []) {
   return [...ranked, ...known.filter(folderPath => !seen.has(folderPath))];
 }
 
+// The unread total a collapsed folder shows (#536): its own count plus every subfolder's, at any
+// depth, so a folder whose new mail sits in its children still says so while they are hidden. A
+// folder the user has hidden is left out with everything under it, as the sidebar leaves it out.
+// Folders without a selectable mailbox (\Noselect, or a parent only implied by a path) have no
+// count of their own. The total is known once any folder in it has been observed, and stale when
+// any count that contributes to it is.
+export function subtreeUnread(node, isHidden = () => false) {
+  let count = 0;
+  let known = false;
+  let stale = false;
+  const visit = (folder, isRoot) => {
+    if (!isRoot && isHidden(folder.path)) return;
+    if (!folder.no_select && folder.counts_known !== false && Number.isFinite(folder.unread_count)) {
+      known = true;
+      if (folder.unread_count > 0) {
+        count += folder.unread_count;
+        if (folder.counts_stale) stale = true;
+      }
+    }
+    for (const child of folder.children || []) visit(child, false);
+  };
+  if (node) visit(node, true);
+  return { count, known, stale };
+}
+
 export function buildFolderTree(folders, savedOrder = []) {
   const safeFolders = Array.isArray(folders) ? folders : [];
   const delimiter = delimiterFor(safeFolders);

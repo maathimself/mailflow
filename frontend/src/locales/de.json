@@ -145,6 +145,18 @@
       "someRejected": "Der Mailserver hat die Zustellung an {{addresses}} abgelehnt.",
       "action": "Anzeigen"
     },
+    "undoSend": {
+      "sending": "„{{subject}}“ wird gesendet…",
+      "undone": "Senden rückgängig gemacht",
+      "reopenLater": "Sie wird wieder geöffnet, sobald Sie die Nachricht schließen, an der Sie gerade schreiben",
+      "notSent": "Ihre Nachricht wurde nicht gesendet",
+      "lost": "Der Server wurde vor dem Senden neu gestartet, die Nachricht wurde nicht zugestellt.",
+      "unknown": "Es konnte nicht bestätigt werden, ob Ihre Nachricht gesendet wurde",
+      "unknownBody": "Prüfen Sie den Ordner Gesendet, bevor Sie sie erneut senden.",
+      "reopen": "Wieder öffnen",
+      "tooLate": "Zu spät zum Rückgängigmachen: Die Nachricht wird bereits gesendet",
+      "undoFailed": "Rückgängigmachen nicht möglich: keine Antwort vom Server"
+    },
     "toolbar": {
       "removeTable": "Tabelle entfernen",
       "typography": "Typografie",
@@ -404,6 +416,11 @@
       "automated": "Automatisch",
       "social": "Sozial"
     },
+    "categoryAlways": {
+      "done": "E-Mails von {{value}} landen jetzt in {{category}}",
+      "doneBody": "Als Posteingangsregel gespeichert; bereits empfangene Mails im Posteingang wurden ebenfalls aktualisiert.",
+      "failed": "Die Kategorie für diesen Absender konnte nicht gespeichert werden"
+    },
     "changeLayout": "Layout ändern",
     "layouts": {
       "focused": {
@@ -498,6 +515,7 @@
     "reply": "Antworten",
     "replyAll": "Allen antworten",
     "forward": "Weiterleiten",
+    "forwardAsAttachment": "Als Anhang weiterleiten",
     "moveToFolder": "Verschieben",
     "archive": "Archivieren",
     "snooze": {
@@ -528,6 +546,9 @@
       "search": "Ordner suchen…"
     },
     "categorize": "Kategorisieren als…",
+    "categoryAlwaysSender": "Immer für diesen Absender",
+    "categoryAlwaysDomain": "Immer für diese Domain",
+    "categoryAlwaysFor": "Immer für {{value}}",
     "createRule": "Regel aus Nachricht erstellen",
     "addToBlockList": "Zur Blockliste hinzufügen",
     "markAsSpam": "Als Spam markieren",
@@ -1553,6 +1574,8 @@
       "actionMove": "In Ordner verschieben",
       "actionForward": "Weiterleiten an",
       "actionForwardPlaceholder": "empfaenger@example.com",
+      "actionSetCategory": "Kategorie festlegen",
+      "actionSetCategorySelect": "Kategorie auswählen…",
       "nameLabel": "Regelname",
       "editButton": "Bearbeiten",
       "deleteConfirm": "Diese Regel löschen?",

@@ -145,6 +145,18 @@
       "someRejected": "Serwer pocztowy odmówił dostarczenia do {{addresses}}.",
       "action": "Wyświetl"
     },
+    "undoSend": {
+      "sending": "Wysyłanie „{{subject}}”…",
+      "undone": "Wysyłanie cofnięte",
+      "reopenLater": "Otworzy się ponownie, gdy zamkniesz wiadomość, którą piszesz",
+      "notSent": "Twoja wiadomość nie została wysłana",
+      "lost": "Serwer uruchomił się ponownie przed wysłaniem, więc wiadomość nie została dostarczona.",
+      "unknown": "Nie udało się potwierdzić wysłania wiadomości",
+      "unknownBody": "Sprawdź folder Wysłane, zanim wyślesz ją ponownie.",
+      "reopen": "Otwórz ponownie",
+      "tooLate": "Za późno na cofnięcie: wiadomość jest już wysyłana",
+      "undoFailed": "Nie udało się cofnąć: serwer nie odpowiedział"
+    },
     "toolbar": {
       "removeTable": "Usuń tabelę",
       "typography": "Typografia",
@@ -418,6 +430,11 @@
       "automated": "Automatyczne",
       "social": "Społecznościowe"
     },
+    "categoryAlways": {
+      "done": "Poczta od {{value}} trafia teraz do: {{category}}",
+      "doneBody": "Zapisano jako regułę skrzynki odbiorczej; już odebrane wiadomości też zaktualizowano.",
+      "failed": "Nie udało się zapisać kategorii dla tego nadawcy"
+    },
     "changeLayout": "Zmień układ",
     "layouts": {
       "focused": {
@@ -514,6 +531,7 @@
     "reply": "Odpowiedz",
     "replyAll": "Odpowiedz wszystkim",
     "forward": "Przekaż dalej",
+    "forwardAsAttachment": "Przekaż jako załącznik",
     "moveToFolder": "Przenieś",
     "archive": "Archiwizuj",
     "snooze": {
@@ -524,6 +542,9 @@
       "custom": "Niestandardowe..."
     },
     "categorize": "Kategoryzuj jako…",
+    "categoryAlwaysSender": "Zawsze dla tego nadawcy",
+    "categoryAlwaysDomain": "Zawsze dla tej domeny",
+    "categoryAlwaysFor": "Zawsze dla {{value}}",
     "createRule": "Utwórz regułę na podstawie wiadomości",
     "addToBlockList": "Dodaj do listy blokad",
     "markAsSpam": "Oznacz jako spam",
@@ -833,6 +854,8 @@
       "actionMove": "Przenieś do folderu",
       "actionForward": "Przekaż dalej do",
       "actionForwardPlaceholder": "odbiorca@example.com",
+      "actionSetCategory": "Ustaw kategorię",
+      "actionSetCategorySelect": "Wybierz kategorię…",
       "actionMovePlaceholder": "Dokładna ścieżka folderu IMAP (np. Praca lub Odebrane/Praca)",
       "actionMoveSelectFolder": "Wybierz folder…",
       "actionMoveRequiresAccount": "Wymaga konkretnego konta",

@@ -183,7 +183,19 @@
       "copy": "주소 복사",
       "copyAll": "이 필드의 내용을 모두 복사하세요."
     },
-    "draftHasAttachments": "첨부 파일은 초안과 함께 저장되지 않습니다. 이 초안을 다시 열면 다시 첨부해야 합니다."
+    "draftHasAttachments": "첨부 파일은 초안과 함께 저장되지 않습니다. 이 초안을 다시 열면 다시 첨부해야 합니다.",
+    "undoSend": {
+      "sending": "\"{{subject}}\" 보내는 중…",
+      "undone": "전송이 취소되었습니다",
+      "reopenLater": "작성 중인 메시지를 닫으면 다시 열립니다",
+      "notSent": "메시지가 전송되지 않았습니다",
+      "lost": "전송 전에 서버가 다시 시작되어 메시지가 전달되지 않았습니다.",
+      "unknown": "메시지가 전송되었는지 확인할 수 없습니다",
+      "unknownBody": "다시 보내기 전에 보낸편지함을 확인하세요.",
+      "reopen": "다시 열기",
+      "tooLate": "실행 취소하기에 너무 늦었습니다: 메시지를 이미 보내는 중입니다",
+      "undoFailed": "실행 취소할 수 없습니다: 서버가 응답하지 않습니다"
+    }
   },
   "message": {
     "printConversation": "대화 인쇄",
@@ -400,6 +412,11 @@
       "automated": "자동 알림",
       "social": "소셜"
     },
+    "categoryAlways": {
+      "done": "{{value}}의 메일이 이제 {{category}}(으)로 분류됩니다",
+      "doneBody": "받은편지함 규칙으로 저장했습니다. 이미 받은 메일도 업데이트했습니다.",
+      "failed": "이 발신자의 카테고리를 저장하지 못했습니다"
+    },
     "emptyInboxDesc": "여기에 읽지 않은 메시지가 없습니다.",
     "composeAriaLabel": "새 메시지 작성",
     "noAccounts": "아직 계정이 없습니다",
@@ -497,6 +514,7 @@
     "unstar": "별표 제거",
     "moveToFolder": "이동",
     "forward": "전달",
+    "forwardAsAttachment": "첨부 파일로 전달",
     "archive": "보관",
     "snooze": {
       "label": "다시 알림",
@@ -510,6 +528,9 @@
     "createRule": "메시지에서 규칙 만들기",
     "addToBlockList": "차단 목록에 추가",
     "categorize": "카테고리 지정…",
+    "categoryAlwaysSender": "이 발신자에게 항상 적용",
+    "categoryAlwaysDomain": "이 도메인에 항상 적용",
+    "categoryAlwaysFor": "{{value}}에 항상 적용",
     "copyLink": "링크 복사",
     "delete": "삭제",
     "headers": {
@@ -816,6 +837,8 @@
       "actionForward": "다음으로 전달",
       "opEndsWith": "다음으로 끝남",
       "actionForwardPlaceholder": "수신자@example.com",
+      "actionSetCategory": "카테고리 지정",
+      "actionSetCategorySelect": "카테고리 선택…",
       "saving": "저장 중…",
       "actionMovePlaceholder": "정확한 IMAP 폴더 경로(예: 직장 또는 INBOX/직장)",
       "saveButton": "규칙 저장",

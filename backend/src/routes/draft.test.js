@@ -12,7 +12,7 @@ const imapManager = vi.hoisted(() => ({
 vi.mock('../index.js', () => ({ imapManager }));
 
 import express from 'express';
-import draftRoutes from './draft.js';
+import draftRoutes, { deleteSentDraft } from './draft.js';
 import { query } from '../services/db.js';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
@@ -384,5 +384,55 @@ describe('DELETE /api/mail/draft/:uid — Drafts folders only', () => {
     const res = await del('folder=Sent');
     expect(res.status).toBe(400);
     expect(imapManager.permanentDeleteMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('deleteSentDraft — the draft of a message that has been delivered', () => {
+  const MESSAGE_ID = '<sent-draft@mailflow.sh>';
+  const OTHER_ID = '22222222-2222-4222-8222-222222222222';
+  beforeEach(() => {
+    query.mockReset();
+    imapManager.permanentDeleteMessage.mockReset();
+    imapManager.permanentDeleteMessage.mockResolvedValue(true);
+    query.mockImplementation(async sql => ({
+      rows: sql.includes('SELECT path FROM folders') && sql.includes('LIMIT 1') ? [{ path: 'Drafts' }]
+        : sql.includes('SELECT message_id FROM messages') ? [{ message_id: MESSAGE_ID }]
+          : [],
+    }));
+  });
+  const deletedRows = () => query.mock.calls.filter(([sql]) => sql.includes('DELETE FROM messages')).map(([, params]) => params);
+
+  it('deletes it, checking that the server copy is that draft', async () => {
+    expect(await deleteSentDraft('user-1', ACCOUNT_ROW, { uid: 4, folder: 'Drafts' })).toBe(true);
+    expect(imapManager.permanentDeleteMessage).toHaveBeenCalledWith(ACCOUNT_ROW, 4, 'Drafts', { expectMessageId: MESSAGE_ID });
+    expect(deletedRows()).toEqual([[ACCOUNT_ID, 4, 'Drafts']]);
+  });
+
+  it('touches nothing outside a Drafts folder', async () => {
+    expect(await deleteSentDraft('user-1', ACCOUNT_ROW, { uid: 4, folder: 'INBOX' })).toBe(false);
+    expect(imapManager.permanentDeleteMessage).not.toHaveBeenCalled();
+    expect(deletedRows()).toEqual([]);
+  });
+
+  it('refuses a uid set, which would expunge more than one message', async () => {
+    expect(await deleteSentDraft('user-1', ACCOUNT_ROW, { uid: '1:*', folder: 'Drafts' })).toBe(false);
+    expect(imapManager.permanentDeleteMessage).not.toHaveBeenCalled();
+  });
+
+  it("refuses a draft in an account that is not the user's", async () => {
+    expect(await deleteSentDraft('user-1', ACCOUNT_ROW, { uid: 4, folder: 'Drafts', accountId: OTHER_ID })).toBe(false);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM email_accounts WHERE id = $1 AND user_id = $2'), [OTHER_ID, 'user-1']);
+    expect(imapManager.permanentDeleteMessage).not.toHaveBeenCalled();
+  });
+
+  it('keeps the local row when the server copy turned out to be another message', async () => {
+    imapManager.permanentDeleteMessage.mockResolvedValue(false);
+    expect(await deleteSentDraft('user-1', ACCOUNT_ROW, { uid: 4, folder: 'Drafts' })).toBe(false);
+    expect(deletedRows()).toEqual([]);
+  });
+
+  it('never throws: a draft left behind must not turn a delivered message into an error', async () => {
+    imapManager.permanentDeleteMessage.mockRejectedValue(new Error('IMAP down'));
+    expect(await deleteSentDraft('user-1', ACCOUNT_ROW, { uid: 4, folder: 'Drafts' })).toBe(false);
   });
 });

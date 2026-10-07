@@ -14,7 +14,7 @@ vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./spamPipeline.js', () => ({ classifyAndTagMessage: vi.fn() }));
 vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }));
 
-import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, computeThreadId } from './imapManager.js';
+import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, computeThreadId } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -2932,6 +2932,218 @@ describe('backfillMessages — error text (#474)', () => {
   });
 });
 
+// ── Backfill reconnect that cannot succeed ───────────────────────────────────
+//
+// A failed reconnect inside the batch loop slept and retried the same batch with no bound,
+// and the loop's liveness probe only checked that the account row still existed. So an
+// account disabled mid-run (openBfClient refuses it) or a login the provider now rejects
+// looped until restart, holding the folder's backfill guard and, under backfillAllFolders,
+// one of the host's two background-connection slots. Once such a walk can end, its finally
+// must not start the two follow-up jobs, since each opens a login of its own.
+describe('backfill — a reconnect that cannot succeed', () => {
+  let acct, serverUids;
+  const TEN_MINUTES = 10 * 60 * 1000;
+  const manager = () => ({ backfillRunning: new Set(), broadcast: vi.fn(), pluginFacade: {},
+    _secondaryConnectBlocked: () => null, _noteSecondaryRefusal: vi.fn(), maybeClassifyNewMessage: vi.fn() });
+  // The whole walk, with the real backoff so the walk's own refusal is what its finally sees.
+  // The follow-up jobs are spies: what matters is whether they start.
+  const walkManager = () => ({ ...manager(), backfillAllRunning: new Set(), _bgConnSem: createKeyedSemaphore(2),
+    backfillMessages: ImapManager.prototype.backfillMessages,
+    _connectCooldown: new Map(), _secondaryCooldown: new Map(),
+    _secondaryConnectBlocked: ImapManager.prototype._secondaryConnectBlocked,
+    _noteSecondaryRefusal: ImapManager.prototype._noteSecondaryRefusal,
+    refreshBulkFlags: vi.fn().mockResolvedValue(), startSnippetIndexer: vi.fn().mockResolvedValue() });
+  const rejectedLogin = () => Object.assign(new Error('Command failed'), {
+    responseText: 'Invalid credentials (Failure)', serverResponseCode: 'AUTHENTICATIONFAILED' });
+  const serverDown = () => Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:993'), { code: 'ECONNREFUSED' });
+  function client({ connect, fetch }) {
+    return Object.assign(new EventEmitter(), {
+      mailbox: { exists: serverUids.length, uidValidity: 1 },
+      connect, close: vi.fn(), logout: vi.fn().mockResolvedValue(),
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      search: vi.fn(async () => serverUids),
+      fetch,
+    });
+  }
+  function start(mgr, method = 'backfillMessages') {
+    const run = { settled: false };
+    ImapManager.prototype[method].call(mgr, acct, 'INBOX').then(() => { run.settled = true; });
+    return run;
+  }
+  // The first session drops on its first FETCH, and every login after that fails with `failure`.
+  function dropThenFail(failure) {
+    let logins = 0;
+    ImapFlow.mockImplementation(function () {
+      const first = ++logins === 1;
+      return client({
+        connect: first ? vi.fn().mockResolvedValue() : vi.fn().mockRejectedValue(failure()),
+        fetch: vi.fn(async function* () {
+          yield* [];
+          throw new Error('Connection closed');
+        }),
+      });
+    });
+  }
+  // Every login works, and the account is switched off while the first batch is fetched.
+  function disableDuringFirstBatch() {
+    let fetches = 0;
+    ImapFlow.mockImplementation(function () {
+      return client({
+        connect: vi.fn().mockResolvedValue(),
+        fetch: vi.fn(async function* (range) {
+          fetches++;
+          for (const uid of range.split(',').map(Number)) yield { uid, flags: new Set() };
+          acct.enabled = false;
+        }),
+      });
+    });
+    return () => fetches;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    acct = { id: 'bf-stuck', user_id: 'u1', enabled: true, imap_host: 'imap.example.com', imap_port: 993,
+      imap_tls: true, auth_user: 'u', auth_pass: 'enc', email_address: 'u@example.com' };
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'] });
+    parseMessage.mockImplementation(async m => ({ uid: m.uid, messageId: `<m${m.uid}@example.com>`, subject: 's',
+      fromEmail: 'a@example.com', to: [], cc: [], replyTo: [], date: new Date('2026-09-01'),
+      isRead: true, flags: [], parsedHeaders: {} }));
+    query.mockReset();
+    query.mockImplementation(async sql => {
+      // SELECT * returns the row whatever its state (openBfClient checks enabled itself);
+      // a probe that filters on enabled sees nothing once the account is switched off.
+      if (sql.includes('FROM email_accounts')) return { rows: sql.includes('AND enabled') && !acct.enabled ? [] : [acct] };
+      if (sql.includes('SELECT uid_validity')) return { rows: [{ uid_validity: 1 }] };
+      if (sql.includes('COUNT(*) as count')) return { rows: [{ count: 0, max_uid: 0 }] };
+      if (sql.includes('INSERT INTO messages')) return { rows: [{ id: 'row', is_new: false }] };
+      return { rows: [] };
+    });
+    ImapFlow.mockReset();
+  });
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); });
+
+  it('stops at the next batch when the account is disabled mid-run', async () => {
+    // Enough UIDs to outlast one connection, so without the probe the loop reaches the
+    // periodic reconnect that openBfClient refuses for a disabled account.
+    const { batchSize, batchesPerConn } = providerProfile(acct);
+    serverUids = Array.from({ length: batchSize * batchesPerConn + 1 }, (_, k) => k + 1);
+    const fetches = disableDuringFirstBatch();
+    const mgr = manager();
+    const run = start(mgr);
+    await vi.advanceTimersByTimeAsync(TEN_MINUTES);
+
+    expect(run.settled).toBe(true);
+    expect(fetches()).toBe(1);                 // no further batch runs for a disabled account
+    expect(ImapFlow).toHaveBeenCalledTimes(1); // and no fresh login is attempted for it
+    expect(mgr.backfillRunning.size).toBe(0);
+  });
+
+  // A changed password or revoked OAuth grant is recognised and arms the backoff. A server
+  // that is down matches neither isConnectionRefusal nor isAuthFailure, so it arms nothing,
+  // and the cap has to end the run all the same.
+  it.each([
+    ['a rejected login', rejectedLogin, '[AUTHENTICATIONFAILED] Invalid credentials (Failure)', true],
+    ['an unreachable server', serverDown, 'connect ECONNREFUSED 127.0.0.1:993', false],
+  ])('gives up after three failed reconnects (%s) instead of retrying forever', async (_, failure, detail, armsBackoff) => {
+    serverUids = Array.from({ length: 150 }, (_, k) => k + 1);
+    dropThenFail(failure);
+    const mgr = manager();
+    const run = start(mgr);
+    await vi.advanceTimersByTimeAsync(TEN_MINUTES);
+
+    expect(run.settled).toBe(true);
+    expect(ImapFlow).toHaveBeenCalledTimes(4); // the first login, then three failed reconnects
+    expect(mgr.backfillRunning.size).toBe(0);  // the folder is free for the integrity repair again
+    expect(mgr._noteSecondaryRefusal.mock.calls).toEqual(armsBackoff ? [[acct]] : []);
+    // Each retry and the final line carry the server's reason, not imapflow's 'Command failed'.
+    const errors = console.error.mock.calls.map(args => args.join(' '));
+    const retries = errors.filter(line => line.includes('Backfill reconnect failed'));
+    expect(retries).not.toHaveLength(0);
+    for (const line of retries) expect(line).toContain(detail);
+    expect(errors.find(line => line.includes('Backfill failed'))).toContain(detail);
+  });
+
+  it('still recovers in place when a reconnect succeeds between failures', async () => {
+    serverUids = [1, 2, 3];
+    // Logins go ok, rejected, rejected, ok, rejected, ok, and the first two sessions drop on
+    // FETCH to force each reconnect. Three rejections in all but never three in a row, so the
+    // count must start over after each login that works, and the run must finish.
+    const accepted = [true, false, false, true, false, true];
+    let logins = 0;
+    ImapFlow.mockImplementation(function () {
+      const n = ++logins;
+      return client({
+        connect: accepted[n - 1] ? vi.fn().mockResolvedValue() : vi.fn().mockRejectedValue(rejectedLogin()),
+        fetch: vi.fn(async function* (range) {
+          if (n < accepted.length) throw new Error('Connection closed');
+          for (const uid of range.split(',').map(Number)) yield { uid, flags: new Set() };
+        }),
+      });
+    });
+    const mgr = manager();
+    const run = start(mgr);
+    await vi.advanceTimersByTimeAsync(TEN_MINUTES);
+
+    expect(run.settled).toBe(true);
+    expect(ImapFlow).toHaveBeenCalledTimes(accepted.length);
+    expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'backfill_complete', accountId: acct.id }, acct.user_id);
+    expect(mgr._noteSecondaryRefusal).not.toHaveBeenCalled();
+  });
+
+  it('starts no follow-up jobs after a walk stopped by the account being disabled', async () => {
+    const { batchSize, batchesPerConn } = providerProfile(acct);
+    serverUids = Array.from({ length: batchSize * batchesPerConn + 1 }, (_, k) => k + 1);
+    disableDuringFirstBatch();
+    const mgr = walkManager();
+    const run = start(mgr, 'backfillAllFolders');
+    await vi.advanceTimersByTimeAsync(TEN_MINUTES);
+
+    expect(run.settled).toBe(true);
+    expect(mgr._bgConnSem.activeCount('imap.example.com')).toBe(0);
+    // Each would log in to the disabled account, the snippet indexer to download message bodies.
+    expect(mgr.refreshBulkFlags).not.toHaveBeenCalled();
+    expect(mgr.startSnippetIndexer).not.toHaveBeenCalled();
+  });
+
+  it('starts no follow-up jobs after a walk that ended on rejected logins', async () => {
+    serverUids = Array.from({ length: 150 }, (_, k) => k + 1);
+    dropThenFail(rejectedLogin);
+    const mgr = walkManager();
+    const run = start(mgr, 'backfillAllFolders');
+    await vi.advanceTimersByTimeAsync(TEN_MINUTES);
+
+    expect(run.settled).toBe(true);
+    expect(ImapFlow).toHaveBeenCalledTimes(4);
+    // The walk armed the backoff as it ended; another rejected login inside it helps nobody.
+    expect(mgr._secondaryCooldown.get(acct.id)?.failures).toBe(1);
+    expect(mgr.refreshBulkFlags).not.toHaveBeenCalled();
+    expect(mgr.startSnippetIndexer).not.toHaveBeenCalled();
+  });
+
+  it('still starts both follow-up jobs after a walk that finishes normally', async () => {
+    serverUids = [1, 2, 3];
+    ImapFlow.mockImplementation(function () {
+      return client({
+        connect: vi.fn().mockResolvedValue(),
+        fetch: vi.fn(async function* (range) {
+          for (const uid of range.split(',').map(Number)) yield { uid, flags: new Set() };
+        }),
+      });
+    });
+    const mgr = walkManager();
+    const run = start(mgr, 'backfillAllFolders');
+    await vi.advanceTimersByTimeAsync(TEN_MINUTES);
+
+    expect(run.settled).toBe(true);
+    expect(mgr.refreshBulkFlags).toHaveBeenCalledWith(acct);
+    expect(mgr.startSnippetIndexer).toHaveBeenCalledWith(acct);
+  });
+});
+
 // ── Body prefetch circuit breaker (#474 follow-up) ───────────────────────────
 //
 // prefetchFolderBodies caught each failure and continued to the next UID. Every iteration
@@ -4614,5 +4826,28 @@ describe('closeSockets', () => {
     Object.assign(sockets.authenticating, { userId: 'u1', sessionId: 's1' });
     await nextTurn();
     expect(sockets.authenticating.close).toHaveBeenCalledWith(1008, 'Unauthorized');
+  });
+});
+
+describe('attachmentsFromStructure (#457)', () => {
+  it('lists the attachments from BODYSTRUCTURE alone, as fetchMessageBody stores them, without inline images', () => {
+    const msg = { bodyStructure: { type: 'multipart/mixed', childNodes: [
+      { part: '1', type: 'text/plain', parameters: { charset: 'utf-8' } },
+      { part: '2', type: 'image/png', id: '<logo@x>', disposition: 'inline' },
+      { part: '3', type: 'application/vnd.ms-excel.sheet.macroEnabled.12', disposition: 'attachment',
+        dispositionParameters: { filename: 'budget.xlsm' }, size: 1234, encoding: 'base64' },
+    ] } };
+    const out = attachmentsFromStructure(msg);
+    expect(out.map(a => [a.part, a.filename, a.type])).toEqual([
+      ['3', 'budget.xlsm', 'application/vnd.ms-excel.sheet.macroEnabled.12'],
+    ]);
+    const fetchShape = { textParts: [], attachments: [] };
+    walkStructure(msg.bodyStructure, fetchShape);
+    expect(out).toEqual(fetchShape.attachments);
+  });
+
+  it('is empty without a structure', () => {
+    expect(attachmentsFromStructure({})).toEqual([]);
+    expect(attachmentsFromStructure(null)).toEqual([]);
   });
 });

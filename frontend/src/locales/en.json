@@ -145,6 +145,18 @@
       "someRejected": "The mail server refused delivery to {{addresses}}.",
       "action": "View"
     },
+    "undoSend": {
+      "sending": "Sending \"{{subject}}\"…",
+      "undone": "Sending undone",
+      "reopenLater": "It will reopen when you close the message you're writing",
+      "notSent": "Your message was not sent",
+      "lost": "The server restarted before sending it, so it was not delivered.",
+      "unknown": "Could not confirm that your message was sent",
+      "unknownBody": "Check your Sent folder before sending it again.",
+      "reopen": "Reopen",
+      "tooLate": "Too late to undo: the message is already being sent",
+      "undoFailed": "Could not undo: no response from the server"
+    },
     "toolbar": {
       "removeTable": "Remove table",
       "typography": "Typography",
@@ -404,6 +416,11 @@
       "automated": "Automated",
       "social": "Social"
     },
+    "categoryAlways": {
+      "done": "Mail from {{value}} now goes to {{category}}",
+      "doneBody": "Saved as an inbox rule; inbox mail already received was updated too.",
+      "failed": "Couldn't save the category for this sender"
+    },
     "changeLayout": "Change layout",
     "layouts": {
       "focused": {
@@ -498,6 +515,7 @@
     "reply": "Reply",
     "replyAll": "Reply all",
     "forward": "Forward",
+    "forwardAsAttachment": "Forward as attachment",
     "moveToFolder": "Move",
     "archive": "Archive",
     "snooze": {
@@ -508,6 +526,9 @@
       "custom": "Custom..."
     },
     "categorize": "Categorize as…",
+    "categoryAlwaysSender": "Always for this sender",
+    "categoryAlwaysDomain": "Always for this domain",
+    "categoryAlwaysFor": "Always for {{value}}",
     "createRule": "Create rule from message",
     "addToBlockList": "Add to block list",
     "markAsSpam": "Mark as Spam",
@@ -817,6 +838,8 @@
       "actionMove": "Move to folder",
       "actionForward": "Forward to",
       "actionForwardPlaceholder": "recipient@example.com",
+      "actionSetCategory": "Set category",
+      "actionSetCategorySelect": "Select a category…",
       "actionMovePlaceholder": "Exact IMAP folder path (e.g. Work or INBOX/Work)",
       "actionMoveSelectFolder": "Select a folder…",
       "actionMoveRequiresAccount": "Requires a specific account",

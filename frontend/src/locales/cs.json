@@ -279,6 +279,11 @@
       "automated": "Automatické",
       "social": "Sociální sítě"
     },
+    "categoryAlways": {
+      "done": "Pošta od {{value}} teď půjde do: {{category}}",
+      "doneBody": "Uloženo jako pravidlo doručené pošty; aktualizována i již přijatá pošta.",
+      "failed": "Kategorii pro tohoto odesílatele se nepodařilo uložit"
+    },
     "changeLayout": "Změnit rozvržení",
     "layouts": {
       "focused": {
@@ -472,6 +477,18 @@
       "someRejected": "Poštovní server odmítl doručení na {{addresses}}.",
       "action": "Zobrazit"
     },
+    "undoSend": {
+      "sending": "Odesílání „{{subject}}“…",
+      "undone": "Odeslání vráceno zpět",
+      "reopenLater": "Znovu se otevře, až zavřete zprávu, kterou právě píšete",
+      "notSent": "Vaše zpráva nebyla odeslána",
+      "lost": "Server se před odesláním restartoval, takže zpráva nebyla doručena.",
+      "unknown": "Nepodařilo se ověřit, zda byla zpráva odeslána",
+      "unknownBody": "Než ji odešlete znovu, zkontrolujte složku Odeslané.",
+      "reopen": "Znovu otevřít",
+      "tooLate": "Na vrácení je pozdě: zpráva se už odesílá",
+      "undoFailed": "Nepodařilo se vrátit zpět: server neodpověděl"
+    },
     "toolbar": {
       "removeTable": "Odebrat tabulku",
       "typography": "Formátování písma",
@@ -566,6 +583,7 @@
     "reply": "Odpovědět",
     "replyAll": "Odpovědět všem",
     "forward": "Přeposlat",
+    "forwardAsAttachment": "Přeposlat jako přílohu",
     "moveToFolder": "Přesunout",
     "archive": "Archivovat",
     "snooze": {
@@ -576,6 +594,9 @@
       "custom": "Vlastní…"
     },
     "categorize": "Zařadit jako…",
+    "categoryAlwaysSender": "Vždy pro tohoto odesílatele",
+    "categoryAlwaysDomain": "Vždy pro tuto doménu",
+    "categoryAlwaysFor": "Vždy pro {{value}}",
     "createRule": "Vytvořit pravidlo ze zprávy",
     "addToBlockList": "Přidat na seznam blokovaných",
     "markAsSpam": "Označit jako spam",
@@ -1187,6 +1208,8 @@
       "actionMove": "Přesunout do složky",
       "actionForward": "Přeposlat na",
       "actionForwardPlaceholder": "prijemce@example.com",
+      "actionSetCategory": "Nastavit kategorii",
+      "actionSetCategorySelect": "Vyberte kategorii…",
       "actionMovePlaceholder": "Přesná cesta ke složce IMAP (např. Práce nebo INBOX/Práce)",
       "actionMoveSelectFolder": "Vyberte složku…",
       "actionMoveRequiresAccount": "Vyžaduje konkrétní účet",

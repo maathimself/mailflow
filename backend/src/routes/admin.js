@@ -425,6 +425,7 @@ router.post('/invites', async (req, res) => {
         transport = createSmtpTransport(acctResolved, {
           port: account.smtp_port,
           secure: account.smtp_port === 465,
+          requireTLS: account.smtp_port !== 465 && !policy.allowInsecureTls,
           auth: smtpAuth,
           tls: acctTls,
         });

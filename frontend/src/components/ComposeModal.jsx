@@ -22,6 +22,8 @@ import { copyToClipboard } from '../utils/clipboard.js';
 import { resolveInitialFrom } from '../utils/defaultSender.js';
 import { initialComposeFocus, isComposeSendShortcut } from '../utils/composeFromMessage.js';
 import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } from '../utils/autoRecipients.js';
+import { UNDO_SEND_SECONDS, undoWindowMs, trackHeldSend, reopenCompose } from '../utils/heldSend.js';
+import { openSentMessage } from '../utils/openSentMessage.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -191,7 +193,7 @@ function resolveFrom(val) {
 
 export default function ComposeModal() {
   const { t } = useTranslation();
-  const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail, setThreadMessages } = useStore();
+  const { closeCompose, composeData, accounts, addNotification, plaintextEmail, setThreadMessages } = useStore();
   const isMobile = useMobile();
   const uiScale = useUiScale();
 
@@ -213,12 +215,13 @@ export default function ComposeModal() {
 
   // The From account's automatic Cc and Bcc (#491). The chips and their dirty baselines are both
   // seeded from this, so an untouched composer is not an edit: no autosave, no close prompt. A
-  // reopened draft gets nothing, because its saved Cc and Bcc are what the user left.
+  // reopened draft gets nothing, because its saved Cc and Bcc are what the user left, and neither
+  // does a message reopened by undo send, whose Cc and Bcc are what it was sent with.
   const [autoInit] = useState(() => {
     const account = accounts.find(a => a.id === resolveFrom(fromValue).accountId);
     const opened = openAutoRecipients(
       { to: parseChips(composeData?.to), cc: parseChips(composeData?.cc), bcc: parseChips(composeData?.bcc) },
-      autoListsOf(composeData?.draftUid != null ? null : account),
+      autoListsOf(composeData?.draftUid != null || composeData?.restored ? null : account),
     );
     return { ...opened, auto: { ...opened.auto, accountId: account?.id ?? null } };
   });
@@ -246,9 +249,10 @@ export default function ComposeModal() {
   const ccBccMenuBtnRef = useRef(null);
   const [draftUid, setDraftUid] = useState(() => composeData?.draftUid ?? null);
   const [draftFolder, setDraftFolder] = useState(() => composeData?.draftFolder ?? null);
-  const [draftAccountId, setDraftAccountId] = useState(() => composeData?.accountId ?? null);
+  const [draftAccountId, setDraftAccountId] = useState(() => composeData?.draftAccountId ?? composeData?.accountId ?? null);
   const [savingDraft, setSavingDraft] = useState(false);
-  const [attachments, setAttachments] = useState([]);
+  // Given back with a message reopened after undo send; drafts do not carry attachments.
+  const [attachments, setAttachments] = useState(() => composeData?.attachments || []);
   const [fwdAttachments, setFwdAttachments] = useState(() => composeData?.forwardedAttachments || []);
 
   // Baseline values captured at open time — updated after each successful keep-open save
@@ -263,6 +267,9 @@ export default function ComposeModal() {
   // True when the compose was opened by clicking an existing draft from the list.
   // Used by handleClose to decide whether to prompt about an unmodified draft.
   const draftWasPreExisting = useRef(composeData?.draftUid != null);
+  // A message reopened after undo send is newer than its draft, if it has one at all (and a
+  // draft never has the attachments), so it counts as unsaved until it is saved.
+  const unsavedRestoreRef = useRef(!!composeData?.restored);
   const [showCc, setShowCc] = useState(autoInit.cc.length > 0);
   const [showBcc, setShowBcc] = useState(autoInit.bcc.length > 0);
 
@@ -295,8 +302,8 @@ export default function ComposeModal() {
   const [replyAll, setReplyAll] = useState(() => !!composeData?.isReplyAll);
   const initialFocus = initialComposeFocus({ isReply, isForward });
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState('');
-  const [priority, setPriority] = useState('normal');
+  const [error, setError] = useState(() => composeData?.sendError || '');
+  const [priority, setPriority] = useState(() => composeData?.priority || 'normal');
   const [minimized, setMinimized] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [pos, setPos] = useState(null);
@@ -813,20 +820,24 @@ export default function ComposeModal() {
     if (!idempotencyKeyRef.current) {
       idempotencyKeyRef.current = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     }
+    const ccFinal = [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])];
+    const bccFinal = [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])];
+    const sentQuotedHtml = !plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current)
+      ? (quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml)
+      : null;
+    const hasDraft = draftUid != null && draftFolder != null && draftAccountId;
     try {
       const sendResult = await api.post('/mail/send', {
         accountId,
         ...(aliasId ? { aliasId } : {}),
         to: toFinal,
-        cc: [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])],
-        bcc: [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])],
+        cc: ccFinal,
+        bcc: bccFinal,
         subject,
         body: bodyToSend,
         bodyIsHtml: !plaintextEmail,
         ...(quotedBody ? { quotedBody } : {}),
-        ...(!plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current)
-          ? { quotedBodyHtml: quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml }
-          : {}),
+        ...(sentQuotedHtml != null ? { quotedBodyHtml: sentQuotedHtml } : {}),
         ...(signatureContentRef.current || fromSignature != null
           ? { editedSignature: plaintextEmail ? plainSig : signatureContentRef.current }
           : {}),
@@ -841,58 +852,132 @@ export default function ComposeModal() {
             contentType: a.type || 'application/octet-stream',
           })),
         } : {}),
-        ...(fwdAttachments.length ? {
-          forwardedAttachments: fwdAttachments.map(a => ({ messageId: a.messageId, part: a.part })),
+        // Attachments of forwarded messages go by part; whole messages forwarded as attachments
+        // (#466) go by id, and the server attaches each one's raw source as an .eml.
+        ...(fwdAttachments.some(a => !a.asMessage) ? {
+          forwardedAttachments: fwdAttachments.filter(a => !a.asMessage).map(a => ({ messageId: a.messageId, part: a.part })),
         } : {}),
+        ...(fwdAttachments.some(a => a.asMessage) ? {
+          forwardedMessages: fwdAttachments.filter(a => a.asMessage).map(a => a.messageId),
+        } : {}),
+        // The server holds the message this long so it can still be undone, and deletes the
+        // draft only once the message is delivered.
+        undoSeconds: UNDO_SEND_SECONDS,
+        ...(hasDraft ? { draft: { uid: draftUid, folder: draftFolder, accountId: draftAccountId } } : {}),
       }, { 'X-Idempotency-Key': idempotencyKeyRef.current });
       // Send confirmed — clear the key so a subsequent send from a reused modal gets a fresh one.
       idempotencyKeyRef.current = null;
       const replyThreadId = isReply ? composeData?.threadId : null;
+      // Runs after this composer has closed (and for a held send, up to minutes later), so it
+      // uses only the store and values captured here.
+      const reportSent = (result) => {
+        // Prefer the Sent folder the backend actually resolved to; fall back to the account's
+        // mapping only if the response didn't carry one. Avoids navigating "View" to a stale
+        // mapping (e.g. a non-selectable "[Gmail]" parent) that the send path bypassed (#386).
+        const sentFolder = result?.sentFolder
+          || accounts.find(a => a.id === accountId)?.folder_mappings?.sent
+          || 'Sent';
+        // The message was delivered; sentCopySaved:false means it couldn't be saved to the
+        // account's Sent folder — tell the user so they know their record is incomplete.
+        const sentCopyFailed = result?.sentCopySaved === false;
+        addNotification({
+          title: sentCopyFailed ? t('compose.sent.noCopy') : t('compose.sent.title'),
+          body: subject || t('common.noSubject'),
+          // When the Sent copy wasn't saved, omit the "View" action — it would navigate to a
+          // Sent folder that doesn't contain the message.
+          ...(sentCopyFailed ? {} : {
+            onAction: () => openSentMessage(useStore, { accountId, folder: sentFolder, messageId: result?.messageId }),
+            actionLabel: t('compose.sent.action'),
+          }),
+        });
+        // The server refused some recipients at RCPT but took the rest, so the send succeeded
+        // for everyone else. Keep this up until dismissed; a toast that times out is too easy
+        // to miss for mail that never reached someone.
+        if (result?.rejected?.length) {
+          addNotification({
+            type: 'error',
+            title: subject || t('common.noSubject'),
+            body: t('compose.sent.someRejected', { addresses: result.rejected.join(', ') }),
+            allowWrap: true,
+            persistent: true,
+          });
+        }
+        if (replyThreadId) {
+          const refreshThread = async () => {
+            try {
+              const data = await api.getThread(replyThreadId);
+              if (data.messages?.length) setThreadMessages(replyThreadId, data.messages);
+            } catch { /* best-effort refresh */ }
+          };
+          setTimeout(refreshThread, 3000);
+          setTimeout(refreshThread, 10000);
+        }
+      };
       closeCompose();
-      if (draftUid != null && draftFolder != null && draftAccountId) {
+
+      if (sendResult?.pending) {
+        // Everything needed to put this message back in front of the user exactly as it was sent,
+        // attachments included, if they undo it or it fails once this composer is gone.
+        const restoreData = {
+          ...composeData,
+          accountId,
+          aliasId: aliasId || undefined,
+          draftUid: hasDraft ? draftUid : null,
+          draftFolder: hasDraft ? draftFolder : null,
+          draftAccountId: hasDraft ? draftAccountId : null,
+          to: toFinal,
+          cc: ccFinal,
+          bcc: bccFinal,
+          subject,
+          body: bodyToSend,
+          quotedBody,
+          quotedBodyHtml: sentQuotedHtml,
+          // '' means no signature. The composer reads this as HTML, so plain text is escaped.
+          signature: plaintextEmail
+            ? plainSig.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            : signatureContentRef.current,
+          attachments,
+          forwardedAttachments: fwdAttachments,
+          priority,
+          restored: true,
+          sendError: undefined,
+        };
+        const pendingId = sendResult.pendingId;
+        const undoMs = undoWindowMs(sendResult.remainingMs);
+        const shownSubject = subject || t('common.noSubject');
+        const { addNotification: notify, removeNotification } = useStore.getState();
+        const undo = trackHeldSend(
+          { pendingId, undoMs, subject: shownSubject },
+          {
+            restore: (sendError) => reopenCompose(useStore, { ...restoreData, ...(sendError ? { sendError } : {}) }),
+            onSent: reportSent,
+          },
+          {
+            getStatus: api.getSendStatus,
+            cancel: api.cancelSend,
+            notify,
+            dismissUndo: () => {
+              for (const n of useStore.getState().notifications) {
+                if (n.heldSendId === pendingId) removeNotification(n.id);
+              }
+            },
+            onOwnerChange: (stop) => {
+              const owner = useStore.getState().user?.id;
+              return useStore.subscribe(state => { if (state.user?.id !== owner) stop(); });
+            },
+            t,
+          },
+        );
+        // The subject tells several held sends apart.
+        notify({ title: t('compose.undoSend.sending', { subject: shownSubject }), heldSendId: pendingId, undoMs, onUndo: undo });
+        return;
+      }
+
+      // Delivered straight away, by a server without undo send: the browser deletes the draft.
+      if (hasDraft) {
         api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
       }
-      // Prefer the Sent folder the backend actually resolved to; fall back to the account's
-      // mapping only if the response didn't carry one. Avoids navigating "View" to a stale
-      // mapping (e.g. a non-selectable "[Gmail]" parent) that the send path bypassed (#386).
-      const sentFolder = sendResult?.sentFolder
-        || accounts.find(a => a.id === accountId)?.folder_mappings?.sent
-        || 'Sent';
-      // The message was delivered; sentCopySaved:false means it couldn't be saved to the
-      // account's Sent folder — tell the user so they know their record is incomplete.
-      const sentCopyFailed = sendResult?.sentCopySaved === false;
-      addNotification({
-        title: sentCopyFailed ? t('compose.sent.noCopy') : t('compose.sent.title'),
-        body: subject || t('common.noSubject'),
-        // When the Sent copy wasn't saved, omit the "View" action — it would navigate to a
-        // Sent folder that doesn't contain the message.
-        ...(sentCopyFailed ? {} : {
-          onAction: () => setSelectedAccount(accountId, sentFolder),
-          actionLabel: t('compose.sent.action'),
-        }),
-      });
-      // The server refused some recipients at RCPT but took the rest, so the send succeeded
-      // for everyone else. Keep this up until dismissed; a toast that times out is too easy
-      // to miss for mail that never reached someone.
-      if (sendResult?.rejected?.length) {
-        addNotification({
-          type: 'error',
-          title: subject || t('common.noSubject'),
-          body: t('compose.sent.someRejected', { addresses: sendResult.rejected.join(', ') }),
-          allowWrap: true,
-          persistent: true,
-        });
-      }
-      if (replyThreadId) {
-        const refreshThread = async () => {
-          try {
-            const data = await api.getThread(replyThreadId);
-            if (data.messages?.length) setThreadMessages(replyThreadId, data.messages);
-          } catch { /* best-effort refresh */ }
-        };
-        setTimeout(refreshThread, 3000);
-        setTimeout(refreshThread, 10000);
-      }
+      reportSent(sendResult);
     } catch (err) {
       setError(err.message);
       setSending(false);
@@ -902,6 +987,7 @@ export default function ComposeModal() {
   const isDirty = () => {
     const currentBody = plaintextEmail ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
     return (
+      unsavedRestoreRef.current ||
       currentBody !== initialBodyRef.current ||
       subject !== initialSubjectRef.current ||
       normalizeTo(toChips) !== initialToRef.current ||
@@ -946,6 +1032,7 @@ export default function ComposeModal() {
         setDraftFolder(result.folder);
         setDraftAccountId(accountId);
       }
+      unsavedRestoreRef.current = false;
       if (closeAfter) {
         closeCompose();
       } else {
@@ -3222,7 +3309,8 @@ function AttachmentChips({ attachments, onRemove, mobile }) {
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
           </svg>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{a.name}</span>
-          <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>{formatBytes(a.size)}</span>
+          {/* A message forwarded as an attachment has no size until the server fetches it. */}
+          {a.size != null && <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>{formatBytes(a.size)}</span>}
           <button
             type="button"
             onClick={() => onRemove(i)}

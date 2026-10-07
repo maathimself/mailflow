@@ -145,6 +145,18 @@
       "someRejected": "Il server di posta ha rifiutato la consegna a {{addresses}}.",
       "action": "Visualizza"
     },
+    "undoSend": {
+      "sending": "Invio di \"{{subject}}\"…",
+      "undone": "Invio annullato",
+      "reopenLater": "Si riaprirà quando chiuderai il messaggio che stai scrivendo",
+      "notSent": "Il tuo messaggio non è stato inviato",
+      "lost": "Il server si è riavviato prima dell'invio, quindi il messaggio non è stato recapitato.",
+      "unknown": "Impossibile confermare l'invio del messaggio",
+      "unknownBody": "Controlla la cartella Inviati prima di inviarlo di nuovo.",
+      "reopen": "Riapri",
+      "tooLate": "Troppo tardi per annullare: il messaggio è già in fase di invio",
+      "undoFailed": "Impossibile annullare: il server non ha risposto"
+    },
     "toolbar": {
       "removeTable": "Rimuovi tabella",
       "typography": "Tipografia",
@@ -404,6 +416,11 @@
       "automated": "Automatico",
       "social": "Social"
     },
+    "categoryAlways": {
+      "done": "La posta da {{value}} ora va in {{category}}",
+      "doneBody": "Salvato come regola della posta in arrivo; aggiornati anche i messaggi già ricevuti.",
+      "failed": "Impossibile salvare la categoria per questo mittente"
+    },
     "changeLayout": "Cambia disposizione",
     "layouts": {
       "focused": {
@@ -498,6 +515,7 @@
     "reply": "Rispondi",
     "replyAll": "Rispondi a tutti",
     "forward": "Inoltra",
+    "forwardAsAttachment": "Inoltra come allegato",
     "moveToFolder": "Sposta",
     "archive": "Archivia",
     "snooze": {
@@ -508,6 +526,9 @@
       "custom": "Personalizzato..."
     },
     "categorize": "Categorizza come…",
+    "categoryAlwaysSender": "Sempre per questo mittente",
+    "categoryAlwaysDomain": "Sempre per questo dominio",
+    "categoryAlwaysFor": "Sempre per {{value}}",
     "createRule": "Crea regola da questo messaggio",
     "addToBlockList": "Aggiungi alla lista blocchi",
     "markAsSpam": "Segnala come Spam",
@@ -810,6 +831,8 @@
       "actionMove": "Sposta nella cartella",
       "actionForward": "Inoltra a",
       "actionForwardPlaceholder": "destinatario@example.com",
+      "actionSetCategory": "Imposta categoria",
+      "actionSetCategorySelect": "Seleziona una categoria…",
       "actionMovePlaceholder": "Nome cartella",
       "stopProcessing": "Interrompi l'elaborazione delle regole successive se questa corrisponde",
       "stopProcessingHint": "Se questa regola corrisponde, le regole successive non verranno eseguite per lo stesso messaggio.",

@@ -156,3 +156,21 @@ describe('forward actions', () => {
     ]);
   });
 });
+
+describe('set_category actions (#489)', () => {
+  it('requires one of the five categories', () => {
+    expect(validateActions([{ type: 'set_category', value: 'automated' }])).toBeNull();
+    expect(validateActions([{ type: 'set_category', value: 'primary' }])).toBeNull();
+    expect(validateActions([{ type: 'set_category', value: '' }])).toMatch(/category/);
+    expect(validateActions([{ type: 'set_category', value: 'spam' }])).toMatch(/category/);
+    expect(validateActions([{ type: 'set_category' }])).toMatch(/category/);
+  });
+
+  it('keeps only the first set_category in a rule', () => {
+    expect(normalizeActions([
+      { type: 'set_category', value: 'social' },
+      { type: 'mark_read', value: '' },
+      { type: 'set_category', value: 'promotion' },
+    ])).toEqual([{ type: 'set_category', value: 'social' }, { type: 'mark_read', value: '' }]);
+  });
+});

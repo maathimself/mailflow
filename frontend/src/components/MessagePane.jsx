@@ -12,10 +12,11 @@ import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/p
 import { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } from '../utils/markRead.js';
 import { markMessageUnread } from '../utils/messageHotkeys.js';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
-import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
+import { openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFromMessage } from '../utils/composeFromMessage.js';
 import MessageBodyView from './MessageBodyView.jsx';
 import { copyToClipboard } from '../utils/clipboard.js';
-import { folderMatchesQuery, favoriteMoveTargets } from '../utils/folderDisplay.js';
+import { saveSenderCategory } from '../utils/senderCategory.js';
+import { folderMatchesQuery, favoriteMoveTargets, recentMoveTargets } from '../utils/folderDisplay.js';
 import FolderPathLabel from './FolderPathLabel.jsx';
 import SpamBadge from './SpamBadge.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
@@ -1084,10 +1085,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   }, [showMovePicker]);
 
   const recentForMove = message
-    ? recentFolders
-        .filter(r => r.accountId === message.account_id && r.path !== message.folder)
-        .map(r => movePickerFolders.find(f => f.path === r.path))
-        .filter(Boolean)
+    ? recentMoveTargets(recentFolders, movePickerFolders, {
+        accountId: message.account_id, currentFolder: message.folder,
+      })
     : [];
   const favoritesForMove = message
     ? favoriteMoveTargets(favoriteFolders, movePickerFolders, {
@@ -1266,6 +1266,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       case 'forward':
         handleForward();
         break;
+      case 'forwardAsAttachment':
+        if (message) openForwardAsAttachmentFromMessage(message, { openCompose });
+        break;
       case 'archive':
         handleArchive();
         break;
@@ -1314,15 +1317,28 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         break;
       }
       case 'setCategory': {
+        // Stored as chosen, 'primary' included, as the server does (#489).
         const newCategory = data || 'primary';
-        const dbCategory = newCategory === 'primary' ? null : newCategory;
         try {
           await api.setMessageCategory(message.id, newCategory);
-          updateMessage(message.id, { category: dbCategory });
+          updateMessage(message.id, { category: newCategory });
           const params = message.account_id ? { accountId: message.account_id } : {};
           api.getCategoryCounts(params).then(d => setCategoryCounts(d.counts || {})).catch(() => {});
         } catch (err) {
           console.error('setCategory failed:', err?.message);
+        }
+        break;
+      }
+      case 'setCategoryAlways': {
+        // "Always for this sender/domain" (#490).
+        const category = data?.category;
+        const saved = await saveSenderCategory(message, data?.scope, category, {
+          t, api, getState: useStore.getState, onMatch: loaded => updateMessage(loaded.id, { category }),
+        });
+        if (saved) {
+          updateMessage(message.id, { category });
+          const params = message.account_id ? { accountId: message.account_id } : {};
+          api.getCategoryCounts(params).then(d => setCategoryCounts(d.counts || {})).catch(() => {});
         }
         break;
       }

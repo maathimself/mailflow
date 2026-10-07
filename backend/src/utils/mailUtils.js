@@ -21,16 +21,29 @@ export async function mappedFolderUsable(accountId, path) {
   return result.rows.length ? path : null;
 }
 
+// Without a usable mapping, a folder is Trash or Drafts by its special-use flag, or by a stock name
+// at the top level or directly under INBOX, where servers such as Courier keep every folder.
+// Deleting from either is a permanent expunge, so a word in a name ("Blog drafts") or a stock name
+// further down ("Clients/Drafts") must not count: those are the user's own folders. imapflow
+// already flags one folder per role, localized names included, so the names only add a second
+// stock-named folder, such as a client-created "Trash" beside iCloud's "Deleted Messages".
+const TOP_LEVEL_FOLDER_SQL = `(path = name OR upper(path) = ('INBOX' || delimiter || upper(name)))`;
+const TRASH_FOLDER_SQL = `(special_use = '\\Trash'
+  OR (lower(name) IN ('trash', 'deleted', 'deleted items', 'deleted messages') AND ${TOP_LEVEL_FOLDER_SQL}))`;
+const DRAFTS_FOLDER_SQL = `(special_use = '\\Drafts'
+  OR (lower(name) IN ('drafts', 'draft') AND ${TOP_LEVEL_FOLDER_SQL}))`;
+
 // Resolve the canonical trash folder path for an account (used as move destination).
 // folder_mappings.trash (user-configured) takes priority over special_use and name heuristics,
 // but only when it points at a selectable folder (see mappedFolderUsable).
-// Also matches "Deleted Messages" / "Deleted Items" in addition to "Trash"-named folders.
+// It tests folders exactly as resolveAllTrashPaths does: a destination outside that set would
+// have deletes from it moved into itself instead of expunged.
 export async function resolveTrashFolder(accountId, folderMappings) {
   const mapped = await mappedFolderUsable(accountId, folderMappings?.trash);
   if (mapped) return mapped;
   const result = await query(
     `SELECT path FROM folders WHERE account_id = $1
-     AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%' OR lower(name) LIKE '%deleted%')
+     AND ${TRASH_FOLDER_SQL}
      ORDER BY (CASE WHEN special_use = '\\Trash' THEN 0 ELSE 1 END)
      LIMIT 1`,
     [accountId]
@@ -47,7 +60,7 @@ export async function resolveAllTrashPaths(accountId, folderMappings) {
   if (mapped) return new Set([mapped]);
   const result = await query(
     `SELECT path FROM folders WHERE account_id = $1
-     AND (special_use = '\\Trash' OR lower(name) LIKE '%trash%' OR lower(name) LIKE '%deleted%')`,
+     AND ${TRASH_FOLDER_SQL}`,
     [accountId]
   );
   return new Set(result.rows.map(r => r.path));
@@ -58,7 +71,7 @@ export async function resolveAllDraftsPaths(accountId, folderMappings) {
   if (mapped) return new Set([mapped]);
   const result = await query(
     `SELECT path FROM folders WHERE account_id = $1
-     AND (special_use = '\\Drafts' OR lower(name) LIKE '%draft%')`,
+     AND ${DRAFTS_FOLDER_SQL}`,
     [accountId]
   );
   return new Set(result.rows.map(r => r.path));

@@ -1,3 +1,4 @@
+import { createServer } from 'net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('nodemailer', () => ({ default: { createTransport: vi.fn() } }));
@@ -118,6 +119,54 @@ describe('createSmtpTransport', () => {
     expect(isPreDeliveryConnectionError(new Error('timeout'))).toBe(false);
   });
 });
+
+// Its EHLO reply offers AUTH but not STARTTLS, as a relay without TLS does, or as any EHLO
+// does after someone on the path has stripped STARTTLS from it.
+async function startSmtpServerWithoutStarttls() {
+  const commands = [];
+  const sockets = new Set();
+  const server = createServer(socket => {
+    sockets.add(socket);
+    socket.on('error', () => {});
+    let buffered = '';
+    let inData = false;
+    socket.write('220 smtp.example.com ESMTP\r\n');
+    socket.on('data', chunk => {
+      buffered += chunk.toString('latin1');
+      let end;
+      while ((end = buffered.indexOf('\r\n')) >= 0) {
+        const line = buffered.slice(0, end);
+        buffered = buffered.slice(end + 2);
+        if (inData) {
+          if (line === '.') {
+            inData = false;
+            socket.write('250 2.0.0 Queued\r\n');
+          }
+          continue;
+        }
+        const verb = line.split(' ')[0].toUpperCase();
+        commands.push(verb);
+        if (verb === 'EHLO') socket.write('250-smtp.example.com\r\n250 AUTH PLAIN\r\n');
+        else if (verb === 'AUTH') socket.write('235 2.7.0 Authentication successful\r\n');
+        else if (verb === 'MAIL' || verb === 'RCPT') socket.write('250 2.1.0 OK\r\n');
+        else if (verb === 'DATA') {
+          inData = true;
+          socket.write('354 Go ahead\r\n');
+        } else if (verb === 'QUIT') socket.end('221 2.0.0 Bye\r\n');
+        else socket.write('502 5.5.1 Unrecognized command\r\n');
+      }
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  return {
+    port: server.address().port,
+    commands,
+    close: () => {
+      for (const socket of sockets) socket.destroy();
+      return new Promise(resolve => server.close(resolve));
+    },
+  };
+}
 
 describe('createAccountSmtpTransport', () => {
   beforeEach(() => {
@@ -283,6 +332,46 @@ describe('createAccountSmtpTransport', () => {
       error: 'Plain-text SMTP is not allowed: admin must enable "Allow insecure TLS"',
     });
     expect(nodemailer.createTransport).not.toHaveBeenCalled();
+  });
+
+  async function sendToServerWithoutStarttls() {
+    const server = await startSmtpServerWithoutStarttls();
+    try {
+      const { default: realNodemailer } = await vi.importActual('nodemailer');
+      nodemailer.createTransport.mockImplementation(realNodemailer.createTransport);
+      resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'] });
+
+      const result = await createAccountSmtpTransport({
+        smtp_host: 'smtp.example.com',
+        smtp_port: server.port,
+        smtp_tls: 'STARTTLS',
+        auth_user: 'sender@example.com',
+        auth_pass: 'test-password',
+      });
+      const outcome = await result.transport
+        .sendMail({ from: 'sender@example.com', to: 'user@example.com', text: 'Hello' })
+        .catch(err => err);
+      return { commands: server.commands, outcome };
+    } finally {
+      await server.close();
+    }
+  }
+
+  it('fails instead of authenticating in cleartext when EHLO does not offer STARTTLS', async () => {
+    const { commands, outcome } = await sendToServerWithoutStarttls();
+
+    expect(commands).toEqual(['EHLO', 'STARTTLS']);
+    expect(outcome).toMatchObject({ code: 'ETLS', command: 'STARTTLS' });
+  });
+
+  it('still sends to a server without STARTTLS when the admin allows insecure TLS', async () => {
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false, allowInsecureTls: true });
+
+    const { commands, outcome } = await sendToServerWithoutStarttls();
+
+    expect(outcome.accepted).toEqual(['user@example.com']);
+    expect(commands).toContain('AUTH');
+    expect(commands).not.toContain('STARTTLS');
   });
 });
 

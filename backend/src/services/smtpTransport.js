@@ -155,6 +155,10 @@ export async function createAccountSmtpTransport(inputAccount) {
     port: account.smtp_port,
     secure,
     ...(account.smtp_tls === 'none' ? { ignoreTLS: true } : {}),
+    // nodemailer only upgrades when EHLO advertises STARTTLS, so a server that leaves it
+    // out, or anyone on the path who strips it, would get AUTH and the message in
+    // cleartext. Fail instead, unless the admin allows insecure connections.
+    requireTLS: !secure && !policy.allowInsecureTls,
     auth,
     tls,
   });

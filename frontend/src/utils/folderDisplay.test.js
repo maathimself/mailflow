@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   favoriteMoveTargets,
+  recentMoveTargets,
   folderDelimiter,
   folderMatchesQuery,
   folderParentLabel,
@@ -178,5 +179,35 @@ describe('favoriteMoveTargets (#505)', () => {
   it('does not mutate the picker\'s folder objects', () => {
     favoriteMoveTargets(favorites, folders, { accountId: 'a' });
     assert.equal(folders[1].favoriteLabel, undefined);
+  });
+});
+
+describe('recentMoveTargets (#551)', () => {
+  const folders = [
+    { path: 'INBOX', name: 'INBOX' },
+    { path: 'Work/Receipts', name: 'Receipts' },
+    { path: 'Archive', name: 'Archive' },
+  ];
+  const recents = [
+    { accountId: 'a', path: 'Archive' },
+    { accountId: 'b', path: 'Work/Receipts' },
+    { accountId: 'a', path: 'Deleted since' },
+    { accountId: 'a', path: 'INBOX' },
+    { accountId: 'a', path: 'Work/Receipts' },
+  ];
+
+  it('returns the account\'s recent folders newest first, as the picker\'s folder objects', () => {
+    const out = recentMoveTargets(recents, folders, { accountId: 'a', currentFolder: 'INBOX' });
+    assert.deepEqual(out, [folders[2], folders[1]]);
+  });
+
+  it('drops the current folder, other accounts and folders that no longer exist', () => {
+    assert.deepEqual(recentMoveTargets(recents, folders, { accountId: 'a', currentFolder: 'Archive' }).map(f => f.path), ['INBOX', 'Work/Receipts']);
+    assert.deepEqual(recentMoveTargets(recents, folders, { accountId: 'b', currentFolder: 'Work/Receipts' }), []);
+  });
+
+  it('tolerates missing lists', () => {
+    assert.deepEqual(recentMoveTargets(undefined, folders, { accountId: 'a' }), []);
+    assert.deepEqual(recentMoveTargets(recents, undefined, { accountId: 'a' }), []);
   });
 });

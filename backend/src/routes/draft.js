@@ -178,6 +178,28 @@ async function findReplacedDraft(userId, account, draftsFolder, { existingUid, e
   return { account: holder, uid, folder: existingFolder, messageId: row.message_id };
 }
 
+// Deletes the draft a message was sent from, once routes/send.js has delivered it. This runs on
+// the server, after delivery, because with undo send the delivery happens after the composer has
+// closed, possibly with the tab gone too: a draft deleted when Send was clicked would take with it
+// the only other copy of a message whose delivery then failed. The checks are those of a save
+// replacing its previous copy. Never throws: a draft left behind is logged, not a failed send.
+export async function deleteSentDraft(userId, account, { uid, folder, accountId } = {}) {
+  try {
+    const target = await findReplacedDraft(userId, account, undefined, { existingUid: uid, existingFolder: folder, existingAccountId: accountId });
+    if (!target) return false;
+    const deleted = await imapManager.permanentDeleteMessage(target.account, target.uid, target.folder, { expectMessageId: target.messageId });
+    if (!deleted) {
+      console.error(`Draft: not deleting sent draft uid=${target.uid} in folder ${JSON.stringify(target.folder)}: the server copy's Message-ID does not match its local row`);
+      return false;
+    }
+    await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [target.account.id, target.uid, target.folder]);
+    return true;
+  } catch (err) {
+    console.error(`Draft: failed to delete sent draft uid=${JSON.stringify(uid)}: ${err.message}`);
+    return false;
+  }
+}
+
 router.post('/draft', async (req, res) => {
   const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder, existingAccountId } = req.body;
   if (!accountId) return res.status(400).json({ error: 'accountId required' });

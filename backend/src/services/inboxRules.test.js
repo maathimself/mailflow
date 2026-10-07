@@ -824,3 +824,36 @@ describe('applyInboxRules — to not_contains requires all recipients to not mat
     expect(mockImap.bulkMoveMessages).toHaveBeenCalledOnce();
   });
 });
+
+describe('applyInboxRules — set_category (#489)', () => {
+  it('stores the chosen category, Primary included, and leaves the message where it is', async () => {
+    for (const category of ['automated', 'primary']) {
+      vi.clearAllMocks();
+      query
+        .mockResolvedValueOnce({ rows: [mkRule([{ type: 'set_category', value: category }])] })
+        .mockResolvedValueOnce({ rows: [] }); // UPDATE category
+      const msg = mkMsg();
+      const { remaining } = await applyInboxRules([msg], account, mockImap);
+      expect(query).toHaveBeenLastCalledWith('UPDATE messages SET category = $1 WHERE id = $2', [category, 'msg-1']);
+      expect(remaining).toEqual([msg]); // not a destination: still in the inbox
+      expect(mockImap.bulkMoveMessages).not.toHaveBeenCalled();
+    }
+  });
+
+  it('ignores a category it does not know', async () => {
+    query.mockResolvedValueOnce({ rows: [mkRule([{ type: 'set_category', value: 'spam' }])] });
+    await applyInboxRules([mkMsg()], account, mockImap);
+    expect(query).toHaveBeenCalledTimes(1); // only the rule load, no UPDATE
+  });
+
+  it('runs alongside a move in the same rule', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [mkRule([{ type: 'set_category', value: 'newsletter' }, { type: 'move', value: 'INBOX/News' }])] })
+      .mockResolvedValueOnce({ rows: [] })  // UPDATE category
+      .mockResolvedValueOnce({ rows: [] }); // UPDATE folder (move)
+    mockImap.bulkMoveMessages.mockResolvedValue({ failed: [] });
+    await applyInboxRules([mkMsg()], account, mockImap);
+    expect(query.mock.calls.some(([sql, params]) => /SET category/.test(sql) && params[0] === 'newsletter')).toBe(true);
+    expect(mockImap.bulkMoveMessages).toHaveBeenCalledOnce();
+  });
+});
