@@ -400,6 +400,12 @@ export function planIntegrityFlagScan({ condstore, storedModseq, serverModseq, e
 // Body parts that cover ~99% of real-world email structures (used for full body caching)
 const BODY_PREFETCH_PARTS = ['1', '1.1', '1.2', '2', '2.1', '2.2', '1.1.1', '1.2.1'];
 
+// Every cid: reference receives a full copy of its image, so a small message pointing at one
+// inline part thousands of times would build a body of hundreds of MB. The first reference to
+// each image is always embedded; repeats share this many characters of data: URI per message,
+// and the ones past it are left as cid:.
+export const INLINE_IMAGE_REPEAT_BUDGET = 4 * 1024 * 1024;
+
 // The flag-change scan in syncMessages gets its OWN budget, shorter than the whole-sync
 // wall-clock. When a provider throttles the connection (iCloud right after a startup backfill
 // burst), the flag scan crawls. A deferred delta scan simply retries next tick because its
@@ -533,6 +539,17 @@ const BIDI_OVERRIDE_RE = new RegExp(
   ].join(''),
   'g'
 );
+
+// The attachment list from the BODYSTRUCTURE sync fetches for every new message, without any body
+// part. It is the walk fetchMessageBody runs, so opening the message later stores the same list.
+// New mail is classified for spam at insert, before any body is fetched, and with the list left
+// empty the attachment rules and flags never saw a file (#457).
+export function attachmentsFromStructure(msg) {
+  if (!msg?.bodyStructure) return [];
+  const results = { textParts: [], attachments: [] };
+  walkStructure(msg.bodyStructure, results);
+  return results.attachments;
+}
 
 // Extract html/text/attachments from an already-fetched msg (no extra IMAP round-trip)
 export function extractBodyFromMsg(msg) {
@@ -3943,7 +3960,7 @@ export class ImapManager {
               console.warn(`Message sync skipped: IMAP FETCH returned no UID for ${account.email}/${folder}`);
               return;
             }
-            let safeHtml = null, text = null, atts = [];
+            let safeHtml = null, text = null, atts = attachmentsFromStructure(msg);
             if (prefetchBody && provider.fetchBody) {
               const body = extractBodyFromMsg(msg);
               safeHtml = body.html ? sanitizeEmail(body.html) : null;
@@ -4617,6 +4634,7 @@ export class ImapManager {
       // Messages still appear in the list via envelope metadata; bodies load on-demand.
       const bodyParts = cfg.fetchBody ? BODY_PREFETCH_PARTS : [];
       let consecutiveErrors = 0;
+      let reconnectFailures = 0;
       let i = 0;
       // Count rows this backfill actually wrote (UID upserts) so GTD section data can be
       // refreshed once at completion when the account is gtd_enabled — the tick's fingerprint
@@ -4624,18 +4642,24 @@ export class ImapManager {
       let backfilledRows = 0;
 
       while (i < missingUids.length) {
-        // Stop immediately if the account was deleted while backfilling
-        const accountCheck = await query('SELECT id FROM email_accounts WHERE id = $1', [account.id]);
+        // Stop immediately if the account was deleted or disabled while backfilling
+        const accountCheck = await query('SELECT id FROM email_accounts WHERE id = $1 AND enabled', [account.id]);
         if (!accountCheck.rows.length) {
-          console.log(`Backfill stopping — account ${logAccount(account)} was deleted`);
+          console.log(`Backfill stopping — account ${logAccount(account)} was deleted or disabled`);
           return;
         }
 
         // Periodically reconnect to keep connections fresh and pick up refreshed OAuth tokens
         if (batchesOnConn >= cfg.batchesPerConn) {
-          try { await openBfClient(); }
+          try { await openBfClient(); reconnectFailures = 0; }
           catch (reconnErr) {
-            console.error(`Backfill reconnect failed for ${logAccount(account)}:`, reconnErr.message);
+            // Three in a row ends the run. A rejected login (changed password, revoked OAuth
+            // grant) does not recover inside this loop, and each retry holds this folder's
+            // guard and a per-host background slot. The outer catch arms the backoff when it
+            // recognises a refusal or a rejected login, and the folder status check finds the
+            // gap again once logins work.
+            if (++reconnectFailures >= 3) throw reconnErr;
+            console.error(`Backfill reconnect failed for ${logAccount(account)}:`, extractImapError(reconnErr));
             await new Promise(r => setTimeout(r, cfg.errorDelay));
             continue; // retry same batch after delay
           }
@@ -4677,7 +4701,7 @@ export class ImapManager {
                   console.warn(`Backfill skipped: IMAP FETCH returned no UID for ${account.email}/${folder}`);
                   continue;
                 }
-                let safeHtml = null, bodyText = null, atts = [];
+                let safeHtml = null, bodyText = null, atts = attachmentsFromStructure(msg);
 
                 if (cfg.fetchBody) {
                   const body = extractBodyFromMsg(msg);
@@ -5061,13 +5085,20 @@ export class ImapManager {
       if (slotHeld) this._bgConnSem.release(host); // free the per-host slot for the next background job
       this.backfillAllRunning.delete(account.id);
       this.broadcast({ type: 'backfill_all_complete', accountId: account.id }, account.user_id);
-      // Both run as background jobs after the complete signal — neither should block the UI.
-      this.refreshBulkFlags(account).catch(err =>
-        console.warn(`Bulk flag refresh failed for ${logAccount(account)}:`, err.message)
-      );
-      this.startSnippetIndexer(account).catch(err =>
-        console.error(`Snippet indexer failed for ${logAccount(account)}:`, err.message)
-      );
+      // Both jobs open fresh logins and check neither `enabled` nor the connection backoff. A
+      // walk that stopped because the account was disabled or its logins were refused must not
+      // be followed by more logins to it.
+      const canLogIn = !this._secondaryConnectBlocked(account.id)
+        && (await query('SELECT id FROM email_accounts WHERE id = $1 AND enabled', [account.id])).rows.length > 0;
+      if (canLogIn) {
+        // Both run as background jobs after the complete signal — neither should block the UI.
+        this.refreshBulkFlags(account).catch(err =>
+          console.warn(`Bulk flag refresh failed for ${logAccount(account)}:`, err.message)
+        );
+        this.startSnippetIndexer(account).catch(err =>
+          console.error(`Snippet indexer failed for ${logAccount(account)}:`, err.message)
+        );
+      }
     }
   }
 
@@ -5852,19 +5883,43 @@ export class ImapManager {
         // Step 3: replace cid: references in HTML with data: URIs so inline
         // images render inside the sandboxed srcdoc iframe
         if (html && inlineImages.length > 0) {
+          const dataUris = new Map();
           for (const img of inlineImages) {
             if (!img.cid) continue;
+            const key = img.cid.toLowerCase();
+            if (dataUris.has(key)) continue;
             const buf = prefetched.get(img.part);
             if (!buf || looksLikeTextPayload(buf)) continue;
             const enc = (img.encoding || '').toLowerCase();
             const b64 = enc === 'base64'
               ? buf.toString('ascii').replace(/\s/g, '')
               : buf.toString('base64');
-            const dataUri = `data:${img.type};base64,${b64}`;
+            dataUris.set(key, `data:${img.type};base64,${b64}`);
+          }
+          if (dataUris.size > 0) {
+            const embedded = new Set();
+            let repeatBudget = INLINE_IMAGE_REPEAT_BUDGET;
+            let overBudget = 0;
             // cid: refs appear with and without angle brackets — match both.
             // e.g.  src="cid:abc123"  and  src="cid:<abc123>"
-            const escapedCid = img.cid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            html = html.replace(new RegExp(`cid:<?${escapedCid}>?`, 'gi'), dataUri);
+            // The Content-ID ends where the URL does in HTML or CSS: at whitespace, a quote,
+            // ')', an angle bracket or the '&' of &quot;. Content-IDs, types and base64 text
+            // all come from the sender, so none of them become regex or replacement-string
+            // syntax, and a single pass never rescans an image it has inserted.
+            html = html.replace(/cid:<?([^\s"'<>)&]+)>?/gi, (ref, cid) => {
+              const key = cid.toLowerCase();
+              const dataUri = dataUris.get(key);
+              if (!dataUri) return ref;
+              if (embedded.has(key)) {
+                if (dataUri.length > repeatBudget) { overBudget++; return ref; }
+                repeatBudget -= dataUri.length;
+              }
+              embedded.add(key);
+              return dataUri;
+            });
+            if (overBudget > 0) {
+              console.warn(`fetchMessageBody: uid=${uid} folder=${folder} account=${logAccount(account)}: left ${overBudget} repeated inline image reference(s) as cid:, past the ${INLINE_IMAGE_REPEAT_BUDGET / (1024 * 1024)} MB repeat budget`);
+            }
           }
         }
       } finally {
@@ -6217,7 +6272,16 @@ export class ImapManager {
   }
 
   async renameFolder(account, oldPath, newPath) {
+    // The guard below cannot deselect INBOX, and the UI never offers renaming it.
+    if (oldPath.toUpperCase() === 'INBOX') throw new Error('INBOX cannot be renamed');
     return withFreshClient(account, async (client) => {
+      // imapflow sends CLOSE before RENAME when this folder is selected, and CLOSE expunges
+      // every message flagged \Deleted, including mail another client only flagged. Selecting
+      // INBOX closes the folder without expunging, as in deleteFolder.
+      if ((client.mailbox?.path || '').toLowerCase() === oldPath.toLowerCase()) {
+        const lock = await client.getMailboxLock('INBOX');
+        lock.release();
+      }
       await client.mailboxRename(oldPath, newPath);
     });
   }
@@ -6850,6 +6914,20 @@ export class ImapManager {
           console.error('WebSocket broadcast send error:', err.message);
         }
       }
+    });
+  }
+
+  // A socket is authenticated once, at upgrade, so ending its session does not stop the
+  // broadcasts above reaching it. The userId guard matters: a socket still authenticating
+  // has no userId either, and would match a missing one. The close waits a turn: an upgrade
+  // whose session lookup was answered in the same read from Redis as the write that ended
+  // the session authenticates a microtask after that write's callback, and would be missed.
+  closeSockets(userId, { sessionId = null, reason = 'Unauthorized' } = {}) {
+    if (!userId) return;
+    setImmediate(() => {
+      this.wss.clients.forEach(ws => {
+        if (ws.userId === userId && (!sessionId || ws.sessionId === sessionId)) ws.close(1008, reason);
+      });
     });
   }
 

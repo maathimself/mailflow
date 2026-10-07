@@ -7,7 +7,7 @@
 // Layers (design §2 / §9):
 //   3. messages.spam_user_override — ALWAYS wins, skip if set (user intent)
 //   2. per-user MNB model — active when training_records >= 50
-//   1. 14-rule engine — always on, sole classifier below 50 records
+//   1. 15-rule engine — always on, sole classifier below 50 records
 //
 // The move is delegated to the caller via an injected `imap` facade so this
 // module never imports imapManager (avoids an import cycle mail.js ↔ index):
@@ -156,7 +156,7 @@ export async function classifyAndTagMessage(messageId, opts = {}) {
     rulesFired: rules.fired.map(r => ({ name: r.name, weight: r.weight })),
     mlProbability: mlProbability == null ? null : round(mlProbability),
     mlConfidence: mlConfidence == null ? null : round(mlConfidence),
-    topTokens: extractTopTokens(model, tokens, 5).map(t => ({
+    topTokens: extractTopTokens(model, tokens, 5, flagFeatures).map(t => ({
       token: t.token,
       contribution: round(t.contribution),
     })),

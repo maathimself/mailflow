@@ -228,7 +228,6 @@ describe('API-key provider regression', () => {
       messages: [{ role: 'user', content: 'Hi' }],
       max_tokens: 12,
       stream: false,
-      think: false,
     });
   });
 
@@ -278,6 +277,19 @@ describe('API-key provider regression', () => {
     const { provider } = factory({ initial: legacy, fetchFn });
     await expect(provider.testAiProvider()).resolves.toEqual({ ok: true });
     expect(JSON.parse(fetchFn.mock.calls[0][1].body).max_tokens).toBe(16);
+  });
+
+  it('passes the connection test against a provider that rejects unknown fields', async () => {
+    // OpenAI answers an unknown top-level field with a 400 instead of ignoring it.
+    const known = new Set(['model', 'messages', 'max_tokens', 'stream']);
+    const fetchFn = vi.fn(async (_url, init) => {
+      const unknown = Object.keys(JSON.parse(init.body)).find((key) => !known.has(key));
+      return unknown
+        ? jsonResponse({ error: { message: `Unrecognized request argument supplied: ${unknown}` } }, 400)
+        : jsonResponse({ choices: [{ message: { content: 'ok' } }] });
+    });
+    const { provider } = factory({ initial: legacy, fetchFn });
+    await expect(provider.testAiProvider()).resolves.toEqual({ ok: true });
   });
 
   it('keeps the provider timeout active while reading the response body', async () => {

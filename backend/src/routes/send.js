@@ -14,6 +14,9 @@ import { generateVCard } from '../utils/vcard.js';
 import { createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { imapManager } from '../index.js';
 import { pluginRegistry } from '../plugins/registry.js';
+import { holdSend, cancelSend, getSendStatus } from '../services/sendHold.js';
+import { deleteSentDraft } from './draft.js';
+import { truncateFilename, safeFilename } from '../utils/contentDisposition.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -128,8 +131,25 @@ const router = Router();
 router.use(requireAuth);
 
 
+// What is left of a held send's undo window. The client counts down from this, not from its own
+// clock against sendAt, and not from when it sent the request (an upload would eat into it).
+const remainingUntil = sendAt => Math.max(0, Date.parse(sendAt) - Date.now());
+
+// The longest an undo window can be. The client asks for its own (10 s by default).
+const MAX_UNDO_SECONDS = 30;
+
 router.post('/send', async (req, res) => {
-  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, forwardedAttachments, priority } = req.body;
+  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, inReplyTo, references, attachments, editedSignature, forwardedAttachments, forwardedMessages, priority, undoSeconds, draft } = req.body;
+  const userId = req.session.userId;
+  // With an undo window, delivery waits that long on the server (services/sendHold.js).
+  // Everything that can fail on the input still runs now, so those errors surface at once.
+  const holdMs = Number.isInteger(undoSeconds) && undoSeconds > 0
+    ? Math.min(undoSeconds, MAX_UNDO_SECONDS) * 1000
+    : 0;
+  // The draft this message was written in, deleted once it is delivered (see deleteSentDraft).
+  const sentDraft = draft && typeof draft === 'object' && !Array.isArray(draft)
+    ? { uid: draft.uid, folder: draft.folder, accountId: draft.accountId }
+    : null;
   const VALID_PRIORITIES = new Set(['high', 'normal', 'low']);
   const emailPriority = VALID_PRIORITIES.has(priority) ? priority : 'normal';
   if (!accountId || !to?.length) return res.status(400).json({ error: 'accountId and to required' });
@@ -147,7 +167,17 @@ router.post('/send', async (req, res) => {
     try { cached = await redisClient.get(idemKeyRedis); }
     catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
     if (cached === '__inflight__') return res.status(409).json({ error: 'This message is already being sent.' });
-    if (cached) return res.json(JSON.parse(cached));
+    if (cached) {
+      const previous = JSON.parse(cached);
+      if (!previous.pending) return res.json(previous);
+      // A held send: the answer the first request got, with the time left now. One the server lost
+      // in a crash before it started was never delivered, so its key is freed and this request
+      // sends anew. One that had started stays answered: it may have gone out.
+      const { status } = await getSendStatus(userId, previous.pendingId);
+      if (status !== 'lost') return res.json({ ...previous, remainingMs: remainingUntil(previous.sendAt) });
+      try { await redisClient.del(idemKeyRedis); }
+      catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
+    }
   }
 
   if (attachments !== undefined) {
@@ -167,6 +197,16 @@ router.post('/send', async (req, res) => {
     for (const [i, fa] of forwardedAttachments.entries()) {
       if (typeof fa.messageId !== 'string' || !UUID_RE.test(fa.messageId)) return res.status(400).json({ error: `forwardedAttachments[${i}].messageId is invalid` });
       if (typeof fa.part !== 'string' || !fa.part.trim()) return res.status(400).json({ error: `forwardedAttachments[${i}].part is required` });
+    }
+  }
+
+  // Whole messages forwarded as attachments ("Forward as attachment", #466), as ids. 20 is the
+  // most a SpamCop submission takes and bounds how many raw sources one send holds in memory.
+  if (forwardedMessages !== undefined) {
+    if (!Array.isArray(forwardedMessages)) return res.status(400).json({ error: 'forwardedMessages must be an array' });
+    if (forwardedMessages.length > 20) return res.status(400).json({ error: 'Too many forwarded messages (max 20)' });
+    for (const [i, id] of forwardedMessages.entries()) {
+      if (typeof id !== 'string' || !UUID_RE.test(id)) return res.status(400).json({ error: `forwardedMessages[${i}] is invalid` });
     }
   }
 
@@ -285,9 +325,48 @@ router.post('/send', async (req, res) => {
     }
   }
 
+  // Each forwarded message is attached as its raw RFC 822 source, every original header intact,
+  // which is what an inline forward loses and abuse desks such as SpamCop need (#466). message/*
+  // goes out 8bit (RFC 2046 rules out base64 for it) and nodemailer would mark it inline, so the
+  // disposition is set explicitly. Its size is known only once fetched, so the 25 MB total is
+  // checked as each one arrives.
+  let resolvedFwdMessages = [];
+  if (forwardedMessages?.length) {
+    try {
+      const ids = [...new Set(forwardedMessages)];
+      const rows = (await query(
+        `SELECT m.id, m.uid, m.folder, m.subject, m.account_id FROM messages m
+         JOIN email_accounts a ON m.account_id = a.id
+         WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2 AND m.is_deleted = false`,
+        [ids, req.session.userId]
+      )).rows;
+      const byId = new Map(rows.map(r => [r.id, r]));
+      if (ids.some(id => !byId.has(id))) throw Object.assign(new Error('Forwarded message not found'), { status: 404 });
+      const accts = (await query('SELECT * FROM email_accounts WHERE id = ANY($1::uuid[])', [[...new Set(rows.map(r => r.account_id))]])).rows;
+      const acctById = new Map(accts.map(a => [a.id, a]));
+      let totalBytes = (attachments || []).reduce((sum, a) => sum + (typeof a.content === 'string' ? Math.ceil(a.content.length * 0.75) : 0), 0)
+        + resolvedFwdAttachments.reduce((sum, a) => sum + (a.content?.length || 0), 0);
+      for (const id of ids) {
+        const msg = byId.get(id);
+        const acct = acctById.get(msg.account_id);
+        if (!acct) throw Object.assign(new Error('Account not found'), { status: 404 });
+        const source = await imapManager.fetchRawMessage(acct, msg.uid, msg.folder);
+        if (!source) throw Object.assign(new Error('Could not fetch the forwarded message'), { status: 502 });
+        totalBytes += source.length;
+        if (totalBytes > 26_214_400) return res.status(400).json({ error: 'Total attachment size exceeds 25 MB' });
+        resolvedFwdMessages.push({
+          filename: safeFilename(`${truncateFilename(sanitizeHeaderValue(msg.subject || '') || 'message', 80)}.eml`),
+          content: source,
+          contentType: 'message/rfc822',
+          contentDisposition: 'attachment',
+        });
+      }
+    } catch (err) {
+      return res.status(err.status || 500).json({ error: err.message || 'Failed to fetch forwarded messages' });
+    }
+  }
+
   let reservationAcquired = false;
-  let delivered = false; // true once transport.sendMail has actually handed off the message
-  let rejected = [];
   try {
     const smtp = await createAccountSmtpTransport(account);
     if (smtp.error) return res.status(smtp.status).json({ error: smtp.error });
@@ -336,6 +415,7 @@ router.post('/send', async (req, res) => {
         contentType: typeof a.contentType === 'string' ? a.contentType : 'application/octet-stream',
       })) : []),
       ...resolvedFwdAttachments,
+      ...resolvedFwdMessages,
     ];
     if (allAttachments.length) {
       mailOptions.attachments = allAttachments;
@@ -379,193 +459,245 @@ router.post('/send', async (req, res) => {
       reservationAcquired = true;
     }
 
-    const info = await transport.sendMail(mailOptions);
-    delivered = true;
-    // A server that accepts some recipients and refuses others at RCPT still resolves, so
-    // the refused ones must be reported or they are dropped without anyone knowing.
-    if (Array.isArray(info?.rejected) && info.rejected.length) {
-      rejected = info.rejected.map(String);
-      // Codes only: the server's response text usually echoes the unredacted address.
-      const codes = (info.rejectedErrors || []).map(e => e?.responseCode).filter(Boolean);
-      console.warn(`SMTP refused ${rejected.length} recipient(s) for ${redactEmail(account.email_address)}: ${rejected.map(redactEmail).join(', ')}${codes.length ? ` (${codes.join(', ')})` : ''}`);
-    }
+    const deliverAndRecord = async (onDelivered) => {
+      let delivered = false; // true once transport.sendMail has actually handed off the message
+      let rejected = [];
+      let learning = Promise.resolve(); // never rejects: its errors are logged inside
+      try {
+        const info = await transport.sendMail(mailOptions);
+        delivered = true;
+        // A server that accepts some recipients and refuses others at RCPT still resolves, so
+        // the refused ones must be reported or they are dropped without anyone knowing.
+        if (Array.isArray(info?.rejected) && info.rejected.length) {
+          rejected = info.rejected.map(String);
+          // Codes only: the server's response text usually echoes the unredacted address.
+          const codes = (info.rejectedErrors || []).map(e => e?.responseCode).filter(Boolean);
+          console.warn(`SMTP refused ${rejected.length} recipient(s) for ${redactEmail(account.email_address)}: ${rejected.map(redactEmail).join(', ')}${codes.length ? ` (${codes.join(', ')})` : ''}`);
+        }
+        await onDelivered?.({ ok: true, ...(rejected.length ? { rejected } : {}) });
+        // Awaited, like the contact learning of a held send below: a shutdown delivers held sends
+        // and waits for them to finish, and work left in a setImmediate would be cut off.
+        if (sentDraft) await deleteSentDraft(userId, account, sentDraft);
 
-    // Auto-learn sent recipients so they rank above inbound-only senders in autocomplete.
-    // Fire-and-forget — a DB error here must never affect the send response.
-    const allRecipients = [...normalizedTo, ...normalizedCc, ...normalizedBcc];
-    if (allRecipients.length) {
-      const userId = req.session.userId;
-      const now = new Date();
-      setImmediate(async () => {
-        try {
-          // Ensure the user's default address book exists
-          const abResult = await query(
-            `INSERT INTO address_books (user_id, name) VALUES ($1, 'Personal')
-             ON CONFLICT (user_id, name) DO UPDATE SET updated_at = NOW()
-             RETURNING id`,
-            [userId]
-          );
-          const addressBookId = abResult.rows[0].id;
+        // Auto-learn sent recipients so they rank above inbound-only senders in autocomplete.
+        // A DB error here must never affect the send response. An immediate send does not wait
+        // for it; a held send does, because nobody is waiting on that response.
+        const allRecipients = [...normalizedTo, ...normalizedCc, ...normalizedBcc];
+        if (allRecipients.length) {
+          const now = new Date();
+          learning = (async () => {
+            try {
+              // Ensure the user's default address book exists
+              const abResult = await query(
+                `INSERT INTO address_books (user_id, name) VALUES ($1, 'Personal')
+                 ON CONFLICT (user_id, name) DO UPDATE SET updated_at = NOW()
+                 RETURNING id`,
+                [userId]
+              );
+              const addressBookId = abResult.rows[0].id;
 
-          const results = await Promise.allSettled(allRecipients.map(addr => {
-            const { name, email } = parseAddress(addr);
-            if (!email) return Promise.resolve();
-            const primaryEmail = email.toLowerCase();
-            const displayName = name || primaryEmail;
-            const uid    = randomUUID();
-            const emails = [{ value: primaryEmail, type: 'other', primary: true }];
-            const vcard  = generateVCard({ uid, displayName, emails });
-            const etag   = createHash('md5').update(vcard).digest('hex');
-            // Upsert by (user_id, primary_email) — bump send_count and promote from is_auto.
-            // On conflict, preserve an existing vcard; only fill it in if the row had none.
-            return query(`
-              INSERT INTO contacts (
-                address_book_id, user_id, uid, vcard, etag,
-                display_name, primary_email, emails, is_auto, send_count, last_sent
-              )
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, false, 1, $9)
-              ON CONFLICT (address_book_id, primary_email) WHERE primary_email IS NOT NULL DO UPDATE
-                SET send_count   = contacts.send_count + 1,
-                    last_sent    = $9,
-                    is_auto      = false,
-                    display_name = CASE WHEN contacts.is_auto THEN $6 ELSE contacts.display_name END,
-                    vcard        = COALESCE(contacts.vcard, EXCLUDED.vcard),
-                    etag         = COALESCE(contacts.etag,  EXCLUDED.etag),
-                    updated_at   = NOW()
-              RETURNING address_book_id
-            `, [addressBookId, userId, uid, vcard, etag, displayName, primaryEmail, JSON.stringify(emails), now]);
-          }));
+              const results = await Promise.allSettled(allRecipients.map(addr => {
+                const { name, email } = parseAddress(addr);
+                if (!email) return Promise.resolve();
+                const primaryEmail = email.toLowerCase();
+                const displayName = name || primaryEmail;
+                const uid    = randomUUID();
+                const emails = [{ value: primaryEmail, type: 'other', primary: true }];
+                const vcard  = generateVCard({ uid, displayName, emails });
+                const etag   = createHash('md5').update(vcard).digest('hex');
+                // Upsert by (user_id, primary_email) — bump send_count and promote from is_auto.
+                // On conflict, preserve an existing vcard; only fill it in if the row had none.
+                return query(`
+                  INSERT INTO contacts (
+                    address_book_id, user_id, uid, vcard, etag,
+                    display_name, primary_email, emails, is_auto, send_count, last_sent
+                  )
+                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, false, 1, $9)
+                  ON CONFLICT (address_book_id, primary_email) WHERE primary_email IS NOT NULL DO UPDATE
+                    SET send_count   = contacts.send_count + 1,
+                        last_sent    = $9,
+                        is_auto      = false,
+                        display_name = CASE WHEN contacts.is_auto THEN $6 ELSE contacts.display_name END,
+                        vcard        = COALESCE(contacts.vcard, EXCLUDED.vcard),
+                        etag         = COALESCE(contacts.etag,  EXCLUDED.etag),
+                        updated_at   = NOW()
+                  RETURNING address_book_id
+                `, [addressBookId, userId, uid, vcard, etag, displayName, primaryEmail, JSON.stringify(emails), now]);
+              }));
 
-          const failed = results.filter(r => r.status === 'rejected');
-          if (failed.length) console.warn('Contact upsert errors:', failed.map(r => r.reason?.message));
+              const failed = results.filter(r => r.status === 'rejected');
+              if (failed.length) console.warn('Contact upsert errors:', failed.map(r => r.reason?.message));
 
-          // Collect distinct address books actually modified (contacts may live in non-default books).
-          const booksToSync = new Set();
-          for (const r of results) {
-            if (r.status === 'fulfilled' && r.value?.rows?.[0]?.address_book_id) {
-              booksToSync.add(r.value.rows[0].address_book_id);
+              // Collect distinct address books actually modified (contacts may live in non-default books).
+              const booksToSync = new Set();
+              for (const r of results) {
+                if (r.status === 'fulfilled' && r.value?.rows?.[0]?.address_book_id) {
+                  booksToSync.add(r.value.rows[0].address_book_id);
+                }
+              }
+              if (!booksToSync.size) booksToSync.add(addressBookId);
+
+              await Promise.all([...booksToSync].map(bookId =>
+                query('UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1', [bookId])
+              ));
+            } catch (err) {
+              console.warn('Contact upsert setup error:', err.message);
             }
-          }
-          if (!booksToSync.size) booksToSync.add(addressBookId);
-
-          await Promise.all([...booksToSync].map(bookId =>
-            query('UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1', [bookId])
-          ));
-        } catch (err) {
-          console.warn('Contact upsert setup error:', err.message);
+          })();
         }
-      });
-    }
 
-    // Get the Sent folder path (manual mapping takes priority over special_use auto-detect,
-    // but a mapping pointing at a non-selectable folder is ignored in favour of \Sent — #386).
-    const sentFolder = await resolveSentFolder(accountId, account.folder_mappings);
-    console.log(`Post-send: ${redactEmail(account.email_address)} sentFolder=${sentFolder} autoSaves=${serverAutoSaves}`);
+        // Get the Sent folder path (manual mapping takes priority over special_use auto-detect,
+        // but a mapping pointing at a non-selectable folder is ignored in favour of \Sent — #386).
+        const sentFolder = await resolveSentFolder(accountId, account.folder_mappings);
+        console.log(`Post-send: ${redactEmail(account.email_address)} sentFolder=${sentFolder} autoSaves=${serverAutoSaves}`);
 
-    // sentCopySaved: null = not applicable (server auto-saves, or no Sent folder resolved);
-    // true/false = whether OUR IMAP APPEND landed the Sent copy. Surfaced to the client so
-    // it can warn when a delivered message could not be saved to Sent.
-    let sentCopySaved = null;
-    const sentMeta = sentFolder ? {
-      messageId: mailOptions.messageId,
-      subject: normalizedSubject,
-      fromName,
-      fromEmail,
-      to: mapRecipientList(normalizedTo),
-      cc: mapRecipientList(normalizedCc),
-      snippet: buildSentSnippet(body, bodyIsHtml),
-      date: new Date(),
-      // Carried so the Sent row threads into its conversation via the References chain
-      // rather than orphaning at its own Message-ID (#378).
-      inReplyTo: mailOptions.inReplyTo || null,
-      references: mailOptions.references || null,
-    } : null;
+        // sentCopySaved: null = not applicable (server auto-saves, or no Sent folder resolved);
+        // true/false = whether OUR IMAP APPEND landed the Sent copy. Surfaced to the client so
+        // it can warn when a delivered message could not be saved to Sent.
+        let sentCopySaved = null;
+        const sentMeta = sentFolder ? {
+          messageId: mailOptions.messageId,
+          subject: normalizedSubject,
+          fromName,
+          fromEmail,
+          to: mapRecipientList(normalizedTo),
+          cc: mapRecipientList(normalizedCc),
+          snippet: buildSentSnippet(body, bodyIsHtml),
+          date: new Date(),
+          // Carried so the Sent row threads into its conversation via the References chain
+          // rather than orphaning at its own Message-ID (#378).
+          inReplyTo: mailOptions.inReplyTo || null,
+          references: mailOptions.references || null,
+        } : null;
 
-    if (sentFolder) {
-      if (rawMessage) {
-        // Non-auto-saving account: APPEND the Sent copy ourselves — exactly ONCE. IMAP
-        // APPEND is NOT idempotent (unlike a \Seen flag), so we must not retry: a retry
-        // whose first attempt merely timed out (but still lands on the server) would store
-        // a SECOND copy. Bound the wait so a stalled connection can't hang the response;
-        // the abandoned append can at worst still save the single copy. On failure, warn
-        // the user and schedule a fallback sync in case the append landed late. Audit [2].
-        sentCopySaved = false;
-        try {
-          const { uid } = await Promise.race([
-            imapManager.appendToSent(account, sentFolder, rawMessage),
-            new Promise((_, rej) => setTimeout(() => rej(new Error('Sent APPEND timed out')), 20000)),
-          ]);
-          sentCopySaved = true;
-          if (uid && sentMeta) {
-            await imapManager.upsertSentMessageRecord(account, sentFolder, uid, sentMeta)
-              .catch(err => console.warn('Sent metadata upsert failed:', err.message));
+        if (sentFolder) {
+          if (rawMessage) {
+            // Non-auto-saving account: APPEND the Sent copy ourselves — exactly ONCE. IMAP
+            // APPEND is NOT idempotent (unlike a \Seen flag), so we must not retry: a retry
+            // whose first attempt merely timed out (but still lands on the server) would store
+            // a SECOND copy. Bound the wait so a stalled connection can't hang the response;
+            // the abandoned append can at worst still save the single copy. On failure, warn
+            // the user and schedule a fallback sync in case the append landed late. Audit [2].
+            sentCopySaved = false;
+            try {
+              const { uid } = await Promise.race([
+                imapManager.appendToSent(account, sentFolder, rawMessage),
+                new Promise((_, rej) => setTimeout(() => rej(new Error('Sent APPEND timed out')), 20000)),
+              ]);
+              sentCopySaved = true;
+              if (uid && sentMeta) {
+                await imapManager.upsertSentMessageRecord(account, sentFolder, uid, sentMeta)
+                  .catch(err => console.warn('Sent metadata upsert failed:', err.message));
+              }
+              setTimeout(() => {
+                imapManager.syncFolderOnDemand(account, sentFolder)
+                  // Once the Sent copy is in the DB, notify label plugins the message synced: GTD
+                  // re-runs transitions for its thread (a reply to a Todo/Someday thread means the
+                  // owner acted, so that label should drop). The sent message reaches no other hook
+                  // (Sent isn't INBOX, and the tick watches only the state folders), so this is the
+                  // only trigger. The hook swallows per-plugin errors — the next inbound sync / tick
+                  // self-heals.
+                  .then(() => pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: mailOptions.messageId }))
+                  .catch(e => console.error(`Post-append sync failed: ${e.message}`));
+              }, 1000);
+            } catch (appendErr) {
+              console.error(`IMAP append to Sent failed for ${redactEmail(account.email_address)}/${sentFolder}: ${appendErr.message}`);
+              // The append may still have landed (or land shortly) — pull the folder so a
+              // late-completing append self-corrects the DB rather than staying invisible.
+              setTimeout(() => {
+                imapManager.syncFolderOnDemand(account, sentFolder)
+                  .catch(e => console.error(`Post-append fallback sync failed: ${e.message}`));
+              }, 8000);
+            }
+          } else {
+            // Server auto-saves via SMTP; seed metadata once the Sent copy is searchable.
+            if (sentMeta) scheduleSentMetadataUpsert(account, sentFolder, mailOptions, sentMeta);
+            // Server auto-saves via SMTP; just sync after a delay. Two attempts because the
+            // provider (e.g. Gmail) can be slow to expose the sent message; the 3s pass usually
+            // catches it, the 15s pass is the safety net. GTD transitions run after each: the 3s
+            // attempt may miss (Sent copy not yet visible → empty thread set → no-op) and the 15s
+            // attempt then catches it; if 3s already stripped, 15s is an idempotent no-op.
+            const syncAttempt = (label) => imapManager.syncFolderOnDemand(account, sentFolder)
+              .then(() => {
+                console.log(`Post-send ${label} sync done: ${redactEmail(account.email_address)}/${sentFolder}`);
+                return pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: mailOptions.messageId });
+              })
+              .catch(e => console.error(`Post-send ${label} sync failed: ${e.message}`));
+            setTimeout(() => syncAttempt('3s'), 3000);
+            setTimeout(() => syncAttempt('15s'), 15000);
           }
-          setTimeout(() => {
-            imapManager.syncFolderOnDemand(account, sentFolder)
-              // Once the Sent copy is in the DB, notify label plugins the message synced: GTD
-              // re-runs transitions for its thread (a reply to a Todo/Someday thread means the
-              // owner acted, so that label should drop). The sent message reaches no other hook
-              // (Sent isn't INBOX, and the tick watches only the state folders), so this is the
-              // only trigger. The hook swallows per-plugin errors — the next inbound sync / tick
-              // self-heals.
-              .then(() => pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: mailOptions.messageId }))
-              .catch(e => console.error(`Post-append sync failed: ${e.message}`));
-          }, 1000);
-        } catch (appendErr) {
-          console.error(`IMAP append to Sent failed for ${redactEmail(account.email_address)}/${sentFolder}: ${appendErr.message}`);
-          // The append may still have landed (or land shortly) — pull the folder so a
-          // late-completing append self-corrects the DB rather than staying invisible.
-          setTimeout(() => {
-            imapManager.syncFolderOnDemand(account, sentFolder)
-              .catch(e => console.error(`Post-append fallback sync failed: ${e.message}`));
-          }, 8000);
         }
-      } else {
-        // Server auto-saves via SMTP; seed metadata once the Sent copy is searchable.
-        if (sentMeta) scheduleSentMetadataUpsert(account, sentFolder, mailOptions, sentMeta);
-        // Server auto-saves via SMTP; just sync after a delay. Two attempts because the
-        // provider (e.g. Gmail) can be slow to expose the sent message; the 3s pass usually
-        // catches it, the 15s pass is the safety net. GTD transitions run after each: the 3s
-        // attempt may miss (Sent copy not yet visible → empty thread set → no-op) and the 15s
-        // attempt then catches it; if 3s already stripped, 15s is an idempotent no-op.
-        const syncAttempt = (label) => imapManager.syncFolderOnDemand(account, sentFolder)
-          .then(() => {
-            console.log(`Post-send ${label} sync done: ${redactEmail(account.email_address)}/${sentFolder}`);
-            return pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: mailOptions.messageId });
-          })
-          .catch(e => console.error(`Post-send ${label} sync failed: ${e.message}`));
-        setTimeout(() => syncAttempt('3s'), 3000);
-        setTimeout(() => syncAttempt('15s'), 15000);
+
+        const sendResult = { ok: true };
+        // Surface only the problem case so existing success handling is unchanged; the UI warns
+        // when a delivered message could not be saved to the account's Sent folder.
+        if (sentCopySaved === false) sendResult.sentCopySaved = false;
+        if (rejected.length) sendResult.rejected = rejected;
+        // Tell the client which Sent folder we actually resolved to, so its post-send "View"
+        // navigates to the real folder rather than recomputing from a possibly-stale mapping (#386).
+        if (sentFolder) {
+          sendResult.sentFolder = sentFolder;
+          // So "View" can open this message once its Sent copy is listed, not just the folder.
+          sendResult.messageId = mailOptions.messageId;
+        }
+        // Overwrite the in-flight reservation with the final result so a retry after a lost
+        // response returns this instead of re-sending.
+        if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
+        if (onDelivered) await learning;
+        return sendResult;
+      } catch (err) {
+        if (delivered) {
+          // SMTP already accepted this message. A Sent-folder or metadata failure
+          // must not invite the user to send it again.
+          console.error('Post-send processing failed:', err.message);
+          const sendResult = { ok: true, sentCopySaved: false };
+          if (rejected.length) sendResult.rejected = rejected;
+          if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
+          if (onDelivered) await learning;
+          return sendResult;
+        }
+        console.error('Send failed:', err.message);
+        // A failure before reservation must not delete a concurrent request's lock.
+        if (idemKeyRedis && reservationAcquired) redisClient.del(idemKeyRedis).catch(() => {});
+        throw Object.assign(new Error('Send failed'), { publicMessage: sanitizeSmtpError(err) });
       }
+    };
+
+    if (holdMs) {
+      const { id, sendAt } = await holdSend({
+        userId,
+        delayMs: holdMs,
+        run: deliverAndRecord,
+        // An undone send frees its idempotency key, so the reopened message can be sent again.
+        onCancel: async () => { if (idemKeyRedis) await redisClient.del(idemKeyRedis); },
+      });
+      const pendingResult = { ok: true, pending: true, pendingId: id, sendAt, remainingMs: remainingUntil(sendAt) };
+      // A retry of this same request (lost response) gets the held send back, not a second one.
+      if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(pendingResult), { EX: 86400 }).catch(() => {});
+      return res.status(202).json(pendingResult);
     }
 
-    const sendResult = { ok: true };
-    // Surface only the problem case so existing success handling is unchanged; the UI warns
-    // when a delivered message could not be saved to the account's Sent folder.
-    if (sentCopySaved === false) sendResult.sentCopySaved = false;
-    if (rejected.length) sendResult.rejected = rejected;
-    // Tell the client which Sent folder we actually resolved to, so its post-send "View"
-    // navigates to the real folder rather than recomputing from a possibly-stale mapping (#386).
-    if (sentFolder) sendResult.sentFolder = sentFolder;
-    // Overwrite the in-flight reservation with the final result so a retry after a lost
-    // response returns this instead of re-sending.
-    if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
-    res.json(sendResult);
+    res.json(await deliverAndRecord());
   } catch (err) {
-    if (delivered) {
-      // SMTP already accepted this message. A Sent-folder or metadata failure
-      // must not invite the user to send it again.
-      console.error('Post-send processing failed:', err.message);
-      const sendResult = { ok: true, sentCopySaved: false };
-      if (rejected.length) sendResult.rejected = rejected;
-      if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
-      return res.json(sendResult);
-    }
+    if (err.publicMessage) return res.status(500).json({ error: err.publicMessage });
     console.error('Send failed:', err.message);
     // A failure before reservation must not delete a concurrent request's lock.
     if (idemKeyRedis && reservationAcquired) redisClient.del(idemKeyRedis).catch(() => {});
     res.status(500).json({ error: sanitizeSmtpError(err) });
   }
+});
+
+// Where a held send stands: pending, sending, sent (with the usual send result), failed (with a
+// message), cancelled, lost (held when the server stopped, never delivered) or unknown.
+router.get('/send/:id', async (req, res) => {
+  if (!UUID_RE.test(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
+  res.json(await getSendStatus(req.session.userId, req.params.id));
+});
+
+// Undo: cancels a held send that has not started yet.
+router.post('/send/:id/cancel', async (req, res) => {
+  if (!UUID_RE.test(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
+  res.json(await cancelSend(req.session.userId, req.params.id));
 });
 
 export default router;

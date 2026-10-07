@@ -9,9 +9,8 @@
 //   DECOY  — ordinary document and media types a disguise borrows ("invoice.pdf.exe"); only these count
 //            as the fake half, so a dotted date or version number in a name is not taken for one
 //
-// Antispam reads DECOY for ATTACHMENT_DOUBLE_EXT. ATTACHMENT_EXECUTABLE still reads
-// EXECUTABLE_EXTENSIONS in spamTokenizer.js: moving it to BLOCK changes what it scores, so that belongs
-// with its weight re-tune (#457).
+// Antispam scores BLOCK as ATTACHMENT_EXECUTABLE (and its attachment_is_executable flag), WARN as the
+// lighter ATTACHMENT_ACTIVE_CONTENT, and reads BLOCK and DECOY for ATTACHMENT_DOUBLE_EXT (#457).
 
 export const BLOCK = new Set(['exe', 'scr', 'com', 'pif', 'bat', 'cmd', 'ps1', 'psm1', 'vbs', 'vbe', 'js', 'jse', 'wsf', 'wsh',
   'msi', 'msp', 'mst', 'jar', 'hta', 'cpl', 'reg', 'lnk', 'iso', 'img', 'vhd', 'vhdx', 'dll', 'apk', 'application', 'appx',

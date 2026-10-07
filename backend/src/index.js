@@ -8,7 +8,9 @@ import { WebSocketServer } from 'ws';
 import RedisStore from 'connect-redis';
 import 'dotenv/config';
 import { redisClient } from './services/redis.js';
+import { parseTrustProxyHops } from './utils/trustProxy.js';
 import { buildSessionOptions } from './utils/sessionConfig.js';
+import { mountBodyParsers } from './middleware/bodyParsers.js';
 
 import sendRoutes from './routes/send.js';
 import draftRoutes from './routes/draft.js';
@@ -33,6 +35,7 @@ import { setMailEngine } from './plugins/mailEngine.js';
 import pluginsRoutes from './routes/plugins.js';
 import senderFaviconsRoutes from './routes/senderFavicons.js';
 import diagnosticsRoutes from './routes/diagnostics.js';
+import backupRoutes from './routes/backup.js';
 import spamRoutes, { accountSpamRouter } from './routes/spam.js';
 import carddavRouter from './routes/carddav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
@@ -46,6 +49,7 @@ import { setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
 import { getUpdateStatus } from './services/updateCheck.js';
 import { recordHttp } from './services/performanceMetrics.js';
+import { flushHeldSends } from './services/sendHold.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta = {};
@@ -54,13 +58,19 @@ try {
 } catch {
   // Local dev runs may not have build metadata yet.
 }
-const APP_VERSION = (process.env.APP_VERSION || buildMeta.version || packageMeta.version).replace(/^v[.]?/, '');
+export const APP_VERSION = (process.env.APP_VERSION || buildMeta.version || packageMeta.version).replace(/^v[.]?/, '');
 
 const app = express();
 // Trust the nginx reverse proxy so req.secure reflects HTTPS correctly.
 // Without this, express-session sees HTTP (from nginx) and refuses to set
 // the Secure cookie, meaning the session cookie is never sent to the browser.
-app.set('trust proxy', 1);
+// The hop count also decides req.ip, which keys the login rate limit.
+const trustProxyHops = parseTrustProxyHops(process.env.TRUST_PROXY_HOPS);
+if (trustProxyHops === null) {
+  console.error(`FATAL: TRUST_PROXY_HOPS must be a whole number of at least 1 (the reverse proxies in front of the backend, counting nginx), got "${process.env.TRUST_PROXY_HOPS}". Exiting.`);
+  process.exit(1);
+}
+app.set('trust proxy', trustProxyHops);
 const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 
@@ -121,20 +131,9 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'same-origin');
   next();
 });
-// 25 MB attachment limit → ~34 MB base64 on the wire; add headroom for the rest of the payload.
-app.use('/api/mail/send', express.json({ limit: '35mb' }));
-app.use('/api/mail/draft', express.json({ limit: '35mb' }));
-// A pet-import body carries a base64 spritesheet (~33% larger than the 5 MB sheet cap
-// enforced after decode in gtdPet.importPet), so it needs more than the global 1 MB.
-app.use('/api/gtd/pet/import', express.json({ limit: '8mb' }));
-app.use(express.json({ limit: '1mb' }));
-// Return a clean JSON error when the body parser rejects an oversized payload.
-app.use((err, req, res, next) => {
-  if (err.type === 'entity.too.large') {
-    return res.status(413).json({ error: 'Request too large. Total attachment size must not exceed 25 MB.' });
-  }
-  next(err);
-});
+// Body parsers live in middleware/bodyParsers.js so they can be exercised by tests. The larger
+// limits are for signed-in requests only, so those paths load the session there first.
+mountBodyParsers(app, sessionMiddleware);
 app.use(sessionMiddleware);
 
 // CSRF defense-in-depth for the cookie-authenticated /api surface. A mutating
@@ -185,6 +184,7 @@ app.use('/api/mail', mailRoutes);
 app.use('/api/mail', sendRoutes);
 app.use('/api/mail', draftRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/admin/backup', backupRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/totp', totpRoutes);
 app.use('/api/rules', rulesRoutes);
@@ -302,15 +302,34 @@ httpServer.listen(PORT, () => {
   console.log(`MailFlow backend running on port ${PORT}`);
 });
 
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received — shutting down gracefully');
+function exitAfterClose(code) {
+  // A send held for its undo window lives only in this process: deliver it now rather than
+  // lose it with the restart (services/sendHold.js). Bounded to leave room for the rest.
+  const heldSendsFlushed = flushHeldSends(8000)
+    .catch(err => console.error('Flushing held sends failed:', err.message));
   httpServer.close(async () => {
+    await heldSendsFlushed;
     try { await redisClient.quit(); } catch { /* ignore */ }
-    process.exit(0);
+    process.exit(code);
   });
   // Force exit if graceful shutdown takes more than 10 s
-  setTimeout(() => process.exit(1), 10_000).unref();
+  setTimeout(() => process.exit(code || 1), 10_000).unref();
+}
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received — shutting down gracefully');
+  exitAfterClose(0);
 });
+
+// A restore has replaced the rows every IMAP connection, scheduler and cache was built from,
+// so the process starts over. The exit code is non-zero because systemd's Restart=on-failure
+// (contrib/mailflow.service) leaves a clean exit down; Docker's unless-stopped and pm2 restart
+// either way.
+export function restartAfterRestore() {
+  console.log('Restore complete — restarting so every connection and cache starts from the restored data');
+  wss.clients.forEach(ws => ws.close(1012, 'Restarting'));
+  exitAfterClose(3);
+}
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection:', reason);

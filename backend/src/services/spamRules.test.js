@@ -10,8 +10,8 @@ const baseEmail = {
 };
 
 describe('rules table integrity', () => {
-  it('exports exactly 14 rules', () => {
-    expect(RULES).toHaveLength(14);
+  it('exports exactly 15 rules', () => {
+    expect(RULES).toHaveLength(15);
   });
 
   it('weights match the approved rules-detail doc', () => {
@@ -24,6 +24,7 @@ describe('rules table integrity', () => {
     expect(byName.BODY_URL_SHORTENER).toBe(0.3);
     expect(byName.FROM_REPLYTO_MISMATCH).toBe(0.4);
     expect(byName.ATTACHMENT_EXECUTABLE).toBe(0.6);
+    expect(byName.ATTACHMENT_ACTIVE_CONTENT).toBe(0.3);
     expect(byName.ATTACHMENT_DOUBLE_EXT).toBe(0.3);
     expect(byName.AUTH_DKIM_FAIL).toBe(0.4);
     expect(byName.AUTH_SPF_FAIL).toBe(0.4);
@@ -121,6 +122,49 @@ describe('scoreRules — individual rules', () => {
     expect(fired.some(r => r.name === 'ATTACHMENT_EXECUTABLE')).toBe(true);
     expect(fired.some(r => r.name === 'ATTACHMENT_DOUBLE_EXT')).toBe(true);
     expect(score).toBe(0.6);
+  });
+
+  describe('attachment tiers (#457)', () => {
+    const fired = (filename, extra = {}) => scoreRules({ ...baseEmail, ...extra, attachments: [{ filename }] });
+    const names = r => r.fired.map(f => f.name);
+
+    it('weighs a file that runs code (BLOCK) at 0.6 and one with active content (WARN) at 0.3', () => {
+      for (const f of ['setup.exe', 'run.ps1', 'shortcut.lnk', 'disk.iso', 'app.msi']) {
+        expect(names(fired(f)), f).toEqual(['ATTACHMENT_EXECUTABLE']);
+        expect(fired(f).score, f).toBe(0.6);
+      }
+      for (const f of ['budget.xlsm', 'letter.docm', 'login.html', 'logo.svg']) {
+        expect(names(fired(f)), f).toEqual(['ATTACHMENT_ACTIVE_CONTENT']);
+        expect(fired(f).score, f).toBe(0.3);
+      }
+    });
+
+    it('no longer scores script types the tiers leave out, nor ordinary documents and archives', () => {
+      for (const f of ['notes.rb', 'App.class', 'tool.command', 'report.pdf', 'sheet.xlsx', 'photos.zip']) {
+        expect(names(fired(f)), f).toEqual([]);
+      }
+    });
+
+    it('acceptance: a macro workbook with a shouty subject stays below a spam verdict', () => {
+      // The case the issue named: a regular correspondent sends an .xlsm with an all-caps
+      // subject. Before the tiers this scored 0.6 + 0.3 = 0.9, over the 0.85 spam threshold.
+      const r = fired('Q3 forecast.xlsm', { subject: 'URGENT: Q3 FORECAST UPDATE' });
+      expect(names(r).sort()).toEqual(['ATTACHMENT_ACTIVE_CONTENT', 'SUBJECT_ALL_CAPS']);
+      expect(r.score).toBeCloseTo(0.6);
+      expect(r.score).toBeLessThan(0.85);
+    });
+
+    it('counts the attachment risk once when an executable and a macro file arrive together', () => {
+      const r = scoreRules({ ...baseEmail, attachments: [{ filename: 'a.exe' }, { filename: 'b.xlsm' }] });
+      expect(names(r).sort()).toEqual(['ATTACHMENT_ACTIVE_CONTENT', 'ATTACHMENT_EXECUTABLE']);
+      expect(r.score).toBe(0.6);
+    });
+
+    it('takes a disguised extension only when the real one runs code', () => {
+      expect(names(fired('invoice.pdf.exe'))).toContain('ATTACHMENT_DOUBLE_EXT');
+      expect(names(fired('invoice.pdf.xlsm'))).not.toContain('ATTACHMENT_DOUBLE_EXT');
+      expect(names(fired('backup.2026.10.06.zip'))).toEqual([]);
+    });
   });
 
   it('AUTH_DKIM_FAIL fires on dkim=fail', () => {
@@ -228,7 +272,7 @@ describe('scoreRules — combined scoring', () => {
 describe('explainRules', () => {
   it('reports every rule with fired status', () => {
     const detail = explainRules({ ...baseEmail, subject: 'CHEAP VIAGRA' });
-    expect(detail).toHaveLength(14);
+    expect(detail).toHaveLength(15);
     const fired = detail.filter(r => r.fired).map(r => r.name);
     expect(fired).toContain('SUBJECT_PHARMA_KEYWORDS');
     expect(fired).toContain('SUBJECT_ALL_CAPS');

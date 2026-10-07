@@ -44,7 +44,8 @@ COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY frontend/detect-resolver.sh /docker-entrypoint.d/16-detect-resolver.sh
 COPY frontend/set-backend.sh /docker-entrypoint.d/17-set-backend.sh
 COPY frontend/generate-cert.sh /docker-entrypoint.d/10-generate-cert.sh
-RUN chmod +x /docker-entrypoint.d/10-generate-cert.sh /docker-entrypoint.d/16-detect-resolver.sh /docker-entrypoint.d/17-set-backend.sh
+COPY frontend/set-tls.sh /docker-entrypoint.d/18-set-tls.sh
+RUN chmod +x /docker-entrypoint.d/10-generate-cert.sh /docker-entrypoint.d/16-detect-resolver.sh /docker-entrypoint.d/17-set-backend.sh /docker-entrypoint.d/18-set-tls.sh
 
 EXPOSE 80 443
 

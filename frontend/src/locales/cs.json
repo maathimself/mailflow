@@ -279,6 +279,11 @@
       "automated": "Automatické",
       "social": "Sociální sítě"
     },
+    "categoryAlways": {
+      "done": "Pošta od {{value}} teď půjde do: {{category}}",
+      "doneBody": "Uloženo jako pravidlo doručené pošty; aktualizována i již přijatá pošta.",
+      "failed": "Kategorii pro tohoto odesílatele se nepodařilo uložit"
+    },
     "changeLayout": "Změnit rozvržení",
     "layouts": {
       "focused": {
@@ -472,6 +477,18 @@
       "someRejected": "Poštovní server odmítl doručení na {{addresses}}.",
       "action": "Zobrazit"
     },
+    "undoSend": {
+      "sending": "Odesílání „{{subject}}“…",
+      "undone": "Odeslání vráceno zpět",
+      "reopenLater": "Znovu se otevře, až zavřete zprávu, kterou právě píšete",
+      "notSent": "Vaše zpráva nebyla odeslána",
+      "lost": "Server se před odesláním restartoval, takže zpráva nebyla doručena.",
+      "unknown": "Nepodařilo se ověřit, zda byla zpráva odeslána",
+      "unknownBody": "Než ji odešlete znovu, zkontrolujte složku Odeslané.",
+      "reopen": "Znovu otevřít",
+      "tooLate": "Na vrácení je pozdě: zpráva se už odesílá",
+      "undoFailed": "Nepodařilo se vrátit zpět: server neodpověděl"
+    },
     "toolbar": {
       "removeTable": "Odebrat tabulku",
       "typography": "Formátování písma",
@@ -566,6 +583,7 @@
     "reply": "Odpovědět",
     "replyAll": "Odpovědět všem",
     "forward": "Přeposlat",
+    "forwardAsAttachment": "Přeposlat jako přílohu",
     "moveToFolder": "Přesunout",
     "archive": "Archivovat",
     "snooze": {
@@ -576,6 +594,9 @@
       "custom": "Vlastní…"
     },
     "categorize": "Zařadit jako…",
+    "categoryAlwaysSender": "Vždy pro tohoto odesílatele",
+    "categoryAlwaysDomain": "Vždy pro tuto doménu",
+    "categoryAlwaysFor": "Vždy pro {{value}}",
     "createRule": "Vytvořit pravidlo ze zprávy",
     "addToBlockList": "Přidat na seznam blokovaných",
     "markAsSpam": "Označit jako spam",
@@ -958,7 +979,8 @@
       "groupDisplay": "Zobrazení",
       "groupSecurityIntegrations": "Zabezpečení a integrace",
       "groupAdmin": "Správa",
-      "plugins": "Pluginy"
+      "plugins": "Pluginy",
+      "backup": "Záloha"
     },
     "categories": {
       "title": "Kategorie e-mailů",
@@ -1059,6 +1081,8 @@
       "smtpAuthUserPh": "Stejné jako uživatelské jméno výše",
       "smtpAuthPass": "Heslo SMTP",
       "signatureSection": "Podpis",
+      "autoRecipientsSection": "Automatická kopie a skrytá kopie",
+      "autoRecipientsDesc": "Tyto adresy se přidávají jako běžní příjemci, které můžete odebrat, ke každé nové zprávě, odpovědi a přeposlané zprávě z tohoto účtu nebo jeho aliasů. Adresy oddělte čárkami.",
       "saveChanges": "Uložit změny",
       "addAccount": "Přidat účet",
       "saving": "Ukládání…",
@@ -1184,6 +1208,8 @@
       "actionMove": "Přesunout do složky",
       "actionForward": "Přeposlat na",
       "actionForwardPlaceholder": "prijemce@example.com",
+      "actionSetCategory": "Nastavit kategorii",
+      "actionSetCategorySelect": "Vyberte kategorii…",
       "actionMovePlaceholder": "Přesná cesta ke složce IMAP (např. Práce nebo INBOX/Práce)",
       "actionMoveSelectFolder": "Vyberte složku…",
       "actionMoveRequiresAccount": "Vyžaduje konkrétní účet",
@@ -1257,6 +1283,29 @@
       "resetDefault": "Obnovit výchozí",
       "remove": "Odebrat zkratku",
       "footer": "Aktuální přehled zkratek zobrazíte stisknutím ? kdekoliv v aplikaci."
+    },
+    "backup": {
+      "title": "Záloha a obnovení",
+      "intro": "Záloha obsahuje data tohoto MailFlow: uživatele, e-mailové účty, pravidla, kontakty, nastavení, data pluginů a antispamové učení. Pošta z mezipaměti se po obnovení znovu stáhne z vašich poštovních serverů, pokud ji nezahrnete. Soubor neobsahuje to, co je nastavené v .env: nový server potřebuje stejný ENCRYPTION_KEY a, pokud jste je tam nastavili, stejné klíče VAPID a nastavení klienta OAuth.",
+      "sensitive": "Soubor obsahuje otisky hesel, nevyužité odkazy s pozvánkami a přihlašovací údaje vašich účtů. Přihlašovací údaje jsou zašifrované klíčem ENCRYPTION_KEY tohoto serveru; zbytek je čitelný, stejně jako každá zpráva, pokud je zahrnuta pošta z mezipaměti. Uložte soubor na bezpečné místo. Obnovit jej lze jen na serveru se stejným klíčem.",
+      "includeMail": "Zahrnout poštu z mezipaměti",
+      "includeMailDesc": "Uloží také místní kopii každé synchronizované zprávy, takže soubor bude mnohem větší. Bez ní obnovení stáhne poštu znovu a nejnovější nepřečtené zprávy v každé doručené poště dorazí jako nová pošta: pravidla doručené pošty se na ně použijí znovu, včetně přeposílání. Volba platí pro každou zálohu, dokud ji nezměníte.",
+      "includeMailSaveError": "Nastavení se nepodařilo uložit.",
+      "create": "Stáhnout zálohu",
+      "restoreTitle": "Obnovit ze zálohy",
+      "restoreIntro": "Obnovení nahradí všechny uživatele, účty, nastavení a zprávy v mezipaměti na tomto serveru obsahem souboru. MailFlow se poté restartuje. Kdo nemá účet v záloze, bude odhlášen, a platí hesla ze zálohy.",
+      "versionNote": "Zálohu lze obnovit jen ve verzi MailFlow se stejným schématem databáze jako verze, která ji vytvořila. Má-li tato verze novější schéma, obnovte zálohu ve verzi, která ji vytvořila, a potom aktualizujte.",
+      "chooseFile": "Vybrat soubor zálohy",
+      "restore": "Obnovit…",
+      "confirmWarn": "Vše na tomto serveru bude nahrazeno souborem {{name}}. Tuto akci nelze vrátit zpět.",
+      "confirmYes": "Obnovit a restartovat",
+      "restoring": "Obnovuje se… zapsané řádky: {{rows}}",
+      "done": "Obnovení dokončeno. MailFlow se restartuje; tato stránka se znovu načte, jakmile bude opět dostupný.",
+      "restartTimeout": "MailFlow se do dvou minut nevrátil. Spusťte jej znovu a poté tuto stránku znovu načtěte.",
+      "failed": "Obnovení se nezdařilo: {{message}}",
+      "downloadFailed": "Zálohu se nepodařilo spustit.",
+      "connectionLost": "Během obnovení se přerušilo spojení, takže výsledek není znám. Tato stránka se znovu načte, jakmile MailFlow opět odpoví; pak zkontrolujte, zda jsou data obnovená.",
+      "tooLarge": "Soubor je větší, než povoluje proxy před MailFlow."
     },
     "plugins": {
       "title": "Pluginy",

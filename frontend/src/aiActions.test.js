@@ -11,6 +11,7 @@ describe('summarizePromptForLocale (#255)', () => {
 
   it('appends a language directive for supported non-English locales', () => {
     assert.equal(summarizePromptForLocale('zhCN'), `${SUMMARIZE_PROMPT} Respond in Simplified Chinese.`);
+    assert.equal(summarizePromptForLocale('ko'), `${SUMMARIZE_PROMPT} Respond in Korean.`);
     assert.equal(summarizePromptForLocale('de'), `${SUMMARIZE_PROMPT} Respond in German.`);
     assert.equal(summarizePromptForLocale('cs'), `${SUMMARIZE_PROMPT} Respond in Czech.`);
     assert.equal(summarizePromptForLocale('ru'), `${SUMMARIZE_PROMPT} Respond in Russian.`);

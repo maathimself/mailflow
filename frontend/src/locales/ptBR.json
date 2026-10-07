@@ -145,6 +145,18 @@
       "someRejected": "O servidor de e-mail recusou a entrega para {{addresses}}.",
       "action": "Ver"
     },
+    "undoSend": {
+      "sending": "Enviando \"{{subject}}\"…",
+      "undone": "Envio desfeito",
+      "reopenLater": "Ela reabre quando você fechar a mensagem que está escrevendo",
+      "notSent": "Sua mensagem não foi enviada",
+      "lost": "O servidor reiniciou antes do envio, então a mensagem não foi entregue.",
+      "unknown": "Não foi possível confirmar se sua mensagem foi enviada",
+      "unknownBody": "Confira a pasta Enviados antes de enviá-la de novo.",
+      "reopen": "Reabrir",
+      "tooLate": "Tarde demais para desfazer: a mensagem já está sendo enviada",
+      "undoFailed": "Não foi possível desfazer: o servidor não respondeu"
+    },
     "toolbar": {
       "removeTable": "Remover tabela",
       "typography": "Tipografia",
@@ -404,6 +416,11 @@
       "automated": "Automáticos",
       "social": "Social"
     },
+    "categoryAlways": {
+      "done": "E-mails de {{value}} agora vão para {{category}}",
+      "doneBody": "Salvo como regra da caixa de entrada; os e-mails já recebidos também foram atualizados.",
+      "failed": "Não foi possível salvar a categoria deste remetente"
+    },
     "changeLayout": "Alterar layout",
     "layouts": {
       "focused": {
@@ -498,6 +515,7 @@
     "reply": "Responder",
     "replyAll": "Responder a todos",
     "forward": "Encaminhar",
+    "forwardAsAttachment": "Encaminhar como anexo",
     "moveToFolder": "Mover",
     "archive": "Arquivar",
     "snooze": {
@@ -508,6 +526,9 @@
       "custom": "Personalizado..."
     },
     "categorize": "Categorizar como…",
+    "categoryAlwaysSender": "Sempre para este remetente",
+    "categoryAlwaysDomain": "Sempre para este domínio",
+    "categoryAlwaysFor": "Sempre para {{value}}",
     "createRule": "Criar regra a partir da mensagem",
     "addToBlockList": "Adicionar à lista de bloqueio",
     "markAsSpam": "Marcar como spam",
@@ -768,7 +789,8 @@
       "groupDisplay": "Exibição",
       "groupSecurityIntegrations": "Segurança e integrações",
       "groupAdmin": "Administração",
-      "plugins": "Plugins"
+      "plugins": "Plugins",
+      "backup": "Backup"
     },
     "rules": {
       "title": "Regras da caixa de entrada",
@@ -816,6 +838,8 @@
       "actionMove": "Mover para pasta",
       "actionForward": "Encaminhar para",
       "actionForwardPlaceholder": "destinatario@exemplo.com",
+      "actionSetCategory": "Definir categoria",
+      "actionSetCategorySelect": "Selecione uma categoria…",
       "actionMovePlaceholder": "Caminho IMAP exato da pasta (ex.: Trabalho ou INBOX/Trabalho)",
       "actionMoveSelectFolder": "Selecione uma pasta…",
       "actionMoveRequiresAccount": "Requer uma conta específica",
@@ -878,6 +902,8 @@
       "smtpAuthUserPh": "Igual ao nome de usuário acima",
       "smtpAuthPass": "Senha SMTP",
       "signatureSection": "Assinatura",
+      "autoRecipientsSection": "Cc e Cco automáticos",
+      "autoRecipientsDesc": "Esses endereços são adicionados como destinatários normais, que você pode remover, a cada nova mensagem, resposta e encaminhamento que você escrever a partir desta conta ou de seus apelidos. Separe os endereços por vírgula.",
       "saveChanges": "Salvar alterações",
       "addAccount": "Adicionar conta",
       "saving": "Salvando…",
@@ -1596,6 +1622,29 @@
       "autoLockNeedsPin": "Defina um PIN para ativar o bloqueio automático",
       "autoLockOff": "Desativado",
       "autoLockMin": "{{n}} min"
+    },
+    "backup": {
+      "title": "Backup e restauração",
+      "intro": "Um backup contém os dados deste MailFlow: usuários, contas de e-mail, regras, contatos, configurações, dados de plugins e treinamento antispam. Os e-mails em cache são baixados novamente dos seus servidores de e-mail após uma restauração, a menos que você os inclua. O arquivo não contém o que está definido no .env: um servidor novo precisa da mesma ENCRYPTION_KEY e, se você as definiu ali, das mesmas chaves VAPID e configurações de cliente OAuth.",
+      "sensitive": "O arquivo contém hashes de senhas, links de convite pendentes e as credenciais das suas contas. As credenciais são criptografadas com a ENCRYPTION_KEY deste servidor; o resto pode ser lido, assim como todas as mensagens se os e-mails em cache forem incluídos. Guarde o arquivo em um lugar seguro. Ele só pode ser restaurado em um servidor que use a mesma chave.",
+      "includeMail": "Incluir e-mails em cache",
+      "includeMailDesc": "Salva também a cópia local de cada mensagem sincronizada, o que deixa o arquivo bem maior. Sem ela, a restauração baixa os e-mails de novo, e as mensagens não lidas mais recentes de cada caixa de entrada chegam como e-mails novos: as regras da caixa de entrada são aplicadas de novo, inclusive encaminhamentos. A escolha vale para todos os backups até que você a mude.",
+      "includeMailSaveError": "Não foi possível salvar a configuração.",
+      "create": "Baixar backup",
+      "restoreTitle": "Restaurar um backup",
+      "restoreIntro": "A restauração substitui todos os usuários, contas, configurações e mensagens em cache deste servidor pelo conteúdo do arquivo. Depois o MailFlow reinicia. Quem não tiver conta no backup é desconectado, e as senhas passam a ser as do backup.",
+      "versionNote": "Um backup só é restaurado em uma versão do MailFlow com o mesmo esquema de banco de dados da versão que o criou. Se o esquema desta versão for mais novo, restaure o backup na versão que o criou e depois atualize.",
+      "chooseFile": "Escolher um arquivo de backup",
+      "restore": "Restaurar…",
+      "confirmWarn": "Tudo neste servidor será substituído por {{name}}. Isso não pode ser desfeito.",
+      "confirmYes": "Restaurar e reiniciar",
+      "restoring": "Restaurando… linhas gravadas: {{rows}}",
+      "done": "Restauração concluída. O MailFlow está reiniciando; esta página será recarregada quando ele voltar.",
+      "restartTimeout": "O MailFlow não voltou após dois minutos. Inicie-o novamente e depois recarregue esta página.",
+      "failed": "A restauração falhou: {{message}}",
+      "downloadFailed": "Não foi possível iniciar o backup.",
+      "connectionLost": "A conexão caiu durante a restauração, então o resultado é desconhecido. Esta página será recarregada quando o MailFlow responder de novo; confira então se os dados são os restaurados.",
+      "tooLarge": "O arquivo é maior do que o proxy na frente do MailFlow permite."
     },
     "plugins": {
       "title": "Plugins",

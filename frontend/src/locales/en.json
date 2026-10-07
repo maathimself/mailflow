@@ -145,6 +145,18 @@
       "someRejected": "The mail server refused delivery to {{addresses}}.",
       "action": "View"
     },
+    "undoSend": {
+      "sending": "Sending \"{{subject}}\"…",
+      "undone": "Sending undone",
+      "reopenLater": "It will reopen when you close the message you're writing",
+      "notSent": "Your message was not sent",
+      "lost": "The server restarted before sending it, so it was not delivered.",
+      "unknown": "Could not confirm that your message was sent",
+      "unknownBody": "Check your Sent folder before sending it again.",
+      "reopen": "Reopen",
+      "tooLate": "Too late to undo: the message is already being sent",
+      "undoFailed": "Could not undo: no response from the server"
+    },
     "toolbar": {
       "removeTable": "Remove table",
       "typography": "Typography",
@@ -404,6 +416,11 @@
       "automated": "Automated",
       "social": "Social"
     },
+    "categoryAlways": {
+      "done": "Mail from {{value}} now goes to {{category}}",
+      "doneBody": "Saved as an inbox rule; inbox mail already received was updated too.",
+      "failed": "Couldn't save the category for this sender"
+    },
     "changeLayout": "Change layout",
     "layouts": {
       "focused": {
@@ -498,6 +515,7 @@
     "reply": "Reply",
     "replyAll": "Reply all",
     "forward": "Forward",
+    "forwardAsAttachment": "Forward as attachment",
     "moveToFolder": "Move",
     "archive": "Archive",
     "snooze": {
@@ -508,6 +526,9 @@
       "custom": "Custom..."
     },
     "categorize": "Categorize as…",
+    "categoryAlwaysSender": "Always for this sender",
+    "categoryAlwaysDomain": "Always for this domain",
+    "categoryAlwaysFor": "Always for {{value}}",
     "createRule": "Create rule from message",
     "addToBlockList": "Add to block list",
     "markAsSpam": "Mark as Spam",
@@ -768,7 +789,8 @@
       "groupDisplay": "Display",
       "groupSecurityIntegrations": "Security & Integrations",
       "groupAdmin": "Administration",
-      "plugins": "Plugins"
+      "plugins": "Plugins",
+      "backup": "Backup"
     },
     "rules": {
       "title": "Inbox rules",
@@ -816,6 +838,8 @@
       "actionMove": "Move to folder",
       "actionForward": "Forward to",
       "actionForwardPlaceholder": "recipient@example.com",
+      "actionSetCategory": "Set category",
+      "actionSetCategorySelect": "Select a category…",
       "actionMovePlaceholder": "Exact IMAP folder path (e.g. Work or INBOX/Work)",
       "actionMoveSelectFolder": "Select a folder…",
       "actionMoveRequiresAccount": "Requires a specific account",
@@ -878,6 +902,8 @@
       "smtpAuthUserPh": "Same as username above",
       "smtpAuthPass": "SMTP password",
       "signatureSection": "Signature",
+      "autoRecipientsSection": "Automatic Cc and Bcc",
+      "autoRecipientsDesc": "Added as normal recipients, which you can remove, to every new message, reply and forward you write from this account or its aliases. Separate addresses with commas.",
       "saveChanges": "Save changes",
       "addAccount": "Add account",
       "saving": "Saving…",
@@ -1596,6 +1622,29 @@
       "autoLockNeedsPin": "Set a PIN to enable auto-lock",
       "autoLockOff": "Off",
       "autoLockMin": "{{n}} min"
+    },
+    "backup": {
+      "title": "Backup and restore",
+      "intro": "A backup holds this MailFlow's data: users, email accounts, rules, contacts, settings, plugin data and antispam training. Cached mail is downloaded again from your mail servers after a restore, unless you include it. The file does not hold what is set in .env: a new server needs the same ENCRYPTION_KEY, and the same VAPID keys and OAuth client settings if you set them there.",
+      "sensitive": "The file holds password hashes, pending invite links and your accounts' credentials. The credentials are encrypted with this server's ENCRYPTION_KEY; the rest is readable, and so is every message when cached mail is included. Keep the file somewhere safe. It can only be restored on a server that uses the same key.",
+      "includeMail": "Include cached mail",
+      "includeMailDesc": "Also saves the local copy of every synced message, which makes the file much larger. Without it, a restore downloads the mail again, and the newest unread messages in each inbox arrive as new mail: inbox rules run on them again, forwarding included. The choice is kept for every backup until you change it.",
+      "includeMailSaveError": "The setting could not be saved.",
+      "create": "Download backup",
+      "restoreTitle": "Restore a backup",
+      "restoreIntro": "Restoring replaces every user, account, setting and cached message on this server with the contents of the file. MailFlow then restarts. Anyone whose account is not in the backup is signed out, and the passwords are the ones in the backup.",
+      "versionNote": "A backup restores only on a MailFlow version with the same database schema as the one that made it. If this version's schema is newer, restore the backup on the version that made it, then update.",
+      "chooseFile": "Choose a backup file",
+      "restore": "Restore…",
+      "confirmWarn": "Everything on this server is replaced by {{name}}. This cannot be undone.",
+      "confirmYes": "Restore and restart",
+      "restoring": "Restoring… rows written: {{rows}}",
+      "done": "Restore complete. MailFlow is restarting; this page reloads when it is back.",
+      "restartTimeout": "MailFlow has not come back after two minutes. Start it again, then reload this page.",
+      "failed": "Restore failed: {{message}}",
+      "downloadFailed": "The backup could not be started.",
+      "connectionLost": "The connection was lost during the restore, so its outcome is unknown. This page reloads once MailFlow answers again; then check that your data is the restored one.",
+      "tooLarge": "The file is larger than the proxy in front of MailFlow allows."
     },
     "plugins": {
       "title": "Plugins",

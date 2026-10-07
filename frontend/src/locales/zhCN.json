@@ -145,6 +145,18 @@
       "someRejected": "邮件服务器拒绝投递到 {{addresses}}。",
       "action": "查看"
     },
+    "undoSend": {
+      "sending": "正在发送“{{subject}}”…",
+      "undone": "已撤销发送",
+      "reopenLater": "关闭正在编写的邮件后，它会重新打开",
+      "notSent": "您的邮件未发送",
+      "lost": "服务器在发送前重启，邮件未送达。",
+      "unknown": "无法确认邮件是否已发送",
+      "unknownBody": "再次发送前，请先检查“已发送”文件夹。",
+      "reopen": "重新打开",
+      "tooLate": "来不及撤销：邮件已在发送中",
+      "undoFailed": "无法撤销：服务器没有响应"
+    },
     "toolbar": {
       "removeTable": "删除表格",
       "typography": "排版",
@@ -404,6 +416,11 @@
       "automated": "自动邮件",
       "social": "社交"
     },
+    "categoryAlways": {
+      "done": "来自 {{value}} 的邮件现在归入{{category}}",
+      "doneBody": "已保存为收件箱规则；已收到的收件箱邮件也已更新。",
+      "failed": "无法保存此发件人的分类"
+    },
     "changeLayout": "更改布局",
     "layouts": {
       "focused": {
@@ -498,6 +515,7 @@
     "reply": "回复",
     "replyAll": "回复全部",
     "forward": "转发",
+    "forwardAsAttachment": "作为附件转发",
     "moveToFolder": "移动",
     "archive": "归档",
     "snooze": {
@@ -508,6 +526,9 @@
       "custom": "自定义……"
     },
     "categorize": "分类为…",
+    "categoryAlwaysSender": "始终用于此发件人",
+    "categoryAlwaysDomain": "始终用于此域名",
+    "categoryAlwaysFor": "始终用于 {{value}}",
     "createRule": "根据此邮件创建规则",
     "addToBlockList": "添加到黑名单",
     "markAsSpam": "标记为垃圾邮件",
@@ -768,7 +789,8 @@
       "groupDisplay": "显示",
       "groupSecurityIntegrations": "安全与集成",
       "groupAdmin": "管理",
-      "plugins": "插件"
+      "plugins": "插件",
+      "backup": "备份"
     },
     "rules": {
       "title": "收件箱规则",
@@ -809,6 +831,8 @@
       "actionMove": "移动到文件夹",
       "actionForward": "转发至",
       "actionForwardPlaceholder": "shoujianren@example.com",
+      "actionSetCategory": "设置分类",
+      "actionSetCategorySelect": "选择分类…",
       "actionMovePlaceholder": "文件夹名称",
       "actionMoveSelectFolder": "选择文件夹…",
       "actionMoveRequiresAccount": "需要指定账户",
@@ -878,6 +902,8 @@
       "smtpAuthUserPh": "与上面的用户名相同",
       "smtpAuthPass": "SMTP 密码",
       "signatureSection": "签名",
+      "autoRecipientsSection": "自动抄送和密送",
+      "autoRecipientsDesc": "这些地址会作为普通收件人添加到您通过此账户或其别名撰写的每封新邮件、回复和转发中，您可以将其移除。多个地址请以英文逗号分隔。",
       "saveChanges": "保存更改",
       "addAccount": "添加账户",
       "saving": "保存中…",
@@ -1596,6 +1622,29 @@
       "autoLockNeedsPin": "设置 PIN 码以启用自动锁定",
       "autoLockOff": "关闭",
       "autoLockMin": "{{n}} 分钟"
+    },
+    "backup": {
+      "title": "备份与恢复",
+      "intro": "备份文件包含此 MailFlow 的数据：用户、邮件账户、规则、联系人、设置、插件数据和反垃圾邮件训练数据。除非选择包含，缓存的邮件会在恢复后从你的邮件服务器重新下载。文件不包含 .env 中的设置：新服务器需要相同的 ENCRYPTION_KEY；如果你在 .env 中设置了 VAPID 密钥和 OAuth 客户端设置，也需要相同的值。",
+      "sensitive": "该文件包含密码哈希、尚未使用的邀请链接以及各账户的登录凭据。其中登录凭据已使用本服务器的 ENCRYPTION_KEY 加密，其余内容均可直接读取；如果包含缓存邮件，所有邮件内容同样可读。请妥善保管该文件。它只能在使用相同密钥的服务器上恢复。",
+      "includeMail": "包含缓存的邮件",
+      "includeMailDesc": "同时保存每封已同步邮件的本地副本，文件会因此大很多。如果不包含，恢复后会重新下载邮件，且每个收件箱中最新的未读邮件会作为新邮件再次到达：收件箱规则会再次作用于它们，包括转发。此选择将用于之后的每次备份，直到你更改为止。",
+      "includeMailSaveError": "无法保存该设置。",
+      "create": "下载备份",
+      "restoreTitle": "恢复备份",
+      "restoreIntro": "恢复会用文件中的内容替换本服务器上的所有用户、账户、设置和缓存邮件。随后 MailFlow 会重启。账户不在备份中的用户会被登出，密码以备份中的为准。",
+      "versionNote": "备份只能在数据库结构与创建它的版本相同的 MailFlow 版本上恢复。如果当前版本的数据库结构较新，请先在创建备份的版本上恢复，然后再升级。",
+      "chooseFile": "选择备份文件",
+      "restore": "恢复…",
+      "confirmWarn": "本服务器上的全部内容将被 {{name}} 替换。此操作无法撤销。",
+      "confirmYes": "恢复并重启",
+      "restoring": "正在恢复… 已写入行数：{{rows}}",
+      "done": "恢复完成。MailFlow 正在重启，恢复可用后本页面会自动重新加载。",
+      "restartTimeout": "MailFlow 在两分钟内未能恢复运行。请重新启动它，然后重新加载本页面。",
+      "failed": "恢复失败：{{message}}",
+      "downloadFailed": "无法开始备份。",
+      "connectionLost": "恢复过程中连接中断，因此结果未知。MailFlow 恢复响应后本页面会重新加载；届时请确认数据是否已恢复。",
+      "tooLarge": "文件大小超过了 MailFlow 前面的反向代理所允许的上限。"
     },
     "plugins": {
       "title": "插件",

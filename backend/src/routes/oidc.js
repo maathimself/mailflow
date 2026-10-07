@@ -280,6 +280,11 @@ oidcBrowserRouter.get('/:slug/start', async (req, res) => {
   if (isLink && !req.session?.userId) {
     return oidcError(res, action, 'Not authenticated');
   }
+  // The screen-lock gate in index.js (#235) covers only /api, not this router. A locked session
+  // must not link another identity to the account, or sign in again to get an unlocked session.
+  if (req.session?.locked) {
+    return oidcError(res, action, 'Screen was locked — please try again');
+  }
 
   try {
     const provResult = await query(
@@ -333,6 +338,12 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
 
   const pending = req.session.oidcPending;
   const pendingAction = pending?.action || 'login';
+
+  // Also covers a flow that started before the lock, e.g. auto-lock in another tab.
+  if (req.session.locked) {
+    delete req.session.oidcPending;
+    return oidcError(res, pendingAction, 'Screen was locked — please try again');
+  }
 
   if (error) {
     console.error('OIDC provider error:', error, error_description);

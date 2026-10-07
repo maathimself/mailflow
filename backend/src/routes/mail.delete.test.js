@@ -24,11 +24,60 @@ const MSG_ID = 'b2b2b2b2-2222-4222-8222-b2b2b2b2b2b2';
 // (uid -> mail). The fakes mutate both, so a second request sees what the first one left behind.
 let rows, server, uidplus, nextTrashUid;
 
-function reset({ trash = {}, withUidplus = true } = {}) {
-  rows = new Map([[MSG_ID, { id: MSG_ID, account_id: ACCOUNT_ID, uid: 42, folder: 'INBOX', is_read: false, message_id: '<a@example.com>' }]]);
-  server = { INBOX: new Map([[42, 'MAIL-A']]), Trash: new Map(Object.entries(trash).map(([u, m]) => [Number(u), m])) };
+function reset({ trash = {}, withUidplus = true, folder = 'INBOX' } = {}) {
+  rows = new Map([[MSG_ID, { id: MSG_ID, account_id: ACCOUNT_ID, uid: 42, folder, is_read: false, message_id: '<a@example.com>' }]]);
+  server = { [folder]: new Map([[42, 'MAIL-A']]), Trash: new Map(Object.entries(trash).map(([u, m]) => [Number(u), m])) };
   uidplus = withUidplus;
   nextTrashUid = 900;
+}
+
+// The account's folders as syncFolders stores them. Trash and Drafts lookups are answered by
+// evaluating each query against them, as Postgres would.
+const folderRow = (path, special_use = null) => ({ path, name: path.split('/').pop(), delimiter: '/', special_use });
+const FOLDERS = [
+  folderRow('INBOX'), folderRow('Trash', '\\Trash'), folderRow('Drafts', '\\Drafts'),
+  folderRow('Blog drafts'), folderRow('Deleted clients'), folderRow('Clients/Drafts'), folderRow('Old Account/Trash'),
+];
+
+// The same evaluator as mailUtils.test.js: it knows only the conditions the Trash and Drafts
+// resolvers use, before and after this change, and throws on anything else.
+const FOLDER_CONDITIONS = [
+  [/special_use = '(\\\w+)'/y, ([, flag]) => f => f.special_use === flag],
+  [/lower\(name\) LIKE '%(\w+)%'/y, ([, word]) => f => f.name.toLowerCase().includes(word)],
+  [/lower\(name\) IN \(([^)]*)\)/y, ([, list]) => f => list.split(', ').includes(`'${f.name.toLowerCase()}'`)],
+  [/path = name/y, () => f => f.path === f.name],
+  [/upper\(path\) = \('INBOX' \|\| delimiter \|\| upper\(name\)\)/y,
+    () => f => f.delimiter !== null && f.path.toUpperCase() === `INBOX${f.delimiter}${f.name}`.toUpperCase()],
+];
+
+// SQL's AND binds tighter than its OR, as JS's && does ||.
+function folderCondition(text) {
+  let at = 0;
+  const take = (re) => { re.lastIndex = at; const m = re.exec(text); if (m) at = re.lastIndex; return m; };
+  const fail = () => { throw new Error(`unrecognised condition at "${text.slice(at)}" in: ${text}`); };
+  const term = () => {
+    if (take(/\(/y)) { const inner = anyOf(); return take(/\)/y) ? inner : fail(); }
+    for (const [re, build] of FOLDER_CONDITIONS) { const m = take(re); if (m) return build(m); }
+    return fail();
+  };
+  const allOf = () => { let t = term(); while (take(/ AND /y)) { const [a, b] = [t, term()]; t = f => a(f) && b(f); } return t; };
+  const anyOf = () => { let t = allOf(); while (take(/ OR /y)) { const [a, b] = [t, allOf()]; t = f => a(f) || b(f); } return t; };
+  const test = anyOf();
+  return at === text.length ? test : fail();
+}
+
+function selectFolders(rawSql, folders) {
+  const sql = rawSql.replace(/\s+/g, ' ').trim();
+  const [, where, first, limit] = sql.match(
+    /^SELECT path FROM folders WHERE account_id = \$1 AND (.+?)(?: ORDER BY \(CASE WHEN (.+) THEN 0 ELSE 1 END\))?(?: LIMIT (\d+))?$/
+  ) ?? [];
+  if (!where) throw new Error(`unrecognised query: ${sql}`);
+  let rows = folders.filter(folderCondition(where));
+  if (first) {
+    const isFirst = folderCondition(first);
+    rows = [...rows.filter(isFirst), ...rows.filter(f => !isFirst(f))];
+  }
+  return rows.slice(0, limit ? Number(limit) : undefined).map(({ path }) => ({ path }));
 }
 
 function fakeQuery(rawSql, params = []) {
@@ -39,8 +88,7 @@ function fakeQuery(rawSql, params = []) {
     return result(row ? [{ ...row, user_id: 'user-1' }] : []);
   }
   if (sql.startsWith('SELECT * FROM email_accounts')) return result([{ id: ACCOUNT_ID, user_id: 'user-1', folder_mappings: null }]);
-  if (sql.includes("special_use = '\\Drafts'")) return result([]);
-  if (sql.includes("special_use = '\\Trash'")) return result([{ path: 'Trash' }]);
+  if (sql.startsWith('SELECT path FROM folders')) return result(selectFolders(sql, FOLDERS));
   if (sql.startsWith('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4')) {
     for (const [id, r] of [...rows]) if (r.uid === params[1] && r.folder === params[2] && id !== params[3]) rows.delete(id);
     return result([]);
@@ -82,7 +130,7 @@ const countDeltas = (path) => query.mock.calls
   .filter(([sql, p]) => sql.includes('UPDATE folders f') && p?.[3] === path)
   .map(([, p]) => p[0]);
 
-describe('DELETE /api/mail/messages/:id — repeated and overlapping deletes', () => {
+describe('DELETE /api/mail/messages/:id', () => {
   let srv, base;
   beforeAll(async () => {
     const app = express();
@@ -157,5 +205,14 @@ describe('DELETE /api/mail/messages/:id — repeated and overlapping deletes', (
     expect([...rows.values()]).toEqual([expect.objectContaining({ id: MSG_ID, folder: 'INBOX', uid: 42 })]);
     expect(await del()).toBe(200);
     expect(server.Trash.get(900)).toBe('MAIL-A');
+  });
+
+  it.each(['Blog drafts', 'Deleted clients', 'Clients/Drafts', 'Old Account/Trash'])('moves mail in the user folder %j to Trash instead of expunging it', async (folder) => {
+    reset({ folder });
+    expect(await del()).toBe(200);
+    expect(imapManager.permanentDeleteMessage).not.toHaveBeenCalled();
+    expect(server[folder].size).toBe(0);
+    expect(server.Trash.get(900)).toBe('MAIL-A');
+    expect(trashRow()).toMatchObject({ uid: 900 });
   });
 });

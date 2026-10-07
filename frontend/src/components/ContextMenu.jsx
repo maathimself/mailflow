@@ -8,7 +8,7 @@ import { downloadEml } from '../utils/downloadEml.js';
 import { usePluginCollected } from '../plugins/PluginSlot.jsx';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
-import { folderMatchesQuery, favoriteMoveTargets } from '../utils/folderDisplay.js';
+import { folderMatchesQuery, favoriteMoveTargets, recentMoveTargets } from '../utils/folderDisplay.js';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import { useMobile } from '../hooks/useMobile.js';
 
@@ -47,6 +47,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   const [customSnoozeView, setCustomSnoozeView] = useState(false);
   const [customDate, setCustomDate] = useState('');
   const [customTime, setCustomTime] = useState('09:00');
+  // false, or which category list is open: 'message' (this message), 'sender' or 'domain' (#490).
   const [categorizeView, setCategorizeView] = useState(false);
   const [folderSearch, setFolderSearch] = useState('');
   const unreadCount = Number.parseInt(message.unread_count, 10);
@@ -224,6 +225,12 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           label: t('contextMenu.forward'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/></svg>,
           action: () => onAction('forward'),
+        },
+        {
+          // The original as an .eml with all its headers, e.g. for SpamCop (#466).
+          label: t('contextMenu.forwardAsAttachment'),
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>,
+          action: () => onAction('forwardAsAttachment'),
         }]),
         {
           label: t('contextMenu.moveToFolder'),
@@ -247,7 +254,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
         ...(categorizationActive && menuPolicy.categorize ? [{
           label: t('contextMenu.categorize'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>,
-          action: () => setCategorizeView(true),
+          action: () => setCategorizeView('message'),
           keepOpen: true,
           hasSubmenu: true,
         }] : []),
@@ -421,48 +428,85 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           // A plugin item opened its own submenu (e.g. GTD's classify/remove list). It renders its
           // own back row; onBack returns to the item list.
           pluginSubmenu(() => setPluginSubmenu(null))
-        ) : categorizeView ? (
-          <>
+        ) : categorizeView ? ((() => {
+          // "Always for this sender/domain" needs an address to match on (#490).
+          const sender = String(message.from_email || '').trim().toLowerCase();
+          const at = sender.lastIndexOf('@');
+          const domain = at > 0 && at < sender.length - 1 ? sender.slice(at) : '';
+          const scoped = categorizeView === 'sender' || categorizeView === 'domain';
+          const backRow = (label, onClick) => (
             <div
-              onClick={() => setCategorizeView(false)}
+              onClick={onClick}
               style={{
                 display: 'flex', alignItems: 'center', gap: 8,
                 padding: '8px 14px', cursor: 'pointer',
                 borderBottom: '1px solid var(--border-subtle)',
                 color: 'var(--text-secondary)', fontSize: 12,
+                overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
               }}
               onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ flexShrink: 0 }}>
                 <polyline points="15 18 9 12 15 6"/>
               </svg>
-              {t('contextMenu.categorize')}
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
             </div>
-            {CATEGORIES.map(cat => {
-              const isCurrent = (message.category || 'primary') === cat;
-              return (
-                <div
-                  key={cat}
-                  onClick={() => { if (!isCurrent) { onAction('setCategory', cat); onClose(); } }}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '7px 14px', cursor: isCurrent ? 'default' : 'pointer',
-                    fontSize: 13, color: isCurrent ? 'var(--text-tertiary)' : 'var(--text-primary)',
-                  }}
-                  onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                >
-                  <span style={{ flex: 1 }}>{t(`messageList.categories.${cat}`)}</span>
-                  {isCurrent && (
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2.5">
-                      <polyline points="20 6 9 17 4 12"/>
-                    </svg>
-                  )}
-                </div>
-              );
-            })}
-          </>
+          );
+          const row = (key, label, onClick, { current = false, submenu = false } = {}) => (
+            <div
+              key={key}
+              onClick={current ? undefined : onClick}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '7px 14px', cursor: current ? 'default' : 'pointer',
+                fontSize: 13, color: current ? 'var(--text-tertiary)' : 'var(--text-primary)',
+              }}
+              onMouseEnter={e => { if (!current) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <span style={{ flex: 1 }}>{label}</span>
+              {current && (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2.5">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              )}
+              {submenu && (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2.5">
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
+              )}
+            </div>
+          );
+          if (scoped) {
+            const value = categorizeView === 'sender' ? sender : domain;
+            return (
+              <>
+                {backRow(t('contextMenu.categoryAlwaysFor', { value }), () => setCategorizeView('message'))}
+                {CATEGORIES.map(cat => row(cat, t(`messageList.categories.${cat}`), () => {
+                  onAction('setCategoryAlways', { scope: categorizeView, category: cat });
+                  onClose();
+                }))}
+              </>
+            );
+          }
+          return (
+            <>
+              {backRow(t('contextMenu.categorize'), () => setCategorizeView(false))}
+              {CATEGORIES.map(cat => row(cat, t(`messageList.categories.${cat}`), () => {
+                onAction('setCategory', cat);
+                onClose();
+              }, { current: (message.category || 'primary') === cat }))}
+              {sender && domain && (
+                <>
+                  <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
+                  {row('always-sender', t('contextMenu.categoryAlwaysSender'), () => setCategorizeView('sender'), { submenu: true })}
+                  {row('always-domain', t('contextMenu.categoryAlwaysDomain'), () => setCategorizeView('domain'), { submenu: true })}
+                </>
+              )}
+            </>
+          );
+        })()
         ) : snoozeView ? (
           customSnoozeView ? (
             /* Custom date/time picker */
@@ -664,10 +708,9 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                     </>
                   );
                 }
-                const recentForAccount = recentFolders
-                  .filter(r => r.accountId === message.account_id && r.path !== message.folder)
-                  .map(r => (moveFolders || []).find(f => f.path === r.path))
-                  .filter(Boolean);
+                const recentForAccount = recentMoveTargets(recentFolders, moveFolders, {
+                  accountId: message.account_id, currentFolder: message.folder,
+                });
                 const favoritesForAccount = favoriteMoveTargets(favoriteFolders, moveFolders, {
                   accountId: message.account_id, currentFolder: message.folder, exclude: recentForAccount,
                 });

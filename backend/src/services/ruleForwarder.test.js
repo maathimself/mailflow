@@ -1,12 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
 vi.mock('./smtpTransport.js', () => ({
   createAccountSmtpTransport: vi.fn(),
 }));
 
+import { createHash, createHmac, hkdfSync } from 'crypto';
+import nodemailer from 'nodemailer';
 import { query } from './db.js';
 import { createAccountSmtpTransport } from './smtpTransport.js';
+import { parseRawHeaders } from './messageParser.js';
 import {
   buildForwardMessage,
   forwardRuleMessage,
@@ -48,6 +51,27 @@ const messageRow = {
   body_html: '<p>Original body</p>',
   attachments: [],
 };
+
+// The headers sync hands the rules when a sent forward lands in a mailbox: the message as
+// nodemailer writes it, read back by the parser sync uses.
+async function deliveredHeaders(mail) {
+  const { message } = await nodemailer
+    .createTransport({ streamTransport: true, buffer: true, newline: 'windows' })
+    .sendMail(mail);
+  return parseRawHeaders(message.subarray(0, message.indexOf('\r\n\r\n')));
+}
+
+// The loop token is keyed with a key derived from ENCRYPTION_KEY, which index.js requires.
+const KEY = 'a1'.repeat(32);
+const OTHER_KEY = '5e'.repeat(32);
+
+beforeEach(() => {
+  vi.stubEnv('ENCRYPTION_KEY', KEY);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('buildForwardMessage', () => {
   it('builds a PII-free-shape Fwd message and escapes forwarded headers', () => {
@@ -146,6 +170,31 @@ describe('buildForwardMessage', () => {
 
     expect(mail.text).toContain('Plain body only');
     expect(mail).not.toHaveProperty('html');
+  });
+
+  it('keys the loop token with a key derived from ENCRYPTION_KEY', async () => {
+    const tokenUnder = async key => {
+      vi.resetModules();
+      vi.stubEnv('ENCRYPTION_KEY', key);
+      const forwarder = await import('./ruleForwarder.js');
+      return forwarder.buildForwardMessage({
+        row: messageRow,
+        account,
+        recipient: 'recipient@example.com',
+        text: 'Plain body',
+      }).headers['X-MailFlow-Loop'];
+    };
+    const token = await tokenUnder(KEY);
+
+    // Only this instance can compute it: an HMAC of the address under the HKDF-derived key.
+    const derived = Buffer.from(
+      hkdfSync('sha256', Buffer.from(KEY, 'hex'), Buffer.alloc(0), 'mailflow:rule-forward-loop', 32)
+    );
+    expect(token).toBe(createHmac('sha256', derived)
+      .update(account.email_address)
+      .digest('hex')
+      .slice(0, 16));
+    expect(await tokenUnder(OTHER_KEY)).not.toBe(token);
   });
 });
 
@@ -550,5 +599,131 @@ describe('forwardRuleMessage', () => {
     expect(transport.sendMail).toHaveBeenCalledTimes(2);
     expect(createAccountSmtpTransport).toHaveBeenCalledTimes(2);
     expect(reservationStatus).toBe('sent');
+  });
+
+  // Every forward gets a reservation and the same source row.
+  function reserveEveryForward() {
+    query.mockImplementation(async sql => ({
+      rows: sql.includes('INSERT INTO inbox_rule_forwards')
+        ? [{ id: 'delivery-1' }]
+        : sql.includes('FROM messages') ? [messageRow] : [],
+    }));
+  }
+
+  it('stops a forward that comes back to a mailbox that already forwarded it', async () => {
+    const upstream = { ...account, id: 'account-0', email_address: 'upstream@example.net' };
+    const second = { ...account, id: 'account-2', email_address: 'second@example.org' };
+    const third = { ...account, id: 'account-3', email_address: 'third@example.org' };
+    const hops = [[upstream, account], [account, second], [second, third], [third, account]];
+    reserveEveryForward();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      let parsedHeaders;
+      for (const [index, [from, to]] of hops.entries()) {
+        await expect(forwardRuleMessage({
+          ...input,
+          ruleId: `rule-${index}`,
+          account: from,
+          recipient: to.email_address,
+          message: { id: `message-${index}`, parsedHeaders },
+        })).resolves.toBe('sent');
+        parsedHeaders = await deliveredHeaders(transport.sendMail.mock.calls[index][0]);
+      }
+      const queriesBeforeReturn = query.mock.calls.length;
+
+      await expect(forwardRuleMessage({
+        ...input,
+        recipient: second.email_address,
+        message: { id: 'message-4', parsedHeaders },
+      })).resolves.toBe('loop');
+
+      expect(query).toHaveBeenCalledTimes(queriesBeforeReturn);
+      expect(transport.sendMail).toHaveBeenCalledTimes(hops.length);
+      const tokens = parsedHeaders['x-mailflow-loop'].split(', ');
+      expect(tokens).toHaveLength(hops.length);
+      expect(new Set(tokens).size).toBe(hops.length);
+      for (const token of tokens) expect(token).toMatch(/^[0-9a-f]{16}$/);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const logged = warn.mock.calls.flat().join(' ');
+      for (const [from] of hops) expect(logged).not.toContain(from.email_address);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('stops a loop through ten mailboxes, the most a forward records', async () => {
+    const mailboxes = Array.from({ length: 10 }, (_, index) => ({
+      ...account,
+      id: `account-${index}`,
+      email_address: `mailbox${index}@example.org`,
+    }));
+    reserveEveryForward();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      let parsedHeaders;
+      for (const [index, from] of mailboxes.entries()) {
+        await expect(forwardRuleMessage({
+          ...input,
+          ruleId: `rule-${index}`,
+          account: from,
+          recipient: mailboxes[(index + 1) % mailboxes.length].email_address,
+          message: { id: `message-${index}`, parsedHeaders },
+        })).resolves.toBe('sent');
+        parsedHeaders = await deliveredHeaders(transport.sendMail.mock.calls[index][0]);
+      }
+      expect(parsedHeaders['x-mailflow-loop'].split(', ')).toHaveLength(10);
+
+      // Back at the first mailbox, whose token is now the oldest one kept.
+      await expect(forwardRuleMessage({
+        ...input,
+        ruleId: 'rule-0',
+        account: mailboxes[0],
+        recipient: mailboxes[1].email_address,
+        message: { id: 'message-10', parsedHeaders },
+      })).resolves.toBe('loop');
+      expect(transport.sendMail).toHaveBeenCalledTimes(mailboxes.length);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('passes on the nine newest well-formed tokens, so added tokens cannot stop a forward', async () => {
+    const added = Array.from({ length: 12 }, (_, i) => i.toString(16).repeat(16));
+    // A token anyone could compute from the address: an unkeyed hash of it.
+    const fromAddress = createHash('sha256')
+      .update(`mailflow-loop:${account.email_address}`)
+      .digest('hex')
+      .slice(0, 16);
+    reserveEveryForward();
+
+    await expect(forwardRuleMessage({
+      ...input,
+      message: {
+        id: 'message-2',
+        parsedHeaders: parseRawHeaders(
+          `X-MailFlow-Loop: ${[...added, fromAddress, 'mailbox@example.com'].join(', ')}`
+        ),
+      },
+    })).resolves.toBe('sent');
+
+    const delivered = await deliveredHeaders(transport.sendMail.mock.calls[0][0]);
+    const tokens = delivered['x-mailflow-loop'].split(', ');
+    expect(tokens.slice(0, -1)).toEqual([...added.slice(-8), fromAddress]);
+    expect(tokens.at(-1)).toMatch(/^[0-9a-f]{16}$/);
+    expect([...added, fromAddress]).not.toContain(tokens.at(-1));
+  });
+
+  it('reserves and sends nothing without a valid ENCRYPTION_KEY', async () => {
+    vi.resetModules();
+    vi.stubEnv('ENCRYPTION_KEY', '');
+    const { forwardRuleMessage: forward } = await import('./ruleForwarder.js');
+    const { query: freshQuery } = await import('./db.js');
+    const { createAccountSmtpTransport: freshSmtp } = await import('./smtpTransport.js');
+
+    await expect(forward(input)).rejects.toThrow(/ENCRYPTION_KEY/);
+    expect(freshQuery).not.toHaveBeenCalled();
+    expect(freshSmtp).not.toHaveBeenCalled();
   });
 });

@@ -145,6 +145,18 @@
       "someRejected": "Le serveur de messagerie a refusé la remise à {{addresses}}.",
       "action": "Voir"
     },
+    "undoSend": {
+      "sending": "Envoi de « {{subject}} »…",
+      "undone": "Envoi annulé",
+      "reopenLater": "Il se rouvrira quand vous fermerez le message en cours de rédaction",
+      "notSent": "Votre message n'a pas été envoyé",
+      "lost": "Le serveur a redémarré avant l'envoi : le message n'a pas été remis.",
+      "unknown": "Impossible de confirmer l'envoi de votre message",
+      "unknownBody": "Vérifiez le dossier Envoyés avant de le renvoyer.",
+      "reopen": "Rouvrir",
+      "tooLate": "Trop tard pour annuler : le message est déjà en cours d'envoi",
+      "undoFailed": "Impossible d'annuler : le serveur n'a pas répondu"
+    },
     "toolbar": {
       "removeTable": "Supprimer le tableau",
       "typography": "Typographie",
@@ -404,6 +416,11 @@
       "automated": "Automatisé",
       "social": "Réseaux sociaux"
     },
+    "categoryAlways": {
+      "done": "Les e-mails de {{value}} vont désormais dans {{category}}",
+      "doneBody": "Enregistré comme règle de réception ; les e-mails déjà reçus ont aussi été mis à jour.",
+      "failed": "Impossible d’enregistrer la catégorie pour cet expéditeur"
+    },
     "changeLayout": "Changer la disposition",
     "layouts": {
       "focused": {
@@ -498,6 +515,7 @@
     "reply": "Répondre",
     "replyAll": "Répondre à tous",
     "forward": "Transférer",
+    "forwardAsAttachment": "Transférer en pièce jointe",
     "moveToFolder": "Déplacer",
     "archive": "Archiver",
     "snooze": {
@@ -508,6 +526,9 @@
       "custom": "Personnalisé..."
     },
     "categorize": "Catégoriser comme…",
+    "categoryAlwaysSender": "Toujours pour cet expéditeur",
+    "categoryAlwaysDomain": "Toujours pour ce domaine",
+    "categoryAlwaysFor": "Toujours pour {{value}}",
     "createRule": "Créer une règle depuis ce message",
     "addToBlockList": "Ajouter à la liste de blocage",
     "markAsSpam": "Marquer comme Spam",
@@ -768,7 +789,8 @@
       "groupDisplay": "Affichage",
       "groupSecurityIntegrations": "Sécurité et intégrations",
       "groupAdmin": "Administration",
-      "plugins": "Extensions"
+      "plugins": "Extensions",
+      "backup": "Sauvegarde"
     },
     "rules": {
       "title": "Règles de boîte de réception",
@@ -809,6 +831,8 @@
       "actionMove": "Déplacer vers le dossier",
       "actionForward": "Transférer à",
       "actionForwardPlaceholder": "destinataire@example.com",
+      "actionSetCategory": "Définir la catégorie",
+      "actionSetCategorySelect": "Choisir une catégorie…",
       "actionMovePlaceholder": "Nom du dossier",
       "stopProcessing": "Arrêter le traitement des règles suivantes si celle-ci correspond",
       "stopProcessingHint": "Si cette règle correspond, les règles suivantes ne s'exécuteront pas pour le même message.",
@@ -876,6 +900,8 @@
       "smtpAuthUserPh": "Identique au nom d'utilisateur ci-dessus",
       "smtpAuthPass": "Mot de passe SMTP",
       "signatureSection": "Signature",
+      "autoRecipientsSection": "Cc et Cci automatiques",
+      "autoRecipientsDesc": "Ces adresses sont ajoutées comme destinataires normaux, que vous pouvez retirer, à chaque nouveau message, réponse et transfert que vous rédigez depuis ce compte ou ses alias. Séparez les adresses par des virgules.",
       "saveChanges": "Enregistrer les modifications",
       "addAccount": "Ajouter un compte",
       "saving": "Enregistrement…",
@@ -1596,6 +1622,29 @@
       "autoLockNeedsPin": "Définissez un PIN pour activer le verrouillage automatique",
       "autoLockOff": "Désactivé",
       "autoLockMin": "{{n}} min"
+    },
+    "backup": {
+      "title": "Sauvegarde et restauration",
+      "intro": "Une sauvegarde contient les données de ce MailFlow : utilisateurs, comptes de messagerie, règles, contacts, réglages, données des extensions et apprentissage antispam. Le courrier en cache est retéléchargé depuis vos serveurs de messagerie après une restauration, sauf si vous l'incluez. Le fichier ne contient pas ce qui est défini dans .env : un nouveau serveur a besoin de la même ENCRYPTION_KEY et, si vous les y avez définis, des mêmes clés VAPID et réglages de client OAuth.",
+      "sensitive": "Le fichier contient les empreintes des mots de passe, les liens d'invitation en attente et les identifiants de vos comptes. Les identifiants sont chiffrés avec l'ENCRYPTION_KEY de ce serveur ; le reste est lisible, tout comme chaque message si le courrier en cache est inclus. Conservez le fichier en lieu sûr. Il ne peut être restauré que sur un serveur utilisant la même clé.",
+      "includeMail": "Inclure le courrier en cache",
+      "includeMailDesc": "Enregistre aussi la copie locale de chaque message synchronisé, ce qui rend le fichier bien plus volumineux. Sans elle, une restauration retélécharge le courrier, et les messages non lus les plus récents de chaque boîte de réception arrivent comme du nouveau courrier : les règles de la boîte de réception s'y appliquent de nouveau, transferts compris. Ce choix s'applique à chaque sauvegarde jusqu'à ce que vous le changiez.",
+      "includeMailSaveError": "Le réglage n'a pas pu être enregistré.",
+      "create": "Télécharger la sauvegarde",
+      "restoreTitle": "Restaurer une sauvegarde",
+      "restoreIntro": "La restauration remplace tous les utilisateurs, comptes, réglages et messages en cache de ce serveur par le contenu du fichier. MailFlow redémarre ensuite. Les personnes dont le compte ne figure pas dans la sauvegarde sont déconnectées, et les mots de passe deviennent ceux de la sauvegarde.",
+      "versionNote": "Une sauvegarde ne se restaure que sur une version de MailFlow ayant le même schéma de base de données que celle qui l'a créée. Si le schéma de cette version est plus récent, restaurez la sauvegarde sur la version qui l'a créée, puis mettez à jour.",
+      "chooseFile": "Choisir un fichier de sauvegarde",
+      "restore": "Restaurer…",
+      "confirmWarn": "Tout le contenu de ce serveur sera remplacé par {{name}}. Cette action est irréversible.",
+      "confirmYes": "Restaurer et redémarrer",
+      "restoring": "Restauration… lignes écrites : {{rows}}",
+      "done": "Restauration terminée. MailFlow redémarre ; cette page se rechargera dès son retour.",
+      "restartTimeout": "MailFlow n'est pas revenu après deux minutes. Relancez-le, puis rechargez cette page.",
+      "failed": "La restauration a échoué : {{message}}",
+      "downloadFailed": "La sauvegarde n'a pas pu démarrer.",
+      "connectionLost": "La connexion a été perdue pendant la restauration, son résultat est donc inconnu. Cette page se rechargera dès que MailFlow répondra de nouveau ; vérifiez alors que vos données sont bien celles restaurées.",
+      "tooLarge": "Le fichier dépasse la taille autorisée par le proxy placé devant MailFlow."
     },
     "plugins": {
       "title": "Extensions",

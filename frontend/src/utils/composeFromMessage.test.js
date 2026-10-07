@@ -305,3 +305,31 @@ describe('quoted body templates', () => {
     );
   });
 });
+
+describe('openForwardAsAttachmentFromMessage (#466)', () => {
+  it('opens a forward whose only attachment is the whole original, sent by id', () => {
+    let opened;
+    compose.openForwardAsAttachmentFromMessage(
+      { id: 'm1', account_id: 'acct-1', subject: 'You won\r\nBcc: injected' },
+      { openCompose: data => { opened = data; } },
+    );
+    assert.equal(opened.subject, 'Fwd: You won Bcc: injected'); // a header break in the subject is flattened
+    assert.equal(opened.accountId, 'acct-1');
+    assert.equal(opened.isForward, true);
+    assert.equal(opened.body, '');
+    assert.equal(opened.quotedBody, undefined); // nothing quoted inline: the original travels whole
+    assert.deepEqual(opened.forwardedAttachments, [{
+      messageId: 'm1', asMessage: true, filename: 'You won Bcc: injected.eml', type: 'message/rfc822', size: null,
+    }]);
+  });
+
+  it('does not stack a second Fwd: and names a subjectless message', () => {
+    let opened;
+    compose.openForwardAsAttachmentFromMessage({ id: 'm2', account_id: 'a', subject: 'Fwd: hi' }, { openCompose: d => { opened = d; } });
+    assert.equal(opened.subject, 'Fwd: hi');
+    compose.openForwardAsAttachmentFromMessage({ id: 'm3', account_id: 'a', subject: '' }, { openCompose: d => { opened = d; } });
+    assert.equal(opened.forwardedAttachments[0].filename, 'message.eml');
+    compose.openForwardAsAttachmentFromMessage({ id: 'm4', account_id: 'a', subject: 'Q3/Q4 figures' }, { openCompose: d => { opened = d; } });
+    assert.equal(opened.forwardedAttachments[0].filename, 'Q3_Q4 figures.eml'); // as the server names the file
+  });
+});

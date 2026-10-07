@@ -172,7 +172,9 @@ export function classifyMessage(model, tokens, flagFeatures) {
   // Priors in log space.
   let logOdds = Math.log(model.priorSpam) - Math.log(model.priorHam);
 
-  for (const token of tokens) {
+  // The flag tokens are scored exactly as updateIncremental trains them. Scoring only the word
+  // tokens left the learned attachment, reply-to and all-caps signals out of every verdict (#457).
+  for (const token of [...tokens, ...flagTokensFor(flagFeatures)]) {
     const entry = model.vocabulary[token];
     if (!entry) continue; // unseen tokens contribute nothing (smoothing cancels)
     logOdds += logTerm(entry.spam, totalSpam) - logTerm(entry.ham, totalHam);
@@ -351,8 +353,10 @@ export function retrainFromRecords(records, decayThresholdDays = 90, now = new D
  * @returns {Array<{token: string, contribution: number}>}
  *   contribution = log P(w|spam) - log P(w|ham); positive pushes toward spam.
  */
-export function extractTopTokens(model, tokens, n = 5) {
+export function extractTopTokens(model, tokens, n = 5, flagFeatures = null) {
   if (!model || model.trainingRecords === 0) return [];
+  // With flagFeatures, the flag tokens classifyMessage scores are ranked too, so "Why?" can name them.
+  tokens = [...tokens, ...flagTokensFor(flagFeatures)];
   const V = vocabSize(model);
   const alpha = ALPHA;
   const logTerm = (count, total) => Math.log((count + alpha) / (total + alpha * V));

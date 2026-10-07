@@ -112,6 +112,21 @@ function getMessageBody(id, remoteImages = false) {
   return promise;
 }
 
+// Sign-out must not hang here: getRegistration(), not serviceWorker.ready, because ready
+// never settles when the worker failed to register; and unsubscribe() is not awaited,
+// because it can wait on the push service.
+async function endPushSubscription() {
+  let sub;
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    sub = await reg?.pushManager?.getSubscription();
+  } catch {
+    return null;
+  }
+  sub?.unsubscribe().catch(() => {});
+  return sub?.endpoint ?? null;
+}
+
 export const api = {
   get: (path) => request('GET', path),
   post: (path, body, extraHeaders) => request('POST', path, body, extraHeaders),
@@ -122,7 +137,12 @@ export const api = {
   // Auth
   login: (username, password) => request('POST', '/auth/login', { username, password }),
   register: (username, password, inviteToken) => request('POST', '/auth/register', { username, password, inviteToken }),
-  logout: () => request('POST', '/auth/logout'),
+  // A push subscription outlives the session, so sign-out ends this browser's and names
+  // its endpoint for the server to delete.
+  logout: async () => {
+    const pushEndpoint = await endPushSubscription();
+    return request('POST', '/auth/logout', pushEndpoint ? { pushEndpoint } : undefined);
+  },
   lock: () => request('POST', '/auth/lock'),
   unlock: async (pin) => {
     // Custom (not request()) so we can read the lockout flag on failure: after too many
@@ -136,6 +156,10 @@ export const api = {
     const data = await res.json().catch(() => ({}));
     if (res.ok) return data;
     if (data.signedOut) {
+      // A lockout signs out without api.logout(), and the session is already gone, so only
+      // the browser's subscription can be ended here. Once it is, the push service answers
+      // the next send with 404/410, which prunes the row.
+      await endPushSubscription();
       window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
       const e = new Error('signed_out'); e.signedOut = true; throw e;
     }
@@ -199,6 +223,60 @@ export const api = {
     testSystemEmail: () => request('POST', '/admin/system-email/test'),
     deleteSystemEmail: () => request('DELETE', '/admin/system-email'),
     getAuthEvents: (params) => request('GET', '/admin/auth-events?' + new URLSearchParams(params)),
+    checkBackup: (scope) => request('GET', `/admin/backup/check?scope=${encodeURIComponent(scope)}`),
+    backupUrl: (scope) => `${BASE}/admin/backup?scope=${encodeURIComponent(scope)}`,
+    // The file streams up and the server streams progress lines back, one JSON object per
+    // line, ending with the result. Resolves with that result. An error with `lost` set means
+    // the connection ended before the server said how the restore went.
+    restoreBackup: async (file, onProgress) => {
+      const lost = cause => { const e = new Error(cause?.message || 'Connection lost'); e.lost = true; return e; };
+      let res;
+      try {
+        res = await fetch(`${BASE}/admin/backup/restore`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { [CSRF_HEADER]: CSRF_VALUE, 'Content-Type': 'application/gzip' },
+          body: file,
+        });
+      } catch (err) {
+        throw lost(err);
+      }
+      if (!res.ok) {
+        if (res.status === 423) window.dispatchEvent(new CustomEvent('mailflow:locked'));
+        if (res.status === 401) window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
+        const err = await res.json().catch(() => ({ error: 'Request failed' }));
+        const e = new Error(err.error || 'Request failed'); e.status = res.status; throw e;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (let done = false; !done;) {
+        let chunk;
+        try {
+          chunk = await reader.read();
+        } catch (err) {
+          throw lost(err);
+        }
+        done = chunk.done;
+        buffer += done ? decoder.decode() : decoder.decode(chunk.value, { stream: true });
+        let at;
+        while ((at = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, at).trim();
+          buffer = buffer.slice(at + 1);
+          if (!line) continue;
+          let entry;
+          try {
+            entry = JSON.parse(line);
+          } catch (err) {
+            throw lost(err);
+          }
+          if (entry.error) throw new Error(entry.error);
+          if (entry.ok) return entry;
+          if (onProgress) onProgress(entry);
+        }
+      }
+      throw lost();
+    },
     oidc: {
       getProviders: () => request('GET', '/admin/oidc'),
       createProvider: (data) => request('POST', '/admin/oidc', data),
@@ -357,6 +435,10 @@ export const api = {
   reorderRules:(ids)      => request('PATCH',  '/rules/reorder', { ids }),
   runRules:    (accountId) => request('POST',  '/rules/run', accountId ? { accountId } : {}),
 
+  // Undo send: a send held on the server for the undo window (backend/src/services/sendHold.js)
+  getSendStatus: (id) => request('GET',  `/mail/send/${encodeURIComponent(id)}`),
+  cancelSend:    (id) => request('POST', `/mail/send/${encodeURIComponent(id)}/cancel`),
+
   // Drafts
   saveDraft:   (data)              => request('POST',   '/mail/draft', data),
   deleteDraft: (accountId, uid, folder) =>
@@ -392,6 +474,8 @@ export const api = {
 
   // Manual category override for a single message
   setMessageCategory: (id, category) => request('PATCH', `/mail/messages/${id}/category`, { category }),
+  // "Always for this sender/domain" (#490): saves a set_category rule and recategorizes that sender's inbox mail.
+  setSenderCategory: (messageId, scope, category, name) => request('POST', '/rules/sender-category', { messageId, scope, category, name }),
 
   // Trigger unsubscribe for a newsletter message
   unsubscribeMessage: (id) => request('POST', `/mail/messages/${id}/unsubscribe`),

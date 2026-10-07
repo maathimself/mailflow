@@ -167,6 +167,32 @@ describe('classifyMessage', () => {
     expect(explicitPass.probability).toBeLessThan(absent.probability);
   });
 
+  it('scores the flag tokens it trains on (#457)', () => {
+    // Training counts __attachment_is_executable__ and the other flag tokens; classification used
+    // to ignore them, so a learned "executable attachment means spam" never moved a verdict.
+    let model = createEmptyModel();
+    const exe = { has_attachment: 1, attachment_is_executable: 1 };
+    for (let i = 0; i < 10; i += 1) model = trainSpam(model, 'quarterly figures', 'see the file', exe);
+    for (let i = 0; i < 10; i += 1) model = trainHam(model, 'quarterly figures', 'see the file', {});
+    const words = tokenizeSimple('quarterly figures', 'see the file');
+    const plain = classifyMessage(model, words, {});
+    const withExe = classifyMessage(model, words, exe);
+    // The same words appear in both classes; only the flags tell the spam examples apart.
+    expect(plain.verdict).toBe('ham');
+    expect(withExe.verdict).toBe('spam');
+    expect(withExe.probability - plain.probability).toBeGreaterThan(0.5);
+  });
+
+  it('ranks the flag tokens among the top tokens when given the features', () => {
+    let model = createEmptyModel();
+    const exe = { has_attachment: 1, attachment_is_executable: 1 };
+    for (let i = 0; i < 10; i += 1) model = trainSpam(model, 'hello', 'there', exe);
+    for (let i = 0; i < 10; i += 1) model = trainHam(model, 'hello', 'there', {});
+    const top = extractTopTokens(model, ['hello'], 5, exe).map(t => t.token);
+    expect(top).toEqual(expect.arrayContaining(flagTokensFor(exe)));
+    expect(extractTopTokens(model, ['hello'], 5).map(t => t.token)).toEqual(['hello']);
+  });
+
   it('classifies on a spam-heavy prior (unseen tokens contribute nothing)', () => {
     let model = trainedModel(10, 2); // spam-heavy: 70 spam tokens vs 16 ham
     // Tokens never seen in training: no vocabulary contribution, so the

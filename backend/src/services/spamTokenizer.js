@@ -11,28 +11,11 @@ import { createHash } from 'node:crypto';
 import { Parser } from 'htmlparser2';
 import { parseAuthResults } from './spamParser.js';
 import { STOP_WORDS, STOP_WORDS_DEFAULT } from './stopWords.js';
+import { BLOCK } from './attachmentExtensions.js';
 
-// File extensions associated with executable code (shared with
-// spamRules.js rules ATTACHMENT_EXECUTABLE / ATTACHMENT_DOUBLE_EXT).
-// Not yet the BLOCK tier in attachmentExtensions.js, which leaves macro Office
-// out and blocks more types: switching changes what these rules score, so it
-// lands with their weight re-tune (#457).
-export const EXECUTABLE_EXTENSIONS = new Set([
-  // Windows executables
-  'exe', 'scr', 'msi', 'com', 'cpl', 'hta', 'pif', 'gadget',
-  // Scripts (Windows)
-  'js', 'jse', 'vbs', 'vbe', 'wsf', 'wsh', 'ps1', 'psm1', 'bat', 'cmd',
-  // Macros
-  'docm', 'xlsm', 'pptm', 'dotm', 'xlsb', 'xlam',
-  // Java
-  'jar', 'jnlp', 'class',
-  // Linux/Mac
-  'sh', 'bash', 'ksh', 'csh', 'zsh', 'command',
-  // App bundles
-  'app', 'dmg', 'pkg', 'apk',
-  // Compiled scripting
-  'pyc', 'pyo', 'rb', 'pl',
-]);
+// Attachments are judged by the tiers in attachmentExtensions.js, shared with the download warning.
+// The flag feature attachment_is_executable means the BLOCK tier: files that run code when opened.
+// Macro Office and HTML files (WARN) score through their own, lighter rule in spamRules.js (#457).
 
 // Union of every language's stop-words. v0.2 does not run language
 // detection: a token that is a stop-word in ANY supported language is
@@ -234,7 +217,7 @@ export function extractFlagFeatures(message, opts = {}) {
     has_attachment: attachments.length > 0 ? 1 : 0,
     attachment_is_executable: attachments.some(a => {
       const ext = attachmentExtension(a);
-      return ext !== null && EXECUTABLE_EXTENSIONS.has(ext);
+      return ext !== null && BLOCK.has(ext);
     }) ? 1 : 0,
     all_caps_subject_ratio: letters > 0 ? upper / letters : 0,
     from_equals_reply_to_mismatch:
@@ -265,10 +248,13 @@ function attachmentExtension(attachment) {
       return base.slice(lastDot + 1).toLowerCase();
     }
   }
-  const ct = attachment?.contentType || '';
-  const mimeExt = /^\s*application\/(x-)?(exe|msdownload|vnd\.ms-)/i.test(ct)
+  // No usable extension (a part with no name is stored as "attachment"): fall back to a MIME type
+  // that can only mean a Windows program. Stored attachments carry it as `type` (walkStructure);
+  // reading only `contentType` left this fallback dead (#457). application/vnd.ms-* is not one of
+  // them: that prefix covers ordinary Excel, Word and PowerPoint files.
+  const ct = attachment?.type || attachment?.contentType || '';
+  return /^\s*application\/(x-)?(exe|msdownload|msdos-program|dosexec|ms-installer)\b/i.test(ct)
     ? 'exe' : null;
-  return mimeExt;
 }
 
 /**

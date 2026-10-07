@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   activateOnKey,
   buildFolderTree,
+  subtreeUnread,
   collapsedTooltip,
   FOLDER_ORDER_DRAG_TYPE,
   folderDropPosition,
@@ -302,5 +303,47 @@ describe('folder ordering', () => {
       ),
       null,
     );
+  });
+});
+
+describe('subtreeUnread (#536)', () => {
+  // Investments has no mail of its own (\\Noselect); its children hold the unread mail.
+  const tree = () => buildFolderTree([
+    { path: 'Investments', name: 'Investments', no_select: true },
+    { path: 'Investments/A', name: 'A', unread_count: 1 },
+    { path: 'Investments/B', name: 'B', unread_count: 0 },
+    { path: 'Investments/C', name: 'C', unread_count: 2 },
+    { path: 'Investments/C/Deep', name: 'Deep', unread_count: 4 },
+    { path: 'Investments/Muted', name: 'Muted', unread_count: 9 },
+  ], []).find(n => n.path === 'Investments');
+
+  it('adds every subfolder at any depth to the folder\'s own count', () => {
+    assert.deepEqual(subtreeUnread(tree()), { count: 16, known: true, stale: false });
+  });
+
+  it('leaves out hidden folders and everything under them', () => {
+    const hidden = new Set(['Investments/Muted', 'Investments/C']);
+    assert.deepEqual(subtreeUnread(tree(), p => hidden.has(p)), { count: 1, known: true, stale: false });
+  });
+
+  it('counts a selectable parent\'s own unread mail too', () => {
+    const [node] = buildFolderTree([
+      { path: 'Banking', name: 'Banking', unread_count: 1 },
+      { path: 'Banking/Cards', name: 'Cards', unread_count: 2 },
+    ], []);
+    assert.equal(subtreeUnread(node).count, 3);
+  });
+
+  it('is unknown until some folder in it has been observed, and stale if a contributing count is', () => {
+    const [unseen] = buildFolderTree([
+      { path: 'P', name: 'P', counts_known: false },
+      { path: 'P/Q', name: 'Q' },
+    ], []);
+    assert.deepEqual(subtreeUnread(unseen), { count: 0, known: false, stale: false });
+    const [stale] = buildFolderTree([
+      { path: 'P', name: 'P', unread_count: 0, counts_stale: true },
+      { path: 'P/Q', name: 'Q', unread_count: 3, counts_stale: true },
+    ], []);
+    assert.deepEqual(subtreeUnread(stale), { count: 3, known: true, stale: true });
   });
 });

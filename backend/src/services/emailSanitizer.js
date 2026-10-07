@@ -176,8 +176,37 @@ function upgradeStyleUrls(style) {
 function stripExternalStyleBlockUrls(html) {
   if (!html) return html;
   return scanPaired(html, /<style\b/gi, '</style>', (open, content, close) =>
-    open + content.replace(/url\s*\(\s*(['"]?)https?:\/\/[^)]*\1\s*\)/gi, 'url()') + close
+    open + stripExternalCssUrls(content) + close
   );
+}
+
+// Mirrors /url\s*\(\s*(['"]?)https?:\/\/[^)]*\1\s*\)/gi without its backtracking: from every
+// candidate, [^)]* ran on to the next `)`, or to the end of the block, and backtracked through
+// it, so a crafted <style> held the event loop for seconds. Candidates that reach the same `)`
+// can differ in quote, so each one is tested against it, but that `)` and the last non-space
+// character before it are found only once.
+function stripExternalCssUrls(css) {
+  const urlRe = /url\s*\(\s*(['"]?)https?:\/\//gi;
+  let out = '';
+  let pos = 0;
+  let paren = -1;
+  let lastNonSpace = -1;
+  let m;
+  while ((m = urlRe.exec(css)) !== null) {
+    const valueStart = urlRe.lastIndex;
+    if (paren < valueStart) {
+      paren = css.indexOf(')', valueStart);
+      if (paren === -1) break;
+      lastNonSpace = paren - 1;
+      while (lastNonSpace >= valueStart && /\s/.test(css[lastNonSpace])) lastNonSpace--;
+    }
+    const quote = m[1];
+    if (quote && (lastNonSpace < valueStart || css[lastNonSpace] !== quote)) continue;
+    out += css.slice(pos, m.index) + 'url()';
+    pos = paren + 1;
+    urlRe.lastIndex = pos;
+  }
+  return out + css.slice(pos);
 }
 
 // Post-process sanitized HTML to upgrade http:// URLs inside <style> blocks.
@@ -195,20 +224,98 @@ function upgradeStyleBlocks(html) {
 // selectors, and properties that invert or override the forced-light background.
 function stripDarkModeCss(css) {
   // Remove @media (prefers-color-scheme: dark) { ... } blocks.
-  // Pattern handles one level of brace nesting (sufficient for email CSS).
-  let out = css.replace(
-    /@media\b[^{]*prefers-color-scheme\s*:\s*dark[^{]*\{(?:[^{}]|\{[^{}]*\})*\}/gi,
-    ''
-  );
+  let out = stripDarkMediaBlocks(css);
   // Remove rules scoped to Outlook dark-mode attribute selectors
   // (e.g. [data-ogsc], [data-ogsb]).
-  out = out.replace(/\[[^\]]*data-og[^\]]*\][^{]*\{[^}]*\}/gi, '');
+  out = stripOutlookDarkRules(out);
   // Strip color-scheme declarations — the iframe meta tag controls this instead.
   out = out.replace(/\bcolor-scheme\s*:[^;!}]+;?/gi, '');
   // Strip filter:invert(...) — used to simulate dark mode by inverting the page,
   // which breaks rendering on our forced-white background.
-  out = out.replace(/\bfilter\s*:\s*invert\([^)]*\)[^;]*;?/gi, '');
+  out = stripInvertFilters(out);
   return out;
+}
+
+// The three scanners below mirror the old regexes
+//   /@media\b[^{]*prefers-color-scheme\s*:\s*dark[^{]*\{(?:[^{}]|\{[^{}]*\})*\}/gi
+//   /\[[^\]]*data-og[^\]]*\][^{]*\{[^}]*\}/gi
+//   /\bfilter\s*:\s*invert\([^)]*\)[^;]*;?/gi
+// without their backtracking. From every candidate, the leading [^{]*, [^\]]* or [^)]*
+// ran on to the next `{`, `]` or `)`, or to the end of the block, and backtracked
+// through it, so a crafted <style> of a few tens of KB held the event loop for seconds
+// to minutes, and sanitizeEmail runs when sync prefetches a new message. Candidates
+// that reach the same `{` or `]` share its outcome, so after one fails the scan resumes
+// past it; once the `{`, `]` or `)` a candidate needs is missing, every later candidate
+// lacks it too, so the scan stops.
+function stripDarkMediaBlocks(css) {
+  const atMedia = /@media\b/gi;
+  let out = '';
+  let pos = 0;
+  let m;
+  while ((m = atMedia.exec(css)) !== null) {
+    const open = css.indexOf('{', atMedia.lastIndex);
+    if (open === -1) break;
+    const dark = /prefers-color-scheme\s*:\s*dark/i.test(css.slice(atMedia.lastIndex, open));
+    const end = dark ? mediaBlockEnd(css, open) : -1;
+    if (end === -1) { atMedia.lastIndex = open; continue; }
+    out += css.slice(pos, m.index);
+    pos = end;
+    atMedia.lastIndex = end;
+  }
+  return out + css.slice(pos);
+}
+
+// Index just past the `}` closing the block opened at `open`, allowing one level of
+// nested blocks as the old pattern did, or -1 if it is unterminated or nests deeper.
+function mediaBlockEnd(css, open) {
+  let depth = 1;
+  for (let i = open + 1; i < css.length; i++) {
+    if (css[i] === '{') {
+      if (depth === 2) return -1;
+      depth = 2;
+    } else if (css[i] === '}') {
+      if (depth === 1) return i + 1;
+      depth = 1;
+    }
+  }
+  return -1;
+}
+
+function stripOutlookDarkRules(css) {
+  let out = '';
+  let pos = 0;
+  let from = 0;
+  for (;;) {
+    const lb = css.indexOf('[', from);
+    if (lb === -1) break;
+    const rb = css.indexOf(']', lb + 1);
+    if (rb === -1) break;
+    if (!/data-og/i.test(css.slice(lb + 1, rb))) { from = rb + 1; continue; }
+    const open = css.indexOf('{', rb + 1);
+    if (open === -1) break;
+    const close = css.indexOf('}', open + 1);
+    if (close === -1) break;
+    out += css.slice(pos, lb);
+    pos = close + 1;
+    from = pos;
+  }
+  return out + css.slice(pos);
+}
+
+function stripInvertFilters(css) {
+  const invertRe = /\bfilter\s*:\s*invert\(/gi;
+  let out = '';
+  let pos = 0;
+  let m;
+  while ((m = invertRe.exec(css)) !== null) {
+    const paren = css.indexOf(')', invertRe.lastIndex);
+    if (paren === -1) break;
+    const semi = css.indexOf(';', paren + 1);
+    out += css.slice(pos, m.index);
+    pos = semi === -1 ? css.length : semi + 1;
+    invertRe.lastIndex = pos;
+  }
+  return out + css.slice(pos);
 }
 
 function stripDarkModeStyleBlocks(html) {

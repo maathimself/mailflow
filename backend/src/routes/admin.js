@@ -122,7 +122,7 @@ router.get('/auth-events', async (req, res) => {
 router.patch('/settings', async (req, res) => {
   const { registration_open, internal_auth_disabled, auth_max_attempts, auth_window_minutes,
     allow_private_hosts, allow_insecure_tls, allow_nonstandard_ports,
-    mfa_enforcement, mfa_device_trust, custom_css } = req.body;
+    mfa_enforcement, mfa_device_trust, custom_css, backup_include_mail } = req.body;
   if (typeof registration_open === 'boolean') {
     await query(
       `INSERT INTO system_settings (key, value, updated_at)
@@ -190,6 +190,7 @@ router.patch('/settings', async (req, res) => {
     ['allow_private_hosts', allow_private_hosts],
     ['allow_insecure_tls', allow_insecure_tls],
     ['allow_nonstandard_ports', allow_nonstandard_ports],
+    ['backup_include_mail', backup_include_mail],
   ]) {
     if (typeof val === 'boolean') {
       await query(
@@ -338,6 +339,7 @@ router.post('/invites', async (req, res) => {
         transport = createSmtpTransport(acctResolved, {
           port: account.smtp_port,
           secure: account.smtp_port === 465,
+          requireTLS: account.smtp_port !== 465 && !policy.allowInsecureTls,
           auth: smtpAuth,
           tls: acctTls,
         });

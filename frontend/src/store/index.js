@@ -462,7 +462,15 @@ export const useStore = create((set, get) => ({
   },
   composing: false,
   composeData: null,
-  openCompose: (data = null) => set({ composing: true, composeData: data }),
+  // Counts the times a composer was opened from closed. MailApp keys the composer on it, so one
+  // closed and another opened in the same render (undo send reopening a message as the one being
+  // written is sent) mounts fresh instead of keeping the closed one's state.
+  composeSession: 0,
+  openCompose: (data = null) => set(state => ({
+    composing: true,
+    composeData: data,
+    composeSession: state.composing ? state.composeSession : state.composeSession + 1,
+  })),
   closeCompose: () => set({ composing: false, composeData: null }),
 
   // Detached message windows (#219): floating, draggable/resizable in-app windows
