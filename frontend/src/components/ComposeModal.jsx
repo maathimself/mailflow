@@ -828,6 +828,8 @@ export default function ComposeModal() {
     }
     const ccFinal = [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])];
     const bccFinal = [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])];
+    // Taken with the recipients it describes: From stays usable while the request is out.
+    const autoAtSend = autoRef.current;
     const sentQuotedHtml = !plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current)
       ? (quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml)
       : null;
@@ -946,7 +948,7 @@ export default function ComposeModal() {
           forwardedAttachments: fwdAttachments,
           priority,
           restored: true,
-          autoRecipients: autoRef.current,
+          autoRecipients: autoAtSend,
           sendError: undefined,
         };
         const pendingId = sendResult.pendingId;

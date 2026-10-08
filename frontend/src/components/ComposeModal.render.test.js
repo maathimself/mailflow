@@ -527,44 +527,101 @@ describe('automatic Cc and Bcc (#491)', () => {
     } finally { await close(); }
   });
 
-  test('after undo send, an automatic address removed before sending stays out across From switches', async () => {
-    const accounts = [account('A', { cc: ['crm@example.invalid'] }), account('B', { cc: ['crm@example.invalid'] })];
-    // Keyed the way MailApp keys it, so the undone message mounts a composer of its own.
+  // Writes a message in a composer keyed the way MailApp keys it, sends it with an undo window and
+  // undoes it, so the undone message mounts a composer of its own. `beforeSend` runs first;
+  // `whileSending` runs after Send is clicked and before the server has answered. Returns an
+  // unmount.
+  async function sendAndUndo(composeData, { accounts, beforeSend, whileSending }) {
     const Host = () => {
       const composing = useStore(s => s.composing);
       const session = useStore(s => s.composeSession);
       return composing ? React.createElement(ComposeModal, { key: session }) : null;
     };
     const plainPost = api.post;
-    api.post = async (path, body) => {
+    let answer;
+    api.post = (path, body) => {
       posted.push({ path, body });
-      return { ok: true, pending: true, pendingId: 'p-auto', sendAt: new Date(Date.now() + 10_000).toISOString(), remainingMs: 10_000 };
+      if (path !== '/mail/send') return plainPost(path, body);
+      return new Promise(resolve => {
+        answer = () => resolve({ ok: true, pending: true, pendingId: 'p-auto', sendAt: new Date(Date.now() + 10_000).toISOString(), remainingMs: 10_000 });
+      });
     };
     api.cancelSend = async () => ({ cancelled: true });
     saved.length = 0;
     posted.length = 0;
-    useStore.setState({ plaintextEmail: false, accounts, selectedAccountId: 'A', defaultSender: '', notifications: [], composing: false, composeData: null });
-    useStore.getState().openCompose({ to: ['x@example.invalid'], subject: 'Plan' });
+    useStore.setState({ plaintextEmail: false, accounts, selectedAccountId: accounts[0].id, defaultSender: '', notifications: [], composing: false, composeData: null });
+    useStore.getState().openCompose(composeData);
     const root = createRoot(document.getElementById('root'));
     await React.act(async () => { root.render(React.createElement(Host)); });
     await React.act(async () => {});
-    const cc = () => chips('compose.cc') ?? [];
+    const unmount = () => React.act(async () => root.unmount());
     try {
-      assert.deepEqual(cc(), ['crm@example.invalid']);
-      await removeChip('compose.cc', 'crm@example.invalid');
+      await beforeSend?.();
       await send();
+      await whileSending?.();
+      await React.act(async () => { answer(); });
+      await React.act(async () => {});
       const bar = useStore.getState().notifications.find(n => n.onUndo);
       await React.act(async () => { await bar.onUndo(); });
       await React.act(async () => {});
+    } catch (err) {
+      await unmount();
+      throw err;
+    } finally {
+      api.post = plainPost;
+    }
+    return unmount;
+  }
+
+  test('after undo send, an automatic address removed before sending stays out across From switches', async () => {
+    const accounts = [account('A', { cc: ['crm@example.invalid'] }), account('B', { cc: ['crm@example.invalid'] })];
+    const cc = () => chips('compose.cc') ?? [];
+    const close = await sendAndUndo({ to: ['x@example.invalid'], subject: 'Plan' }, {
+      accounts,
+      beforeSend: async () => {
+        assert.deepEqual(cc(), ['crm@example.invalid']);
+        await removeChip('compose.cc', 'crm@example.invalid');
+      },
+    });
+    try {
       assert.deepEqual(cc(), [], 'reopened as it was sent');
       await chooseFrom('account:B');
       assert.deepEqual(cc(), [], 'a From switch does not bring it back');
       await chooseFrom('account:A');
       assert.deepEqual(cc(), [], 'nor does switching back');
-    } finally {
-      api.post = plainPost;
-      await React.act(async () => root.unmount());
-    }
+    } finally { await close(); }
+  });
+
+  test('after undo send, a From switch replaces the first account\'s automatic Bcc with the second\'s', async () => {
+    const accounts = [account('A', { bcc: ['a-arch@example.invalid'] }), account('B', { bcc: ['b-arch@example.invalid'] })];
+    const close = await sendAndUndo({ to: ['x@example.invalid'], subject: 'Plan' }, { accounts });
+    try {
+      assert.deepEqual(chips('compose.bcc'), ['a-arch@example.invalid'], 'reopened as it was sent');
+      await chooseFrom('account:B');
+      assert.deepEqual(chips('compose.bcc'), ['b-arch@example.invalid']);
+    } finally { await close(); }
+  });
+
+  test('after undo send of a reply, Reply All and back to Reply keeps the automatic Bcc', async () => {
+    const close = await sendAndUndo(reply([{ name: '', email: 'thread@example.invalid' }]), { accounts: [account('A', { bcc: [ME] })] });
+    try {
+      assert.deepEqual(chips('compose.bcc'), [ME], 'reopened as it was sent');
+      await switchReplyType('compose.replyAll');
+      await switchReplyType('compose.reply');
+      assert.deepEqual(chips('compose.bcc'), [ME]);
+    } finally { await close(); }
+  });
+
+  test('after undo send, a From switch made while the message was being sent does not change what it reopens with', async () => {
+    const accounts = [account('A', { cc: ['crm-a@example.invalid'] }), account('B', { cc: ['crm-b@example.invalid'] })];
+    const cc = () => chips('compose.cc') ?? [];
+    // The server has not answered yet, and From stays usable while it is sending.
+    const close = await sendAndUndo({ to: ['x@example.invalid'], subject: 'Plan' }, { accounts, whileSending: () => chooseFrom('account:B') });
+    try {
+      assert.deepEqual(cc(), ['crm-a@example.invalid'], 'reopened as it was sent, from A');
+      await chooseFrom('account:B');
+      assert.deepEqual(cc(), ['crm-b@example.invalid'], 'B\'s automatic Cc replaces A\'s');
+    } finally { await close(); }
   });
 
   test('a From switch keeps a recipient the user added for an automatic address', async () => {
