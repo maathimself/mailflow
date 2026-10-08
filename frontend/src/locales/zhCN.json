@@ -186,7 +186,12 @@
       "aiApply": "应用",
       "aiDismiss": "关闭",
       "aiGenerating": "生成中…",
-      "aiError": "AI 错误：{{message}}"
+      "aiError": "AI 错误：{{message}}",
+      "aiReply": "用 AI 回复",
+      "aiReplyPlaceholder": "回复要说什么？例如：批准设计稿",
+      "aiReplyInstruction": "AI 回复的指示",
+      "aiReplyGenerate": "生成",
+      "aiReplyReading": "正在阅读对话…"
     },
     "priority": "优先级",
     "priorityHigh": "高优先级",

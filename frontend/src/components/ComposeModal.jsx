@@ -24,6 +24,7 @@ import { initialComposeFocus, isComposeSendShortcut } from '../utils/composeFrom
 import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } from '../utils/autoRecipients.js';
 import { UNDO_SEND_SECONDS, undoWindowMs, trackHeldSend, reopenCompose } from '../utils/heldSend.js';
 import { openSentMessage } from '../utils/openSentMessage.js';
+import { loadReplyConversation, buildReplyPrompt, aiTextToHtml, MAX_INSTRUCTION_CHARS } from '../utils/aiReply.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -324,6 +325,9 @@ export default function ComposeModal() {
   const [aiStatus, setAiStatus] = useState(null);
   const [aiPanel, setAiPanel] = useState(null);
   const aiAbortRef = useRef(null);
+  // The conversation "Reply with AI" writes from, loaded once and reused when the user rewords
+  // the instruction.
+  const aiReplyConversationRef = useRef(null);
   // Stable idempotency key for the current logical send. Generated on the first send
   // attempt, reused across retries (so a retry after a lost response dedupes rather than
   // double-sending), and cleared on success. Fixes audit finding [1].
@@ -734,6 +738,11 @@ export default function ComposeModal() {
 
   const handleAiAction = async (action) => {
     aiAbortRef.current?.abort();
+    // "Reply with AI" waits for the user's instruction before it asks for anything.
+    if (action === 'reply') {
+      setAiPanel({ action, status: 'input', instruction: '', text: '' });
+      return;
+    }
     const controller = new AbortController();
     aiAbortRef.current = controller;
 
@@ -780,10 +789,56 @@ export default function ComposeModal() {
     }
   };
 
+  // Writes a reply from the conversation and the user's instruction. The conversation is read
+  // first (the panel says so meanwhile), then the reply streams in like the other actions.
+  const generateAiReply = async (instruction) => {
+    aiAbortRef.current?.abort();
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
+    setAiPanel({ action: 'reply', status: 'reading', instruction, text: '' });
+
+    try {
+      if (!aiReplyConversationRef.current) {
+        const conversation = await loadReplyConversation({
+          threadId: composeData?.threadId,
+          inReplyTo: composeData?.inReplyTo,
+          accountId: composeData?.accountId,
+          quotedBody,
+          originalFrom: composeData?.originalFrom,
+          accounts,
+        }, { getThread: api.getThread, getMessageBody: api.getMessageBody, resolveMessage: api.resolveMessage });
+        // Kept only when something was found, so a failed load is tried again next time.
+        if (conversation.length) aiReplyConversationRef.current = conversation;
+      }
+      if (controller.signal.aborted) return;
+      setAiPanel(p => p ? { ...p, status: 'generating' } : p);
+      const messages = buildReplyPrompt({
+        conversation: aiReplyConversationRef.current || [],
+        instruction,
+        subject,
+        senderName: fromAlias?.name || fromAccount?.sender_name || fromAccount?.name,
+        hasSignature: !!stripHtml(signatureContentRef.current || '').trim(),
+      });
+      const fullText = await api.ai.chat(messages, {
+        signal: controller.signal,
+        onDelta: (text) => setAiPanel(p => p ? { ...p, text } : p),
+      });
+      setAiPanel(p => p ? { ...p, status: 'done', text: fullText } : p);
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setAiPanel(p => p ? { ...p, status: 'error', text: err.message } : p);
+      }
+    }
+  };
+
+  const closeAiPanel = () => {
+    aiAbortRef.current?.abort();
+    setAiPanel(null);
+  };
+
   const applyAiText = () => {
     if (!aiPanel?.text || !editor) return;
-    const html = '<p>' + aiPanel.text.trim().replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
-    editor.commands.setContent(html);
+    editor.commands.setContent(aiTextToHtml(aiPanel.text));
     setAiPanel(null);
   };
 
@@ -1533,41 +1588,19 @@ export default function ComposeModal() {
                 }}
                 isMobile
                 aiEnabled={!htmlMode && aiStatus?.enabled && aiStatus?.features?.compose}
+                aiReplyEnabled={isReply}
                 onAiAction={handleAiAction}
                 aiPanelOpen={!!aiPanel}
               />
               {aiPanel && !htmlMode && (
-                <div style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', padding: '10px 16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{t('compose.toolbar.aiPanelTitle')}</span>
-                    <button
-                      onClick={() => { aiAbortRef.current?.abort(); setAiPanel(null); }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', fontSize: 16, lineHeight: 1, padding: '0 2px' }}
-                    >×</button>
-                  </div>
-                  {aiPanel.status === 'generating' && !aiPanel.text && (
-                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{t('compose.toolbar.aiGenerating')}</div>
-                  )}
-                  {aiPanel.status === 'error' ? (
-                    <div style={{ fontSize: 12, color: 'var(--red)' }}>{t('compose.toolbar.aiError', { message: aiPanel.text })}</div>
-                  ) : (
-                    <div style={{ fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', maxHeight: 160, overflowY: 'auto', lineHeight: 1.5 }}>
-                      {aiPanel.text}
-                    </div>
-                  )}
-                  {aiPanel.status === 'done' && (
-                    <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                      <button
-                        onClick={applyAiText}
-                        style={{ fontSize: 13, padding: '8px 18px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 500, WebkitTapHighlightColor: 'transparent' }}
-                      >{t('compose.toolbar.aiApply')}</button>
-                      <button
-                        onClick={() => setAiPanel(null)}
-                        style={{ fontSize: 13, padding: '8px 18px', background: 'none', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
-                      >{t('compose.toolbar.aiDismiss')}</button>
-                    </div>
-                  )}
-                </div>
+                <ComposeAiPanel
+                  mobile
+                  panel={aiPanel}
+                  onInstructionChange={instruction => setAiPanel(p => p ? { ...p, instruction } : p)}
+                  onGenerateReply={generateAiReply}
+                  onApply={applyAiText}
+                  onClose={closeAiPanel}
+                />
               )}
               {htmlMode ? (
                 <textarea
@@ -2157,41 +2190,18 @@ export default function ComposeModal() {
           else { editor?.commands.setContent(htmlSource, false); setHtmlMode(false); }
         }}
         aiEnabled={!htmlMode && aiStatus?.enabled && aiStatus?.features?.compose}
+        aiReplyEnabled={isReply}
         onAiAction={handleAiAction}
         aiPanelOpen={!!aiPanel}
       />}
       {aiPanel && !plaintextEmail && !htmlMode && (
-        <div style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', padding: '10px 14px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{t('compose.toolbar.aiPanelTitle')}</span>
-            <button
-              onClick={() => { aiAbortRef.current?.abort(); setAiPanel(null); }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', fontSize: 16, lineHeight: 1, padding: '0 2px' }}
-            >×</button>
-          </div>
-          {aiPanel.status === 'generating' && !aiPanel.text && (
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{t('compose.toolbar.aiGenerating')}</div>
-          )}
-          {aiPanel.status === 'error' ? (
-            <div style={{ fontSize: 12, color: 'var(--red)' }}>{t('compose.toolbar.aiError', { message: aiPanel.text })}</div>
-          ) : (
-            <div style={{ fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', maxHeight: 160, overflowY: 'auto', lineHeight: 1.5 }}>
-              {aiPanel.text}
-            </div>
-          )}
-          {aiPanel.status === 'done' && (
-            <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-              <button
-                onClick={applyAiText}
-                style={{ fontSize: 12, padding: '5px 14px', background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 500 }}
-              >{t('compose.toolbar.aiApply')}</button>
-              <button
-                onClick={() => setAiPanel(null)}
-                style={{ fontSize: 12, padding: '5px 14px', background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer' }}
-              >{t('compose.toolbar.aiDismiss')}</button>
-            </div>
-          )}
-        </div>
+        <ComposeAiPanel
+          panel={aiPanel}
+          onInstructionChange={instruction => setAiPanel(p => p ? { ...p, instruction } : p)}
+          onGenerateReply={generateAiReply}
+          onApply={applyAiText}
+          onClose={closeAiPanel}
+        />
       )}
       {fwdAttachments.length > 0 && (
         <AttachmentChips attachments={fwdAttachments.map(a => ({ name: a.filename, size: a.size }))} onRemove={i => setFwdAttachments(prev => prev.filter((_, j) => j !== i))} />
@@ -2691,7 +2701,76 @@ function ColorMenuSection({ title, colors, activeColor, onColor, onClear, clearL
   );
 }
 
-function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, isMobile, aiEnabled, onAiAction, aiPanelOpen }) {
+// The AI's suggestion above the editor, with Apply and Dismiss once it is ready. For "Reply with
+// AI" it also holds the instruction, which stays editable so the reply can be asked for again in
+// other words.
+function ComposeAiPanel({ panel, mobile = false, onInstructionChange, onGenerateReply, onApply, onClose }) {
+  const { t } = useTranslation();
+  const busy = panel.status === 'reading' || panel.status === 'generating';
+  const buttonBase = mobile
+    ? { fontSize: 13, padding: '8px 18px', borderRadius: 8, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }
+    : { fontSize: 12, padding: '5px 14px', borderRadius: 6, cursor: 'pointer' };
+  const primary = { ...buttonBase, background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', fontWeight: 500 };
+  const secondary = { ...buttonBase, background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)' };
+  const generate = () => { if (!busy) onGenerateReply(panel.instruction); };
+
+  return (
+    <div style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', padding: mobile ? '10px 16px' : '10px 14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>
+          {panel.action === 'reply' ? t('compose.toolbar.aiReply') : t('compose.toolbar.aiPanelTitle')}
+        </span>
+        <button
+          onClick={onClose}
+          aria-label={t('compose.toolbar.aiDismiss')}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', fontSize: 16, lineHeight: 1, padding: '0 2px' }}
+        >×</button>
+      </div>
+      {panel.action === 'reply' && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: panel.status === 'input' ? 0 : 8 }}>
+          <input
+            autoFocus
+            value={panel.instruction}
+            onChange={e => onInstructionChange(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); generate(); } }}
+            placeholder={t('compose.toolbar.aiReplyPlaceholder')}
+            aria-label={t('compose.toolbar.aiReplyInstruction')}
+            maxLength={MAX_INSTRUCTION_CHARS}
+            style={{
+              flex: 1, minWidth: 0, background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+              borderRadius: mobile ? 8 : 6, padding: mobile ? '8px 10px' : '5px 8px',
+              color: 'var(--text-primary)', fontSize: mobile ? 16 : 12, outline: 'none',
+            }}
+          />
+          <button onClick={generate} disabled={busy} style={{ ...primary, flexShrink: 0, opacity: busy ? 0.6 : 1, cursor: busy ? 'default' : 'pointer' }}>
+            {panel.status === 'input' ? t('compose.toolbar.aiReplyGenerate') : t('message.aiRegenerate')}
+          </button>
+        </div>
+      )}
+      {panel.status === 'reading' && (
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{t('compose.toolbar.aiReplyReading')}</div>
+      )}
+      {panel.status === 'generating' && !panel.text && (
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{t('compose.toolbar.aiGenerating')}</div>
+      )}
+      {panel.status === 'error' ? (
+        <div style={{ fontSize: 12, color: 'var(--red)' }}>{t('compose.toolbar.aiError', { message: panel.text })}</div>
+      ) : panel.text ? (
+        <div style={{ fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', maxHeight: 160, overflowY: 'auto', lineHeight: 1.5 }}>
+          {panel.text}
+        </div>
+      ) : null}
+      {panel.status === 'done' && (
+        <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+          <button onClick={onApply} style={primary}>{t('compose.toolbar.aiApply')}</button>
+          <button onClick={onClose} style={secondary}>{t('compose.toolbar.aiDismiss')}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, isMobile, aiEnabled, aiReplyEnabled, onAiAction, aiPanelOpen }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const savedSelectionRef = useRef(null);
@@ -3218,6 +3297,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
           padding: '4px 0', minWidth: 148,
         }}>
           {[
+            ...(aiReplyEnabled ? [{ key: 'reply', label: t('compose.toolbar.aiReply') }] : []),
             { key: 'draft', label: t('compose.toolbar.aiWriteDraft') },
             { key: 'improve', label: t('compose.toolbar.aiImprove') },
             { key: 'shorten', label: t('compose.toolbar.aiShorten') },

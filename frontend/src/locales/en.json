@@ -186,7 +186,12 @@
       "aiApply": "Apply",
       "aiDismiss": "Dismiss",
       "aiGenerating": "Generating…",
-      "aiError": "AI error: {{message}}"
+      "aiError": "AI error: {{message}}",
+      "aiReply": "Reply with AI",
+      "aiReplyPlaceholder": "What should the reply say? E.g. approve the artwork",
+      "aiReplyInstruction": "Instruction for the AI reply",
+      "aiReplyGenerate": "Generate",
+      "aiReplyReading": "Reading the conversation…"
     },
     "priority": "Priority",
     "priorityHigh": "High priority",

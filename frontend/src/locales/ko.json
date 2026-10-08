@@ -172,6 +172,11 @@
       "aiWriteDraft": "초안 작성",
       "aiAssist": "AI 어시스트",
       "aiError": "AI 오류: {{message}}",
+      "aiReply": "AI로 답장",
+      "aiReplyPlaceholder": "답장에 무엇을 쓸까요? 예: 디자인 승인",
+      "aiReplyInstruction": "AI 답장 지시",
+      "aiReplyGenerate": "생성",
+      "aiReplyReading": "대화를 읽는 중…",
       "moreFormatting": "추가 서식 지정",
       "aiPanelTitle": "AI 제안"
     },

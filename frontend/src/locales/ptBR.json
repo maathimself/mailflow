@@ -186,7 +186,12 @@
       "aiApply": "Aplicar",
       "aiDismiss": "Dispensar",
       "aiGenerating": "Gerando…",
-      "aiError": "Erro da IA: {{message}}"
+      "aiError": "Erro da IA: {{message}}",
+      "aiReply": "Responder com IA",
+      "aiReplyPlaceholder": "O que responder? Ex.: aprove a arte",
+      "aiReplyInstruction": "Instrução para a resposta da IA",
+      "aiReplyGenerate": "Gerar",
+      "aiReplyReading": "Lendo a conversa…"
     },
     "priority": "Prioridade",
     "priorityHigh": "Prioridade alta",
