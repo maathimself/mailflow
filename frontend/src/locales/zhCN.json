@@ -317,6 +317,7 @@
     "replyDraftChanged": "回复草稿已更改。请尝试重新打开。",
     "replyDraftKeepCurrent": "打开此草稿前，请保存当前邮件并处理其附件。",
     "replyDraftUnavailable": "此回复草稿已不可用。",
+    "replyDraftCancelled": "所选邮件或编辑窗口已更改，因此已取消打开回复草稿。请尝试再次打开。",
     "replyDraftRetry": "重新查找回复草稿",
     "openReplyDraft": "打开回复草稿",
     "replyDraft": "回复草稿",

@@ -37,22 +37,31 @@ export async function openReplyDraft(messageId, { automatic = false, liveResult,
       && state.conversationMode === initial.conversationMode && state.searchQuery === initial.searchQuery && state.composing === initial.composing
       && state.composeSession === initial.composeSession;
   };
-  const current = () => ownsContext() && !invalidated && useStore.getState().replyDraftRevision === revision;
+  // Indicator refreshes are hints. Explicit opens own a selection and compose
+  // session, and the server validates the draft itself before returning its body.
+  const current = () => ownsContext() && (!automatic || (!invalidated && useStore.getState().replyDraftRevision === revision));
   const onDraftSaved = ({ before, after, session }) => {
-    if (!ownsContext() || invalidated || before !== revision || after !== before + 1 || session !== initial.composeSession) {
+    if (!ownsContext() || (automatic && (invalidated || before !== revision)) || after !== before + 1 || session !== initial.composeSession) {
       invalidated = true;
       return;
     }
     revision = after;
   };
-  const notice = body => { if (current()) useStore.getState().addNotification({ title: i18n.t('messageList.replyDraft'), body }); };
+  const notice = body => {
+    if (!ownerChanged && useStore.getState().user?.id === initial.user?.id && sequence === requestSequence)
+      useStore.getState().addNotification({ title: i18n.t('messageList.replyDraft'), body });
+  };
+  const cancelled = () => {
+    if (!automatic) notice(i18n.t('messageList.replyDraftCancelled', { defaultValue: 'Reply draft opening was cancelled because the selection or composer changed. Try opening it again.' }));
+    return false;
+  };
   try {
     // The observer can supply the body it just validated with open=true. A save
     // still requires a new lookup below before handing off the current composer.
     let result = automatic && liveResult?.body ? liveResult
       : await api.getReplyDraft(messageId, { ...scope, open: true });
-    if (!current()) return false;
-    if (!result.draft) { useStore.getState().setReplyDraftStatus(messageId, { exists: false }, 'live', revision); notice(i18n.t('messageList.replyDraftUnavailable')); return false; }
+    if (!current()) return cancelled();
+    if (!result.draft) { useStore.getState().setReplyDraftStatus(messageId, { exists: false }, 'live', useStore.getState().replyDraftRevision); notice(i18n.t('messageList.replyDraftUnavailable')); return false; }
     let data = savedDraftToComposeData(result.draft, result.body, useStore.getState().accounts);
     if (initial.composing && initial.composeData?.persistedKey === data.persistedKey) {
       if (!automatic) useStore.setState({ composeData: { ...useStore.getState().composeData, source: 'manualReplyDraft' } });
@@ -62,17 +71,18 @@ export async function openReplyDraft(messageId, { automatic = false, liveResult,
       if (!initial.prepareComposeSwitch || !(await initial.prepareComposeSwitch({ onDraftSaved }))) {
         notice(i18n.t('messageList.replyDraftKeepCurrent')); return false;
       }
-      if (!current()) return false;
+      if (!current()) return cancelled();
       const expected = identity(result.draft);
       result = await api.getReplyDraft(messageId, { ...scope, open: true });
-      if (!current()) return false;
+      if (!current()) return cancelled();
       if (!result.draft || identity(result.draft) !== expected) { notice(i18n.t('messageList.replyDraftChanged')); return false; }
       data = savedDraftToComposeData(result.draft, result.body, useStore.getState().accounts);
     }
-    if (!current()) return false;
-    useStore.getState().setReplyDraftStatus(messageId, { exists: true, accountId: result.draft.account_id }, 'live', revision);
-    return useStore.getState().openCompose({ ...data, source: automatic ? 'automaticReplyDraft' : 'manualReplyDraft', sourceSelectionId: messageId },
+    if (!current()) return cancelled();
+    useStore.getState().setReplyDraftStatus(messageId, { exists: true, accountId: result.draft.account_id }, 'live', useStore.getState().replyDraftRevision);
+    const opened = await useStore.getState().openCompose({ ...data, source: automatic ? 'automaticReplyDraft' : 'manualReplyDraft', sourceSelectionId: messageId },
       { preparedSession: initial.composeSession });
+    return opened || cancelled();
   } catch (error) { notice(error.message); return false; }
   finally { unsubscribe(); if (manualRequest === sequence) manualRequest = 0; }
 }

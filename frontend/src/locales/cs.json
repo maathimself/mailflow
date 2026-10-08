@@ -167,6 +167,7 @@
     "replyDraftChanged": "Koncept odpovědi se změnil. Zkuste jej znovu otevřít.",
     "replyDraftKeepCurrent": "Před otevřením tohoto konceptu uložte aktuální zprávu a vyřešte její přílohy.",
     "replyDraftUnavailable": "Tento koncept odpovědi již není dostupný.",
+    "replyDraftCancelled": "Otevírání konceptu odpovědi bylo zrušeno, protože se změnil výběr nebo okno zprávy. Zkuste jej otevřít znovu.",
     "replyDraftRetry": "Znovu vyhledat koncept odpovědi",
     "openReplyDraft": "Otevřít koncept odpovědi",
     "replyDraft": "Koncept odpovědi",

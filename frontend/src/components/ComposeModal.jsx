@@ -346,6 +346,13 @@ export default function ComposeModal() {
   const [plainSig, setPlainSig] = useState(() => stripHtml(composeData?.signature ?? fromSignature ?? ''));
   // Tracks the user's current (possibly edited) rich-text signature; kept current by onInput.
   const signatureContentRef = useRef(DOMPurify.sanitize(composeData?.signature ?? fromSignature ?? ''));
+  const [hasRichSignature, setHasRichSignature] = useState(() => Boolean(signatureContentRef.current));
+  // A sender change can reveal a previously absent signature editor. Populate
+  // it on mount; a stable callback preserves edits and the caret on rerenders.
+  const attachSignatureEditor = useCallback(node => {
+    signatureRef.current = node;
+    if (node) node.innerHTML = signatureContentRef.current;
+  }, []);
   // Prevents the signature from being reset by a store refresh (same fromValue, accounts updated).
   const signatureInitializedRef = useRef(false);
   const prevFromValueRef = useRef(fromValue);
@@ -651,6 +658,7 @@ export default function ComposeModal() {
       const draftSig = DOMPurify.sanitize(composeData.signature);
       if (signatureRef.current) signatureRef.current.innerHTML = draftSig;
       signatureContentRef.current = draftSig;
+      setHasRichSignature(Boolean(draftSig));
       setPlainSig(stripHtml(composeData.signature));
       return;
     }
@@ -659,9 +667,11 @@ export default function ComposeModal() {
       const sanitized = DOMPurify.sanitize(fromSignature);
       if (signatureRef.current) signatureRef.current.innerHTML = sanitized;
       signatureContentRef.current = sanitized;
+      setHasRichSignature(Boolean(sanitized));
       setPlainSig(stripHtml(fromSignature));
     } else if (fromValueChanged && fromSignature == null) {
       signatureContentRef.current = '';
+      setHasRichSignature(false);
       setPlainSig('');
     }
   }, [fromValue, fromSignature, composeData?.signature]);
@@ -1293,11 +1303,14 @@ export default function ComposeModal() {
     />
   ) : (
     <div
-      ref={signatureRef}
+      ref={attachSignatureEditor}
       contentEditable
       suppressContentEditableWarning
       spellCheck={false}
-      onInput={() => { signatureContentRef.current = signatureRef.current?.innerHTML || ''; }}
+      onInput={() => {
+        signatureContentRef.current = signatureRef.current?.innerHTML || '';
+        setHasRichSignature(Boolean(signatureContentRef.current));
+      }}
       style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, outline: 'none' }}
     />
   );
@@ -1680,7 +1693,7 @@ export default function ComposeModal() {
           )}
 
           {/* Signature */}
-          {(composeData?.signature || fromSignature) && (
+          {(plaintextEmail ? plainSig : hasRichSignature) && (
             <div style={{ padding: '0 16px 12px' }}>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: '8px 0 6px', userSelect: 'none' }}>
                 -- signature
@@ -2332,7 +2345,7 @@ export default function ComposeModal() {
           </div>
         )}
 
-        {(composeData?.signature || fromSignature) ? (
+        {(plaintextEmail ? plainSig : hasRichSignature) ? (
           <div style={{ padding: '0 14px 10px' }}>
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, userSelect: 'none' }}>
               -- signature

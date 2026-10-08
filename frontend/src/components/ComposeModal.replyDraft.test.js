@@ -50,13 +50,51 @@ const { createRoot } = await import('react-dom/client');
 const { useStore } = await import('../store/index.js');
 const ComposeModal = (await import('./ComposeModal.jsx')).default;
 
+for (const mobile of [false, true]) test(`an unsigned plain-text external draft has no empty signature label (${mobile ? 'mobile' : 'desktop'})`, async () => {
+  const originalMatchMedia = window.matchMedia;
+  window.matchMedia = () => ({ matches: mobile, addEventListener() {}, removeEventListener() {} });
+  globalThis.matchMedia = window.matchMedia;
+  useStore.setState({ accounts: [{ id: 'account-1', email_address: 'me@example.test', aliases: [], signature: '<p>Account default</p>' }],
+    composing: true, plaintextEmail: true, composeData: { accountId: 'account-1', body: 'External reply', signature: '' } });
+  const root = createRoot(document.getElementById('root'));
+  try {
+    await React.act(async () => root.render(React.createElement(ComposeModal)));
+    assert.equal(document.getElementById('root').textContent.includes('-- signature'), false);
+  } finally {
+    await React.act(async () => root.unmount());
+    window.matchMedia = originalMatchMedia; globalThis.matchMedia = originalMatchMedia;
+  }
+});
+
+for (const imageOnly of [false, true]) test(`choosing a sender after an unsigned rich draft mounts its editable ${imageOnly ? 'image' : 'text'} signature`, async () => {
+  const signatureHtml = imageOnly ? '<img src="https://example.test/signature.png">' : '<p>New sender signature</p>';
+  useStore.setState({ accounts: [
+    { id: 'account-1', email_address: 'me@example.test', aliases: [], signature: '<p>Original default</p>' },
+    { id: 'account-2', email_address: 'other@example.test', aliases: [], signature: signatureHtml },
+  ], composing: true, plaintextEmail: false, composeData: { accountId: 'account-1', body: '<p>Reply</p>', bodyIsHtml: true, signature: '' } });
+  const root = createRoot(document.getElementById('root'));
+  try {
+    await React.act(async () => root.render(React.createElement(ComposeModal)));
+    assert.equal(document.getElementById('root').textContent.includes('-- signature'), false);
+    const from = document.querySelector('select');
+    await React.act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set.call(from, 'account:account-2');
+      from.dispatchEvent(new window.Event('change', { bubbles: true }));
+    });
+    const signature = [...document.querySelectorAll('[contenteditable]')].find(el => el.innerHTML === signatureHtml);
+    assert.ok(signature, 'the newly shown signature must be populated and editable');
+  } finally { await React.act(async () => root.unmount()); }
+});
+
 test('a mounted external reply sends headers and updates the UID used by its next save', async () => {
   const requests = [];
+  const sent = [];
   globalThis.fetch = async (url, options) => {
     if (String(url).endsWith('/mail/draft')) {
       requests.push(JSON.parse(options.body));
       return { ok: true, status: 200, json: async () => ({ uid: requests.length + 5, folder: 'Drafts' }) };
     }
+    if (String(url).endsWith('/mail/send')) sent.push(JSON.parse(options.body));
     return { ok: true, status: 200, json: async () => ({}) };
   };
   useStore.setState({ accounts: [{ id: 'account-1', email_address: 'me@example.test', aliases: [] }],
@@ -90,6 +128,13 @@ test('a mounted external reply sends headers and updates the UID used by its nex
     assert.equal(requests.length, 2);
     assert.equal(requests[1].existingUid, 6);
     assert.equal(requests[1].inReplyTo, '<parent@example.test>');
+    assert.equal(requests[1].references, '<root@example.test> <parent@example.test>');
+    const send = [...document.querySelectorAll('button')].find(button => button.textContent === 'compose.send');
+    await React.act(async () => send.click());
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].draft.uid, 7);
+    assert.equal(sent[0].inReplyTo, '<parent@example.test>');
+    assert.equal(sent[0].references, '<root@example.test> <parent@example.test>');
   } finally {
     await React.act(async () => root.unmount());
   }
@@ -506,7 +551,7 @@ test('an automatic handoff save does not start a second observer lookup for its 
   const result = { draft: { id: 'new-draft', account_id: 'account-1', folder: 'Drafts', uid: 9,
     message_id: '<other-reply@example.test>', attachments_complete: true }, body: { text: 'Other reply', attachments: [] } };
   api.saveDraft = async () => ({ uid: 6, folder: 'Drafts' });
-  api.getReplyDraftIndicators = async () => ({ indicators: {} });
+  api.getReplyDraftIndicators = async ids => ({ indicators: Object.fromEntries(ids.map(id => [id, { exists: true }])) });
   api.getReplyDraft = async () => { calls++; return calls === 2 ? new Promise(resolve => { release = () => resolve(result); }) : result; };
   useStore.setState({ user: { id: 'auto-save-owner' }, accounts: [{ id: 'account-1', email_address: 'me@example.test', aliases: [] }],
     plaintextEmail: true, selectedFolder: 'INBOX', selectedMessageId: null, selectedAccountId: null,

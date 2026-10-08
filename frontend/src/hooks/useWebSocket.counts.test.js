@@ -37,6 +37,17 @@ test('already-seen arrivals do not inflate badges; count events update without r
     await React.act(async () => { socket.onmessage({ data: JSON.stringify({ type: 'folder_counts', accountId: 'a' }) }); });
     assert.equal(useStore.getState().unreadCounts.byAccount.a,2);
     assert.equal(listRefreshes,0);
+    useStore.setState({ selectedAccountId: 'a', selectedFolder: 'INBOX', replyDrafts: { selected: { exists: false } },
+      folders: { a: [{ path: 'ServerDrafts', special_use: '\\Drafts' }] } });
+    const revision = useStore.getState().replyDraftRevision;
+    await React.act(async () => socket.onmessage({ data: JSON.stringify({ type: 'new_messages', accountId: 'a',
+      folder: 'ServerDrafts', count: 1, messages: [{ id: 'external-draft' }] }) }));
+    assert.equal(useStore.getState().replyDraftRevision, revision + 1);
+    assert.deepEqual(useStore.getState().replyDrafts, {});
+    assert.equal(listRefreshes, 0, 'a Drafts arrival invalidates indicators without reloading the visible Inbox');
+    await React.act(async () => socket.onmessage({ data: JSON.stringify({ type: 'new_messages', accountId: 'a',
+      folder: 'Archive', count: 1, messages: [{ id: 'archived' }] }) }));
+    assert.equal(useStore.getState().replyDraftRevision, revision + 1);
   } finally {
     await React.act(async () => root.unmount());
     api.getUnreadCounts = original;

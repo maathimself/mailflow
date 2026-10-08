@@ -7,13 +7,14 @@ export default function InboxReplyDraftObserver({ lookupDelayMs = 350 }) {
   const openingRef = useRef(null);
   const [retry, setRetry] = useState(0);
   const { messages, searchResults, searchQuery, selectedFolder, selectedAccountId,
-    selectedMessageId, threadMessages, conversationMode, replyDraftRevision, autoOpenReplyDrafts, messagesRefreshToken, user } = useStore();
+    selectedMessageId, threadMessages, conversationMode, replyDraftRevision, replyDrafts, autoOpenReplyDrafts, messagesRefreshToken, user } = useStore();
   const rows = searchQuery ? searchResults : messages;
   const ids = [...new Set(rows.filter(row => row.folder?.toUpperCase() === 'INBOX'
     && (!selectedAccountId || row.account_id === selectedAccountId)).map(row => row.id))];
   const selected = [...rows, ...Object.values(threadMessages || {}).flat()].find(row => row.id === selectedMessageId);
   const selectedEligible = selected?.folder?.toUpperCase() === 'INBOX'
     && (!selectedAccountId || selected.account_id === selectedAccountId);
+  const selectedHasDraft = replyDrafts[selectedMessageId]?.exists === true;
   if (selectedEligible && !ids.includes(selectedMessageId)) ids.push(selectedMessageId);
   const key = JSON.stringify(ids);
   const scope = replyDraftScope(useStore.getState());
@@ -53,7 +54,7 @@ export default function InboxReplyDraftObserver({ lookupDelayMs = 350 }) {
       if (openingRef.current.requestKey !== requestKey) openingRef.current.retry = true;
       return;
     }
-    if (!autoOpenReplyDrafts || selectedFolder?.toUpperCase() !== 'INBOX' || !selectedEligible
+    if (!autoOpenReplyDrafts || selectedFolder?.toUpperCase() !== 'INBOX' || !selectedEligible || !selectedHasDraft
       || (initial.composing && initial.composeData?.source !== 'automaticReplyDraft')) return;
     let active = true;
     const unsubscribe = useStore.subscribe(state => { if (state.user?.id !== user?.id) active = false; });
@@ -93,7 +94,7 @@ export default function InboxReplyDraftObserver({ lookupDelayMs = 350 }) {
     };
     const timer = lookupDelayMs ? setTimeout(load, lookupDelayMs) : (load(), null);
     return () => { active = false; unsubscribe(); clearTimeout(timer); };
-  }, [selectedMessageId, selectedEligible, selectedFolder, selectedAccountId, conversationMode, searchQuery, replyDraftRevision, autoOpenReplyDrafts, messagesRefreshToken, lookupDelayMs, user?.id, retry]); // eslint-disable-line react-hooks/exhaustive-deps -- editor changes must not repeat this selection's live lookup
+  }, [selectedMessageId, selectedEligible, selectedHasDraft, selectedFolder, selectedAccountId, conversationMode, searchQuery, replyDraftRevision, autoOpenReplyDrafts, messagesRefreshToken, lookupDelayMs, user?.id, retry]); // eslint-disable-line react-hooks/exhaustive-deps -- editor changes must not repeat this selection's live lookup
 
   useEffect(() => {
     const invalidate = () => useStore.getState().invalidateReplyDrafts();

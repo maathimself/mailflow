@@ -2,7 +2,7 @@ import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from 'vites
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (req, _res, next) => { req.session = { userId: 'user-1' }; next(); } }));
-const imapManager = vi.hoisted(() => ({ findReplyDrafts: vi.fn(), fetchMessageBody: vi.fn() }));
+const imapManager = vi.hoisted(() => ({ findReplyDrafts: vi.fn(), fetchMessageBody: vi.fn(), confirmReplyDraft: vi.fn() }));
 vi.mock('../index.js', () => ({ imapManager }));
 
 import express from 'express';
@@ -29,8 +29,10 @@ afterAll(async () => { await new Promise(resolve => server.close(resolve)); });
 beforeEach(() => {
   query.mockReset();
   imapManager.findReplyDrafts.mockReset();
+  imapManager.confirmReplyDraft.mockReset().mockResolvedValue(candidate);
   imapManager.fetchMessageBody.mockReset().mockResolvedValue({ text: 'fresh reply', html: null, attachments: [] });
   query.mockImplementation(async sql => {
+    if (sql.includes('FROM email_accounts')) return { rows: [ACCOUNT] };
     if (sql.includes('FROM folders')) return { rows: [{ account_id: ACCOUNT.id, path: 'Custom', special_use: null }, { account_id: ACCOUNT.id, path: 'ServerDrafts', special_use: '\\Drafts' }] };
     if (sql.includes('draft_candidates')) return { rows: [candidate] };
     if (sql.includes('FROM messages')) return { rows: [{ ...selected, account: ACCOUNT }] };
@@ -95,12 +97,14 @@ describe('GET /messages/:id/reply-draft', () => {
     expect(response.status).toBe(200);
     expect((await response.json()).body.text).toBe('fresh reply');
     expect(imapManager.fetchMessageBody).toHaveBeenCalledWith(ACCOUNT, candidate.uid, candidate.folder);
-    expect(imapManager.findReplyDrafts).toHaveBeenCalledTimes(2);
+    expect(imapManager.findReplyDrafts).toHaveBeenCalledTimes(1);
+    expect(imapManager.confirmReplyDraft).toHaveBeenCalledWith(ACCOUNT, candidate);
   });
 
   it('sanitizes raw HTML before signature extraction and preserves text and attachments', async () => {
     const attachments = [{ part: '2', filename: 'note.txt', size: 3 }];
     imapManager.findReplyDrafts.mockResolvedValue([{ ...candidate, has_attachments: true, attachments_complete: true }]);
+    imapManager.confirmReplyDraft.mockResolvedValue({ ...candidate, has_attachments: true, attachments_complete: true });
     imapManager.fetchMessageBody.mockResolvedValue({ text: 'plain fallback', attachments,
       html: '<p>Reply</p><div data-mailflow-signature="1" onclick="alert(1)"><strong>Thanks</strong><img src="javascript:alert(2)" onerror="alert(3)"><script>alert(4)</script><style>body button{display:none!important}</style></div><blockquote>Quoted text</blockquote>' });
     const response = await lookup(ID, '?open=true');
@@ -119,10 +123,13 @@ describe('GET /messages/:id/reply-draft', () => {
   });
 
   it('does not open a draft removed or replaced during fresh body fetching', async () => {
-    imapManager.findReplyDrafts.mockResolvedValueOnce([candidate]).mockResolvedValueOnce([]);
+    imapManager.confirmReplyDraft.mockResolvedValueOnce(null);
     expect((await lookup(ID, '?open=true')).status).toBe(409);
-    imapManager.findReplyDrafts.mockResolvedValueOnce([candidate])
-      .mockResolvedValueOnce([{ ...candidate, message_id: '<replacement@example.test>' }]);
+    imapManager.confirmReplyDraft.mockResolvedValueOnce({ ...candidate, uid_validity: 'replacement-generation' });
+    expect((await lookup(ID, '?open=true')).status).toBe(409);
+    imapManager.confirmReplyDraft.mockResolvedValueOnce({ ...candidate, in_reply_to: '<different@test>', thread_references: null });
+    expect((await lookup(ID, '?open=true')).status).toBe(409);
+    imapManager.confirmReplyDraft.mockResolvedValueOnce({ ...candidate, message_id: '<replacement@example.test>' });
     expect((await lookup(ID, '?open=true')).status).toBe(409);
   });
 
@@ -143,6 +150,7 @@ describe('cached row reply indicators', () => {
       get thread_references() { reads++; return null; } }));
     const page = size === 10000 ? rows.slice(0, 100) : rows.slice(0, 1);
     query.mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts')) return { rows: [ACCOUNT] };
       if (sql.includes('FROM folders')) return { rows: [{ account_id: ACCOUNT.id, path: 'Custom' }] };
       if (sql.includes('draft_candidates')) return { rows: [{ ...candidate, in_reply_to: '<0@example.test>', thread_references: null }] };
       if (sql.includes('row_members')) return { rows };
@@ -168,7 +176,7 @@ describe('cached row reply indicators', () => {
     expect(response.status).toBe(200);
     expect((await response.json()).indicators[ID]).toMatchObject({ exists: true, accountId: ACCOUNT.id });
     expect(imapManager.findReplyDrafts).not.toHaveBeenCalled();
-    expect(query.mock.calls.length).toBeLessThanOrEqual(4);
+    expect(query.mock.calls.length).toBeLessThanOrEqual(5);
     expect(query.mock.calls[0][1]).toContain('user-1');
   });
 
@@ -176,6 +184,7 @@ describe('cached row reply indicators', () => {
     query.mockResolvedValueOnce({ rows: [] });
     expect((await (await indicators({ ids: [ID] })).json()).indicators).toEqual({});
     query.mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts')) return { rows: [ACCOUNT] };
       if (sql.includes('FROM folders')) return { rows: [{ account_id: ACCOUNT.id, path: 'Custom' }] };
       if (sql.includes('draft_candidates')) return { rows: [{ ...candidate, in_reply_to: '<other@example.test>', thread_references: null }] };
       return { rows: [{ ...selected, account: ACCOUNT }] };
@@ -188,6 +197,7 @@ describe('cached row reply indicators', () => {
     const member = { ...selected, id: '55555555-5555-4555-8555-555555555555', account_id: otherAccount.id, account: otherAccount };
     const otherDraft = { ...candidate, account_id: otherAccount.id };
     query.mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts')) return { rows: [ACCOUNT, otherAccount] };
       if (sql.includes('FROM folders')) return { rows: [ACCOUNT, otherAccount].map(a => ({ account_id: a.id, path: 'Custom' })) };
       if (sql.includes('draft_candidates')) return { rows: [otherDraft] };
       if (sql.includes('row_members')) return { rows: [{ ...selected, account: ACCOUNT }, member] };
@@ -198,6 +208,29 @@ describe('cached row reply indicators', () => {
     const specific = await (await indicators({ ids: [ID], threaded: true, accountId: ACCOUNT.id })).json();
     expect(specific.indicators[ID].exists).toBe(false);
   });
+});
+
+for (const threaded of [false, true]) it(`isolates an oversized conversation from the other 99 indicators (${threaded ? 'conversation' : 'flat'} mode)`, async () => {
+  const giant = Array.from({ length: 10001 }, (_, i) => ({ ...selected,
+    id: `${String(i + 1).padStart(8, '0')}-1111-4111-8111-111111111111`, lookup_key: selected.thread_key }));
+  const healthy = Array.from({ length: 99 }, (_, i) => ({ ...selected,
+    id: `${String(i + 1).padStart(8, '0')}-2222-4222-8222-222222222222`,
+    message_id: `<healthy-${i}@test>`, thread_id: `<healthy-${i}@test>`, thread_key: `<healthy-${i}@test>`, lookup_key: `<healthy-${i}@test>` }));
+  query.mockImplementation(async sql => {
+    if (sql.includes('FROM email_accounts')) return { rows: [ACCOUNT] };
+    if (sql.includes('FROM folders')) return { rows: [{ account_id: ACCOUNT.id, path: 'Custom' }] };
+    if (sql.includes('draft_candidates')) return { rows: healthy.map((row, i) => ({ ...candidate,
+      id: `draft-${i}`, message_id: `<draft-${i}@test>`, in_reply_to: row.message_id, thread_references: null })) };
+    if (sql.includes('row_members') || sql.includes('FROM messages WHERE account_id')) return { rows: [...giant, ...healthy] };
+    return { rows: [selected, ...healthy] };
+  });
+  const response = await indicators({ ids: [ID, ...healthy.map(row => row.id)], threaded });
+  expect(response.status).toBe(200);
+  const result = (await response.json()).indicators;
+  expect(result[ID]).toEqual({ unknown: true });
+  for (const row of healthy) expect(result[row.id]).toEqual({ exists: true, accountId: ACCOUNT.id });
+  expect(query.mock.calls.filter(([sql]) => sql.includes('FROM email_accounts'))).toHaveLength(1);
+  expect(imapManager.findReplyDrafts).not.toHaveBeenCalled();
 });
 
 for (const connected of [false, true]) it(`pages more than 5000 ${connected ? 'matching' : 'mostly unrelated'} cached reply drafts without losing late connectors`, async () => {

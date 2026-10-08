@@ -317,6 +317,7 @@
     "replyDraftChanged": "The reply draft changed. Try opening it again.",
     "replyDraftKeepCurrent": "Save the current message and resolve its attachments before opening this draft.",
     "replyDraftUnavailable": "This reply draft is no longer available.",
+    "replyDraftCancelled": "Reply draft opening was cancelled because the selection or composer changed. Try opening it again.",
     "replyDraftRetry": "Retry reply draft lookup",
     "openReplyDraft": "Open reply draft",
     "replyDraft": "Reply draft",

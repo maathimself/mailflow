@@ -319,6 +319,7 @@
     "replyDraftChanged": "Szkic odpowiedzi się zmienił. Spróbuj otworzyć go ponownie.",
     "replyDraftKeepCurrent": "Zapisz bieżącą wiadomość i rozwiąż problemy z jej załącznikami przed otwarciem tego szkicu.",
     "replyDraftUnavailable": "Ten szkic odpowiedzi nie jest już dostępny.",
+    "replyDraftCancelled": "Otwieranie szkicu odpowiedzi zostało anulowane, ponieważ zmienił się wybór lub edytor. Spróbuj otworzyć go ponownie.",
     "replyDraftRetry": "Ponownie wyszukaj szkic odpowiedzi",
     "openReplyDraft": "Otwórz szkic odpowiedzi",
     "replyDraft": "Szkic odpowiedzi",

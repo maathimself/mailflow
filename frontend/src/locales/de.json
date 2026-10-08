@@ -317,6 +317,7 @@
     "replyDraftChanged": "Der Antwortentwurf wurde geändert. Öffne ihn erneut.",
     "replyDraftKeepCurrent": "Speichere die aktuelle Nachricht und kläre ihre Anhänge, bevor du diesen Entwurf öffnest.",
     "replyDraftUnavailable": "Dieser Antwortentwurf ist nicht mehr verfügbar.",
+    "replyDraftCancelled": "Das Öffnen des Antwortentwurfs wurde abgebrochen, weil sich die Auswahl oder das Nachrichtenfenster geändert hat. Bitte erneut öffnen.",
     "replyDraftRetry": "Antwortentwurf erneut suchen",
     "openReplyDraft": "Antwortentwurf öffnen",
     "replyDraft": "Antwortentwurf",

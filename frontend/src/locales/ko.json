@@ -317,6 +317,7 @@
     "replyDraftChanged": "답장 초안이 변경되었습니다. 다시 열어 보세요.",
     "replyDraftKeepCurrent": "이 초안을 열기 전에 현재 메시지를 저장하고 첨부 파일을 확인하세요.",
     "replyDraftUnavailable": "이 답장 초안은 더 이상 사용할 수 없습니다.",
+    "replyDraftCancelled": "선택한 메시지 또는 작성 창이 변경되어 답장 초안 열기가 취소되었습니다. 다시 열어 주세요.",
     "replyDraftRetry": "답장 초안 다시 찾기",
     "openReplyDraft": "답장 초안 열기",
     "replyDraft": "답장 초안",

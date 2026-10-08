@@ -317,6 +317,7 @@
     "replyDraftChanged": "O rascunho de resposta mudou. Tente abri-lo novamente.",
     "replyDraftKeepCurrent": "Salve a mensagem atual e resolva seus anexos antes de abrir este rascunho.",
     "replyDraftUnavailable": "Este rascunho de resposta não está mais disponível.",
+    "replyDraftCancelled": "A abertura do rascunho de resposta foi cancelada porque a seleção ou o editor mudou. Tente abri-lo novamente.",
     "replyDraftRetry": "Buscar novamente o rascunho de resposta",
     "openReplyDraft": "Abrir rascunho de resposta",
     "replyDraft": "Rascunho de resposta",

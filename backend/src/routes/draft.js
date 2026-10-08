@@ -8,63 +8,86 @@ import { sanitizeSignature, sanitizeComposeBody, sanitizeEmail } from '../servic
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
 import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
-import { draftFolderPaths, createReplyGraph, replyChainIdsFor, indexReplyDrafts, createReplyDraftIndex } from '../services/replyDraftLookup.js';
+import { draftFolderPaths, createReplyGraph, replyChainIdsFor, indexReplyDrafts, createReplyDraftIndex, headerIds } from '../services/replyDraftLookup.js';
 
 const router = Router();
 router.use(requireAuth);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const MAX_REPLY_CONVERSATION = 10000;
+
+function groupReplyRows(rows, keys) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = row.lookup_key || row.thread_key || row.thread_id || (keys.length === 1 ? keys[0] : null);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return groups;
+}
+
 async function replyContexts(userId, ids, { accountId, threaded }) {
   const seeds = (await query(`
     SELECT m.id, m.account_id, m.folder, m.message_id, m.in_reply_to,
-      m.thread_references, m.thread_id, m.thread_key, m.date, m.uid,
-      row_to_json(a) AS account FROM messages m
+      m.thread_references, m.thread_id, m.thread_key, m.date, m.uid FROM messages m
     JOIN email_accounts a ON a.id = m.account_id
     WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2 AND a.enabled = true
       AND m.is_deleted = false AND m.folder = 'INBOX'`, [ids, userId])).rows
     .filter(row => ids.includes(row.id) && (!accountId || row.account_id === accountId));
-  if (!seeds.length) return { seeds, members: [], paths: new Map(), accounts: new Map(), keys: [], groups: new Map() };
   const keys = [...new Set(seeds.map(row => row.thread_key || row.thread_id).filter(Boolean))];
-  const members = threaded ? (await query(`
-    /* row_members */ SELECT m.id, m.account_id, m.folder, m.message_id, m.in_reply_to,
-      m.thread_references, m.thread_id, m.thread_key, m.date, m.uid,
-      row_to_json(a) AS account FROM messages m
-    JOIN email_accounts a ON a.id = m.account_id
-    WHERE a.user_id = $1 AND a.enabled = true AND m.is_deleted = false AND m.folder = 'INBOX'
-      AND m.thread_key = ANY($2::text[])
-      AND (($3::uuid IS NOT NULL AND m.account_id = $3)
-        OR ($3::uuid IS NULL AND COALESCE(a.include_in_unified_inbox, true)))
-    LIMIT 10001`, [userId, keys, accountId || null])).rows.filter(row =>
-    accountId ? row.account_id === accountId : row.account?.include_in_unified_inbox !== false) : seeds;
-  if (members.length > 10000) throw new Error('Reply conversation is too large to check');
-  const accounts = new Map(members.map(row => [row.account_id, row.account]));
-  const accountIds = [...accounts.keys()];
-  if (!accountIds.length) return { seeds, members, paths: new Map(), accounts, keys, groups: new Map() };
-  const folders = (await query(`
-    SELECT account_id, path, special_use FROM folders WHERE account_id = ANY($1::uuid[])
-      AND COALESCE(no_select, false) = false`, [accountIds])).rows;
-  const paths = new Map(accountIds.map(id => [id,
-    draftFolderPaths(id, accounts.get(id)?.folder_mappings, folders)]));
-  const groups = new Map();
-  for (const member of members) {
-    const key = member.thread_key || member.thread_id;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(member);
+  const oversized = new Set();
+  const memberRows = threaded && keys.length ? (await query(`
+    /* row_members */ SELECT member.*, requested.key AS lookup_key
+    FROM unnest($2::text[]) AS requested(key)
+    CROSS JOIN LATERAL (
+      SELECT m.id, m.account_id, m.folder, m.message_id, m.in_reply_to,
+        m.thread_references, m.thread_id, m.thread_key, m.date, m.uid FROM messages m
+      JOIN email_accounts a ON a.id = m.account_id
+      WHERE a.user_id = $1 AND a.enabled = true AND m.is_deleted = false AND m.folder = 'INBOX'
+        AND m.thread_key = requested.key
+        AND (($3::uuid IS NOT NULL AND m.account_id = $3)
+          OR ($3::uuid IS NULL AND COALESCE(a.include_in_unified_inbox, true)))
+      LIMIT $4
+    ) member`, [userId, keys, accountId || null, MAX_REPLY_CONVERSATION + 1])).rows : seeds;
+  const groups = groupReplyRows(memberRows.filter(row => !accountId || row.account_id === accountId), keys);
+  for (const [key, rows] of groups) {
+    if (rows.length > MAX_REPLY_CONVERSATION) { oversized.add(key); groups.delete(key); }
   }
-  return { seeds, members, paths, accounts, keys, groups };
+  const members = [...groups.values()].flat();
+  const accountIds = [...new Set(members.map(row => row.account_id))];
+  const accounts = new Map(accountIds.length ? (await query(`
+    SELECT * FROM email_accounts WHERE id = ANY($1::uuid[]) AND user_id = $2 AND enabled = true`,
+  [accountIds, userId])).rows.filter(account => accountIds.includes(account.id)).map(account => [account.id, account]) : []);
+  const paths = new Map();
+  if (accounts.size) {
+    const folders = (await query(`
+      SELECT account_id, path, special_use FROM folders WHERE account_id = ANY($1::uuid[])
+        AND COALESCE(no_select, false) = false`, [[...accounts.keys()]])).rows;
+    for (const [id, account] of accounts) paths.set(id, draftFolderPaths(id, account.folder_mappings, folders));
+  }
+  return { seeds, members, paths, accounts, keys, groups, oversized };
 }
 
 async function replyGraph(context) {
   const accountIds = [...context.accounts.keys()];
-  if (!accountIds.length) return new Map();
-  const threadIds = [...new Set(context.members.map(row => row.thread_id).filter(Boolean))];
+  const requested = context.keys.filter(key => !context.oversized.has(key)).map(key => ({ key,
+    thread_ids: [...new Set((context.groups.get(key) || []).map(row => row.thread_id).filter(Boolean))] }));
+  if (!accountIds.length || !requested.length) return new Map();
+  // Apply the cap to each conversation, so a large row cannot crowd out the
+  // other rows. LATERAL bounds rows transferred without copying account data.
   const conversation = (await query(`
-    SELECT id, account_id, message_id, in_reply_to, thread_references, thread_id, thread_key
-    FROM messages WHERE account_id = ANY($1::uuid[]) AND is_deleted = false
-      AND (thread_key = ANY($2::text[]) OR thread_id = ANY($3::text[]))
-    LIMIT 10001`, [accountIds, context.keys, threadIds])).rows;
-  if (conversation.length > 10000) throw new Error('Reply conversation is too large to check');
-  return createReplyGraph([...conversation, ...context.members, ...context.seeds]);
+    SELECT conversation.*, requested.key AS lookup_key
+    FROM jsonb_to_recordset($2::jsonb) AS requested(key text, thread_ids text[])
+    CROSS JOIN LATERAL (
+      SELECT id, account_id, message_id, in_reply_to, thread_references, thread_id, thread_key
+      FROM messages WHERE account_id = ANY($1::uuid[]) AND is_deleted = false
+        AND (thread_key = requested.key OR thread_id = ANY(requested.thread_ids))
+      LIMIT $3
+    ) conversation`, [accountIds, JSON.stringify(requested), MAX_REPLY_CONVERSATION + 1])).rows;
+  const groups = groupReplyRows(conversation, context.keys);
+  for (const [key, rows] of groups) if (rows.length > MAX_REPLY_CONVERSATION) context.oversized.add(key);
+  const eligible = row => !context.oversized.has(row.lookup_key || row.thread_key || row.thread_id);
+  return createReplyGraph([...conversation, ...context.members, ...context.seeds].filter(eligible));
 }
 
 function rowMembers(seed, context, threaded) {
@@ -120,7 +143,8 @@ router.post('/reply-drafts/indicators', async (req, res) => {
     const index = await cachedReplyDraftIndex(context);
     res.json({ indicators: Object.fromEntries(context.seeds.map(seed => {
       const draft = rowDraft(seed, context, index, scope.threaded);
-      return [seed.id, { exists: Boolean(draft), ...(draft ? { accountId: draft.account_id } : {}) }];
+      return [seed.id, context.oversized.has(seed.thread_key || seed.thread_id) ? { unknown: true }
+        : { exists: Boolean(draft), ...(draft ? { accountId: draft.account_id } : {}) }];
     })) });
   } catch (err) {
     console.error('Reply draft indicators failed:', err.message);
@@ -138,6 +162,7 @@ router.get('/messages/:id/reply-draft', async (req, res) => {
     const candidates = [];
     const searches = new Map();
     const graph = await replyGraph(context);
+    if (context.oversized.has(selected.thread_key || selected.thread_id)) throw new Error('Reply conversation is too large to check');
     const reachable = replyChainIdsFor(graph, rowMembers(selected, context, scope.threaded));
     for (const [accountId, account] of context.accounts) {
       const ids = [...reachable.get(accountId) || []];
@@ -153,10 +178,11 @@ router.get('/messages/:id/reply-draft', async (req, res) => {
     const search = searches.get(draft.account_id);
     const body = await imapManager.fetchMessageBody(search.account, draft.uid, draft.folder);
     if (body?.html == null && body?.text == null) throw new Error('Could not read the reply draft body');
-    const confirmed = (await imapManager.findReplyDrafts(search.account, search.paths, search.ids))
-      .find(row => row.folder === draft.folder && Number(row.uid) === Number(draft.uid)
-        && row.message_id === draft.message_id && row.uid_validity === draft.uid_validity);
-    if (!confirmed) return res.status(409).json({ error: 'This reply draft changed on the mail server. Try again.' });
+    const confirmed = await imapManager.confirmReplyDraft(search.account, draft);
+    const stillReplies = confirmed && [...headerIds(confirmed.in_reply_to), ...headerIds(confirmed.thread_references)]
+      .some(id => search.ids.includes(id));
+    if (!confirmed || confirmed.folder !== draft.folder || Number(confirmed.uid) !== Number(draft.uid)
+      || confirmed.message_id !== draft.message_id || confirmed.uid_validity !== draft.uid_validity || !stillReplies) return res.status(409).json({ error: 'This reply draft changed on the mail server. Try again.' });
     res.json({ draft: confirmed, body: { ...body,
       html: body.html == null ? null : sanitizeEmail(body.html, { preserveDraftSignature: true }) } });
   } catch (err) {

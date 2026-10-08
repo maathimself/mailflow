@@ -5500,6 +5500,13 @@ export class ImapManager {
     return task;
   }
 
+  async confirmReplyDraft(account, draft) {
+    // After fetching the body, recheck only its physical UID and current RFC
+    // headers. Reuse the pool instead of repeating every Drafts search/login.
+    return withFreshClient(account, client =>
+      this._ingestDraftUidWithClient(account, draft.folder, draft.uid, client));
+  }
+
   async _findReplyDraftsWithClient(account, paths, messageIds, client) {
     const found = await searchReplyDraftUids(client, paths, messageIds);
     const rows = [];

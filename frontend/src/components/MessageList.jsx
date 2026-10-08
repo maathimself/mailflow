@@ -2534,6 +2534,8 @@ export default function MessageList() {
           subject: message.subject || '',
           body,
           bodyIsHtml: !!bodyData.html,
+          inReplyTo: message.in_reply_to || undefined,
+          references: message.thread_references || undefined,
           ...(signature !== null ? { signature } : inline ? { signature: '' } : {}),
         });
       } catch (err) {
@@ -4963,7 +4965,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
             {message.subject || t('message.noSubject')}
           </span>
           <ReplyDraftIndicator message={message} />
-            <SpamBadge message={message} onClick={onExplainSpam} />
+          <SpamBadge message={message} onClick={onExplainSpam} />
         </div>
 
         {/* Row 3: Snippet */}

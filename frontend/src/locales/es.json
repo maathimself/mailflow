@@ -317,6 +317,7 @@
     "replyDraftChanged": "El borrador de respuesta ha cambiado. Intenta abrirlo de nuevo.",
     "replyDraftKeepCurrent": "Guarda el mensaje actual y resuelve sus adjuntos antes de abrir este borrador.",
     "replyDraftUnavailable": "Este borrador de respuesta ya no está disponible.",
+    "replyDraftCancelled": "Se canceló la apertura del borrador de respuesta porque cambió la selección o el editor. Intenta abrirlo de nuevo.",
     "replyDraftRetry": "Volver a buscar el borrador de respuesta",
     "openReplyDraft": "Abrir borrador de respuesta",
     "replyDraft": "Borrador de respuesta",

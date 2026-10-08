@@ -317,6 +317,7 @@
     "replyDraftChanged": "Le brouillon de réponse a changé. Essayez de le rouvrir.",
     "replyDraftKeepCurrent": "Enregistrez le message actuel et gérez ses pièces jointes avant d’ouvrir ce brouillon.",
     "replyDraftUnavailable": "Ce brouillon de réponse n’est plus disponible.",
+    "replyDraftCancelled": "L’ouverture du brouillon de réponse a été annulée car la sélection ou l’éditeur a changé. Essayez de l’ouvrir à nouveau.",
     "replyDraftRetry": "Rechercher à nouveau le brouillon de réponse",
     "openReplyDraft": "Ouvrir le brouillon de réponse",
     "replyDraft": "Brouillon de réponse",

@@ -42,7 +42,7 @@ async function reset({ autoOpenReplyDrafts = false, count = 3 } = {}) {
     messages: Array.from({length: count}, (_, i) => row(String(i))), searchResults: [], searchQuery: '',
     threadMessages: {}, composing: false, composeData: null, prepareComposeSwitch: null,
     replyDrafts: {}, replyDraftRevision: 0, notifications: [], autoOpenReplyDrafts, conversationMode: 'off' });
-  api.getReplyDraftIndicators = async () => ({ indicators: {} });
+  api.getReplyDraftIndicators = async ids => ({ indicators: Object.fromEntries(ids.map(id => [id, { exists: true }])) });
   api.getReplyDraft = async id => ({ draft: draft(id), body: { text: `Reply ${id}`, attachments: [] } });
 }
 async function mount() { await React.act(async () => root.render(React.createElement(Observer, { lookupDelayMs: 0 }))); }
@@ -75,7 +75,7 @@ test('slow cached batches cannot resurrect a newer live absence', async () => {
 
 test('rapid selection ignores stale live results and batching chunks at 100', async () => {
   await reset({ count: 201, autoOpenReplyDrafts: true }); const batches = [];
-  api.getReplyDraftIndicators = async ids => { batches.push(ids); return { indicators: {} }; };
+  api.getReplyDraftIndicators = async ids => { batches.push(ids); return { indicators: Object.fromEntries(ids.map(id => [id, { exists: true }])) }; };
   const old = deferred(); api.getReplyDraft = id => id === '0' ? old.promise : Promise.resolve({ draft: null });
   await mount(); await select('0'); await select('1');
   await React.act(async () => old.resolve({ draft: draft('0') }));
@@ -123,6 +123,42 @@ test('explicit opening owns a manual session and retains From provenance', async
   assert.equal(await openReplyDraft('0'), true);
   assert.equal(useStore.getState().composeData.source, 'manualReplyDraft');
   assert.equal(useStore.getState().composeData.accountId, 'acct');
+});
+
+test('an explicit opening survives refresh invalidation during a delayed live lookup', async () => {
+  await reset(); await mount(); await select('0');
+  const pending = deferred(); api.getReplyDraft = () => pending.promise;
+  const opening = openReplyDraft('0');
+  await React.act(async () => window.dispatchEvent(new CustomEvent('mailflow:refresh')));
+  pending.resolve({ draft: draft('0'), body: { text: 'Still current', attachments: [] } });
+  assert.equal(await opening, true);
+  assert.equal(useStore.getState().composeData.body, 'Still current');
+  assert.equal(useStore.getState().replyDrafts['0']?.exists, true);
+});
+
+test('explicit opening reports cancellation when the selection changes', async () => {
+  await reset(); await select('0');
+  const pending = deferred(); api.getReplyDraft = () => pending.promise;
+  const opening = openReplyDraft('0');
+  await select('1');
+  pending.resolve({ draft: draft('0'), body: { text: 'Old selection', attachments: [] } });
+  assert.equal(await opening, false);
+  assert.equal(useStore.getState().composing, false);
+  assert.ok(useStore.getState().notifications.some(n => n.body.includes('cancelled')));
+});
+
+test('auto-open waits for cached indicators and skips a known negative or unknown conversation', async () => {
+  for (const status of [{ exists: false }, { unknown: true }]) {
+    await reset({ autoOpenReplyDrafts: true });
+    const cached = deferred(); let live = 0;
+    api.getReplyDraftIndicators = () => cached.promise;
+    api.getReplyDraft = async () => { live++; return { draft: null }; };
+    await mount(); await select('0');
+    assert.equal(live, 0);
+    await React.act(async () => cached.resolve({ indicators: { '0': status } }));
+    assert.equal(live, 0);
+    assert.equal(useStore.getState().composing, false);
+  }
 });
 
 test('navigation outside inbox cancels pending lookup and a lookup failure remains an error', async () => {
@@ -235,7 +271,7 @@ test('turning auto-open off during lookup discards its response', async () => {
   await React.act(async () => useStore.setState({ autoOpenReplyDrafts: false }));
   await React.act(async () => pending.resolve({ draft: draft('0'), body: { text: 'Old', attachments: [] } }));
   assert.equal(useStore.getState().composing, false);
-  assert.equal(useStore.getState().replyDrafts['0'], undefined);
+  assert.equal(useStore.getState().replyDrafts['0']?.source, 'cached');
 });
 
 for (const stage of ['first lookup', 'after save']) for (const nextUser of [null, { id: 'other-reader' }]) {
@@ -259,12 +295,13 @@ for (const stage of ['first lookup', 'after save']) for (const nextUser of [null
   });
 }
 
-test('an unrelated revision change while saving cancels an explicit handoff', async () => {
+test('an unrelated indicator revision change while saving does not cancel an explicit handoff', async () => {
   await reset(); await select('0');
   useStore.getState().openCompose({ subject: 'Existing' });
   useStore.setState({ prepareComposeSwitch: async () => { useStore.getState().invalidateReplyDrafts(); return true; } });
-  assert.equal(await openReplyDraft('0'), false);
-  assert.equal(useStore.getState().composeData.subject, 'Existing');
+  assert.equal(await openReplyDraft('0'), true);
+  assert.equal(useStore.getState().composeData.source, 'manualReplyDraft');
+  assert.equal(useStore.getState().composeData.body, 'Reply 0');
 });
 
 for (const change of [{ selectedMessageId: '1' }, { selectedAccountId: 'other-account' }]) {
@@ -277,7 +314,7 @@ for (const change of [{ selectedMessageId: '1' }, { selectedAccountId: 'other-ac
       useStore.setState(change);
       pending.resolve({ draft: draft('0'), body: { text: 'Old scope', attachments: [] } });
       await Promise.resolve();
-      assert.equal(useStore.getState().replyDrafts['0'], undefined);
+      assert.notEqual(useStore.getState().replyDrafts['0']?.source, 'live');
     });
     assert.equal(useStore.getState().composing, false);
   });

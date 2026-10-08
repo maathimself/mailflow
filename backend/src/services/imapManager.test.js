@@ -32,6 +32,26 @@ const resolved = { host: '127.0.0.1', servername: null };
 const baseAccount = { imap_host: '127.0.0.1', imap_port: 1143, imap_tls: true, imap_skip_tls_verify: false, auth_user: 'user', auth_pass: 'enc' };
 
 describe('live reply draft lookup', () => {
+  it('confirms only the selected UID over an idle pooled connection without another login or search', async () => {
+    const account = { ...baseAccount, id: 'reply-confirm-pooled', user_id: 'user-1', email_address: 'me@example.test' };
+    const client = Object.assign(new EventEmitter(), { usable: true, connect: vi.fn().mockResolvedValue(),
+      close: vi.fn(), logout: vi.fn().mockResolvedValue(), noop: vi.fn().mockResolvedValue(), search: vi.fn() });
+    ImapFlow.mockImplementation(function () { return client; });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    query.mockReset().mockResolvedValue({ rows: [account] });
+    const pooled = await acquirePooledClient(account);
+    releasePooledClient(account, pooled);
+    const manager = Object.create(ImapManager.prototype);
+    const expected = { folder: 'Drafts', uid: 17, message_id: '<reply@test>' };
+    manager._ingestDraftUidWithClient = vi.fn().mockResolvedValue(expected);
+    const logins = ImapFlow.mock.calls.length;
+    expect(await manager.confirmReplyDraft(account, expected)).toEqual(expected);
+    expect(manager._ingestDraftUidWithClient).toHaveBeenCalledWith(account, 'Drafts', 17, pooled);
+    expect(client.search).not.toHaveBeenCalled();
+    expect(ImapFlow.mock.calls.length).toBe(logins);
+  });
+
   it('preserves saved reply References and attachment presence', async () => {
     query.mockReset().mockResolvedValue({ rows: [] });
     const manager = Object.create(ImapManager.prototype);
