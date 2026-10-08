@@ -271,8 +271,12 @@ export default function ComposeModal() {
   // Start at fwdAttachments.length so pre-loaded forwarded attachments aren't dirty.
   const savedAttachmentCountRef = useRef((composeData?.forwardedAttachments || []).length);
   // True when the compose was opened by clicking an existing draft from the list.
-  // Used by handleClose to decide whether to prompt about an unmodified draft.
-  const draftWasPreExisting = useRef(composeData?.draftUid != null);
+  // Used by handleClose to decide whether to prompt about an unmodified draft, and to keep a From
+  // switch from swapping the automatic Cc and Bcc. A message reopened by undo send keeps what its
+  // composer had: one that was only autosaved has a draft by then, but was not opened from one.
+  const draftWasPreExisting = useRef(composeData?.restored
+    ? !!composeData.draftWasPreExisting
+    : composeData?.draftUid != null);
   // A message reopened after undo send is newer than its draft, if it has one at all (and a
   // draft never has the attachments), so it counts as unsaved until it is saved.
   const unsavedRestoreRef = useRef(!!composeData?.restored);
@@ -949,6 +953,7 @@ export default function ComposeModal() {
           priority,
           restored: true,
           autoRecipients: autoAtSend,
+          draftWasPreExisting: draftWasPreExisting.current,
           sendError: undefined,
         };
         const pendingId = sendResult.pendingId;

@@ -624,6 +624,39 @@ describe('automatic Cc and Bcc (#491)', () => {
     } finally { await close(); }
   });
 
+  test('after undo send of a message autosaved before Send, a From switch still swaps the automatic Cc', async () => {
+    // A composer open for a while has saved a draft by the time Send is clicked. The undone message
+    // comes back with that draft, but it was never opened from one, so it behaves like its composer.
+    const accounts = [account('A', { cc: ['crm-a@example.invalid'] }), account('B', { cc: ['crm-b@example.invalid'] })];
+    const close = await sendAndUndo({ to: ['x@example.invalid'], subject: 'Plan' }, {
+      accounts,
+      beforeSend: async () => {
+        await editBody('Hi');
+        await hideTab();
+        assert.equal(saved.length, 1, 'precondition: the message was autosaved before Send');
+      },
+    });
+    try {
+      assert.equal(useStore.getState().composeData.draftUid, 8, 'reopened with its draft');
+      assert.deepEqual(chips('compose.cc'), ['crm-a@example.invalid']);
+      await chooseFrom('account:B');
+      assert.deepEqual(chips('compose.cc'), ['crm-b@example.invalid']);
+    } finally { await close(); }
+  });
+
+  test('a message undone after an autosave closes like its composer once saved again: without a discard prompt', async () => {
+    const close = await sendAndUndo({ to: ['x@example.invalid'], subject: 'Plan' }, {
+      accounts: [account('A')],
+      beforeSend: async () => { await editBody('Hi'); await hideTab(); },
+    });
+    try {
+      await hideTab(); // the reopened message is newer than its draft, so it is saved
+      assert.equal(saved.length, 2, 'precondition: saved again after it was reopened');
+      await click(document.querySelector('button[title="compose.toolbar.close"]'));
+      assert.equal(useStore.getState().composing, false, 'closed, keeping the draft it saved');
+    } finally { await close(); }
+  });
+
   test('a From switch keeps a recipient the user added for an automatic address', async () => {
     const accounts = [account('A', { cc: ['boss@example.invalid'] }), account('B')];
     const close = await mountCompose({ to: ['x@example.invalid'], subject: 'Plan' }, { accounts });
