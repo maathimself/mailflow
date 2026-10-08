@@ -5026,7 +5026,9 @@ describe('syncMessages — tells the client when a Drafts folder gained rows', (
       snippet: 'draft', isRead, isStarred: false, hasAttachments: false, flags: isRead ? ['\\Draft', '\\Seen'] : ['\\Draft'],
       isBulk: false, parsedHeaders: {},
     });
-    const mgr = { pluginFacade: {}, broadcast: vi.fn() };
+    // An unread arrival also schedules a body prefetch (setImmediate) and classification; stub
+    // both, or the prefetch throws after the test has finished.
+    const mgr = { pluginFacade: {}, broadcast: vi.fn(), prefetchNewMessageBodies: vi.fn(async () => {}), maybeClassifyNewMessage: vi.fn() };
     await ImapManager.prototype.syncMessages.call(mgr, account, client, folder, 100, false, true);
     return mgr.broadcast.mock.calls.map(([event, userId]) => [event.type, event.accountId, userId]);
   }
