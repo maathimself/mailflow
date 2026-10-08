@@ -1172,6 +1172,10 @@
       "activityBlocked": "Bloqué",
       "savingProtection": "Enregistrement…",
       "eventSsoLogin": "Connexion SSO",
+      "eventAdminPasswordSet": "Mot de passe défini",
+      "eventAdminUserUpdate": "Compte modifié",
+      "eventAdminTotpDisable": "2FA désactivé",
+      "byActor": "par {{actor}}",
       "activityTitle": "Activité de connexion",
       "loginProtectionTitle": "Protection de connexion",
       "qrCodeAlt": "code QR",
@@ -1276,7 +1280,8 @@
       "passwordMismatch": "Les mots de passe ne correspondent pas.",
       "usernameTaken": "Ce nom d’utilisateur est déjà pris.",
       "invalidEmail": "Cette adresse e-mail n’est pas valide.",
-      "saveFailed": "Enregistrement impossible : {{message}}"
+      "saveFailed": "Enregistrement impossible : {{message}}",
+      "passwordNotSet": "Les autres modifications ont été enregistrées, mais le mot de passe n’a pas été défini : {{message}}"
     },
     "ai": {
       "title": "Assistant IA",

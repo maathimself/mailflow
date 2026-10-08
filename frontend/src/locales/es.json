@@ -1172,6 +1172,10 @@
       "activityBlocked": "Bloqueado",
       "savingProtection": "Guardando…",
       "eventSsoLogin": "Inicio de sesión SSO",
+      "eventAdminPasswordSet": "Contraseña establecida",
+      "eventAdminUserUpdate": "Cuenta editada",
+      "eventAdminTotpDisable": "2FA desactivado",
+      "byActor": "por {{actor}}",
       "activityTitle": "Actividad de inicio de sesión",
       "loginProtectionTitle": "Protección de inicio de sesión",
       "qrCodeAlt": "QR code",
@@ -1276,7 +1280,8 @@
       "passwordMismatch": "Las contraseñas no coinciden.",
       "usernameTaken": "Ese nombre de usuario ya está en uso.",
       "invalidEmail": "Esa dirección de correo no es válida.",
-      "saveFailed": "No se pudo guardar: {{message}}"
+      "saveFailed": "No se pudo guardar: {{message}}",
+      "passwordNotSet": "Los demás cambios se guardaron, pero la contraseña no se estableció: {{message}}"
     },
     "ai": {
       "title": "Asistente IA",

@@ -1174,6 +1174,10 @@
       "eventTotpSuccess": "2FA verificado",
       "eventTotpFail": "Falha no 2FA",
       "eventSsoLogin": "Login via SSO",
+      "eventAdminPasswordSet": "Senha definida",
+      "eventAdminUserUpdate": "Conta editada",
+      "eventAdminTotpDisable": "2FA desativado",
+      "byActor": "por {{actor}}",
       "qrCodeAlt": "QR code",
       "mailPolicyTitle": "Política de conexão com servidores de e-mail",
       "mailPolicyDesc": "Controla quais tipos de conexão os usuários podem configurar. Desative estas opções em instalações expostas à internet.",
@@ -1276,7 +1280,8 @@
       "passwordMismatch": "As senhas não coincidem.",
       "usernameTaken": "Esse nome de usuário já está em uso.",
       "invalidEmail": "Esse endereço de e-mail não é válido.",
-      "saveFailed": "Não foi possível salvar: {{message}}"
+      "saveFailed": "Não foi possível salvar: {{message}}",
+      "passwordNotSet": "As outras alterações foram salvas, mas a senha não foi definida: {{message}}"
     },
     "ai": {
       "title": "Assistente de IA",

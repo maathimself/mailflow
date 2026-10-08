@@ -1193,6 +1193,10 @@
       "eventTotpSuccess": "Zweryfikowano 2FA",
       "eventTotpFail": "Nieudane 2FA",
       "eventSsoLogin": "Logowanie SSO",
+      "eventAdminPasswordSet": "Ustawiono hasło",
+      "eventAdminUserUpdate": "Edytowano konto",
+      "eventAdminTotpDisable": "Wyłączono 2FA",
+      "byActor": "przez {{actor}}",
       "qrCodeAlt": "Kod QR",
       "mailPolicyTitle": "Zasady połączeń z serwerem pocztowym",
       "mailPolicyDesc": "Określ, które typy połączeń mogą konfigurować użytkownicy. Wyłącz te opcje we wdrożeniach dostępnych z Internetu.",
@@ -1295,7 +1299,8 @@
       "passwordMismatch": "Hasła nie są identyczne.",
       "usernameTaken": "Ta nazwa użytkownika jest już zajęta.",
       "invalidEmail": "Ten adres e-mail jest nieprawidłowy.",
-      "saveFailed": "Nie udało się zapisać: {{message}}"
+      "saveFailed": "Nie udało się zapisać: {{message}}",
+      "passwordNotSet": "Pozostałe zmiany zostały zapisane, ale hasło nie zostało ustawione: {{message}}"
     },
     "ai": {
       "title": "Asystent AI",

@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import { query } from '../services/db.js';
+import { query, withTransaction } from '../services/db.js';
 import { requireAdmin } from '../middleware/auth.js';
+import { logAuthEvent } from '../services/authEvents.js';
 import { decrypt, encrypt } from '../services/encryption.js';
 import { validateHost, resolveForConnection } from '../services/hostValidation.js';
 import { createSmtpTransport } from '../services/smtpTransport.js';
@@ -58,7 +59,20 @@ export async function listUsers(req, res) {
 }
 router.get('/users', listUsers);
 
-router.post('/users/:id/totp/disable', async (req, res) => {
+// An admin can set any user's password and recovery email, and turn off their 2FA, so between
+// them any admin can sign in as any user. Each of those changes goes to the security log with the
+// admin who made it, not only to the server log. The admin's name is read from the database
+// rather than the session, which keeps the name they signed in with.
+async function logAdminChange(req, eventType, target) {
+  const actor = await query('SELECT username FROM users WHERE id = $1', [req.session.userId])
+    .then(r => r.rows[0]?.username, () => null);
+  logAuthEvent(eventType, {
+    username: target.username, userId: target.id,
+    actorUsername: actor || req.session.username || null, ip: req.ip, success: true,
+  });
+}
+
+export async function disableUserTotp(req, res) {
   const { id } = req.params;
   if (id === req.session.userId) {
     return res.status(400).json({ error: 'Use your account settings to manage your own 2FA.' });
@@ -67,8 +81,10 @@ router.post('/users/:id/totp/disable', async (req, res) => {
   if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
   await query('UPDATE users SET totp_secret = NULL, totp_enabled = false WHERE id = $1', [id]);
   console.log(`[admin] ${req.session.username} disabled 2FA for user ${target.rows[0].username} (${id})`);
+  await logAdminChange(req, 'admin_totp_disable', { id, username: target.rows[0].username });
   res.json({ ok: true });
-});
+}
+router.post('/users/:id/totp/disable', disableUserTotp);
 
 // The same rules registration applies: stored lower-case, 1-120 characters, no control
 // characters. Returns the normalized name or an error message.
@@ -102,15 +118,18 @@ export async function updateUser(req, res) {
     sets.push(`is_admin = $${values.length}`);
     changes.push(`is_admin=${isAdmin}`);
   }
+  let newUsername;
   if (username !== undefined) {
     const normalized = normalizeUsername(username);
     if (normalized.error) return res.status(400).json({ error: normalized.error });
+    newUsername = normalized.username;
     values.push(normalized.username);
     sets.push(`username = $${values.length}`);
     changes.push(`username=${normalized.username}`);
   }
+  let email;
   if (recoveryEmail !== undefined) {
-    const email = recoveryEmail ? String(recoveryEmail).trim().toLowerCase() : null;
+    email = recoveryEmail ? String(recoveryEmail).trim().toLowerCase() : null;
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: 'Invalid email address' });
     }
@@ -120,26 +139,40 @@ export async function updateUser(req, res) {
   }
   if (!sets.length) return res.status(400).json({ error: 'Nothing to change' });
 
-  const target = await query('SELECT username FROM users WHERE id = $1', [id]);
+  const target = await query('SELECT username, recovery_email FROM users WHERE id = $1', [id]);
   if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
+  const emailChanged = email !== undefined && email !== (target.rows[0].recovery_email ?? null);
 
   values.push(id);
   try {
-    await query(`UPDATE users SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
+    await withTransaction(async client => {
+      await client.query(`UPDATE users SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
+      // A reset link or login code already sent to the old address must stop working: the
+      // address may be changing because someone else has it.
+      if (emailChanged) {
+        await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [id]);
+        await client.query('DELETE FROM email_otp_tokens WHERE user_id = $1', [id]);
+      }
+    });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Username already taken' });
     throw err;
   }
   console.log(`[admin] ${req.session.username} changed ${changes.join(', ')} for user ${target.rows[0].username} (${id})`);
+  const finalUsername = newUsername ?? target.rows[0].username;
+  // An admin renaming themselves: the session keeps the name for the server log lines.
+  if (id === req.session.userId) req.session.username = finalUsername;
+  await logAdminChange(req, 'admin_user_update', { id, username: finalUsername });
 
   // If user is currently logged in, their session isAdmin will be refreshed on next /me call
   res.json({ ok: true });
 }
 router.patch('/users/:id', updateUser);
 
-// Sets a user's password, for someone who has lost theirs and has no recovery email. Every
-// session the user has open is signed out, as after a self-service reset; an admin setting
-// their own keeps the session they are using.
+// Sets a user's password, for someone who has lost theirs and has no recovery email. It takes
+// away what a self-service reset does, and more: every session (an admin setting their own keeps
+// the session they are using), trusted devices, which skip the second factor, and any reset link
+// or login code already sent, which would otherwise still set a different password or sign in.
 export async function setUserPassword(req, res) {
   const { id } = req.params;
   const { password } = req.body ?? {};
@@ -154,9 +187,15 @@ export async function setUserPassword(req, res) {
   if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
 
   const hash = await bcrypt.hash(password, 12);
-  await query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, id]);
+  await withTransaction(async client => {
+    await client.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, id]);
+    await client.query('DELETE FROM trusted_devices WHERE user_id = $1', [id]);
+    await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [id]);
+    await client.query('DELETE FROM email_otp_tokens WHERE user_id = $1', [id]);
+  });
   await destroyUserSessions(id, { exceptSessionId: id === req.session.userId ? req.sessionID : undefined });
   console.log(`[admin] ${req.session.username} set a new password for user ${target.rows[0].username} (${id})`);
+  await logAdminChange(req, 'admin_password_set', { id, username: target.rows[0].username });
   res.json({ ok: true });
 }
 router.post('/users/:id/password', setUserPassword);
@@ -196,7 +235,7 @@ router.get('/auth-events', async (req, res) => {
   const offset = Math.max(parseInt(req.query.offset) || 0, 0);
   const [eventsResult, countResult] = await Promise.all([
     query(
-      `SELECT id, event_type, username, user_id, ip, success, created_at
+      `SELECT id, event_type, username, user_id, actor_username, ip, success, created_at
        FROM auth_events ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
       [limit, offset]
     ),

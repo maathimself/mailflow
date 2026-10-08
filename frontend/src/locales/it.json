@@ -1172,6 +1172,10 @@
       "activityBlocked": "Bloccato",
       "savingProtection": "Salvataggio…",
       "eventSsoLogin": "Accesso SSO",
+      "eventAdminPasswordSet": "Password impostata",
+      "eventAdminUserUpdate": "Account modificato",
+      "eventAdminTotpDisable": "2FA disattivato",
+      "byActor": "da {{actor}}",
       "activityTitle": "Attività di accesso",
       "loginProtectionTitle": "Protezione accesso",
       "qrCodeAlt": "codice QR",
@@ -1276,7 +1280,8 @@
       "passwordMismatch": "Le password non coincidono.",
       "usernameTaken": "Questo nome utente è già in uso.",
       "invalidEmail": "Questo indirizzo email non è valido.",
-      "saveFailed": "Impossibile salvare: {{message}}"
+      "saveFailed": "Impossibile salvare: {{message}}",
+      "passwordNotSet": "Le altre modifiche sono state salvate, ma la password non è stata impostata: {{message}}"
     },
     "ai": {
       "title": "Assistente IA",

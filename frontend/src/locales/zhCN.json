@@ -1172,6 +1172,10 @@
       "activityBlocked": "已拦截",
       "savingProtection": "保存中…",
       "eventSsoLogin": "SSO 登录",
+      "eventAdminPasswordSet": "已设置密码",
+      "eventAdminUserUpdate": "已编辑账户",
+      "eventAdminTotpDisable": "已关闭双重认证",
+      "byActor": "（由 {{actor}} 操作）",
       "activityTitle": "登录活动",
       "loginProtectionTitle": "登录保护",
       "qrCodeAlt": "QR码",
@@ -1276,7 +1280,8 @@
       "passwordMismatch": "两次输入的密码不一致。",
       "usernameTaken": "该用户名已被占用。",
       "invalidEmail": "该邮箱地址无效。",
-      "saveFailed": "无法保存：{{message}}"
+      "saveFailed": "无法保存：{{message}}",
+      "passwordNotSet": "其他更改已保存，但未设置密码：{{message}}"
     },
     "ai": {
       "title": "AI 助手",

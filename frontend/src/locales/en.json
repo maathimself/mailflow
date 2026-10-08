@@ -1174,6 +1174,10 @@
       "eventTotpSuccess": "2FA verified",
       "eventTotpFail": "Failed 2FA",
       "eventSsoLogin": "SSO login",
+      "eventAdminPasswordSet": "Password set",
+      "eventAdminUserUpdate": "Account edited",
+      "eventAdminTotpDisable": "2FA turned off",
+      "byActor": "by {{actor}}",
       "qrCodeAlt": "QR code",
       "mailPolicyTitle": "Mail Server Connection Policy",
       "mailPolicyDesc": "Controls which connection types users are permitted to configure. Disable these for internet-facing deployments.",
@@ -1276,7 +1280,8 @@
       "passwordMismatch": "The passwords do not match.",
       "usernameTaken": "That username is already taken.",
       "invalidEmail": "That email address is not valid.",
-      "saveFailed": "Could not save: {{message}}"
+      "saveFailed": "Could not save: {{message}}",
+      "passwordNotSet": "The other changes were saved, but the password was not set: {{message}}"
     },
     "ai": {
       "title": "AI Assistant",

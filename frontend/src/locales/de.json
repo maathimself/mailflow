@@ -1101,6 +1101,10 @@
       "eventTotpSuccess": "2FA bestätigt",
       "eventTotpFail": "Fehlgeschlagene 2FA",
       "eventSsoLogin": "SSO-Anmeldung",
+      "eventAdminPasswordSet": "Passwort gesetzt",
+      "eventAdminUserUpdate": "Konto bearbeitet",
+      "eventAdminTotpDisable": "2FA deaktiviert",
+      "byActor": "von {{actor}}",
       "qrCodeAlt": "QR-Code",
       "mailPolicyTitle": "Verbindungsrichtlinie für Mailserver",
       "mailPolicyDesc": "Legt fest, welche Verbindungstypen Benutzer konfigurieren dürfen. Für öffentlich zugängliche Instanzen deaktivieren.",
@@ -1203,7 +1207,8 @@
       "passwordMismatch": "Die Passwörter stimmen nicht überein.",
       "usernameTaken": "Dieser Benutzername ist bereits vergeben.",
       "invalidEmail": "Diese E-Mail-Adresse ist ungültig.",
-      "saveFailed": "Speichern fehlgeschlagen: {{message}}"
+      "saveFailed": "Speichern fehlgeschlagen: {{message}}",
+      "passwordNotSet": "Die anderen Änderungen wurden gespeichert, aber das Passwort wurde nicht gesetzt: {{message}}"
     },
     "ai": {
       "title": "KI-Assistent",

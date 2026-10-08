@@ -1516,6 +1516,10 @@
       "eventTotpSuccess": "2FA ověřeno",
       "eventTotpFail": "Neúspěšné 2FA",
       "eventSsoLogin": "Přihlášení přes SSO",
+      "eventAdminPasswordSet": "Heslo nastaveno",
+      "eventAdminUserUpdate": "Účet upraven",
+      "eventAdminTotpDisable": "2FA vypnuto",
+      "byActor": "uživatelem {{actor}}",
       "qrCodeAlt": "QR kód",
       "mailPolicyTitle": "Zásady připojení k poštovním serverům",
       "mailPolicyDesc": "Určuje, jaké typy připojení mohou uživatelé nastavovat. U instalací dostupných z internetu tyto možnosti vypněte.",
@@ -1614,7 +1618,8 @@
       "passwordMismatch": "Hesla se neshodují.",
       "usernameTaken": "Toto uživatelské jméno je již obsazené.",
       "invalidEmail": "Tato e-mailová adresa není platná.",
-      "saveFailed": "Uložení se nezdařilo: {{message}}"
+      "saveFailed": "Uložení se nezdařilo: {{message}}",
+      "passwordNotSet": "Ostatní změny byly uloženy, ale heslo nebylo nastaveno: {{message}}"
     },
     "search": {
       "placeholder": "Hledat v nastavení…",

@@ -5251,7 +5251,7 @@ function UsersAndInvitesPanel() {
                 title={u.lastSeenAt ? new Date(u.lastSeenAt).toLocaleString() : undefined}
                 style={{
                   fontSize: 11, marginTop: 1,
-                  color: daysSince(u.lastSeenAt) > 90 ? 'var(--amber)' : 'var(--text-tertiary)',
+                  color: u.lastSeenAt && daysSince(u.lastSeenAt) > 90 ? 'var(--amber)' : 'var(--text-tertiary)',
                 }}
               >
                 {u.lastSeenAt
@@ -5535,6 +5535,10 @@ function UsersAndInvitesPanel() {
           user={editingUser}
           isSelf={editingUser.id === currentUser?.id}
           onClose={() => setEditingUser(null)}
+          onChanged={updated => {
+            setUsers(us => us.map(x => (x.id === updated.id ? { ...x, ...updated } : x)));
+            setEditingUser(updated);
+          }}
           onSaved={updated => {
             setUsers(us => us.map(x => (x.id === updated.id ? { ...x, ...updated } : x)));
             setEditingUser(null);
@@ -7944,6 +7948,9 @@ function SecurityTab() {
       totp_success:  t('admin.security.eventTotpSuccess'),
       totp_fail:     t('admin.security.eventTotpFail'),
       sso_login:     t('admin.security.eventSsoLogin'),
+      admin_password_set: t('admin.security.eventAdminPasswordSet'),
+      admin_user_update:  t('admin.security.eventAdminUserUpdate'),
+      admin_totp_disable: t('admin.security.eventAdminTotpDisable'),
     };
     return map[type] || type;
   };
@@ -8532,6 +8539,10 @@ function SecurityTab() {
                       </td>
                       <td style={{ padding: '6px 8px', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
                         {eventLabel(ev.event_type)}
+                        {/* Admin changes to a user: the User column is the account changed, this is who changed it. */}
+                        {ev.actor_username && (
+                          <span style={{ color: 'var(--text-secondary)' }}> {t('admin.security.byActor', { actor: ev.actor_username })}</span>
+                        )}
                       </td>
                       <td style={{ padding: '6px 8px', color: 'var(--text-secondary)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {ev.username || '—'}

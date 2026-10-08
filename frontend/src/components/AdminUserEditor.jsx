@@ -6,7 +6,7 @@ import PasswordInput from './PasswordInput.jsx';
 
 // Lets an admin change another user's sign-in name, recovery email and password: the way back
 // in for someone who forgot their password and never set a recovery email.
-export default function AdminUserEditor({ user, isSelf, onClose, onSaved }) {
+export default function AdminUserEditor({ user, isSelf, onClose, onSaved, onChanged }) {
   const { t } = useTranslation();
   const [username, setUsername] = useState(user.username);
   const [recoveryEmail, setRecoveryEmail] = useState(user.recoveryEmail || '');
@@ -28,16 +28,37 @@ export default function AdminUserEditor({ user, isSelf, onClose, onSaved }) {
     if (nextEmail !== (user.recoveryEmail || '')) changes.recoveryEmail = nextEmail;
     if (!Object.keys(changes).length && !password) { onClose(); return; }
 
+    const errorText = err => {
+      const message = err?.message || '';
+      return message === 'Username already taken' ? t('admin.users.usernameTaken')
+        : message === 'Invalid email address' ? t('admin.users.invalidEmail')
+          : t('admin.users.saveFailed', { message });
+    };
     setSaving(true);
     try {
-      if (Object.keys(changes).length) await api.admin.updateUser(user.id, changes);
-      if (password) await api.admin.setUserPassword(user.id, password);
-      onSaved({ ...user, username: changes.username ?? user.username, recoveryEmail: changes.recoveryEmail ?? user.recoveryEmail });
+      let updated = user;
+      if (Object.keys(changes).length) {
+        await api.admin.updateUser(user.id, changes);
+        updated = { ...user, username: changes.username ?? user.username, recoveryEmail: changes.recoveryEmail ?? user.recoveryEmail };
+      }
+      if (password) {
+        try {
+          await api.admin.setUserPassword(user.id, password);
+        } catch (err) {
+          // The name and email are already saved. Show them in the list, and keep the dialog open
+          // so the password can be tried again without sending those changes a second time.
+          if (updated !== user) {
+            onChanged?.(updated);
+            setError(t('admin.users.passwordNotSet', { message: err?.message || '' }));
+          } else {
+            setError(errorText(err));
+          }
+          return;
+        }
+      }
+      onSaved(updated);
     } catch (err) {
-      const message = err?.message || '';
-      setError(message === 'Username already taken' ? t('admin.users.usernameTaken')
-        : message === 'Invalid email address' ? t('admin.users.invalidEmail')
-          : t('admin.users.saveFailed', { message }));
+      setError(errorText(err));
     } finally {
       setSaving(false);
     }

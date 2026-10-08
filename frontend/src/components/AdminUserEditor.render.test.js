@@ -60,19 +60,23 @@ const { api } = await import('../utils/api.js');
 const USER = { id: 'u2', username: 'maria', recoveryEmail: 'maria@example.com', isAdmin: false };
 const calls = [];
 let failWith = null;
+let passwordFailWith = null;
 api.admin.updateUser = async (id, data) => { calls.push(['updateUser', id, data]); if (failWith) throw new Error(failWith); return { ok: true }; };
-api.admin.setUserPassword = async (id, password) => { calls.push(['setUserPassword', id, password]); return { ok: true }; };
+api.admin.setUserPassword = async (id, password) => { calls.push(['setUserPassword', id, password]); if (passwordFailWith) throw new Error(passwordFailWith); return { ok: true }; };
 
-let root, saved, closed;
+let root, saved, closed, changed;
+// Renders the editor as the Users list does: onChanged hands the editor the updated user.
+function render(user) {
+  root.render(React.createElement(AdminUserEditor, {
+    user, isSelf: false, onClose: () => { closed = true; }, onSaved: u => { saved = u; },
+    onChanged: u => { changed = u; render(u); },
+  }));
+}
 async function mount(user = USER) {
-  calls.length = 0; failWith = null; saved = null; closed = false;
+  calls.length = 0; failWith = null; passwordFailWith = null; saved = null; closed = false; changed = null;
   root?.unmount?.();
   root = createRoot(document.getElementById('root'));
-  await act(async () => {
-    root.render(React.createElement(AdminUserEditor, {
-      user, isSelf: false, onClose: () => { closed = true; }, onSaved: u => { saved = u; },
-    }));
-  });
+  await act(async () => { render(user); });
 }
 const dialog = () => document.querySelector('[role="dialog"]');
 const setValue = async (el, value) => {
@@ -136,5 +140,35 @@ describe('admin user editor', () => {
     await submit();
     assert.match(dialog().textContent, /admin\.users\.usernameTaken/);
     assert.equal(saved, null);
+  });
+
+  test('a password that fails after the name was saved keeps the name and retries only the password', async () => {
+    await mount();
+    passwordFailWith = 'Server unavailable';
+    await setValue(field('admin-user-username'), 'maria.silva');
+    await setValue(field('admin-user-password'), 'senha-nova-123');
+    await setValue(dialog().querySelector('input[aria-label="admin.users.confirmPassword"]'), 'senha-nova-123');
+    await submit();
+    assert.deepEqual(calls, [['updateUser', 'u2', { username: 'maria.silva' }], ['setUserPassword', 'u2', 'senha-nova-123']]);
+    assert.equal(changed?.username, 'maria.silva', 'the list shows the saved name');
+    assert.equal(saved, null, 'the dialog stays open');
+    assert.match(dialog().textContent, /admin\.users\.passwordNotSet/);
+
+    calls.length = 0;
+    passwordFailWith = null;
+    await submit();
+    assert.deepEqual(calls, [['setUserPassword', 'u2', 'senha-nova-123']], 'the name is not sent again');
+    assert.equal(saved?.username, 'maria.silva');
+  });
+
+  test('a password that fails on its own is reported as a failed save', async () => {
+    await mount();
+    passwordFailWith = 'Server unavailable';
+    await setValue(field('admin-user-password'), 'senha-nova-123');
+    await setValue(dialog().querySelector('input[aria-label="admin.users.confirmPassword"]'), 'senha-nova-123');
+    await submit();
+    assert.equal(changed, null);
+    assert.equal(saved, null);
+    assert.match(dialog().textContent, /admin\.users\.saveFailed/);
   });
 });

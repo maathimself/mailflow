@@ -1172,6 +1172,10 @@
       "activityBlocked": "Заблокировано",
       "savingProtection": "Сохранение…",
       "eventSsoLogin": "Вход через SSO",
+      "eventAdminPasswordSet": "Пароль установлен",
+      "eventAdminUserUpdate": "Учётная запись изменена",
+      "eventAdminTotpDisable": "2FA отключено",
+      "byActor": "пользователем {{actor}}",
       "activityTitle": "Активность входа",
       "loginProtectionTitle": "Защита входа",
       "qrCodeAlt": "QR-код",
@@ -1276,7 +1280,8 @@
       "passwordMismatch": "Пароли не совпадают.",
       "usernameTaken": "Это имя пользователя уже занято.",
       "invalidEmail": "Этот адрес e-mail недействителен.",
-      "saveFailed": "Не удалось сохранить: {{message}}"
+      "saveFailed": "Не удалось сохранить: {{message}}",
+      "passwordNotSet": "Остальные изменения сохранены, но пароль не установлен: {{message}}"
     },
     "ai": {
       "title": "ИИ-ассистент",
