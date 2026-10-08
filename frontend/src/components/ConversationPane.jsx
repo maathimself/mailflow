@@ -12,6 +12,7 @@ import {
 import { archiveThread, deleteThread, spamThread, moveThread, snoozeThread } from '../utils/threadActions.js';
 import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/printMessage.js';
 import ConversationMessageCard from './ConversationMessageCard.jsx';
+import { aiReplyAvailable } from '../utils/aiReply.js';
 import ContextMenu from './ContextMenu.jsx';
 
 function ThreadBtn({ onClick, title, children }) {
@@ -45,6 +46,7 @@ export default function ConversationPane({ threadId, folder, unified = false, se
   const accounts = useStore(s => s.accounts);
   const setSelectedMessage = useStore(s => s.setSelectedMessage);
   const updateMessage = useStore(s => s.updateMessage);
+  const plaintextEmail = useStore(s => s.plaintextEmail);
   const [messages, setMessages] = useState([]);
   const [expanded, setExpanded] = useState(() => new Set());
   const [error, setError] = useState(null);
@@ -58,6 +60,7 @@ export default function ConversationPane({ threadId, folder, unified = false, se
     api.ai.status().then(setAiStatus).catch(() => {});
   }, []);
   const aiEnabled = Boolean(aiStatus?.enabled && aiStatus?.features?.summarize);
+  const aiReplyEnabled = aiReplyAvailable(aiStatus, plaintextEmail);
 
   useEffect(() => {
     if (!threadId) { setMessages([]); return; }
@@ -270,6 +273,7 @@ export default function ConversationPane({ threadId, folder, unified = false, se
             onToggle={toggle}
             onUpdate={updateConversationMessage}
             aiEnabled={aiEnabled}
+            aiReplyEnabled={aiReplyEnabled}
           />
         ))}
       </div>

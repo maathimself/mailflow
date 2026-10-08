@@ -780,3 +780,43 @@ describe('move picker favorites', () => {
     assert.equal(entries.filter(e => e === 'Projects / Receipts').length, 2, 'once as a favorite, once in the full list');
   });
 });
+
+describe('Reply with AI in the toolbar', () => {
+  const button = () => document.querySelector('[title="compose.toolbar.aiReply"]');
+  let realStatus;
+  async function show({ compose }) {
+    api.ai.status = async () => ({ enabled: true, features: { compose, summarize: true } });
+    // A fresh mount: the pane asks for the AI status when it mounts.
+    await React.act(async () => { root.render(null); });
+    await React.act(async () => {
+      useStore.getState().setSelectedMessage('a1');
+      root.render(React.createElement(MessagePane));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 0)); });
+  }
+  before(() => { realStatus = api.ai.status; });
+  after(() => {
+    api.ai.status = realStatus;
+    useStore.setState({ plaintextEmail: false });
+    useStore.getState().closeCompose();
+  });
+
+  test('opens the reply with the AI panel waiting for the instruction', async () => {
+    await show({ compose: true });
+    assert.ok(button(), 'offered when the AI can write replies');
+    await React.act(async () => { button().dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 0)); });
+    const data = useStore.getState().composeData;
+    assert.equal(data?.isReply, true);
+    assert.equal(data.aiReply, true);
+    assert.equal(data.subject, 'Re: First');
+  });
+
+  test('is not offered when the AI does not write emails, or the user writes in plain text', async () => {
+    await show({ compose: false });
+    assert.equal(button(), null);
+    useStore.setState({ plaintextEmail: true });
+    await show({ compose: true });
+    assert.equal(button(), null);
+  });
+});

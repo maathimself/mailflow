@@ -323,7 +323,11 @@ export default function ComposeModal() {
   const [htmlMode, setHtmlMode] = useState(false);
   const [htmlSource, setHtmlSource] = useState('');
   const [aiStatus, setAiStatus] = useState(null);
-  const [aiPanel, setAiPanel] = useState(null);
+  // A reply opened by the message view's "Reply with AI" starts with the panel waiting for the
+  // instruction.
+  const [aiPanel, setAiPanel] = useState(() => (composeData?.aiReply && isReply
+    ? { action: 'reply', status: 'input', instruction: '', text: '' }
+    : null));
   const aiAbortRef = useRef(null);
   // The conversation "Reply with AI" writes from, loaded once and reused when the user rewords
   // the instruction.
@@ -389,7 +393,8 @@ export default function ComposeModal() {
     // Records edit time in a ref only. Deliberately does not touch state: this fires on every
     // transaction, and re-rendering the composer per keystroke would be a real regression.
     onUpdate: () => { lastEditAtRef.current = Date.now(); },
-    autofocus: initialFocus === 'editor' && !plaintextEmail ? 'start' : false,
+    // Not when the AI panel opens with the composer: its instruction field takes the focus.
+    autofocus: initialFocus === 'editor' && !plaintextEmail && !composeData?.aiReply ? 'start' : false,
     immediatelyRender: false,
     editorProps: {
       attributes: { spellcheck: 'true' },
@@ -996,6 +1001,8 @@ export default function ComposeModal() {
           priority,
           restored: true,
           sendError: undefined,
+          // A message reopened by Undo is the user's own text, not a request for another reply.
+          aiReply: undefined,
         };
         const pendingId = sendResult.pendingId;
         const undoMs = undoWindowMs(sendResult.remainingMs);

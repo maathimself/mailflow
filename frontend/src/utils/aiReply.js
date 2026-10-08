@@ -15,6 +15,12 @@ const EARLIER_MESSAGE_CHARS = 6_000;
 const MIN_MESSAGE_CHARS = 500;
 export const MAX_INSTRUCTION_CHARS = 1_000;
 
+// Whether "Reply with AI" can be offered. It needs the AI's compose feature, and it writes into
+// the rich-text editor, which a user who composes in plain text does not have.
+export function aiReplyAvailable(aiStatus, plaintextEmail) {
+  return Boolean(aiStatus?.enabled && aiStatus?.features?.compose && !plaintextEmail);
+}
+
 // Lines that start the quoted copy of an earlier message in a reply. Everything from the first
 // one down is that earlier message again, which the conversation already has in full.
 const QUOTE_HEADERS = [

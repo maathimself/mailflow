@@ -3,10 +3,25 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  stripQuotedReply, htmlToText, unquote, pickContextMessages, ownAddresses, toContextMessage,
+  aiReplyAvailable, stripQuotedReply, htmlToText, unquote, pickContextMessages, ownAddresses, toContextMessage,
   loadReplyConversation, buildReplyPrompt, aiTextToHtml,
   MAX_CONTEXT_MESSAGES, CONTEXT_BUDGET_CHARS, MAX_INSTRUCTION_CHARS,
 } from './aiReply.js';
+
+describe('aiReplyAvailable', () => {
+  const on = { enabled: true, features: { compose: true, summarize: true } };
+
+  test('needs the AI enabled with its compose feature', () => {
+    assert.equal(aiReplyAvailable(on, false), true);
+    assert.equal(aiReplyAvailable({ ...on, enabled: false }, false), false);
+    assert.equal(aiReplyAvailable({ ...on, features: { compose: false, summarize: true } }, false), false);
+    assert.equal(aiReplyAvailable(null, false), false, 'not before the status has loaded');
+  });
+
+  test('is not offered to a user who writes in plain text, whose composer has no AI panel', () => {
+    assert.equal(aiReplyAvailable(on, true), false);
+  });
+});
 
 describe('stripQuotedReply', () => {
   test('cuts the quoted earlier message under a Gmail-style header', () => {

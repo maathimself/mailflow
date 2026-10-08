@@ -959,6 +959,49 @@ describe('Reply with AI', () => {
     });
   });
 
+  describe("opened by the message view's Reply with AI", () => {
+    const opened = {
+      accountId: 'acct', isReply: true, aiReply: true, subject: 'Re: Artwork', body: '', cc: [],
+      to: [ANA], originalFrom: [ANA], inReplyTo: '<m3@example.invalid>',
+      quotedBody: '\n\n---\nOn 10/3/2026, Ana wrote:\n> Done, the logo is bigger now. Can you approve?',
+    };
+    const stubs = {};
+    let asked;
+    before(async () => {
+      asked = chats.length;
+      Object.assign(stubs, { post: api.post, cancelSend: api.cancelSend, getSendStatus: api.getSendStatus });
+      api.post = async () => ({ ok: true, pending: true, pendingId: 'p-ai', sendAt: new Date(Date.now() + 10_000).toISOString(), remainingMs: 10_000 });
+      api.cancelSend = async () => ({ cancelled: true });
+      api.getSendStatus = async () => ({ status: 'pending' });
+      useStore.setState({ user: { id: 'u1' }, notifications: [] });
+      await mount(opened);
+    });
+    after(async () => {
+      await unmount();
+      Object.assign(api, stubs);
+    });
+
+    test('opens with the instruction field ready, and the focus in it', async () => {
+      assert.ok(instructionField(), 'the panel is open');
+      // Compared by label: a failed comparison of two elements would print the whole DOM.
+      assert.equal(document.activeElement?.getAttribute('aria-label'), 'compose.toolbar.aiReplyInstruction', 'typing goes to the instruction, not the reply');
+      assert.equal(chats.length, asked, 'nothing is asked before the instruction is given');
+    });
+
+    test('a message reopened by Undo does not open the panel again', async () => {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await React.act(async () => { editor.commands.setContent('<p>Approved.</p>'); });
+      await click(button('compose.send'));
+      await React.act(async () => {});
+      const undo = useStore.getState().notifications.find(n => n.onUndo);
+      assert.ok(undo, 'the send is held with Undo');
+      await React.act(async () => { await undo.onUndo(); });
+      const reopened = useStore.getState().composeData;
+      assert.equal(reopened.restored, true, 'precondition: the message was reopened');
+      assert.equal(reopened.aiReply, undefined);
+    });
+  });
+
   describe('in a new message', () => {
     before(() => mount({ accountId: 'acct', to: [], cc: [], subject: '', body: '' }));
     after(() => unmount());

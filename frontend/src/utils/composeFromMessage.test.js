@@ -60,6 +60,24 @@ describe('openReplyFromMessage reply target', () => {
   });
 });
 
+describe('openReplyFromMessage for Reply with AI', () => {
+  const message = { account_id: 'a', message_id: '<m@example.com>', from_name: 'F', from_email: 'f@example.com' };
+
+  it('asks the composer to open with the AI reply panel', async () => {
+    const h = harness();
+    await openReplyFromMessage(message, { accounts: [], openCompose: h.openCompose, getMessageBody: h.getMessageBody, aiReply: true });
+    assert.equal(h.payload().aiReply, true);
+    assert.equal(h.payload().isReply, true);
+    assert.equal(h.payload().inReplyTo, '<m@example.com>');
+  });
+
+  it('a plain reply does not', async () => {
+    const h = harness();
+    await openReplyFromMessage(message, { accounts: [], openCompose: h.openCompose, getMessageBody: h.getMessageBody });
+    assert.equal('aiReply' in h.payload(), false);
+  });
+});
+
 describe('openReplyFromMessage alias selection', () => {
   const account = {
     id: 'a',
