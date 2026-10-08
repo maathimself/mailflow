@@ -213,6 +213,7 @@ export const api = {
     updateUser: (id, data) => request('PATCH', `/admin/users/${id}`, data),
     deleteUser: (id) => request('DELETE', `/admin/users/${id}`),
     disableUserTotp: (id) => request('POST', `/admin/users/${id}/totp/disable`),
+    setUserPassword: (id, password) => request('POST', `/admin/users/${id}/password`, { password }),
     getSettings: () => request('GET', '/admin/settings'),
     updateSettings: (data) => request('PATCH', '/admin/settings', data),
     getInvites: (params) => request('GET', '/admin/invites' + (params ? '?' + new URLSearchParams(params) : '')),

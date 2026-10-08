@@ -4940,6 +4940,16 @@ describe('closeSockets', () => {
     expect(sockets.authenticating.close).not.toHaveBeenCalled();
   });
 
+  it("closes every socket of the user but the excepted session's", async () => {
+    const { sockets, ctx } = arrange();
+    ImapManager.prototype.closeSockets.call(ctx, 'u1', { exceptSessionId: 's1' });
+    await nextTurn();
+    expect(sockets.mine.close).not.toHaveBeenCalled();
+    expect(sockets.myOtherDevice.close).toHaveBeenCalledWith(1008, 'Unauthorized');
+    expect(sockets.someoneElse.close).not.toHaveBeenCalled();
+    expect(sockets.authenticating.close).not.toHaveBeenCalled();
+  });
+
   it('closes nothing without a userId, not even a socket still authenticating', async () => {
     const { sockets, ctx } = arrange();
     ImapManager.prototype.closeSockets.call(ctx, undefined);

@@ -7088,11 +7088,15 @@ export class ImapManager {
   // has no userId either, and would match a missing one. The close waits a turn: an upgrade
   // whose session lookup was answered in the same read from Redis as the write that ended
   // the session authenticates a microtask after that write's callback, and would be missed.
-  closeSockets(userId, { sessionId = null, reason = 'Unauthorized' } = {}) {
+  closeSockets(userId, { sessionId = null, exceptSessionId = null, reason = 'Unauthorized' } = {}) {
     if (!userId) return;
     setImmediate(() => {
       this.wss.clients.forEach(ws => {
-        if (ws.userId === userId && (!sessionId || ws.sessionId === sessionId)) ws.close(1008, reason);
+        if (ws.userId !== userId) return;
+        if (sessionId && ws.sessionId !== sessionId) return;
+        // An admin resetting their own password keeps the session they did it from.
+        if (exceptSessionId && ws.sessionId === exceptSessionId) return;
+        ws.close(1008, reason);
       });
     });
   }

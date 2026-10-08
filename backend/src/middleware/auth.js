@@ -1,4 +1,5 @@
 import { query } from '../services/db.js';
+import { touchLastSeen } from '../services/lastSeen.js';
 
 export async function requireAuth(req, res, next) {
   if (!req.session?.userId) {
@@ -10,6 +11,7 @@ export async function requireAuth(req, res, next) {
       req.session.destroy(() => {});
       return res.status(401).json({ error: 'Not authenticated' });
     }
+    touchLastSeen(req.session.userId);
     next();
   } catch (err) {
     next(err);
@@ -30,6 +32,9 @@ export async function requireAdmin(req, res, next) {
     if (!result.rows[0]?.is_admin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
+    // The admin router uses requireAdmin alone, so time spent in Settings counts as being seen
+    // too. Routes that stack it after requireAuth record once: lastSeen throttles per user.
+    touchLastSeen(req.session.userId);
     next();
   } catch (err) {
     next(err);

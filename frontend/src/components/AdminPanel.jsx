@@ -34,6 +34,9 @@ import DiagnosticsReportModal from './DiagnosticsReportModal.jsx';
 import { getEffectiveShortcuts, getGroupedActions, getShortcutConflicts, shortcutActionText, shortcutBindingFromEvent, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
 import { isValidForwardAddress } from '../utils/ruleActions.js';
 import { folderParentLabel } from '../utils/folderDisplay.js';
+import AdminUserEditor from './AdminUserEditor.jsx';
+import { formatRelativeTime, daysSince } from '../utils/relativeTime.js';
+import { htmlLang } from '../utils/browserLanguage.js';
 import SpamSettings from './SpamSettings.jsx';
 import BackupSettings from './BackupSettings.jsx';
 
@@ -5059,9 +5062,10 @@ function UsersTab() {
 }
 
 function UsersAndInvitesPanel() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user: currentUser } = useStore();
   const [users, setUsers] = useState([]);
+  const [editingUser, setEditingUser] = useState(null);
   const [userTotal, setUserTotal] = useState(0);
   const [usersLoadingMore, setUsersLoadingMore] = useState(false);
   const [invites, setInvites] = useState([]);
@@ -5247,7 +5251,25 @@ function UsersAndInvitesPanel() {
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
                 {t('admin.users.joined', { date: new Date(u.created_at).toLocaleDateString() })}
               </div>
+              {/* Last request, not last login: sessions roll, so a daily user rarely logs in. */}
+              <div
+                title={u.lastSeenAt ? new Date(u.lastSeenAt).toLocaleString() : undefined}
+                style={{
+                  fontSize: 11, marginTop: 1,
+                  color: u.lastSeenAt && daysSince(u.lastSeenAt) > 90 ? 'var(--amber)' : 'var(--text-tertiary)',
+                }}
+              >
+                {u.lastSeenAt
+                  ? t('admin.users.lastSeen', { when: formatRelativeTime(u.lastSeenAt, htmlLang(i18n.language)) })
+                  : t('admin.users.neverSeen')}
+              </div>
             </div>
+
+            <IconBtn onClick={() => setEditingUser(u)} title={t('admin.users.edit')}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+              </svg>
+            </IconBtn>
 
             {u.id !== currentUser?.id && (
               <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
@@ -5513,6 +5535,21 @@ function UsersAndInvitesPanel() {
         </button>
       )}
       <ConfirmOverlay dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
+      {editingUser && (
+        <AdminUserEditor
+          user={editingUser}
+          isSelf={editingUser.id === currentUser?.id}
+          onClose={() => setEditingUser(null)}
+          onChanged={updated => {
+            setUsers(us => us.map(x => (x.id === updated.id ? { ...x, ...updated } : x)));
+            setEditingUser(updated);
+          }}
+          onSaved={updated => {
+            setUsers(us => us.map(x => (x.id === updated.id ? { ...x, ...updated } : x)));
+            setEditingUser(null);
+          }}
+        />
+      )}
     </div>
     </>
   );
@@ -7916,6 +7953,10 @@ function SecurityTab() {
       totp_success:  t('admin.security.eventTotpSuccess'),
       totp_fail:     t('admin.security.eventTotpFail'),
       sso_login:     t('admin.security.eventSsoLogin'),
+      admin_password_set: t('admin.security.eventAdminPasswordSet'),
+      admin_user_update:  t('admin.security.eventAdminUserUpdate'),
+      admin_totp_disable: t('admin.security.eventAdminTotpDisable'),
+      admin_user_delete:  t('admin.security.eventAdminUserDelete'),
     };
     return map[type] || type;
   };
@@ -8504,6 +8545,10 @@ function SecurityTab() {
                       </td>
                       <td style={{ padding: '6px 8px', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
                         {eventLabel(ev.event_type)}
+                        {/* Admin changes to a user: the User column is the account changed, this is who changed it. */}
+                        {ev.actor_username && (
+                          <span style={{ color: 'var(--text-secondary)' }}> {t('admin.security.byActor', { actor: ev.actor_username })}</span>
+                        )}
                       </td>
                       <td style={{ padding: '6px 8px', color: 'var(--text-secondary)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {ev.username || '—'}
