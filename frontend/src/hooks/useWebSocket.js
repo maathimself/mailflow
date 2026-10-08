@@ -7,7 +7,6 @@ import { playNotificationSound } from '../utils/notificationSounds.js';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
 import { dispatchPluginWsMessage, dispatchPluginReconnect } from '../plugins/events.js';
 import { recordDiagEvent } from '../utils/diagEvents.js';
-import { folderRole } from '../utils/folderDisplay.js';
 
 function _applyServerCounts(counts) {
   useStore.getState().setUnreadCounts(counts);
@@ -123,11 +122,6 @@ export function useWebSocket() {
         // even though we no longer broadcast sync_complete on every (mostly-idle) tick.
         window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
         const { messages, count, accountId, folder } = data;
-        const state = useStore.getState();
-        const account = state.accounts.find(item => item.id === accountId);
-        const changedFolder = state.folders[accountId]?.find(item => item.path === folder) || { path: folder };
-        if (folderRole(changedFolder, account?.folder_mappings) === 'drafts' || folder?.toUpperCase() === 'DRAFTS')
-          state.invalidateReplyDrafts();
         // alertMessages/alertCount are provided by the server when inbox rules ran;
         // they exclude messages silenced by a mark_read rule. Fall back to the full
         // messages/count for servers or code paths that don't send the alert fields.
@@ -278,6 +272,14 @@ export function useWebSocket() {
         if (data.accountId && useStore.getState().folders[data.accountId]) {
           api.getFolders(data.accountId).then(f => setFolders(data.accountId, f)).catch(() => {});
         }
+        break;
+      }
+
+      case 'drafts_changed': {
+        // A Drafts folder gained or lost a draft: synced from another client (which saves it
+        // read, so no new_messages), or saved, discarded or sent from another tab or device.
+        // The Inbox re-checks its reply-draft markers; the visible list does not reload.
+        useStore.getState().invalidateReplyDrafts();
         break;
       }
 

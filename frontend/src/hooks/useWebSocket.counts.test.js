@@ -40,14 +40,17 @@ test('already-seen arrivals do not inflate badges; count events update without r
     useStore.setState({ selectedAccountId: 'a', selectedFolder: 'INBOX', replyDrafts: { selected: { exists: false } },
       folders: { a: [{ path: 'ServerDrafts', special_use: '\\Drafts' }] } });
     const revision = useStore.getState().replyDraftRevision;
-    await React.act(async () => socket.onmessage({ data: JSON.stringify({ type: 'new_messages', accountId: 'a',
-      folder: 'ServerDrafts', count: 1, messages: [{ id: 'external-draft' }] }) }));
+    // The server says when a Drafts folder changed (drafts arrive read, so new_messages never
+    // fires for most of them); the client does not guess from the folder name.
+    await React.act(async () => socket.onmessage({ data: JSON.stringify({ type: 'drafts_changed', accountId: 'a' }) }));
     assert.equal(useStore.getState().replyDraftRevision, revision + 1);
     assert.deepEqual(useStore.getState().replyDrafts, {});
-    assert.equal(listRefreshes, 0, 'a Drafts arrival invalidates indicators without reloading the visible Inbox');
-    await React.act(async () => socket.onmessage({ data: JSON.stringify({ type: 'new_messages', accountId: 'a',
-      folder: 'Archive', count: 1, messages: [{ id: 'archived' }] }) }));
-    assert.equal(useStore.getState().replyDraftRevision, revision + 1);
+    assert.equal(listRefreshes, 0, 'a Drafts change invalidates indicators without reloading the visible Inbox');
+    for (const folder of ['ServerDrafts', 'Archive']) {
+      await React.act(async () => socket.onmessage({ data: JSON.stringify({ type: 'new_messages', accountId: 'a',
+        folder, count: 1, messages: [{ id: `new-in-${folder}` }] }) }));
+    }
+    assert.equal(useStore.getState().replyDraftRevision, revision + 1, 'new_messages leaves the indicators to drafts_changed');
   } finally {
     await React.act(async () => root.unmount());
     api.getUnreadCounts = original;

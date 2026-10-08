@@ -4,7 +4,7 @@ import { recordUnfetchable, suppressedUids, clearUnfetchable, hasRealGap } from 
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
 import { parseMessage, parseMailboxList, snippetFromBody, detectBulkFromParsedHeaders, ALIAS_FORWARDER_HEADERS, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata, renderCalendarInvite } from './messageParser.js';
-import { headerIds, searchReplyDraftUids } from './replyDraftLookup.js';
+import { headerIds, searchReplyDraftUids, draftFolderPaths } from './replyDraftLookup.js';
 import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } from './categorizer.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
@@ -1918,6 +1918,24 @@ async function moveUids(client, range, toFolder) {
     console.warn(`Emulated move ${client.mailbox?.path} → ${toFolder} of UID(s) ${range}: copied, but the source could not be deleted — the message is now in both folders`);
   }
   return copied;
+}
+
+// Tells the user's tabs that a Drafts folder changed, so the Inbox re-checks its reply-draft
+// markers. `folder` counts as Drafts by the same rule the marker lookup uses (routes/draft.js):
+// the mapped Drafts folder or one flagged \Drafts. Best-effort: a failure here must not fail the
+// sync that called it, and only delays a marker until the next refresh.
+export async function noteDraftsChanged(mgr, account, folder) {
+  try {
+    const folders = (await query(
+      'SELECT account_id, path, special_use, no_select FROM folders WHERE account_id = $1 AND path = $2',
+      [account.id, folder]
+    )).rows;
+    if (draftFolderPaths(account.id, account.folder_mappings, folders).includes(folder)) {
+      mgr.broadcast({ type: 'drafts_changed', accountId: account.id }, account.user_id);
+    }
+  } catch (err) {
+    console.warn(`Drafts change notice failed for ${logAccount(account)}/${folder}:`, err.message);
+  }
 }
 
 export class ImapManager {
@@ -4448,6 +4466,10 @@ export class ImapManager {
            WHERE account_id = $1 AND path = $2`,
           [account.id, folder]
         );
+        // A draft saved in another client arrives already read (\Seen), so it never enters
+        // `newMessages` and no new_messages goes out for it. The Inbox's reply-draft markers are
+        // worked out from synced rows (routes/draft.js), so say when a Drafts folder gained rows.
+        if (insertedCount > 0 && folder !== 'INBOX') await noteDraftsChanged(this, account, folder);
         await stampLastSync(account.id);
         return { insertedCount, broadcastedNewMessages };
       } finally {

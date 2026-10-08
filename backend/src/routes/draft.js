@@ -191,6 +191,17 @@ router.get('/messages/:id/reply-draft', async (req, res) => {
   }
 });
 
+// Tells the user's tabs that a Drafts folder changed, so the Inbox re-checks its reply-draft
+// markers. The composer refreshes its own tab; this reaches the user's other tabs and devices.
+// Best-effort: the draft is already saved or deleted, and a failed notice only delays a marker.
+function noteDraftsChanged(userId, accountId) {
+  try {
+    imapManager.broadcast({ type: 'drafts_changed', accountId }, userId);
+  } catch (err) {
+    console.warn('Drafts change notice failed:', err.message);
+  }
+}
+
 function sanitizeHeaderValue(value) {
   if (typeof value !== 'string') return '';
   return value.replace(/[\r\n\0]/g, '').trim();
@@ -385,6 +396,7 @@ export async function deleteSentDraft(userId, account, { uid, folder, accountId 
       return false;
     }
     await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [target.account.id, target.uid, target.folder]);
+    noteDraftsChanged(userId, target.account.id);
     return true;
   } catch (err) {
     console.error(`Draft: failed to delete sent draft uid=${JSON.stringify(uid)}: ${err.message}`);
@@ -463,6 +475,7 @@ router.post('/draft', async (req, res) => {
       }
     }
 
+    noteDraftsChanged(req.session.userId, account.id);
     res.json({ uid, folder: draftsFolder, ...(req.body.includeIdentity === true ? { messageId: meta.messageId } : {}) });
   } catch (err) {
     console.error('Save draft failed:', err.message);
@@ -493,6 +506,7 @@ router.delete('/draft/:uid', async (req, res) => {
       'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
       [account.id, uid, folder]
     );
+    noteDraftsChanged(req.session.userId, account.id);
     res.json({ ok: true });
   } catch (err) {
     console.error('Delete draft failed:', err.message);

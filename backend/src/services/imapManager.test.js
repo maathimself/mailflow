@@ -14,7 +14,7 @@ vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./spamPipeline.js', () => ({ classifyAndTagMessage: vi.fn() }));
 vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }));
 
-import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, computeThreadId } from './imapManager.js';
+import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, computeThreadId, noteDraftsChanged } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -4979,5 +4979,94 @@ describe('attachmentsFromStructure (#457)', () => {
   it('is empty without a structure', () => {
     expect(attachmentsFromStructure({})).toEqual([]);
     expect(attachmentsFromStructure(null)).toEqual([]);
+  });
+});
+
+// ── Reply-draft markers: a Drafts folder that gained rows (#538) ───────────────
+//
+// The Inbox's reply-draft markers come from synced rows. A draft saved in another client arrives
+// read (\Seen), so it never enters new_messages, and nothing told the client to re-check the
+// markers until it reloaded. A sync that inserts rows into a Drafts folder now says so.
+describe('syncMessages — tells the client when a Drafts folder gained rows', () => {
+  const account = {
+    id: 'acct-drafts', user_id: 'user-1', email_address: 'me@example.com', gtd_enabled: false,
+    categorization_enabled: false, imap_host: 'imap.example.com', folder_mappings: { drafts: 'Entwürfe' },
+  };
+  let folderRow;
+  async function sync(folder, { isNew = true, isRead = true } = {}) {
+    const client = {
+      noop: vi.fn(async () => true),
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
+      fetch: vi.fn(async function* () { yield { uid: 501 }; }),
+    };
+    query.mockReset();
+    query.mockImplementation((sql) => {
+      if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
+      if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)') && !sql.includes('UPDATE folders')) return Promise.resolve({ rows: [{ n: 0 }] });
+      if (sql.includes('COALESCE(MAX(uid), 0)')) return Promise.resolve({ rows: [{ max_uid: 0 }] });
+      if (sql.includes('INSERT INTO messages')) return Promise.resolve({ rows: [{ id: 'draft-row', is_new: isNew }] });
+      if (sql.includes('SELECT account_id, path, special_use, no_select FROM folders')) return Promise.resolve({ rows: folderRow ? [folderRow] : [] });
+      return Promise.resolve({ rows: [] });
+    });
+    parseMessage.mockReset();
+    parseMessage.mockResolvedValue({
+      uid: 501, messageId: '<d1@x>', subject: 'Re: Plans', fromName: 'Me', fromEmail: 'me@example.com',
+      to: [], cc: [], replyTo: [], inReplyTo: '<p1@x>', references: '<p1@x>', date: new Date('2026-10-08T10:00:00Z'),
+      snippet: 'draft', isRead, isStarred: false, hasAttachments: false, flags: isRead ? ['\\Draft', '\\Seen'] : ['\\Draft'],
+      isBulk: false, parsedHeaders: {},
+    });
+    const mgr = { pluginFacade: {}, broadcast: vi.fn() };
+    await ImapManager.prototype.syncMessages.call(mgr, account, client, folder, 100, false, true);
+    return mgr.broadcast.mock.calls.map(([event, userId]) => [event.type, event.accountId, userId]);
+  }
+  let hasActive, runHook;
+  beforeEach(() => {
+    folderRow = null;
+    hasActive = vi.spyOn(pluginRegistry, 'hasActiveAsync').mockResolvedValue(false);
+    runHook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+  });
+  afterEach(() => { hasActive.mockRestore(); runHook.mockRestore(); });
+
+  it('a read draft synced into the folder flagged \\Drafts', async () => {
+    folderRow = { account_id: 'acct-drafts', path: 'Drafts', special_use: '\\Drafts', no_select: false };
+    expect(await sync('Drafts')).toEqual([['drafts_changed', 'acct-drafts', 'user-1']]);
+  });
+
+  it('the mapped Drafts folder, without the flag', async () => {
+    folderRow = { account_id: 'acct-drafts', path: 'Entwürfe', special_use: null, no_select: false };
+    expect(await sync('Entwürfe')).toEqual([['drafts_changed', 'acct-drafts', 'user-1']]);
+  });
+
+  it('an unread draft too, alongside its new_messages', async () => {
+    folderRow = { account_id: 'acct-drafts', path: 'Drafts', special_use: '\\Drafts', no_select: false };
+    const events = await sync('Drafts', { isRead: false });
+    expect(events.filter(([type]) => type === 'drafts_changed')).toHaveLength(1);
+    expect(events.map(([type]) => type)).toContain('new_messages');
+  });
+
+  it('not for another folder, a sync that inserted nothing, or the Inbox', async () => {
+    folderRow = { account_id: 'acct-drafts', path: 'Junk', special_use: '\\Junk', no_select: false };
+    expect(await sync('Junk')).toEqual([]);
+    folderRow = { account_id: 'acct-drafts', path: 'Drafts', special_use: '\\Drafts', no_select: false };
+    expect(await sync('Drafts', { isNew: false })).toEqual([]);
+    expect(await sync('INBOX')).toEqual([]);
+    // The Inbox never pays for the folder lookup.
+    expect(query.mock.calls.some(([sql]) => sql.includes('SELECT account_id, path, special_use, no_select FROM folders'))).toBe(false);
+  });
+
+  it('a failed notice never fails the sync', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await expect(noteDraftsChanged({ broadcast: vi.fn() }, account, 'Drafts')).resolves.toBeUndefined();
+      query.mockReset();
+      query.mockRejectedValue(new Error('db down'));
+      await expect(noteDraftsChanged({ broadcast: vi.fn() }, account, 'Drafts')).resolves.toBeUndefined();
+      query.mockReset();
+      query.mockResolvedValue({ rows: [{ account_id: 'acct-drafts', path: 'Drafts', special_use: '\\Drafts' }] });
+      await expect(noteDraftsChanged({}, account, 'Drafts')).resolves.toBeUndefined();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
