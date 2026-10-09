@@ -106,12 +106,6 @@ export default function MailApp() {
 
   const scale = fontSize / 100;
   const hasNativeBridge = Boolean(window.mailflowNative || window.Capacitor?.isNativePlatform?.());
-  const [vpSize, setVpSize] = useState({ w: window.innerWidth, h: window.innerHeight });
-  useEffect(() => {
-    const update = () => setVpSize({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, []);
 
   useEffect(() => {
     const onVisible = () => {
@@ -755,12 +749,13 @@ export default function MailApp() {
     }}>
     <div style={{
       display: 'flex',
-      width: scale !== 1 ? `${(vpSize.w / scale).toFixed(2)}px` : '100%',
-      height: scale !== 1 ? `${(vpSize.h / scale).toFixed(2)}px` : '100%',
+      // Sized in CSS from the 100dvh parent: an innerHeight read on resize is stale during
+      // a rotation in an iOS home-screen app, and the sidebar's bottom fell off screen.
+      width: scale !== 1 ? `calc(100% / ${scale})` : '100%',
+      height: scale !== 1 ? `calc(100% / ${scale})` : '100%',
       ...(scale !== 1 && {
         transform: `scale(${scale})`,
         transformOrigin: 'top left',
-        '--app-height': `${(vpSize.h / scale).toFixed(2)}px`,
       }),
       overflow: 'hidden',
       background: 'var(--bg-primary)',
@@ -833,6 +828,8 @@ export default function MailApp() {
             flex: 1, display: 'flex', overflow: 'hidden',
             minWidth: 0, flexDirection: currentLayout.direction,
             height: '100%',
+            // A standalone PWA draws under the status bar; the sidebar header already clears it.
+            paddingTop: 'var(--sat)',
           }}>
             {/* Keep all three mounted so scroll/state survive navigation. */}
             <div style={{ display: showContacts ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
