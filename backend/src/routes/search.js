@@ -241,7 +241,8 @@ router.get('/', searchLimiter, async (req, res) => {
   try {
     const result = await query(`
       SELECT
-        m.id, m.uid, m.folder, m.subject, m.from_name, m.from_email,
+        m.id, m.uid, m.folder, m.message_id, m.subject, m.from_name, m.from_email,
+        m.to_addresses, m.cc_addresses, m.in_reply_to, m.thread_references,
         m.date, m.snippet, m.is_read, m.is_starred, m.has_attachments, m.account_id,
         a.name as account_name, a.email_address as account_email, a.color as account_color
       FROM messages m

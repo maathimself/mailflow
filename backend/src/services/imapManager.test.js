@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }));
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn(), enrichParsedMetadata: vi.fn((parsed) => parsed) }));
+vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), parseMailboxList: vi.fn(() => [{ name: 'Hidden', email: 'hidden@example.test' }]), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn(), enrichParsedMetadata: vi.fn((parsed) => parsed) }));
 vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn(), refreshGoogleToken: vi.fn() }));
 vi.mock('./emailSanitizer.js', () => ({ sanitizeEmail: vi.fn() }));
 vi.mock('./encryption.js', () => ({ decrypt: vi.fn() }));
@@ -14,7 +14,7 @@ vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./spamPipeline.js', () => ({ classifyAndTagMessage: vi.fn() }));
 vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }));
 
-import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, computeThreadId } from './imapManager.js';
+import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, computeThreadId, noteDraftsChanged } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -30,6 +30,146 @@ const account = (imap_host, oauth_provider = null) => ({ imap_host, oauth_provid
 
 const resolved = { host: '127.0.0.1', servername: null };
 const baseAccount = { imap_host: '127.0.0.1', imap_port: 1143, imap_tls: true, imap_skip_tls_verify: false, auth_user: 'user', auth_pass: 'enc' };
+
+describe('live reply draft lookup', () => {
+  it('confirms only the selected UID over an idle pooled connection without another login or search', async () => {
+    const account = { ...baseAccount, id: 'reply-confirm-pooled', user_id: 'user-1', email_address: 'me@example.test' };
+    const client = Object.assign(new EventEmitter(), { usable: true, connect: vi.fn().mockResolvedValue(),
+      close: vi.fn(), logout: vi.fn().mockResolvedValue(), noop: vi.fn().mockResolvedValue(), search: vi.fn() });
+    ImapFlow.mockImplementation(function () { return client; });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    query.mockReset().mockResolvedValue({ rows: [account] });
+    const pooled = await acquirePooledClient(account);
+    releasePooledClient(account, pooled);
+    const manager = Object.create(ImapManager.prototype);
+    const expected = { folder: 'Drafts', uid: 17, message_id: '<reply@test>' };
+    manager._ingestDraftUidWithClient = vi.fn().mockResolvedValue(expected);
+    const logins = ImapFlow.mock.calls.length;
+    expect(await manager.confirmReplyDraft(account, expected)).toEqual(expected);
+    expect(manager._ingestDraftUidWithClient).toHaveBeenCalledWith(account, 'Drafts', 17, pooled);
+    expect(client.search).not.toHaveBeenCalled();
+    expect(ImapFlow.mock.calls.length).toBe(logins);
+  });
+
+  it('preserves saved reply References and attachment presence', async () => {
+    query.mockReset().mockResolvedValue({ rows: [] });
+    const manager = Object.create(ImapManager.prototype);
+    await manager.upsertDraftMessageRecord({ id: 'account-a' }, 'Drafts', 42, {
+      messageId: '<draft@example.test>', references: '<parent@example.test>',
+      threadId: '<parent@example.test>', hasAttachments: true,
+    });
+    const [sql, values] = query.mock.calls.at(-1);
+    expect(sql).toContain('thread_references');
+    expect(values).toContain('<parent@example.test>');
+    expect(values).toContain(true);
+  });
+
+  it('refuses another fresh login during cooldown and releases the lookup slot', async () => {
+    const manager = Object.create(ImapManager.prototype);
+    manager._replyDraftSem = createKeyedSemaphore(1);
+    manager._replyDraftQueries = new Map();
+    manager._connectCooldown = new Map();
+    manager._secondaryCooldown = new Map([['account-a', { until: Date.now() + 30000, failures: 1 }]]);
+    await expect(manager.findReplyDrafts({ id: 'account-a' }, ['Drafts'], ['<parent@example.test>']))
+      .rejects.toMatchObject({ providerRefusing: true });
+    expect(manager._replyDraftSem.activeCount('account-a')).toBe(0);
+  });
+
+  it('waits for the normalized provider-host budget before starting another login', async () => {
+    const manager = Object.create(ImapManager.prototype);
+    manager._replyDraftSem = createKeyedSemaphore(1);
+    manager._replyDraftQueries = new Map();
+    manager._connectCooldown = new Map(); manager._secondaryCooldown = new Map();
+    manager._bgConnSem = { acquire: vi.fn().mockRejectedValue(new Error('budget busy')), release: vi.fn() };
+    ImapFlow.mockClear();
+    await expect(manager.findReplyDrafts({ id: 'account-budget', imap_host: 'IMAP.Example.TEST' },
+      ['Drafts'], ['<parent@example.test>'])).rejects.toThrow('budget busy');
+    expect(manager._bgConnSem.acquire).toHaveBeenCalledWith('imap.example.test', { timeoutMs: 30000 });
+    expect(manager._bgConnSem.release).not.toHaveBeenCalled();
+    expect(ImapFlow).not.toHaveBeenCalled();
+    expect(manager._replyDraftSem.activeCount('account-budget')).toBe(0);
+    expect(manager._replyDraftQueries.size).toBe(0);
+  });
+
+  it.each([false, true])('releases the provider-host budget when lookup fails=%s', async fails => {
+    const account = { id: 'account-budget-release', user_id: 'user-1', imap_host: 'imap.example.test',
+      imap_port: 993, imap_tls: true, auth_user: 'me', auth_pass: 'enc' };
+    const manager = Object.create(ImapManager.prototype);
+    manager._replyDraftSem = createKeyedSemaphore(1); manager._replyDraftQueries = new Map();
+    manager._connectCooldown = new Map(); manager._secondaryCooldown = new Map();
+    manager._bgConnSem = createKeyedSemaphore(2);
+    const client = Object.assign(new EventEmitter(), { usable: true,
+      connect: vi.fn().mockResolvedValue(), close: vi.fn() });
+    ImapFlow.mockImplementation(function () { return client; });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    manager._findReplyDraftsWithClient = vi.fn(async () => {
+      expect(manager._bgConnSem.activeCount('imap.example.test')).toBe(1);
+      if (fails) throw new Error('search incomplete');
+      return [];
+    });
+    const result = manager.findReplyDrafts(account, ['Drafts'], ['<parent@example.test>']);
+    if (fails) await expect(result).rejects.toThrow('search incomplete');
+    else expect(await result).toEqual([]);
+    expect(manager._bgConnSem.activeCount('imap.example.test')).toBe(0);
+    expect(manager._replyDraftSem.activeCount(account.id)).toBe(0);
+    expect(client.close).toHaveBeenCalledOnce();
+  });
+
+  it('uses current headers and structure, replacing stale cache metadata for a reused UID', async () => {
+    const release = vi.fn();
+    const client = { getMailboxLock: vi.fn().mockResolvedValue({ release }), mailbox: { uidValidity: 9n },
+      fetch: vi.fn(async function* () { yield { uid: 1, headers: Buffer.from('Message-ID: <new@example.test>\r\n'), bodyStructure: { type: 'text/plain' } }; }) };
+    parseMessage.mockResolvedValueOnce({ messageId: '<new@example.test>', fromEmail: 'me@example.test',
+      to: [], cc: [], inReplyTo: '<parent@example.test>', references: '<parent@example.test>',
+      parsedHeaders: { 'message-id': '<new@example.test>', bcc: 'Hidden <hidden@example.test>' }, hasAttachments: false });
+    query.mockReset().mockResolvedValue({ rows: [{ id: 'row-1' }] });
+    const manager = Object.create(ImapManager.prototype);
+    const result = await manager._ingestDraftUidWithClient({ id: 'account-a' }, 'Drafts', 1, client);
+    expect(result).toMatchObject({ id: 'row-1', message_id: '<new@example.test>',
+      bcc_addresses: [{ name: 'Hidden', email: 'hidden@example.test' }], uid_validity: '9', attachments_complete: true });
+    const [sql] = query.mock.calls.find(([text]) => text.includes('INSERT INTO messages'));
+    expect(sql).toContain('bcc_addresses = EXCLUDED.bcc_addresses');
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('computes the canonical thread from known ancestors during partial ingestion', async () => {
+    const manager = Object.create(ImapManager.prototype);
+    parseMessage.mockResolvedValueOnce({ messageId: '<draft@example.test>', fromEmail: 'me@example.test',
+      to: [], cc: [], inReplyTo: '<known@example.test>', references: '<known@example.test>', parsedHeaders: {} });
+    query.mockReset().mockImplementation(async sql => sql.includes('SELECT message_id, thread_id')
+      ? { rows: [{ message_id: '<known@example.test>', thread_id: '<canonical@example.test>' }] }
+      : { rows: [{ id: 'row-1', thread_id: '<canonical@example.test>' }] });
+    const result = await manager._ingestDraftUidWithClient({ id: 'account-a', email_address: 'me@example.test' }, 'Drafts', 1,
+      { mailbox: { uidValidity: 9n } }, { headers: Buffer.from('headers'), bodyStructure: { type: 'text/plain' } });
+    expect(result.thread_id).toBe('<canonical@example.test>');
+    const [, values] = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO messages'));
+    expect(values[12]).toBe('<canonical@example.test>');
+  });
+
+  it('returns the effective persisted thread root when a synced root is retained', async () => {
+    const manager = Object.create(ImapManager.prototype);
+    parseMessage.mockResolvedValueOnce({ messageId: '<draft@example.test>', to: [], cc: [],
+      references: '<known@example.test>', parsedHeaders: {} });
+    query.mockReset().mockImplementation(async sql => sql.includes('SELECT message_id, thread_id')
+      ? { rows: [{ message_id: '<known@example.test>', thread_id: '<computed@example.test>' }] }
+      : { rows: [{ id: 'row-1', thread_id: '<retained@example.test>' }] });
+    const result = await manager._ingestDraftUidWithClient({ id: 'account-a' }, 'Drafts', 1,
+      { mailbox: { uidValidity: 9n } }, { headers: Buffer.from('headers'), bodyStructure: { type: 'text/plain' } });
+    expect(result.thread_id).toBe('<retained@example.test>');
+  });
+
+  it('does not ingest incomplete live headers or structure', async () => {
+    const release = vi.fn();
+    const client = { getMailboxLock: vi.fn().mockResolvedValue({ release }),
+      fetch: vi.fn(async function* () { yield { uid: 1 }; }) };
+    const manager = Object.create(ImapManager.prototype);
+    await expect(manager._ingestDraftUidWithClient({ id: 'account-a' }, 'Drafts', 1, client))
+      .rejects.toThrow('Incomplete reply draft');
+    expect(release).toHaveBeenCalledOnce();
+  });
+});
 
 // ── providerProfile — host detection ─────────────────────────────────────────
 
@@ -4849,5 +4989,96 @@ describe('attachmentsFromStructure (#457)', () => {
   it('is empty without a structure', () => {
     expect(attachmentsFromStructure({})).toEqual([]);
     expect(attachmentsFromStructure(null)).toEqual([]);
+  });
+});
+
+// ── Reply-draft markers: a Drafts folder that gained rows (#538) ───────────────
+//
+// The Inbox's reply-draft markers come from synced rows. A draft saved in another client arrives
+// read (\Seen), so it never enters new_messages, and nothing told the client to re-check the
+// markers until it reloaded. A sync that inserts rows into a Drafts folder now says so.
+describe('syncMessages — tells the client when a Drafts folder gained rows', () => {
+  const account = {
+    id: 'acct-drafts', user_id: 'user-1', email_address: 'me@example.com', gtd_enabled: false,
+    categorization_enabled: false, imap_host: 'imap.example.com', folder_mappings: { drafts: 'Entwürfe' },
+  };
+  let folderRow;
+  async function sync(folder, { isNew = true, isRead = true } = {}) {
+    const client = {
+      noop: vi.fn(async () => true),
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
+      fetch: vi.fn(async function* () { yield { uid: 501 }; }),
+    };
+    query.mockReset();
+    query.mockImplementation((sql) => {
+      if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '500' }] });
+      if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)') && !sql.includes('UPDATE folders')) return Promise.resolve({ rows: [{ n: 0 }] });
+      if (sql.includes('COALESCE(MAX(uid), 0)')) return Promise.resolve({ rows: [{ max_uid: 0 }] });
+      if (sql.includes('INSERT INTO messages')) return Promise.resolve({ rows: [{ id: 'draft-row', is_new: isNew }] });
+      if (sql.includes('SELECT account_id, path, special_use, no_select FROM folders')) return Promise.resolve({ rows: folderRow ? [folderRow] : [] });
+      return Promise.resolve({ rows: [] });
+    });
+    parseMessage.mockReset();
+    parseMessage.mockResolvedValue({
+      uid: 501, messageId: '<d1@x>', subject: 'Re: Plans', fromName: 'Me', fromEmail: 'me@example.com',
+      to: [], cc: [], replyTo: [], inReplyTo: '<p1@x>', references: '<p1@x>', date: new Date('2026-10-08T10:00:00Z'),
+      snippet: 'draft', isRead, isStarred: false, hasAttachments: false, flags: isRead ? ['\\Draft', '\\Seen'] : ['\\Draft'],
+      isBulk: false, parsedHeaders: {},
+    });
+    // An unread arrival also schedules a body prefetch (setImmediate) and classification; stub
+    // both, or the prefetch throws after the test has finished.
+    const mgr = { pluginFacade: {}, broadcast: vi.fn(), prefetchNewMessageBodies: vi.fn(async () => {}), maybeClassifyNewMessage: vi.fn() };
+    await ImapManager.prototype.syncMessages.call(mgr, account, client, folder, 100, false, true);
+    return mgr.broadcast.mock.calls.map(([event, userId]) => [event.type, event.accountId, userId]);
+  }
+  let hasActive, runHook;
+  beforeEach(() => {
+    folderRow = null;
+    hasActive = vi.spyOn(pluginRegistry, 'hasActiveAsync').mockResolvedValue(false);
+    runHook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+  });
+  afterEach(() => { hasActive.mockRestore(); runHook.mockRestore(); });
+
+  it('a read draft synced into the folder flagged \\Drafts', async () => {
+    folderRow = { account_id: 'acct-drafts', path: 'Drafts', special_use: '\\Drafts', no_select: false };
+    expect(await sync('Drafts')).toEqual([['drafts_changed', 'acct-drafts', 'user-1']]);
+  });
+
+  it('the mapped Drafts folder, without the flag', async () => {
+    folderRow = { account_id: 'acct-drafts', path: 'Entwürfe', special_use: null, no_select: false };
+    expect(await sync('Entwürfe')).toEqual([['drafts_changed', 'acct-drafts', 'user-1']]);
+  });
+
+  it('an unread draft too, alongside its new_messages', async () => {
+    folderRow = { account_id: 'acct-drafts', path: 'Drafts', special_use: '\\Drafts', no_select: false };
+    const events = await sync('Drafts', { isRead: false });
+    expect(events.filter(([type]) => type === 'drafts_changed')).toHaveLength(1);
+    expect(events.map(([type]) => type)).toContain('new_messages');
+  });
+
+  it('not for another folder, a sync that inserted nothing, or the Inbox', async () => {
+    folderRow = { account_id: 'acct-drafts', path: 'Junk', special_use: '\\Junk', no_select: false };
+    expect(await sync('Junk')).toEqual([]);
+    folderRow = { account_id: 'acct-drafts', path: 'Drafts', special_use: '\\Drafts', no_select: false };
+    expect(await sync('Drafts', { isNew: false })).toEqual([]);
+    expect(await sync('INBOX')).toEqual([]);
+    // The Inbox never pays for the folder lookup.
+    expect(query.mock.calls.some(([sql]) => sql.includes('SELECT account_id, path, special_use, no_select FROM folders'))).toBe(false);
+  });
+
+  it('a failed notice never fails the sync', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await expect(noteDraftsChanged({ broadcast: vi.fn() }, account, 'Drafts')).resolves.toBeUndefined();
+      query.mockReset();
+      query.mockRejectedValue(new Error('db down'));
+      await expect(noteDraftsChanged({ broadcast: vi.fn() }, account, 'Drafts')).resolves.toBeUndefined();
+      query.mockReset();
+      query.mockResolvedValue({ rows: [{ account_id: 'acct-drafts', path: 'Drafts', special_use: '\\Drafts' }] });
+      await expect(noteDraftsChanged({}, account, 'Drafts')).resolves.toBeUndefined();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

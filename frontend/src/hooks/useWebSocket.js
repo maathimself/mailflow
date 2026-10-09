@@ -275,6 +275,14 @@ export function useWebSocket() {
         break;
       }
 
+      case 'drafts_changed': {
+        // A Drafts folder gained or lost a draft: synced from another client (which saves it
+        // read, so no new_messages), or saved, discarded or sent from another tab or device.
+        // The Inbox re-checks its reply-draft markers; the visible list does not reload.
+        useStore.getState().invalidateReplyDrafts();
+        break;
+      }
+
       case 'folder_emptied': {
         // Background empty finished (see mail.js /folders/empty). Toast the outcome and refresh
         // the view and counts either way — on failure the messages are still on the server and

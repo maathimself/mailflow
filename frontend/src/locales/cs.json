@@ -164,6 +164,13 @@
     "updateAvailable": "Je dostupná aktualizace: v{{version}}"
   },
   "messageList": {
+    "replyDraftChanged": "Koncept odpovědi se změnil. Zkuste jej znovu otevřít.",
+    "replyDraftKeepCurrent": "Před otevřením tohoto konceptu uložte aktuální zprávu a vyřešte její přílohy.",
+    "replyDraftUnavailable": "Tento koncept odpovědi již není dostupný.",
+    "replyDraftCancelled": "Otevírání konceptu odpovědi bylo zrušeno, protože se změnil výběr nebo okno zprávy. Zkuste jej otevřít znovu.",
+    "replyDraftRetry": "Znovu vyhledat koncept odpovědi",
+    "openReplyDraft": "Otevřít koncept odpovědi",
+    "replyDraft": "Koncept odpovědi",
     "search": "Hledat…",
     "unread": "Nepřečtené",
     "showAll": "Zobrazit vše",
@@ -426,6 +433,7 @@
     }
   },
   "compose": {
+    "unsupportedDraftFrom": "Před uložením nebo odesláním tohoto konceptu vyberte nastaveného odesílatele.",
     "newMessage": "Nová zpráva",
     "reply": "Odpovědět",
     "replyAll": "Odpovědět všem",
@@ -1317,6 +1325,7 @@
       "configureIn": "Možnosti nastavíte v části {{location}}"
     },
     "messageList": {
+      "autoOpenReplyDrafts": "Automaticky otevírat uložené odpovědi při výběru zpráv v doručené poště",
       "title": "Seznam zpráv",
       "senderFavicons": "Ikony webů odesílatelů",
       "senderFaviconsDesc": "Zobrazovat ikony webů u odesílatelů bez fotografie kontaktu. Službě Twenty Icons se odesílá pouze doména odesílatele, nikdy celá e-mailová adresa.",
@@ -1519,6 +1528,7 @@
       "eventAdminPasswordSet": "Heslo nastaveno",
       "eventAdminUserUpdate": "Účet upraven",
       "eventAdminTotpDisable": "2FA vypnuto",
+      "eventAdminUserDelete": "Účet smazán",
       "byActor": "uživatelem {{actor}}",
       "qrCodeAlt": "QR kód",
       "mailPolicyTitle": "Zásady připojení k poštovním serverům",

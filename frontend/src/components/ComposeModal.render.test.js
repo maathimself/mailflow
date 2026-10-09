@@ -79,7 +79,7 @@ async function hideTab() {
 // Opens a draft the way MessageList does for a click in the Drafts folder. Returns an unmount.
 async function openDraft({ plaintextEmail, body }) {
   saved.length = 0;
-  useStore.setState({ plaintextEmail });
+  useStore.setState({ plaintextEmail, composing: false, composeData: null, prepareComposeSwitch: null });
   useStore.getState().openCompose({
     accountId: 'acct',
     draftUid: 7,
@@ -218,7 +218,7 @@ describe('automatic Cc and Bcc (#491)', () => {
   async function mountCompose(composeData, { accounts, strict = false }) {
     saved.length = 0;
     posted.length = 0;
-    useStore.setState({ plaintextEmail: false, accounts, selectedAccountId: accounts[0]?.id ?? null, defaultSender: '' });
+    useStore.setState({ plaintextEmail: false, accounts, selectedAccountId: accounts[0]?.id ?? null, defaultSender: '', composing: false, composeData: null, prepareComposeSwitch: null });
     useStore.getState().openCompose(composeData);
     const root = createRoot(document.getElementById('root'));
     const modal = React.createElement(ComposeModal);
@@ -396,7 +396,7 @@ describe('automatic Cc and Bcc (#491)', () => {
       await chooseFrom('account:other');
       assert.equal(chips('compose.bcc'), null, 'nor from the account From switches to');
       await hideTab();
-      assert.equal(saved.length, 0);
+      assert.equal(saved.length, 1, 'a saved sender change is persisted');
     } finally { await close(); }
   });
 
@@ -808,7 +808,7 @@ describe('undo send', () => {
   let unmount;
   before(async () => {
     useStore.setState({
-      plaintextEmail: false,
+      plaintextEmail: false, composing: false, composeData: null, prepareComposeSwitch: null,
       notifications: [],
       accounts: [{ id: 'acct', enabled: true, email_address: 'me@example.invalid', name: 'Me', color: '#fff' }],
     });

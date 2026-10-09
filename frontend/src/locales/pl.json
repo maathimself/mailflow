@@ -94,6 +94,7 @@
     "hidePassword": "Ukryj hasło"
   },
   "compose": {
+    "unsupportedDraftFrom": "Wybierz skonfigurowanego nadawcę przed zapisaniem lub wysłaniem tego szkicu.",
     "newMessage": "Nowa wiadomość",
     "reply": "Odpowiedz",
     "replyAll": "Odpowiedz wszystkim",
@@ -315,6 +316,13 @@
     }
   },
   "messageList": {
+    "replyDraftChanged": "Szkic odpowiedzi się zmienił. Spróbuj otworzyć go ponownie.",
+    "replyDraftKeepCurrent": "Zapisz bieżącą wiadomość i rozwiąż problemy z jej załącznikami przed otwarciem tego szkicu.",
+    "replyDraftUnavailable": "Ten szkic odpowiedzi nie jest już dostępny.",
+    "replyDraftCancelled": "Otwieranie szkicu odpowiedzi zostało anulowane, ponieważ zmienił się wybór lub edytor. Spróbuj otworzyć go ponownie.",
+    "replyDraftRetry": "Ponownie wyszukaj szkic odpowiedzi",
+    "openReplyDraft": "Otwórz szkic odpowiedzi",
+    "replyDraft": "Szkic odpowiedzi",
     "search": "Szukaj…",
     "unread": "Nieprzeczytane",
     "showAll": "Pokaż wszystkie",
@@ -1014,6 +1022,7 @@
       "customCssSaved": "Zapisano"
     },
     "messageList": {
+      "autoOpenReplyDrafts": "Automatycznie otwieraj zapisane odpowiedzi po wybraniu wiadomości w skrzynce odbiorczej",
       "title": "Lista wiadomości",
       "senderFavicons": "Ikony witryn nadawców",
       "senderFaviconsDesc": "Pokazuj ikony witryn nadawców bez zdjęcia kontaktu. Do pobrania ikony wysyłana jest tylko domena nadawcy, nigdy jego pełny adres e-mail.",
@@ -1196,6 +1205,7 @@
       "eventAdminPasswordSet": "Ustawiono hasło",
       "eventAdminUserUpdate": "Edytowano konto",
       "eventAdminTotpDisable": "Wyłączono 2FA",
+      "eventAdminUserDelete": "Usunięto konto",
       "byActor": "przez {{actor}}",
       "qrCodeAlt": "Kod QR",
       "mailPolicyTitle": "Zasady połączeń z serwerem pocztowym",

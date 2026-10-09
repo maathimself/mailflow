@@ -94,6 +94,7 @@
     "hidePassword": "Masquer le mot de passe"
   },
   "compose": {
+    "unsupportedDraftFrom": "Choisissez un expéditeur configuré avant d’enregistrer ou d’envoyer ce brouillon.",
     "newMessage": "Nouveau message",
     "reply": "Répondre",
     "replyAll": "Répondre à tous",
@@ -313,6 +314,13 @@
     }
   },
   "messageList": {
+    "replyDraftChanged": "Le brouillon de réponse a changé. Essayez de le rouvrir.",
+    "replyDraftKeepCurrent": "Enregistrez le message actuel et gérez ses pièces jointes avant d’ouvrir ce brouillon.",
+    "replyDraftUnavailable": "Ce brouillon de réponse n’est plus disponible.",
+    "replyDraftCancelled": "L’ouverture du brouillon de réponse a été annulée car la sélection ou l’éditeur a changé. Essayez de l’ouvrir à nouveau.",
+    "replyDraftRetry": "Rechercher à nouveau le brouillon de réponse",
+    "openReplyDraft": "Ouvrir le brouillon de réponse",
+    "replyDraft": "Brouillon de réponse",
     "search": "Rechercher…",
     "unread": "Non lus",
     "showAll": "Tout afficher",
@@ -998,6 +1006,7 @@
       "customCssSaved": "Enregistré"
     },
     "messageList": {
+      "autoOpenReplyDrafts": "Ouvrir automatiquement les réponses enregistrées à la sélection d’un message reçu",
       "title": "Liste des messages",
       "senderFavicons": "Favicons des expéditeurs",
       "senderFaviconsDesc": "Afficher les icônes de site web pour les expéditeurs sans photo de contact. Seul le domaine de l'expéditeur, jamais son adresse e-mail complète, est envoyé à Twenty Icons.",
@@ -1175,6 +1184,7 @@
       "eventAdminPasswordSet": "Mot de passe défini",
       "eventAdminUserUpdate": "Compte modifié",
       "eventAdminTotpDisable": "2FA désactivé",
+      "eventAdminUserDelete": "Compte supprimé",
       "byActor": "par {{actor}}",
       "activityTitle": "Activité de connexion",
       "loginProtectionTitle": "Protection de connexion",

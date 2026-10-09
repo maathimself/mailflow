@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
-import { query, pool } from '../services/db.js';
+import { query, pool, withTransaction } from '../services/db.js';
 import { imapManager } from '../index.js';
 import { decrypt, encrypt } from '../services/encryption.js';
 import { pushConfigured } from '../services/pushNotifications.js';
@@ -769,7 +769,10 @@ export async function patchPreferences(req, res) {
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
           folderOrder, senderFavicons, showMessagePreviews, defaultSender,
-          conversationMode, hoverActionSet } = req.body;
+          conversationMode, hoverActionSet, autoOpenReplyDrafts } = req.body;
+  if (autoOpenReplyDrafts !== undefined && typeof autoOpenReplyDrafts !== 'boolean') {
+    return res.status(400).json({ error: 'autoOpenReplyDrafts must be a boolean' });
+  }
   // GTD content and generic right-sidebar layout preferences are independent flat
   // top-level keys with separate allow-lists. gtdEnabled is intentionally NOT a user
   // preference — it lives per-account in email_accounts.gtd_enabled.
@@ -881,6 +884,7 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $42::text IS NOT NULL THEN jsonb_build_object('defaultSender', $42::text) ELSE '{}'::jsonb END
       || CASE WHEN $43::text IS NOT NULL THEN jsonb_build_object('conversationMode', $43::text) ELSE '{}'::jsonb END
       || CASE WHEN $44::jsonb IS NOT NULL THEN jsonb_build_object('hoverActionSet', $44::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $45::boolean IS NOT NULL THEN jsonb_build_object('autoOpenReplyDrafts', $45::boolean) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -891,7 +895,7 @@ export async function patchPreferences(req, res) {
       categorizationEnabled ?? null, markReadBehaviorVal, markReadDelayVal, aiActionsJson,
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
-      showMessagePreviews ?? null, defaultSenderVal, conversationModeVal, hoverActionSetJson]);
+      showMessagePreviews ?? null, defaultSenderVal, conversationModeVal, hoverActionSetJson, autoOpenReplyDrafts ?? null]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;
@@ -977,7 +981,18 @@ router.patch('/profile/recovery-email', async (req, res) => {
   if (trimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
     return res.status(400).json({ error: 'Invalid email address' });
   }
-  await query('UPDATE users SET recovery_email = $1 WHERE id = $2', [trimmed || null, req.session.userId]);
+  const userId = req.session.userId;
+  const current = await query('SELECT recovery_email FROM users WHERE id = $1', [userId]);
+  const changed = (trimmed || null) !== (current.rows[0]?.recovery_email ?? null);
+  await withTransaction(async client => {
+    await client.query('UPDATE users SET recovery_email = $1 WHERE id = $2', [trimmed || null, userId]);
+    // A reset link or login code already sent to the old address must stop working, as when
+    // an admin changes it (routes/admin.js): the old address may be why it is changing.
+    if (changed) {
+      await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [userId]);
+      await client.query('DELETE FROM email_otp_tokens WHERE user_id = $1', [userId]);
+    }
+  });
   res.json({ ok: true });
 });
 

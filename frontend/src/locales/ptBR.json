@@ -94,6 +94,7 @@
     "hidePassword": "Ocultar senha"
   },
   "compose": {
+    "unsupportedDraftFrom": "Escolha um remetente configurado antes de salvar ou enviar este rascunho.",
     "newMessage": "Nova mensagem",
     "reply": "Responder",
     "replyAll": "Responder a todos",
@@ -313,6 +314,13 @@
     }
   },
   "messageList": {
+    "replyDraftChanged": "O rascunho de resposta mudou. Tente abri-lo novamente.",
+    "replyDraftKeepCurrent": "Salve a mensagem atual e resolva seus anexos antes de abrir este rascunho.",
+    "replyDraftUnavailable": "Este rascunho de resposta não está mais disponível.",
+    "replyDraftCancelled": "A abertura do rascunho de resposta foi cancelada porque a seleção ou o editor mudou. Tente abri-lo novamente.",
+    "replyDraftRetry": "Buscar novamente o rascunho de resposta",
+    "openReplyDraft": "Abrir rascunho de resposta",
+    "replyDraft": "Rascunho de resposta",
     "search": "Pesquisar…",
     "unread": "Não lidas",
     "showAll": "Mostrar todas",
@@ -998,6 +1006,7 @@
       "customCssSaved": "Salvo"
     },
     "messageList": {
+      "autoOpenReplyDrafts": "Abrir automaticamente as respostas salvas ao selecionar mensagens na caixa de entrada",
       "title": "Lista de mensagens",
       "senderFavicons": "Favicons dos remetentes",
       "senderFaviconsDesc": "Mostrar ícones de sites para remetentes sem foto de contato. Apenas o domínio do remetente, nunca o endereço de e-mail completo, é enviado ao Twenty Icons.",
@@ -1177,6 +1186,7 @@
       "eventAdminPasswordSet": "Senha definida",
       "eventAdminUserUpdate": "Conta editada",
       "eventAdminTotpDisable": "2FA desativado",
+      "eventAdminUserDelete": "Conta excluída",
       "byActor": "por {{actor}}",
       "qrCodeAlt": "QR code",
       "mailPolicyTitle": "Política de conexão com servidores de e-mail",

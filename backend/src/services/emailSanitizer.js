@@ -1,4 +1,6 @@
 import sanitizeHtml from 'sanitize-html';
+import { parse, serialize, defaultTreeAdapter } from 'parse5';
+import { logger } from './logger.js';
 
 // Strip the <head> element from email HTML, preserving any <style> blocks inside it.
 //
@@ -325,9 +327,68 @@ function stripDarkModeStyleBlocks(html) {
   );
 }
 
+// Re-serialize through the HTML5 tree builder first so the markup sanitize-html sees
+// has the structure a browser would build. htmlparser2 does not implement the spec's
+// error recovery: a stray </td> closes the nearest <td> on the whole stack, even one in
+// an outer table, and a </head> placed after </body> made stripEmailHead treat the
+// entire document as head.
+//
+// parse5 sets no limits, and this runs on every body that sync prefetches. Markup can make
+// it far costlier than its size: the serializer recurses once per level, the spec re-creates
+// every open formatting element, attributes and all, after each block, each foster-parented
+// node or repeated <body> costs a scan, and the tokenizer compares every attribute name with
+// all earlier ones on its tag. So large bodies skip the pass, and every tree operation is
+// charged against a budget proportional to the input. Past the depth cap or the budget the
+// body is sanitized as received, as it was before.
+const MAX_HTML5_LENGTH = 128 * 1024; // Gmail clips mail past 102 KB, so senders stay under it
+const MAX_TREE_DEPTH = 512; // Chromium's parser caps its tree depth at 512 as well
+const TOO_COSTLY = new Error('HTML5 tree too deep or too large');
+
+function toBrowserTree(html) {
+  if (!html || html.length > MAX_HTML5_LENGTH) return html;
+  let depth = 0;
+  let budget = 8 * html.length + 4096;
+  const spend = (cost) => { if ((budget -= cost) < 0) throw TOO_COSTLY; };
+  const treeAdapter = {
+    ...defaultTreeAdapter,
+    createElement(tagName, namespaceURI, attrs) {
+      let size = 2 * tagName.length + 5;
+      for (const { name, value } of attrs) size += name.length + value.length + 4;
+      spend(size);
+      return defaultTreeAdapter.createElement(tagName, namespaceURI, attrs);
+    },
+    // The default adapter scans the parent's children, or the recipient's attributes, here.
+    insertBefore(parentNode, newNode, referenceNode) {
+      spend(parentNode.childNodes.length);
+      defaultTreeAdapter.insertBefore(parentNode, newNode, referenceNode);
+    },
+    insertTextBefore(parentNode, text, referenceNode) {
+      spend(parentNode.childNodes.length);
+      defaultTreeAdapter.insertTextBefore(parentNode, text, referenceNode);
+    },
+    detachNode(node) {
+      if (node.parentNode) spend(node.parentNode.childNodes.length);
+      defaultTreeAdapter.detachNode(node);
+    },
+    adoptAttributes(recipient, attrs) {
+      spend(recipient.attrs.length + attrs.length);
+      defaultTreeAdapter.adoptAttributes(recipient, attrs);
+    },
+    onItemPush() { if (++depth > MAX_TREE_DEPTH) throw TOO_COSTLY; },
+    onItemPop() { depth--; },
+  };
+  try {
+    return serialize(parse(html, { treeAdapter }));
+  } catch (err) {
+    if (err !== TOO_COSTLY && !(err instanceof RangeError)) throw err;
+    logger.warn(`sanitizeEmail: ${err.message}; sanitizing the HTML as received`);
+    return html;
+  }
+}
+
 // Sanitize HTML email body — permissive but safe.
-export function sanitizeEmail(html) {
-  const sanitized = sanitizeHtml(stripEmailHead(html), {
+export function sanitizeEmail(html, { preserveDraftSignature = false } = {}) {
+  const sanitized = sanitizeHtml(stripEmailHead(toBrowserTree(html)), {
     allowVulnerableTags: true,
     allowedTags: [
       'div','span','p','br','hr',
@@ -338,9 +399,12 @@ export function sanitizeEmail(html) {
       'strong','b','em','i','u','s','del','ins','sub','sup','small','big',
       'blockquote','pre','code','tt','kbd','samp',
       'center','font','strike',
-      'style',
+      // A lifted draft signature is inserted into the app DOM, where a stylesheet
+      // can affect the whole application rather than an isolated email iframe.
+      ...(preserveDraftSignature ? [] : ['style']),
     ],
     allowedAttributes: {
+      ...(preserveDraftSignature ? { div: ['data-mailflow-signature'] } : {}),
       '*': ['style', 'class', 'id', 'align', 'valign', 'width', 'height',
              'bgcolor', 'color', 'border', 'cellpadding', 'cellspacing',
              'colspan', 'rowspan', 'nowrap', 'dir', 'lang',
@@ -360,6 +424,10 @@ export function sanitizeEmail(html) {
       'th': ['abbr', 'axis', 'headers', 'scope'],
     },
     transformTags: {
+      // A browser never renders <title>, but discarding the tag keeps its text. The HTML5
+      // pass moves a <title> into <body> when junk ends the head early, or when a whole
+      // document is embedded in a forward, so stripEmailHead no longer catches it.
+      'title': (tagName) => ({ tagName, attribs: {}, text: '' }),
       // Ensure all links open safely.  Also normalise bare-domain hrefs like
       // "benchmade.com" → "https://benchmade.com" so they work as expected in
       // the sandboxed iframe, and strip relative/fragment hrefs that would
