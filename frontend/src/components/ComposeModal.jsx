@@ -862,7 +862,7 @@ export default function ComposeModal() {
         instruction,
         subject,
         senderName: fromAlias?.name || fromAccount?.sender_name || fromAccount?.name,
-        hasSignature: !!stripHtml(signatureContentRef.current || '').trim(),
+        hasSignature: signatureEnabled && !!stripHtml(signatureContentRef.current || '').trim(),
       });
       const fullText = await api.ai.chat(messages, {
         signal: controller.signal,

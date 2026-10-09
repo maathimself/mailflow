@@ -1002,6 +1002,39 @@ describe('Reply with AI', () => {
     });
   });
 
+  describe('with a signature', () => {
+    let accountsBefore;
+    before(async () => {
+      accountsBefore = useStore.getState().accounts;
+      useStore.setState({ accounts: [{ id: 'acct', enabled: true, email_address: 'me@example.invalid', name: 'Me', sender_name: 'Jordan Lee', color: '#fff', signature: '<p>Jordan Lee<br>Purchasing</p>' }] });
+      await mount({
+        accountId: 'acct', isReply: true, subject: 'Re: Artwork', body: '', cc: [],
+        to: [ANA], originalFrom: [ANA], inReplyTo: '<m3@example.invalid>',
+      });
+    });
+    after(async () => {
+      await unmount();
+      useStore.setState({ accounts: accountsBefore });
+    });
+    const ask = async () => {
+      await openAiMenu();
+      await press(button('compose.toolbar.aiReply'));
+      await click(button('compose.toolbar.aiReplyGenerate'));
+      await React.act(async () => {});
+      return chats.at(-1)[0].content;
+    };
+
+    test('leaves the closing to the signature the composer adds', async () => {
+      assert.match(await ask(), /Do not add a signature/);
+    });
+
+    test('signs with the sender\'s name once the signature is turned off for this message', async () => {
+      await click(document.querySelector('button[title="compose.insertSignature"]'));
+      assert.equal(document.querySelector('button[title="compose.insertSignature"]').getAttribute('aria-pressed'), 'false', 'precondition: the signature is off');
+      assert.match(await ask(), /Sign off with the name Jordan Lee\./);
+    });
+  });
+
   describe('in a new message', () => {
     before(() => mount({ accountId: 'acct', to: [], cc: [], subject: '', body: '' }));
     after(() => unmount());
