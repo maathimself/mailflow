@@ -65,4 +65,13 @@ describe('mailbox signature default', () => {
     expect(response.status).toBe(400);
     expect(query).toHaveBeenCalledTimes(1);
   });
+
+  it('rejects a non-boolean default before creating the account', async () => {
+    const response = await fetch(base, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Mailbox', email_address: 'me@example.com', signature_enabled: 'false' }),
+    });
+    expect(response.status).toBe(400);
+    expect(query).not.toHaveBeenCalled();
+  });
 });

@@ -205,7 +205,7 @@ describe('POST /api/mail/draft — local row persistence', () => {
     });
     expect(res.status).toBe(200);
     const [, , , meta] = imapManager.upsertDraftMessageRecord.mock.calls[0];
-    expect(meta.bodyHtml).toContain('<div data-mailflow-signature="1"></div>');
+    expect(meta.bodyHtml).toContain('<div data-mailflow-signature="1" style="margin-top:16px;color:#555;font-size:13px"></div>');
     expect(meta.bodyHtml).not.toContain('Account signature');
     expect(meta.bodyText).not.toContain('Account signature');
   });
