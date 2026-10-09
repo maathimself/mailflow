@@ -106,15 +106,20 @@ export function createPinnedLookup(addresses) {
       callback = options;
       options = {};
     }
+    // Always answer asynchronously, like dns.lookup(). Node connects from inside this
+    // callback, so a synchronous answer whose every address fails synchronously (e.g.
+    // ENETUNREACH for IPv6-only candidates in a container without IPv6) destroys the socket
+    // before tls.connect() returns: it throws on setServername(), the caller never attaches
+    // its 'error' listener, and the socket's AggregateError then crashes the process.
     const family = Number(options?.family) || 0;
     const eligible = family ? candidates.filter(candidate => candidate.family === family) : candidates;
     if (!eligible.length) {
       const err = new Error('No validated address matches the requested family');
       err.code = 'ENOTFOUND';
-      return callback(err);
+      return process.nextTick(callback, err);
     }
-    if (options?.all) return callback(null, eligible.map(candidate => ({ ...candidate })));
-    callback(null, eligible[0].address, eligible[0].family);
+    if (options?.all) return process.nextTick(callback, null, eligible.map(candidate => ({ ...candidate })));
+    process.nextTick(callback, null, eligible[0].address, eligible[0].family);
   };
 }
 
