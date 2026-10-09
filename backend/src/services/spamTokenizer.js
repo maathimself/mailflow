@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import { Parser } from 'htmlparser2';
 import { parseAuthResults } from './spamParser.js';
 import { STOP_WORDS, STOP_WORDS_DEFAULT } from './stopWords.js';
-import { BLOCK } from './attachmentExtensions.js';
+import { BLOCK, attachmentsWithContained } from './attachmentExtensions.js';
 
 // Attachments are judged by the tiers in attachmentExtensions.js, shared with the download warning.
 // The flag feature attachment_is_executable means the BLOCK tier: files that run code when opened.
@@ -205,6 +205,7 @@ export function extractFlagFeatures(message, opts = {}) {
   // subject must not become an unbounded regex input.
   const subject = capChars(message?.subject);
   const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
+  const judged = attachmentsWithContained(attachments);
 
   const letters = (subject.match(/\p{L}/gu) || []).length;
   const upper = (subject.match(/\p{Lu}/gu) || []).length;
@@ -215,7 +216,7 @@ export function extractFlagFeatures(message, opts = {}) {
   return {
     ...authFlags,
     has_attachment: attachments.length > 0 ? 1 : 0,
-    attachment_is_executable: attachments.some(a => {
+    attachment_is_executable: judged.some(a => {
       const ext = attachmentExtension(a);
       return ext !== null && BLOCK.has(ext);
     }) ? 1 : 0,

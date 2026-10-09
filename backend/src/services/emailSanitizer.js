@@ -552,6 +552,57 @@ export function sanitizeEmail(html, { preserveDraftSignature = false } = {}) {
   return stripDarkModeStyleBlocks(upgradeStyleBlocks(stripExternalStyleBlockUrls(sanitized)));
 }
 
+// The text/plain part of a message written in the composer: its body or its signature, as HTML.
+// sanitize-html keeps only the block tags, and returns well-formed markup with every entity
+// decoded except the few it escapes itself, so what is left is line breaks at block ends, HTML's
+// whitespace collapsing (except inside <pre>), and those escapes. Stripping every tag with
+// sanitize-html alone left that escaping in the text (`&lt;` for `<`) and ran paragraphs together.
+const TEXT_BLOCK_TAGS = ['p', 'div', 'br', 'li', 'ul', 'ol', 'tr', 'td', 'th', 'table', 'blockquote', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr'];
+const TEXT_ESCAPES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'" };
+const BLOCK = 'p|div|li|ul|ol|tr|table|blockquote|pre|h[1-6]';
+// Placeholders while tags become lines: a block boundary (a line break unless the text is already
+// at the start of a line, so nested and adjacent blocks give one) and an empty block (a blank
+// line, which is how the composer writes an empty line).
+const BOUNDARY = '\u0001';
+const EMPTY_LINE = '\u0002';
+
+export function composeHtmlToText(html) {
+  if (!html) return '';
+  // The placeholders are removed from the input first, so text cannot collide with them.
+  // eslint-disable-next-line no-control-regex -- BOUNDARY and EMPTY_LINE, as above
+  const input = String(html).replace(/[\u0001\u0002]/g, '');
+  const blocks = sanitizeHtml(input, { allowedTags: TEXT_BLOCK_TAGS, allowedAttributes: {} });
+  return blocks
+    // HTML's whitespace collapses (not &nbsp;, which keeps the spacing typed), and goes entirely
+    // next to a block tag; <pre> keeps its own.
+    .split(/(<pre>[\s\S]*?<\/pre>)/)
+    .map((part, i) => (i % 2 ? part : part
+      .replace(/[ \t\n\r\f]+/g, ' ')
+      .replace(new RegExp(` ?(<\\/?(?:${BLOCK}|br|hr)\\s*\\/?>) ?`, 'g'), '$1')))
+    .join('')
+    .replace(new RegExp(`<(p|div|h[1-6])>(?:<br\\s*\\/?>)?<\\/\\1>`, 'g'), BOUNDARY + EMPTY_LINE + BOUNDARY)
+    .replace(/<br\s*\/?>/g, '\n')
+    .replace(/<hr\s*\/?>/g, `${BOUNDARY}---${BOUNDARY}`)
+    .replace(/<li>/g, `${BOUNDARY}- `)
+    .replace(new RegExp(`<\\/?(?:${BLOCK})>`, 'g'), BOUNDARY)
+    // Cells of a row stay on its line.
+    .replace(/<\/t[dh]>/g, ' ')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&(?:amp|lt|gt|quot|#39|apos);/g, entity => TEXT_ESCAPES[entity])
+    .replace(/\u00a0/g, ' ')
+    /* eslint-disable no-control-regex -- BOUNDARY and EMPTY_LINE are control characters on purpose;
+       they were removed from the input above, so they cannot collide with what was written. */
+    .replace(/\u0001+/g, BOUNDARY)
+    .replace(/^\u0001|(\n)\u0001/g, '$1')
+    .replace(/\u0001/g, '\n')
+    .replace(/\u0002/g, '')
+    /* eslint-enable no-control-regex */
+    // Trailing spaces per line. A regex like /[ \t]+\n/ rescans a long run of spaces from each of
+    // its characters: 100,000 &nbsp; took 4 s on the event loop.
+    .split('\n').map(line => line.trimEnd()).join('\n')
+    .trim();
+}
+
 // Sanitize user-authored compose body HTML — allows rich formatting and inline
 // images (data: or https:) but strips scripts and event handlers.
 export function sanitizeComposeBody(html) {

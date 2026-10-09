@@ -5,6 +5,7 @@ import { unreadBadge } from '../utils/unreadBadge.js';
 import { api } from '../utils/api.js';
 import { signOut } from '../utils/signOut.js';
 import { resolveThreadMessages } from '../utils/threadActions.js';
+import { keepDraftsApart } from '../utils/conversationActions.js';
 import { folderDisplayName } from '../utils/folderDisplay.js';
 import {
   activateOnKey,
@@ -337,7 +338,7 @@ export default function Sidebar() {
       // Sent copies), so scope the move to the dragged row's account exactly as the context-menu
       // move does — the server silently skips messages whose account lacks the destination.
       movedIds = [...new Set(
-        threadMsgs.filter(m => m?.account_id === row.account_id).map(m => m.id).filter(Boolean)
+        keepDraftsApart(threadMsgs, row.id).filter(m => m?.account_id === row.account_id).map(m => m.id).filter(Boolean)
       )];
       if (!movedIds.length) movedIds = [row.id];
       msgs = [row];

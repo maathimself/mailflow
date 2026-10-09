@@ -10,7 +10,7 @@
 // explainRules() returns per-rule detail for the "Why?" modal.
 
 import { parseAuthResults, hasTrustedAuthResults } from './spamParser.js';
-import { BLOCK, WARN, DECOY } from './attachmentExtensions.js';
+import { BLOCK, WARN, DECOY, attachmentsWithContained } from './attachmentExtensions.js';
 
 // ---------------------------------------------------------------------------
 // Rule 3 — pharmaceutical spam keywords (highest-confidence rule, ~zero FP)
@@ -190,7 +190,7 @@ function attachmentExtension(filename) {
 }
 
 function attachmentInTier(email, tier) {
-  const attachments = Array.isArray(email.attachments) ? email.attachments : [];
+  const attachments = attachmentsWithContained(email.attachments);
   return attachments.some(a => {
     const ext = attachmentExtension(a.filename || a.name);
     return ext !== null && tier.has(ext);
@@ -331,7 +331,7 @@ const RULES = [
     name: 'ATTACHMENT_DOUBLE_EXT',
     weight: 0.3,
     test: (email) => {
-      const attachments = Array.isArray(email.attachments) ? email.attachments : [];
+      const attachments = attachmentsWithContained(email.attachments);
       return attachments.some(a => {
         const base = String(a.filename || a.name || '').trim();
         const parts = base.split('.');

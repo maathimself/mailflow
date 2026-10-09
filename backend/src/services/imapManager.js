@@ -22,6 +22,8 @@ import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { classifyAndTagMessage } from './spamPipeline.js';
 import { generateVCard } from '../utils/vcard.js';
+import { truncateFilename } from '../utils/contentDisposition.js';
+import { BLOCK, WARN } from './attachmentExtensions.js';
 import { randomUUID } from 'crypto';
 
 
@@ -532,14 +534,9 @@ const FLAG_PUSH_PER_CYCLE = 30;      // cap setFlag attempts per account per cyc
 // U+202A-U+202E: LRE, RLE, PDF, LRO, RLO
 // U+2066-U+2069: LRI, RLI, FSI, PDI
 // U+200F: RTL mark  U+061C: Arabic letter mark
-const BIDI_OVERRIDE_RE = new RegExp(
-  [...Array.from({ length: 5 }, (_, i) => String.fromCodePoint(0x202A + i)),
-   ...Array.from({ length: 4 }, (_, i) => String.fromCodePoint(0x2066 + i)),
-   String.fromCodePoint(0x200F),
-   String.fromCodePoint(0x061C),
-  ].join(''),
-  'g'
-);
+// A character class: joined without brackets, the pattern only matched all eleven characters in a
+// row, so no real filename was ever cleaned and the attachment list showed the spoofed name.
+const BIDI_OVERRIDE_RE = /[\u202A-\u202E\u2066-\u2069\u200F\u061C]/g;
 
 // The attachment list from the BODYSTRUCTURE sync fetches for every new message, without any body
 // part. It is the walk fetchMessageBody runs, so opening the message later stores the same list.
@@ -769,9 +766,62 @@ export function walkStructure(node, results) {
   }
 }
 
+// A forwarded message attached as a file ("Forward as attachment" in Gmail, Outlook or MailFlow) is
+// a message/rfc822 part, and imapflow gives it the embedded message's structure as children. Walking
+// into those children filed the forwarded message's parts as the outer message's own: the .eml never
+// appeared, its files looked attached directly, and its text could replace the real body. Only a
+// part marked as a file (an attachment disposition or a filename) counts: a bounce report embeds the
+// original without either, and showing its text inline is the useful rendering there.
+function isAttachedMessage(node, type) {
+  if (type !== 'message/rfc822' || !node.childNodes?.length) return false;
+  const disposition = (node.disposition || '').toLowerCase();
+  return disposition === 'attachment'
+    || Boolean(node.dispositionParameters?.filename || node.parameters?.name);
+}
+
+// Inner files are only listed by name and type, on the .eml itself, so the attachment list shows one
+// file while the antispam attachment rules still see a program hidden inside the forward (#457). The
+// list is capped to keep the stored row small; risky files go first, so padding a forward with
+// harmless files cannot push a program past the cap.
+const MAX_CONTAINED_ATTACHMENTS = 50;
+
+function isRiskyAttachmentName(filename) {
+  const name = String(filename || '');
+  const dot = name.lastIndexOf('.');
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+  return BLOCK.has(ext) || WARN.has(ext);
+}
+
+function pushAttachedMessage(node, results) {
+  const rawFilename = node.dispositionParameters?.filename || node.parameters?.name
+    || `${truncateFilename(node.envelope?.subject || 'message', 80)}.eml`;
+  // eslint-disable-next-line no-control-regex -- a folded subject can carry CR/LF and other controls
+  const filename = rawFilename.replace(BIDI_OVERRIDE_RE, '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim() || 'message.eml';
+  const inner = { textParts: [], attachments: [], inlineImages: [], calendarParts: [] };
+  for (const child of node.childNodes) walkStructure(child, inner);
+  const all = inner.attachments.flatMap(att => [{ filename: att.filename, type: att.type }, ...(att.contains || [])]);
+  const contains = [
+    ...all.filter(entry => isRiskyAttachmentName(entry.filename)),
+    ...all.filter(entry => !isRiskyAttachmentName(entry.filename)),
+  ].slice(0, MAX_CONTAINED_ATTACHMENTS);
+  results.attachments.push({
+    part: node.part || '1',
+    filename,
+    type: 'message/rfc822',
+    encoding: node.encoding || '7bit',
+    size: node.dispositionParameters?.size ? parseInt(node.dispositionParameters.size) : node.size || 0,
+    disposition: (node.disposition || '').toLowerCase(),
+    ...(contains.length ? { contains } : {}),
+  });
+}
+
 function walkNode(node, results) {
   if (!node) return;
   const type = (node.type || '').toLowerCase();
+  if (isAttachedMessage(node, type)) {
+    pushAttachedMessage(node, results);
+    return;
+  }
   if (node.childNodes && node.childNodes.length > 0) {
     for (const child of node.childNodes) walkNode(child, results);
     return;

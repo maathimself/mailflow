@@ -225,6 +225,17 @@ describe('createPinnedLookup', () => {
     expect(result).toEqual({ address: '2001:db8::1', family: 6 });
   });
 
+  it('answers asynchronously like dns.lookup', async () => {
+    const lookup = createPinnedLookup(['203.0.113.1', '2001:db8::1']);
+    const callbacks = [vi.fn(), vi.fn(), vi.fn()];
+    lookup('mail.example.com', { all: true }, callbacks[0]);
+    lookup('mail.example.com', { family: 4 }, callbacks[1]);
+    lookup('mail.example.com', { family: 5 }, callbacks[2]);
+    callbacks.forEach(callback => expect(callback).not.toHaveBeenCalled());
+    await new Promise(resolve => process.nextTick(resolve));
+    callbacks.forEach(callback => expect(callback).toHaveBeenCalledOnce());
+  });
+
   it('lets Node connect to the next same-family candidate', async () => {
     const server = createServer(socket => socket.end());
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

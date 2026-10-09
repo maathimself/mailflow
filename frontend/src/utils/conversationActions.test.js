@@ -5,6 +5,7 @@ import {
   conversationSpamTargets,
   groupConversationMessagesByAccount,
   newestSnoozeTarget,
+  keepDraftsApart,
 } from './conversationActions.js';
 
 const message = (id, overrides = {}) => ({
@@ -69,5 +70,35 @@ describe('conversation action targets', () => {
 
     assert.equal(newestSnoozeTarget(messages)?.id, 'newer');
     assert.equal(newestSnoozeTarget([message('sent-only', { folder: 'Sent' })]), null);
+  });
+});
+
+describe('keepDraftsApart', () => {
+  const thread = [
+    message('received'),
+    message('reply', { folder: 'Sent', is_draft: false }),
+    message('draft', { folder: 'Drafts', is_draft: true }),
+    message('draft2', { folder: 'Drafts', is_draft: true }),
+  ];
+
+  it('leaves drafts out of a conversation acted on from an ordinary message', () => {
+    assert.deepEqual(keepDraftsApart(thread, 'received').map(m => m.id), ['received', 'reply']);
+    assert.deepEqual(keepDraftsApart(thread, undefined).map(m => m.id), ['received', 'reply']);
+  });
+
+  it('touches only the drafts when the message acted on is a draft, as in the Drafts folder', () => {
+    assert.deepEqual(keepDraftsApart(thread, 'draft').map(m => m.id), ['draft', 'draft2']);
+  });
+
+  it('keeps a thread with nothing on the other side, so the action is not silently empty', () => {
+    const drafts = [message('d1', { is_draft: true }), message('d2', { is_draft: true })];
+    assert.deepEqual(keepDraftsApart(drafts, 'other').map(m => m.id), ['d1', 'd2']);
+    const plain = [message('p1'), message('p2')];
+    assert.deepEqual(keepDraftsApart(plain, 'p1').map(m => m.id), ['p1', 'p2']);
+  });
+
+  it('passes through messages with no draft marker and tolerates a missing list', () => {
+    assert.deepEqual(keepDraftsApart([message('x')], 'x').map(m => m.id), ['x']);
+    assert.deepEqual(keepDraftsApart(undefined, 'x'), []);
   });
 });

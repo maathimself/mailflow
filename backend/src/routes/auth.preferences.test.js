@@ -186,3 +186,18 @@ describe('PATCH /auth/preferences autoOpenReplyDrafts', () => {
     expect(query).not.toHaveBeenCalled();
   });
 });
+
+describe('PATCH /auth/preferences afterRemove (#572)', () => {
+  it.each(['next', 'previous', 'list'])('stores %s', async (value) => {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await patchPreferences({ session: { userId: 'user-1' }, body: { afterRemove: value } }, res);
+    expect(query.mock.calls[0][0]).toContain("jsonb_build_object('afterRemove', $46::text)");
+    expect(query.mock.calls[0][1][45]).toBe(value);
+  });
+
+  it.each(['open', '', 3, null])('ignores %p', async (value) => {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await patchPreferences({ session: { userId: 'user-1' }, body: { afterRemove: value } }, res);
+    expect(query.mock.calls[0][1][45]).toBeNull();
+  });
+});

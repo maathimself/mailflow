@@ -727,6 +727,18 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ replyDefault: val });
   },
 
+  // What opens when the open message leaves the list by delete, archive, move, spam or snooze
+  // (#572): 'next' (the default, which the list's own actions always did), 'previous', or 'list'
+  // to go back to the list. See utils/listSelection.js.
+  afterRemove: ['next', 'previous', 'list'].includes(localStorage.getItem('mailflow_after_remove'))
+    ? localStorage.getItem('mailflow_after_remove') : 'next',
+  setAfterRemove: (val) => {
+    if (!['next', 'previous', 'list'].includes(val)) return;
+    localStorage.setItem('mailflow_after_remove', val);
+    set({ afterRemove: val });
+    schedulePrefSave({ afterRemove: val });
+  },
+
   markReadBehavior: localStorage.getItem('mailflow_mark_read_behavior') || 'immediate',
   setMarkReadBehavior: (val) => {
     localStorage.setItem('mailflow_mark_read_behavior', val);
@@ -1280,6 +1292,10 @@ export const useStore = create((set, get) => ({
       if (prefs.replyDefault === 'reply' || prefs.replyDefault === 'replyAll') {
         localStorage.setItem('mailflow_reply_default', prefs.replyDefault);
         set({ replyDefault: prefs.replyDefault });
+      }
+      if (['next', 'previous', 'list'].includes(prefs.afterRemove)) {
+        localStorage.setItem('mailflow_after_remove', prefs.afterRemove);
+        set({ afterRemove: prefs.afterRemove });
       }
       if (prefs.markReadBehavior === 'immediate' || prefs.markReadBehavior === 'delay' || prefs.markReadBehavior === 'manual') {
         localStorage.setItem('mailflow_mark_read_behavior', prefs.markReadBehavior);

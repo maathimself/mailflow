@@ -22,10 +22,12 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('cached reply indicator
     await database.query(`
       CREATE TEMP TABLE email_accounts (id uuid, user_id text, enabled boolean,
         include_in_unified_inbox boolean, folder_mappings jsonb);
-      CREATE TEMP TABLE folders (account_id uuid, path text, special_use text, no_select boolean);
+      CREATE TEMP TABLE folders (account_id uuid, path text, special_use text, no_select boolean,
+        name text, delimiter text);
       CREATE TEMP TABLE messages (id uuid PRIMARY KEY, account_id uuid, folder text,
         uid bigint, message_id text, in_reply_to text, thread_references text,
-        thread_id text, thread_key text, date timestamptz, is_deleted boolean DEFAULT false)`);
+        thread_id text, thread_key text, date timestamptz, is_deleted boolean DEFAULT false,
+        flags jsonb)`);
     await database.query(`
       ALTER TABLE email_accounts ADD name text, ADD email_address text, ADD color text;
       ALTER TABLE folders ADD total_count integer DEFAULT 0, ADD unread_count integer DEFAULT 0;

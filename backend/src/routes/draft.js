@@ -3,8 +3,7 @@ import { randomBytes } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import sanitizeHtml from 'sanitize-html';
-import { sanitizeSignature, sanitizeComposeBody, sanitizeEmail } from '../services/emailSanitizer.js';
+import { sanitizeSignature, sanitizeComposeBody, sanitizeEmail, composeHtmlToText } from '../services/emailSanitizer.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
 import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
@@ -270,13 +269,9 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   const rawSignature = editedSignature !== undefined ? (editedSignature || null) : fromSignature;
   const effectiveSignature = rawSignature ? sanitizeSignature(rawSignature) : null;
 
-  const sigText = effectiveSignature
-    ? sanitizeHtml(effectiveSignature, { allowedTags: [], allowedAttributes: {} }).trim()
-    : null;
+  const sigText = effectiveSignature ? composeHtmlToText(effectiveSignature) : null;
 
-  const bodyText = bodyIsHtml
-    ? sanitizeHtml(body || '', { allowedTags: [], allowedAttributes: {} })
-    : (body || '');
+  const bodyText = bodyIsHtml ? composeHtmlToText(body || '') : (body || '');
 
   const bodyHtml = bodyIsHtml
     ? sanitizeComposeBody(body || '')

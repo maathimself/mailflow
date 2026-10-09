@@ -1505,6 +1505,20 @@ describe('walkStructure attachment classification', () => {
     return results;
   };
 
+  it('strips bidi overrides from attachment names, so "invoice<RLO>fdp.exe" cannot pose as a PDF', () => {
+    const results = walk({
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'text/plain', encoding: '7bit', parameters: { charset: 'utf-8' } },
+        { part: '2', type: 'application/octet-stream', encoding: 'base64', disposition: 'attachment',
+          dispositionParameters: { filename: 'invoice\u202Efdp.exe' } },
+        { part: '3', type: 'application/octet-stream', encoding: 'base64',
+          parameters: { name: 'a\u2066b\u2069c\u200Fd\u061Ce\u202Af.bin' } },
+      ],
+    });
+    expect(results.attachments.map(a => a.filename)).toEqual(['invoicefdp.exe', 'abcdef.bin']);
+  });
+
   it('treats an attached HTML file as an attachment, not body text', () => {
     const results = walk({
       type: 'multipart/mixed',
@@ -1650,6 +1664,118 @@ describe('attachment-only messages have no body', () => {
     };
     expect(extractBodyFromMsg(msg).text).toBe('hello');
     expect(bodyFallbackApplies({ textParts: [], attachments: [] })).toBe(true);
+  });
+});
+
+// A forwarded message attached as a file. imapflow gives a message/rfc822 part the embedded
+// message's structure as children, reusing the wrapper's part number (so its parts are 2.1, 2.2).
+describe('walkStructure attached messages', () => {
+  const walk = (node) => {
+    const results = { textParts: [], attachments: [], inlineImages: [], calendarParts: [] };
+    walkStructure(node, results);
+    return results;
+  };
+  const forwarded = (wrapper, innerChildren) => ({
+    type: 'multipart/mixed',
+    childNodes: [
+      { part: '1', type: 'text/plain', encoding: '7bit', parameters: { charset: 'utf-8' } },
+      {
+        part: '2', type: 'message/rfc822', encoding: '7bit', size: 5120,
+        envelope: { subject: 'Quarterly report' },
+        ...wrapper,
+        childNodes: [{ part: '2', type: 'multipart/mixed', childNodes: innerChildren }],
+      },
+    ],
+  });
+  const innerBodyAndPdf = [
+    { part: '2.1', type: 'text/html', encoding: 'quoted-printable', parameters: { charset: 'utf-8' } },
+    { part: '2.2', type: 'application/pdf', encoding: 'base64', size: 900,
+      disposition: 'attachment', dispositionParameters: { filename: 'inner.pdf' } },
+  ];
+
+  it('lists a forward-as-attachment (Gmail style) as one .eml and keeps the outer body (#466)', () => {
+    const results = walk(forwarded(
+      { disposition: 'attachment', dispositionParameters: { filename: 'Fwd.eml' }, parameters: { name: 'Fwd.eml' } },
+      innerBodyAndPdf,
+    ));
+    expect(results.textParts.map(p => p.part)).toEqual(['1']);
+    expect(results.attachments).toEqual([{
+      part: '2', filename: 'Fwd.eml', type: 'message/rfc822', encoding: '7bit', size: 5120,
+      disposition: 'attachment',
+      contains: [{ filename: 'inner.pdf', type: 'application/pdf' }],
+    }]);
+  });
+
+  it('names an unnamed attached message after its subject (Outlook style)', () => {
+    const results = walk(forwarded({ disposition: 'attachment' }, innerBodyAndPdf));
+    expect(results.attachments.map(a => a.filename)).toEqual(['Quarterly report.eml']);
+    expect(results.textParts.map(p => p.part)).toEqual(['1']);
+  });
+
+  it('treats an inline message/rfc822 with a filename as an attachment too', () => {
+    const results = walk(forwarded({ disposition: 'inline', dispositionParameters: { filename: 'x.eml' } }, innerBodyAndPdf));
+    expect(results.attachments.map(a => [a.part, a.filename, a.type])).toEqual([['2', 'x.eml', 'message/rfc822']]);
+  });
+
+  it('keeps walking into an embedded message with no file marker, as a bounce report has', () => {
+    const results = walk({
+      type: 'multipart/report',
+      childNodes: [
+        { part: '1', type: 'text/plain', encoding: '7bit', parameters: { charset: 'utf-8' } },
+        { part: '2', type: 'message/delivery-status', encoding: '7bit' },
+        { part: '3', type: 'message/rfc822', encoding: '7bit', envelope: { subject: 'Original' },
+          childNodes: [{ part: '3', type: 'text/plain', encoding: '7bit', parameters: { charset: 'utf-8' } }] },
+      ],
+    });
+    expect(results.attachments).toEqual([]);
+    expect(results.textParts.map(p => p.part)).toEqual(['1', '3']);
+  });
+
+  it('records files nested in a forward of a forward, flattened and capped', () => {
+    const innerForward = {
+      part: '2.2', type: 'message/rfc822', encoding: '7bit', disposition: 'attachment',
+      envelope: { subject: 'Deeper' },
+      childNodes: [{ part: '2.2', type: 'multipart/mixed', childNodes: [
+        { part: '2.2.1', type: 'text/plain', encoding: '7bit' },
+        { part: '2.2.2', type: 'application/octet-stream', encoding: 'base64',
+          disposition: 'attachment', dispositionParameters: { filename: 'invoice.pdf.exe' } },
+      ] }],
+    };
+    const results = walk(forwarded({ disposition: 'attachment' }, [innerBodyAndPdf[0], innerForward]));
+    expect(results.attachments).toHaveLength(1);
+    // Risky files are listed first (see the cap below).
+    expect(results.attachments[0].contains).toEqual([
+      { filename: 'invoice.pdf.exe', type: 'application/octet-stream' },
+      { filename: 'Deeper.eml', type: 'message/rfc822' },
+    ]);
+
+    const many = Array.from({ length: 80 }, (_, i) => ({
+      part: `2.${i + 2}`, type: 'image/png', encoding: 'base64',
+      disposition: 'attachment', dispositionParameters: { filename: `p${i}.png` },
+    }));
+    const capped = walk(forwarded({ disposition: 'attachment' }, [innerBodyAndPdf[0], ...many]));
+    expect(capped.attachments[0].contains).toHaveLength(50);
+
+    // Padding the forward with harmless files must not push a program past the cap.
+    const padded = walk(forwarded({ disposition: 'attachment' }, [innerBodyAndPdf[0], ...many, {
+      part: '2.99', type: 'application/octet-stream', encoding: 'base64',
+      disposition: 'attachment', dispositionParameters: { filename: 'payload.exe' },
+    }]));
+    expect(padded.attachments[0].contains).toHaveLength(50);
+    expect(padded.attachments[0].contains[0]).toEqual({ filename: 'payload.exe', type: 'application/octet-stream' });
+  });
+
+  it('strips bidi overrides and control characters from the derived name', () => {
+    const results = walk(forwarded(
+      { disposition: 'attachment', envelope: { subject: 'Pay\r\nnow \u202Efdp.exe' } },
+      innerBodyAndPdf,
+    ));
+    expect(results.attachments[0].filename).toBe('Pay  now fdp.exe.eml');
+  });
+
+  it('stores the .eml for the attachment list built at sync', () => {
+    const msg = { bodyStructure: forwarded({ disposition: 'attachment' }, innerBodyAndPdf) };
+    expect(attachmentsFromStructure(msg).map(a => a.filename)).toEqual(['Quarterly report.eml']);
   });
 });
 

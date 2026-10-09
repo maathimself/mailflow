@@ -225,6 +225,12 @@ export default function ComposeModal() {
   // reopened draft gets nothing, because its saved Cc and Bcc are what the user left, and neither
   // does a message reopened by undo send, whose Cc and Bcc are what it was sent with.
   const [autoInit] = useState(() => {
+    // A message reopened by undo send carries on with what its composer knew when it was sent,
+    // so an automatic address the user removed then stays out across From switches, as it would
+    // have with that composer still open.
+    if (composeData?.restored && composeData.autoRecipients) {
+      return { cc: parseChips(composeData.cc), bcc: parseChips(composeData.bcc), auto: composeData.autoRecipients };
+    }
     const account = accounts.find(a => a.id === resolveFrom(fromValue).accountId);
     const opened = openAutoRecipients(
       { to: parseChips(composeData?.to), cc: parseChips(composeData?.cc), bcc: parseChips(composeData?.bcc) },
@@ -248,6 +254,8 @@ export default function ComposeModal() {
   const [showEmptySubjectWarn, setShowEmptySubjectWarn] = useState(false);
   const [showForgottenAttachWarn, setShowForgottenAttachWarn] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
+  // 'close' asks what to do on closing; 'discard' (the Discard button) only confirms the delete.
+  const [closeDialogMode, setCloseDialogMode] = useState('close');
   const [showAttachWarnForDraft, setShowAttachWarnForDraft] = useState(false);
   const [attachWarnDraftCloseAfter, setAttachWarnDraftCloseAfter] = useState(false);
   const [showPrioritySheet, setShowPrioritySheet] = useState(false);
@@ -255,8 +263,6 @@ export default function ComposeModal() {
   const [ccBccMenuPos, setCcBccMenuPos] = useState(null);
   const ccBccMenuBtnRef = useRef(null);
   const [draftUid, setDraftUid] = useState(() => composeData?.draftUid ?? null);
-  const [draftFolder, setDraftFolder] = useState(() => composeData?.draftFolder ?? null);
-  const [draftAccountId, setDraftAccountId] = useState(() => composeData?.draftAccountId ?? composeData?.accountId ?? null);
   const [savingDraft, setSavingDraft] = useState(false);
   // Given back with a message reopened after undo send; drafts do not carry attachments.
   const [attachments, setAttachments] = useState(() => composeData?.attachments || []);
@@ -269,8 +275,12 @@ export default function ComposeModal() {
   const initialBccRef = useRef(normalizeTo(autoInit.bcc));
   // Start at fwdAttachments.length so pre-loaded forwarded attachments aren't dirty.
   // True when the compose was opened by clicking an existing draft from the list.
-  // Used by handleClose to decide whether to prompt about an unmodified draft.
-  const draftWasPreExisting = useRef(composeData?.draftUid != null);
+  // Used by handleClose to decide whether to prompt about an unmodified draft, and to keep a From
+  // switch from swapping the automatic Cc and Bcc. A message reopened by undo send keeps what its
+  // composer had: one that was only autosaved has a draft by then, but was not opened from one.
+  const draftWasPreExisting = useRef(composeData?.restored
+    ? !!composeData.draftWasPreExisting
+    : composeData?.draftUid != null);
   // A message reopened after undo send is newer than its draft, if it has one at all (and a
   // draft never has the attachments), so it counts as unsaved until it is saved.
   const unsavedRestoreRef = useRef(!!composeData?.restored);
@@ -383,6 +393,9 @@ export default function ComposeModal() {
   const lastSaveAtRef = useRef(Date.now());
   const bodyEditedRef = useRef(false);
   const draftPointerRef = useRef({ uid: composeData?.draftUid ?? null, folder: composeData?.draftFolder ?? null, accountId: composeData?.draftAccountId ?? composeData?.accountId ?? null });
+  // Set once Discard starts (#573): saves refuse to run, so none can recreate the draft being deleted.
+  const discardedRef = useRef(false);
+  const [discarding, setDiscarding] = useState(false);
 
   const editor = useEditor({
     extensions: [
@@ -937,6 +950,8 @@ export default function ComposeModal() {
     }
     const ccFinal = [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])];
     const bccFinal = [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])];
+    // Taken with the recipients it describes: From stays usable while the request is out.
+    const autoAtSend = autoRef.current;
     const sentQuotedHtml = !plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current)
       ? (quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml)
       : null;
@@ -1060,6 +1075,8 @@ export default function ComposeModal() {
           forwardedAttachments: fwdAttachments,
           priority,
           restored: true,
+          autoRecipients: autoAtSend,
+          draftWasPreExisting: draftWasPreExisting.current,
           sendError: undefined,
           // A message reopened by Undo is the user's own text, not a request for another reply.
           aiReply: undefined,
@@ -1150,6 +1167,7 @@ export default function ComposeModal() {
     || (fwdAttachments.length > 0 && !composeData?.externalAttachments?.length);
   saveRef.current = async value => {
     if (useStore.getState().user?.id !== composeOwner) return false;
+    if (discardedRef.current) return false;
     const { accountId, aliasId } = resolveFrom(value.fromValue || fromValue);
     if (unsupportedSenderRef.current) { setError(t("compose.unsupportedDraftFrom", { defaultValue: "Choose a configured sender before saving or sending this draft.", email: composeData?.unsupportedFrom })); return false; }
     if (!accountId) { setError(t('compose.selectAccount')); return false; }
@@ -1174,8 +1192,6 @@ export default function ComposeModal() {
       if (result.uid != null) {
         draftPointerRef.current = { uid: result.uid, folder: result.folder, accountId };
         setDraftUid(result.uid);
-        setDraftFolder(result.folder);
-        setDraftAccountId(accountId);
         updateComposePersistedKey(composeSession, `${accountId}:${result.folder}:${result.uid}:${result.messageId || ""}:${composeData?.draftUidValidity || ""}`);
       }
       unsavedRestoreRef.current = false;
@@ -1381,6 +1397,7 @@ export default function ComposeModal() {
   };
 
   const handleClose = () => {
+    setCloseDialogMode('close');
     if (isDirty() || switchBlockRef.current()) {
       setShowCloseDialog(true);
     } else if (draftUid != null && draftWasPreExisting.current) {
@@ -1389,6 +1406,39 @@ export default function ComposeModal() {
     } else {
       closeCompose();
     }
+  };
+
+  // Delete whatever this composer saved to Drafts, then close (#573). An autosave still running
+  // would create or replace the draft after the delete and leave it behind, so new saves are
+  // refused first and the running one is awaited; the newest pointer then names the draft. A
+  // failed delete keeps the composer open with an error rather than closing as if it worked.
+  const discardDraft = async () => {
+    if (discardedRef.current) return;
+    discardedRef.current = true;
+    setDiscarding(true);
+    await composeSwitchRef.current?.waitForIdle?.();
+    const { uid, folder, accountId } = draftPointerRef.current;
+    if (uid != null && folder != null && accountId) {
+      try {
+        await api.deleteDraft(accountId, uid, folder);
+      } catch {
+        discardedRef.current = false;
+        setDiscarding(false);
+        setError(t('compose.discardFailed'));
+        return;
+      }
+      useStore.getState().invalidateReplyDrafts();
+    }
+    const active = useStore.getState();
+    if (active.composing && active.composeSession === composeSession) closeCompose();
+  };
+
+  // The Discard button: nothing typed and nothing saved closes straight away; otherwise confirm.
+  const hasSavedDraft = () => draftPointerRef.current.uid != null;
+  const requestDiscard = (sheet) => {
+    if (!isDirty() && !switchBlockRef.current() && !hasSavedDraft()) { closeCompose(); return; }
+    setCloseDialogMode('discard');
+    if (sheet) setShowDiscardSheet(true); else setShowCloseDialog(true);
   };
 
   const renderSignatureEditor = () => plaintextEmail ? (
@@ -1458,6 +1508,15 @@ export default function ComposeModal() {
     return next;
   };
 
+  // The close prompt offers Save only when closing with unsaved edits; the Discard button's
+  // confirmation never does.
+  const closeAsks = closeDialogMode === 'close' && isDirty();
+  // The same trash glyph as the message menus' Delete.
+  const trashIcon = (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+      <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+    </svg>
+  );
   const sendSpinner = (
     <div style={{
       width: 14, height: 14, borderRadius: '50%',
@@ -1539,6 +1598,7 @@ export default function ComposeModal() {
           <button
             onClick={() => {
               if (isDirty() || switchBlockRef.current() || (draftUid != null && draftWasPreExisting.current)) {
+                setCloseDialogMode('close');
                 setShowDiscardSheet(true);
               } else {
                 closeCompose();
@@ -1560,6 +1620,20 @@ export default function ComposeModal() {
             {modeLabel}
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 60, justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => requestDiscard(true)}
+              disabled={discarding}
+              aria-label={t('compose.discard')}
+              title={t('compose.discard')}
+              style={{
+                background: 'none', border: 'none', padding: '4px 8px',
+                cursor: discarding ? 'default' : 'pointer', display: 'flex', alignItems: 'center',
+                color: 'var(--text-tertiary)',
+                WebkitTapHighlightColor: 'transparent',
+              }}
+            >
+              {trashIcon}
+            </button>
             <button
               onClick={() => setShowPrioritySheet(true)}
               style={{
@@ -1921,9 +1995,9 @@ export default function ComposeModal() {
             animation: 'sheet-enter 0.22s var(--ease-emphasized) both',
           }}>
             <div style={{ padding: '16px 20px 8px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>
-              {isDirty() ? t('compose.closeDraft.title') : t('compose.discardDraft.title')}
+              {closeAsks ? t('compose.closeDraft.title') : t('compose.discardDraft.title')}
             </div>
-            {isDirty() && (
+            {closeAsks && (
               <button
                 onClick={() => { setShowDiscardSheet(false); handleSaveDraft(true); }}
                 disabled={savingDraft}
@@ -1933,22 +2007,17 @@ export default function ComposeModal() {
               </button>
             )}
             <button
-              onClick={() => {
-                setShowDiscardSheet(false);
-                if (draftUid != null && draftFolder != null && draftAccountId) {
-                  api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
-                }
-                closeCompose();
-              }}
+              onClick={() => { setShowDiscardSheet(false); discardDraft(); }}
+              disabled={discarding}
               style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--red)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
             >
-              {isDirty() ? t('compose.closeDraft.discard') : t('compose.discardDraft.discard')}
+              {closeAsks ? t('compose.closeDraft.discard') : t('compose.discardDraft.discard')}
             </button>
             <button
               onClick={() => setShowDiscardSheet(false)}
               style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 16, fontWeight: 500, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
             >
-              {isDirty() ? t('compose.closeDraft.keepEditing') : t('compose.discardDraft.keepEditing')}
+              {closeAsks ? t('compose.closeDraft.keepEditing') : t('compose.discardDraft.keepEditing')}
             </button>
           </div>
         </>
@@ -2552,6 +2621,15 @@ export default function ComposeModal() {
         >
           {savingDraft ? t('compose.savingDraft') : t('compose.saveDraft')}
         </button>
+        <button
+          onClick={() => requestDiscard(false)}
+          disabled={discarding}
+          aria-label={t('compose.discard')}
+          title={t('compose.discard')}
+          style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: discarding ? 'default' : 'pointer', padding: '4px 6px', display: 'flex', alignItems: 'center' }}
+        >
+          {trashIcon}
+        </button>
       </div>
 
       {!maximized && (
@@ -2655,10 +2733,10 @@ export default function ComposeModal() {
           minWidth: 280, maxWidth: 380, padding: '20px 24px 16px',
         }}>
           <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
-            {isDirty() ? t('compose.closeDraft.title') : t('compose.discardDraft.title')}
+            {closeAsks ? t('compose.closeDraft.title') : t('compose.discardDraft.title')}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {isDirty() && (
+            {closeAsks && (
               <button
                 onClick={() => { setShowCloseDialog(false); handleSaveDraft(true); }}
                 disabled={savingDraft}
@@ -2668,22 +2746,17 @@ export default function ComposeModal() {
               </button>
             )}
             <button
-              onClick={() => {
-                setShowCloseDialog(false);
-                if (draftUid != null && draftFolder != null && draftAccountId) {
-                  api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
-                }
-                closeCompose();
-              }}
+              onClick={() => { setShowCloseDialog(false); discardDraft(); }}
+              disabled={discarding}
               style={{ padding: '8px 16px', background: 'none', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--red)', fontSize: 13, cursor: 'pointer', textAlign: 'center' }}
             >
-              {isDirty() ? t('compose.closeDraft.discard') : t('compose.discardDraft.discard')}
+              {closeAsks ? t('compose.closeDraft.discard') : t('compose.discardDraft.discard')}
             </button>
             <button
               onClick={() => setShowCloseDialog(false)}
               style={{ padding: '8px 16px', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer', textAlign: 'center' }}
             >
-              {isDirty() ? t('compose.closeDraft.keepEditing') : t('compose.discardDraft.keepEditing')}
+              {closeAsks ? t('compose.closeDraft.keepEditing') : t('compose.discardDraft.keepEditing')}
             </button>
           </div>
         </div>

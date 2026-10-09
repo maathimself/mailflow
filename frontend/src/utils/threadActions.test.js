@@ -113,6 +113,45 @@ describe('archiveThread', () => {
   });
 });
 
+// Archive from the conversation pane takes the conversation out of the folder it is shown in, as
+// the list's archive does: the reader's reply stays in Sent.
+describe('archiveThread scoped to the viewed folder', () => {
+  test('archives the Inbox copies, the late reply included, and leaves the Sent reply', async () => {
+    archiveThread(THREAD, { t, addNotification, fetchThread, anchorId: 'a3', folder: 'INBOX', accountId: 'acct' });
+    assert.deepEqual(ids(), ['a2'], 'the Sent reply stays in the list behind the pane');
+    await tick(UNDO_WINDOW + 50);
+    assert.deepEqual(requests.at(-1).body.ids.sort(), ['a1', 'a3', 'a4']);
+  });
+
+  test('the unified inbox archives every account\'s Inbox copy; an account view only its own', async () => {
+    const other = { id: 'b1', account_id: 'other', folder: 'INBOX', subject: 'Hello', from_email: 'them@x.z', date: '2026-01-01T00:00:00Z', is_read: true };
+    const both = [...THREAD, other];
+    useStore.getState().setMessages(both.map(m => ({ ...m })));
+    archiveThread(both, { t, addNotification, anchorId: 'a3', folder: 'INBOX', accountId: null });
+    await tick(UNDO_WINDOW + 50);
+    assert.deepEqual(requests.at(-1).body.ids.sort(), ['a1', 'a3', 'b1']);
+
+    requests = []; notifications = [];
+    useStore.getState().setMessages(both.map(m => ({ ...m })));
+    archiveThread(both, { t, addNotification, anchorId: 'a3', folder: 'INBOX', accountId: 'acct' });
+    await tick(UNDO_WINDOW + 50);
+    assert.deepEqual(requests.at(-1).body.ids.sort(), ['a1', 'a3']);
+  });
+
+  test('a conversation shown from another folder archives the copies there', async () => {
+    const filed = THREAD.map(m => (m.folder === 'INBOX' ? { ...m, folder: 'Projects' } : m));
+    archiveThread(filed, { t, addNotification, anchorId: 'a1', folder: 'Projects', accountId: 'acct' });
+    await tick(UNDO_WINDOW + 50);
+    assert.deepEqual(requests.at(-1).body.ids.sort(), ['a1', 'a3']);
+  });
+
+  test('with nothing left in the folder it archives the selected message, as the list does', async () => {
+    archiveThread(THREAD, { t, addNotification, anchorId: 'a1', folder: 'Elsewhere', accountId: 'acct' });
+    await tick(UNDO_WINDOW + 50);
+    assert.deepEqual(requests.at(-1).body.ids, ['a1']);
+  });
+});
+
 describe('deleteThread', () => {
   test('deletes every message in one call', async () => {
     deleteThread(THREAD, { t, addNotification });
@@ -164,6 +203,43 @@ describe('moveThread', () => {
     assert.deepEqual(ids(), ['a1', 'a2', 'a3']);
     await tick(UNDO_WINDOW + 50);
     assert.equal(requests.filter(r => /bulk-move/.test(r.url)).length, 0);
+  });
+});
+
+// A saved reply in the conversation (marked is_draft by the thread route). Deleting a draft
+// expunges it, so deleting or moving the conversation must leave it alone.
+describe('drafts in the conversation', () => {
+  const DRAFT = { id: 'd1', account_id: 'acct', folder: 'Drafts', subject: 'Re: Hello', from_email: 'me@x.z', date: '2026-01-05T00:00:00Z', is_read: true, is_draft: true };
+  const withDraft = [...THREAD.map(m => ({ ...m, is_draft: false })), DRAFT];
+  const fetchWithDraft = async () => ({ messages: [...withDraft, { ...LATE_REPLY, is_draft: false }] });
+
+  test('delete leaves the draft, in the list and on the server, the late reply included', async () => {
+    useStore.getState().setMessages(withDraft.map(m => ({ ...m })));
+    deleteThread(withDraft, { t, addNotification, fetchThread: fetchWithDraft, anchorId: 'a3' });
+    assert.deepEqual(ids(), ['d1'], 'only the draft stays in the list');
+    await tick(UNDO_WINDOW + 50);
+    assert.deepEqual(requests.at(-1).body.ids.sort(), ['a1', 'a2', 'a3', 'a4']);
+  });
+
+  test('move leaves the draft too', async () => {
+    moveThread(withDraft, 'Archive/2026', { t, addNotification, fetchThread: fetchWithDraft, anchorId: 'a1' });
+    await tick(UNDO_WINDOW + 50);
+    const move = requests.find(r => /bulk-move/.test(r.url));
+    assert.deepEqual(move.body.ids.sort(), ['a1', 'a2', 'a3', 'a4']);
+  });
+
+  test('a conversation acted on from its draft (the Drafts folder) deletes only the draft', async () => {
+    useStore.getState().setMessages(withDraft.map(m => ({ ...m })));
+    deleteThread(withDraft, { t, addNotification, fetchThread: fetchWithDraft, anchorId: 'd1' });
+    assert.deepEqual(ids(), ['a1', 'a2', 'a3'], 'the conversation it answers stays in the list');
+    await tick(UNDO_WINDOW + 50);
+    assert.deepEqual(requests.at(-1).body.ids, ['d1']);
+  });
+
+  test('archive leaves the draft in Drafts as well', async () => {
+    archiveThread(withDraft, { t, addNotification, fetchThread: fetchWithDraft, anchorId: 'a1' });
+    await tick(UNDO_WINDOW + 50);
+    assert.deepEqual(requests.at(-1).body.ids.sort(), ['a1', 'a2', 'a3', 'a4']);
   });
 });
 

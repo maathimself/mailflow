@@ -107,6 +107,17 @@ describe('POST /api/mail/draft — local row persistence', () => {
     }
   });
 
+  it("writes the draft's text part with its lines and characters", async () => {
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: [], subject: 's', bodyIsHtml: true,
+        body: '<p>Fish &amp; chips &lt;5&gt;</p><p></p><p>caf&eacute;</p>', editedSignature: '<b>Me</b>&nbsp;| A &amp; B' }),
+    });
+    expect(res.status).toBe(200);
+    const [, , , meta] = imapManager.upsertDraftMessageRecord.mock.calls.at(-1);
+    expect(meta.bodyText).toBe('Fish & chips <5>\n\ncafé\n\n-- \nMe | A & B');
+  });
+
   it('returns the newly appended RFC identity when requested', async () => {
     const res = await fetch(`${base}/api/mail/draft`, {
       method: 'POST', headers: { 'content-type': 'application/json' },

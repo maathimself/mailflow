@@ -820,3 +820,38 @@ describe('Reply with AI in the toolbar', () => {
     assert.equal(button(), null);
   });
 });
+
+// #572: the reading pane's own Delete and Archive open what takes the message's place, by the
+// afterRemove setting, instead of leaving "Select a message to read".
+describe('the next message opens after the pane removes the open one', () => {
+  const MSG_C = { ...MSG_A, id: 'c3', uid: 3, subject: 'Third' };
+  // The desktop titles carry the shortcut, e.g. "message.archive (E)".
+  const paneButton = title => [...document.querySelectorAll('button')].find(b => (b.getAttribute('title') || '').split(' (')[0] === title);
+  const show = async (id, afterRemove = 'next') => {
+    useStore.setState({ afterRemove, searchQuery: '' });
+    useStore.getState().setMessages([MSG_A, MSG_B, MSG_C].map(m => ({ ...m })));
+    await React.act(async () => { useStore.getState().setSelectedMessage(id); });
+    await React.act(async () => { root.render(React.createElement(MessagePane)); });
+  };
+  const click = el => React.act(async () => { el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
+
+  test('Delete opens the message below', async () => {
+    await show('b2');
+    await click(paneButton('message.delete'));
+    assert.equal(useStore.getState().selectedMessageId, 'c3');
+    assert.deepEqual(useStore.getState().messages.map(m => m.id), ['a1', 'c3']);
+  });
+
+  test('Archive with "previous" opens the message above', async () => {
+    await show('b2', 'previous');
+    await click(paneButton('message.archive'));
+    assert.equal(useStore.getState().selectedMessageId, 'a1');
+  });
+
+  test('"back to the list" leaves the pane empty, as before', async () => {
+    await show('b2', 'list');
+    await click(paneButton('message.delete'));
+    assert.equal(useStore.getState().selectedMessageId, null);
+    useStore.setState({ afterRemove: 'next' });
+  });
+});

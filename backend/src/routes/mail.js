@@ -10,7 +10,7 @@ import { extractImapError } from '../services/imapError.js';
 import { isConnectionRefusal } from '../services/imapManager.js';
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs } from '../services/emailSanitizer.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, parseMailboxList, buildHeadersFromMessage } from '../services/messageParser.js';
-import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
+import { draftMessageSql, resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { listMessages } from '../services/messageService.js';
 import { recordSyncSignal } from '../services/diagnosticsRing.js';
@@ -323,7 +323,9 @@ async function getThread(req, res, threadId) {
                m.date, m.snippet, m.is_read, m.is_starred,
                m.has_attachments, m.account_id, m.category,
                m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses,
-               a.name AS account_name, a.email_address AS account_email, a.color AS account_color
+               a.name AS account_name, a.email_address AS account_email, a.color AS account_color,
+               -- Deleting or moving the conversation leaves its drafts alone (utils/conversationActions.js).
+               ${draftMessageSql('m')} AS is_draft
         FROM messages m
         JOIN email_accounts a ON m.account_id = a.id
         WHERE m.is_deleted = false
