@@ -90,11 +90,12 @@ export function unquote(text) {
 
 // The messages to send: the conversation up to and including the one being answered (a reply
 // to an older message in the thread is about that message, not what came after it), one copy of
-// each, the newest MAX_CONTEXT_MESSAGES.
+// each, the newest MAX_CONTEXT_MESSAGES. A draft in the thread was never sent, so it is left out.
 export function pickContextMessages(messages, { inReplyTo } = {}) {
   const seen = new Set();
   const unique = [];
-  for (const message of [...(messages || [])].sort((a, b) => new Date(a.date) - new Date(b.date))) {
+  const sent = (messages || []).filter(m => !m.is_draft);
+  for (const message of sent.sort((a, b) => new Date(a.date) - new Date(b.date))) {
     const key = message.message_id || message.id;
     if (seen.has(key)) continue;
     seen.add(key);

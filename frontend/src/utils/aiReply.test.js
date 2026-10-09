@@ -105,6 +105,15 @@ describe('pickContextMessages', () => {
     assert.deepEqual(pickContextMessages(thread, { inReplyTo: '<gone@example.test>' }).map(m => m.id), ['a', 'b', 'c']);
   });
 
+  test('leaves out drafts, which were never sent', () => {
+    const thread = [
+      msg('a', '2026-10-01T10:00:00Z'),
+      msg('d', '2026-10-01T12:00:00Z', { is_draft: true, from_email: 'me@example.test' }),
+      msg('b', '2026-10-02T10:00:00Z'),
+    ];
+    assert.deepEqual(pickContextMessages(thread, { inReplyTo: '<b@example.test>' }).map(m => m.id), ['a', 'b']);
+  });
+
   test('keeps the newest messages of a long thread', () => {
     const thread = Array.from({ length: 15 }, (_, i) => msg(`m${i}`, new Date(Date.UTC(2026, 9, 1 + i)).toISOString()));
     const picked = pickContextMessages(thread);
