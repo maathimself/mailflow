@@ -189,7 +189,12 @@
       "aiApply": "Применить",
       "aiDismiss": "Отклонить",
       "aiGenerating": "Генерация…",
-      "aiError": "Ошибка ИИ: {{message}}"
+      "aiError": "Ошибка ИИ: {{message}}",
+      "aiReply": "Ответить с помощью ИИ",
+      "aiReplyPlaceholder": "Что должно быть в ответе? Например: утвердить макет",
+      "aiReplyInstruction": "Указание для ответа ИИ",
+      "aiReplyGenerate": "Сгенерировать",
+      "aiReplyReading": "Чтение переписки…"
     },
     "priority": "Приоритет",
     "priorityHigh": "Высокий приоритет",

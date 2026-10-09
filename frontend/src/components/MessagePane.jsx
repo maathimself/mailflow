@@ -14,6 +14,7 @@ import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
 import { markMessageUnread } from '../utils/messageHotkeys.js';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFromMessage } from '../utils/composeFromMessage.js';
+import { aiReplyAvailable } from '../utils/aiReply.js';
 import MessageBodyView from './MessageBodyView.jsx';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { saveSenderCategory } from '../utils/senderCategory.js';
@@ -108,7 +109,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     imageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
     replyDefault, shortcuts, recentFolders, favoriteFolders, todoistConnected,
     categorizationEnabled, setCategoryCounts, adjustCategoryCount,
-    aiActions, setShowAdmin, setAdminTab,
+    aiActions, setShowAdmin, setAdminTab, plaintextEmail,
   } = useStore();
 
   // Detached-window mode (#219): when a message id is passed in, this pane renders that
@@ -765,10 +766,10 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // The body is already loaded here, so it is handed over rather than refetched.
   const loadedBody = async () => body;
 
-  const handleReply = (replyAll = false) => {
+  const handleReply = (replyAll = false, { aiReply = false } = {}) => {
     if (!message) return;
     setShowReplyMenu(false);
-    openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll });
+    openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll, aiReply });
   };
 
   const handleForward = () => {
@@ -1631,6 +1632,15 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
             </div>
           </>)}
         </div>
+
+        {aiReplyAvailable(aiStatus, plaintextEmail) && (
+          <PaneBtn onClick={() => handleReply(defaultReplyAll, { aiReply: true })} title={t('compose.toolbar.aiReply')}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+            </svg>
+            {!isMobile && <span>{t('compose.toolbar.aiReply')}</span>}
+          </PaneBtn>
+        )}
 
         <PaneBtn onClick={handleForward} title={isMobile ? t('message.forward') : `${t('message.forward')}${shortcutLabel('forward') ? ` (${shortcutLabel('forward')})` : ''}`}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">

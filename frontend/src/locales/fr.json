@@ -189,7 +189,12 @@
       "aiApply": "Appliquer",
       "aiDismiss": "Ignorer",
       "aiGenerating": "Génération en cours…",
-      "aiError": "Erreur IA : {{message}}"
+      "aiError": "Erreur IA : {{message}}",
+      "aiReply": "Répondre avec l'IA",
+      "aiReplyPlaceholder": "Que doit dire la réponse ? Ex. : approuver la maquette",
+      "aiReplyInstruction": "Instruction pour la réponse de l'IA",
+      "aiReplyGenerate": "Générer",
+      "aiReplyReading": "Lecture de la conversation…"
     },
     "priority": "Priorité",
     "priorityHigh": "Haute priorité",

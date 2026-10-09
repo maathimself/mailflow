@@ -40,7 +40,7 @@ function CardBtn({ onClick, children }) {
 // Design from #317 by YunQue0912.
 // `onUpdate(id, patch)` applies a flag change to the conversation's own copy of the message and to
 // the list's, since the pane holds the thread apart from the list.
-export default function ConversationMessageCard({ message, expanded, onToggle, onUpdate, aiEnabled = false, selected = false }) {
+export default function ConversationMessageCard({ message, expanded, onToggle, onUpdate, aiEnabled = false, aiReplyEnabled = false, selected = false }) {
   const { t } = useTranslation();
   const accounts = useStore(s => s.accounts);
   const openCompose = useStore(s => s.openCompose);
@@ -296,6 +296,11 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
             <CardBtn onClick={() => openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll: true })}>
               {t('message.replyAll')}
             </CardBtn>
+            {aiReplyEnabled && (
+              <CardBtn onClick={() => openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll: false, aiReply: true })}>
+                {t('compose.toolbar.aiReply')}
+              </CardBtn>
+            )}
             <CardBtn onClick={() => openForwardFromMessage(message, { openCompose, getMessageBody: loadedBody })}>
               {t('message.forward')}
             </CardBtn>

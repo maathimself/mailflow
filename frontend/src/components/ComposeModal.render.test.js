@@ -976,3 +976,218 @@ describe('undo send while another message is being written', () => {
     assert.equal(sendButton().disabled, false);
   });
 });
+
+describe('Reply with AI', () => {
+  const ANA = { name: 'Ana', email: 'ana@example.invalid' };
+  const thread = [
+    { id: 'm1', message_id: '<m1@example.invalid>', thread_id: '<m1@example.invalid>', date: '2026-10-01T10:00:00Z', from_name: 'Ana', from_email: ANA.email },
+    { id: 'm2', message_id: '<m2@example.invalid>', thread_id: '<m1@example.invalid>', date: '2026-10-02T10:00:00Z', from_name: 'Me', from_email: 'me@example.invalid' },
+    { id: 'm3', message_id: '<m3@example.invalid>', thread_id: '<m1@example.invalid>', date: '2026-10-03T10:00:00Z', from_name: 'Ana', from_email: ANA.email },
+  ];
+  const bodies = {
+    m1: { text: 'Here is the artwork for the new box.' },
+    m2: { text: 'Could the logo be bigger?\n\nOn Thu, Ana wrote:\n> Here is the artwork for the new box.' },
+    m3: { text: 'Done, the logo is bigger now. Can you approve?' },
+  };
+  const real = {};
+  const chats = [];
+  let threadLoads = 0;
+  let answer = '';
+  let unmount;
+
+  const button = (text) => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text);
+  const press = (el) => React.act(async () => { el.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true })); });
+  const click = (el) => React.act(async () => { el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
+  const instructionField = () => document.querySelector('input[aria-label="compose.toolbar.aiReplyInstruction"]');
+  async function typeInto(input, text) {
+    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    await React.act(async () => {
+      setValue.call(input, text);
+      input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    });
+  }
+  async function openAiMenu() {
+    await press(document.querySelector('button[title="compose.toolbar.aiAssist"]'));
+  }
+  async function mount(composeData) {
+    useStore.setState({ plaintextEmail: false, composing: false, composeData: null });
+    useStore.getState().openCompose(composeData);
+    const root = createRoot(document.getElementById('root'));
+    await React.act(async () => { root.render(React.createElement(ComposeModal)); });
+    await React.act(async () => {});
+    unmount = () => React.act(async () => root.unmount());
+  }
+
+  before(() => {
+    Object.assign(real, { status: api.ai.status, chat: api.ai.chat, getThread: api.getThread, getMessageBody: api.getMessageBody, resolveMessage: api.resolveMessage });
+    api.ai.status = async () => ({ enabled: true, features: { compose: true, summarize: true } });
+    api.ai.chat = async (messages, { onDelta } = {}) => {
+      chats.push(messages);
+      onDelta?.(answer.slice(0, 5));
+      return answer;
+    };
+    api.getThread = async () => { threadLoads++; return { messages: thread }; };
+    api.getMessageBody = async (id) => bodies[id];
+    api.resolveMessage = async (ref) => thread.find(m => m.message_id === ref) ?? null;
+    useStore.setState({
+      user: { id: 'u1' },
+      accounts: [{ id: 'acct', enabled: true, email_address: 'me@example.invalid', name: 'Me', color: '#fff' }],
+    });
+  });
+  after(() => {
+    api.ai.status = real.status;
+    api.ai.chat = real.chat;
+    api.getThread = real.getThread;
+    api.getMessageBody = real.getMessageBody;
+    api.resolveMessage = real.resolveMessage;
+  });
+
+  describe('in a reply', () => {
+    // Opened the way a reply from the ungrouped list is: without the thread id, which that list
+    // does not load.
+    before(() => mount({
+      accountId: 'acct', isReply: true, subject: 'Re: Artwork', body: '', cc: [],
+      to: [ANA], originalFrom: [ANA], inReplyTo: '<m3@example.invalid>',
+      quotedBody: '\n\n---\nOn 10/3/2026, Ana wrote:\n> Done, the logo is bigger now. Can you approve?',
+      quotedBodyHtml: '<div><p>Done, the logo is bigger now. Can you approve?</p></div>',
+    }));
+    after(() => unmount());
+
+    test('writes the reply from the conversation and the instruction', async () => {
+      await openAiMenu();
+      await press(button('compose.toolbar.aiReply'));
+      assert.equal(chats.length, 0, 'nothing is asked before the instruction is given');
+      await typeInto(instructionField(), 'approve it');
+      answer = 'Hi Ana,\n\nApproved, thank you.';
+      await click(button('compose.toolbar.aiReplyGenerate'));
+      await React.act(async () => {});
+
+      assert.equal(chats.length, 1);
+      const request = chats[0].map(m => m.content).join('\n');
+      assert.match(request, /Here is the artwork for the new box\./);
+      assert.match(request, /From: Me <me@example\.invalid> \(the user\)\n[\s\S]*Could the logo be bigger\?/);
+      assert.match(request, /\(the one being answered\)[\s\S]*Can you approve\?/);
+      assert.match(request, /Instruction for the reply: approve it$/);
+      assert.match(document.body.textContent, /Approved, thank you\./, 'the suggestion is shown');
+    });
+
+    test('Apply puts the reply in the editor and keeps the quoted message', async () => {
+      await click(button('compose.toolbar.aiApply'));
+      const editor = document.querySelector('.ProseMirror').editor;
+      assert.equal(editor.getHTML(), '<p>Hi Ana,</p><p>Approved, thank you.</p>');
+      assert.equal(instructionField(), null, 'the panel closes');
+      assert.match(document.body.textContent, /Done, the logo is bigger now\. Can you approve\?/, 'the quoted original is still there');
+    });
+
+    test('rewording the instruction asks again without reloading the conversation', async () => {
+      await openAiMenu();
+      await press(button('compose.toolbar.aiReply'));
+      await typeInto(instructionField(), 'approve it');
+      await click(button('compose.toolbar.aiReplyGenerate'));
+      await React.act(async () => {});
+      await typeInto(instructionField(), 'approve it, and ask for the print date');
+      await click(button('message.aiRegenerate'));
+      await React.act(async () => {});
+      assert.equal(chats.length, 3);
+      assert.match(chats[2][1].content, /Instruction for the reply: approve it, and ask for the print date$/);
+      assert.equal(threadLoads, 1, 'the conversation was read once');
+    });
+
+    test('markup in the suggestion stays text, so an email cannot put a link into the reply', async () => {
+      answer = 'Approved. Pay at <a href="https://evil.example">the portal</a>.';
+      await click(button('message.aiRegenerate'));
+      await React.act(async () => {});
+      await click(button('compose.toolbar.aiApply'));
+      const editor = document.querySelector('.ProseMirror').editor;
+      assert.equal(document.querySelectorAll('.ProseMirror a').length, 0, 'no link was created');
+      assert.equal(editor.getText(), 'Approved. Pay at <a href="https://evil.example">the portal</a>.');
+    });
+  });
+
+  describe("opened by the message view's Reply with AI", () => {
+    const opened = {
+      accountId: 'acct', isReply: true, aiReply: true, subject: 'Re: Artwork', body: '', cc: [],
+      to: [ANA], originalFrom: [ANA], inReplyTo: '<m3@example.invalid>',
+      quotedBody: '\n\n---\nOn 10/3/2026, Ana wrote:\n> Done, the logo is bigger now. Can you approve?',
+    };
+    const stubs = {};
+    let asked;
+    before(async () => {
+      asked = chats.length;
+      Object.assign(stubs, { post: api.post, cancelSend: api.cancelSend, getSendStatus: api.getSendStatus });
+      api.post = async () => ({ ok: true, pending: true, pendingId: 'p-ai', sendAt: new Date(Date.now() + 10_000).toISOString(), remainingMs: 10_000 });
+      api.cancelSend = async () => ({ cancelled: true });
+      api.getSendStatus = async () => ({ status: 'pending' });
+      useStore.setState({ user: { id: 'u1' }, notifications: [] });
+      await mount(opened);
+    });
+    after(async () => {
+      await unmount();
+      Object.assign(api, stubs);
+    });
+
+    test('opens with the instruction field ready, and the focus in it', async () => {
+      assert.ok(instructionField(), 'the panel is open');
+      // Compared by label: a failed comparison of two elements would print the whole DOM.
+      assert.equal(document.activeElement?.getAttribute('aria-label'), 'compose.toolbar.aiReplyInstruction', 'typing goes to the instruction, not the reply');
+      assert.equal(chats.length, asked, 'nothing is asked before the instruction is given');
+    });
+
+    test('a message reopened by Undo does not open the panel again', async () => {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await React.act(async () => { editor.commands.setContent('<p>Approved.</p>'); });
+      await click(button('compose.send'));
+      await React.act(async () => {});
+      const undo = useStore.getState().notifications.find(n => n.onUndo);
+      assert.ok(undo, 'the send is held with Undo');
+      await React.act(async () => { await undo.onUndo(); });
+      const reopened = useStore.getState().composeData;
+      assert.equal(reopened.restored, true, 'precondition: the message was reopened');
+      assert.equal(reopened.aiReply, undefined);
+    });
+  });
+
+  describe('with a signature', () => {
+    let accountsBefore;
+    before(async () => {
+      accountsBefore = useStore.getState().accounts;
+      useStore.setState({ accounts: [{ id: 'acct', enabled: true, email_address: 'me@example.invalid', name: 'Me', sender_name: 'Jordan Lee', color: '#fff', signature: '<p>Jordan Lee<br>Purchasing</p>' }] });
+      await mount({
+        accountId: 'acct', isReply: true, subject: 'Re: Artwork', body: '', cc: [],
+        to: [ANA], originalFrom: [ANA], inReplyTo: '<m3@example.invalid>',
+      });
+    });
+    after(async () => {
+      await unmount();
+      useStore.setState({ accounts: accountsBefore });
+    });
+    const ask = async () => {
+      await openAiMenu();
+      await press(button('compose.toolbar.aiReply'));
+      await click(button('compose.toolbar.aiReplyGenerate'));
+      await React.act(async () => {});
+      return chats.at(-1)[0].content;
+    };
+
+    test('leaves the closing to the signature the composer adds', async () => {
+      assert.match(await ask(), /Do not add a signature/);
+    });
+
+    test('signs with the sender\'s name once the signature is turned off for this message', async () => {
+      await click(document.querySelector('button[title="compose.insertSignature"]'));
+      assert.equal(document.querySelector('button[title="compose.insertSignature"]').getAttribute('aria-pressed'), 'false', 'precondition: the signature is off');
+      assert.match(await ask(), /Sign off with the name Jordan Lee\./);
+    });
+  });
+
+  describe('in a new message', () => {
+    before(() => mount({ accountId: 'acct', to: [], cc: [], subject: '', body: '' }));
+    after(() => unmount());
+
+    test('is not offered, since there is nothing to reply to', async () => {
+      await openAiMenu();
+      assert.ok(button('compose.toolbar.aiWriteDraft'), 'the AI menu is open');
+      assert.equal(button('compose.toolbar.aiReply'), undefined);
+    });
+  });
+});

@@ -528,7 +528,12 @@
       "aiApply": "Použít",
       "aiDismiss": "Zavřít",
       "aiGenerating": "Generování…",
-      "aiError": "Chyba AI: {{message}}"
+      "aiError": "Chyba AI: {{message}}",
+      "aiReply": "Odpovědět pomocí AI",
+      "aiReplyPlaceholder": "Co má odpověď říct? Např. schval grafiku",
+      "aiReplyInstruction": "Pokyn pro odpověď AI",
+      "aiReplyGenerate": "Vygenerovat",
+      "aiReplyReading": "Čtení konverzace…"
     },
     "priority": "Priorita",
     "priorityHigh": "Vysoká priorita",

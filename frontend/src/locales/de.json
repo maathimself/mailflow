@@ -189,7 +189,12 @@
       "aiApply": "Übernehmen",
       "aiDismiss": "Verwerfen",
       "aiGenerating": "Wird erstellt…",
-      "aiError": "KI-Fehler: {{message}}"
+      "aiError": "KI-Fehler: {{message}}",
+      "aiReply": "Mit KI antworten",
+      "aiReplyPlaceholder": "Was soll die Antwort sagen? Z. B. Entwurf freigeben",
+      "aiReplyInstruction": "Anweisung für die KI-Antwort",
+      "aiReplyGenerate": "Erstellen",
+      "aiReplyReading": "Unterhaltung wird gelesen…"
     },
     "priority": "Priorität",
     "priorityHigh": "Hohe Priorität",
