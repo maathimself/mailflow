@@ -83,12 +83,6 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   if (threaded === 'true' || threaded === true) {
     const filterValues = [...values];
     const threadAccountParam = isSpecificAccount ? [resolvedAccountId] : scopedAccountIds;
-    // For INBOX-specific views the thread badge must match the expansion, so scope
-    // thread_totals to that folder. For other folders (All Mail, Sent, etc.) count
-    // across all folders so the badge reflects the true thread size.
-    const threadFolderFilter = isSpecificAccount
-      ? (folder === 'INBOX' ? `AND folder = $2` : '')
-      : `AND folder = 'INBOX'`;
 
     const threadResult = await query(`
       WITH paged_threads AS (
@@ -134,10 +128,14 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                -- has to count both or it reads 1 beside a conversation holding 2 (#476).
                COUNT(DISTINCT (m.account_id, m.message_id))::int AS message_count
         FROM messages m
+        -- Every folder, not just the one listed: the badge has to match what expanding the
+        -- row or opening the conversation shows, and the thread route loads the thread from
+        -- all folders. An INBOX-only count left your own replies (in Sent) out, so a received
+        -- message plus your reply counted 1, and the row could neither expand nor open the
+        -- conversation view until a second reply arrived (#576).
         WHERE m.account_id = ANY($${p})
           AND m.is_deleted = false
           AND m.message_id IS NOT NULL
-          ${threadFolderFilter}
           AND m.thread_key IN (SELECT thread_id FROM paged_threads)
         GROUP BY m.thread_key
       ),

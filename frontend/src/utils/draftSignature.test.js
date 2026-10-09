@@ -85,3 +85,15 @@ describe('drafts with no signature at all', () => {
     }
   });
 });
+
+// A signature turned off in the composer is saved as an empty block (#555). Reopening must read
+// it as "no separate signature", also once sanitizing has dropped the marker attribute.
+test('an empty signature block reads as no separate signature', () => {
+  const marked = splitDraftSignature('<p>Hello</p><div data-mailflow-signature="1" style="margin-top:16px;color:#555;font-size:13px"></div><blockquote>q</blockquote>');
+  assert.equal(marked.signature, '');
+  assert.equal(marked.inline, false);
+  assert.equal(marked.body, '<p>Hello</p><blockquote>q</blockquote>');
+  const unmarked = splitDraftSignature('<p>Hello</p><div style="margin-top:16px;color:#555;font-size:13px"></div>');
+  assert.equal(unmarked.signature, null);
+  assert.equal(unmarked.inline, true);
+});
