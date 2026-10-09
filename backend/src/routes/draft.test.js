@@ -190,7 +190,11 @@ describe('POST /api/mail/draft — local row persistence', () => {
     expect(meta.bodyHtml.match(/data-mailflow-signature/g)).toHaveLength(1);
   });
 
-  it('writes no signature block when the draft has no signature', async () => {
+  it('preserves an explicitly disabled signature with an empty marker', async () => {
+    query.mockReset();
+    query.mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID }] });
+    query.mockResolvedValueOnce({ rows: [{ ...ACCOUNT_ROW, signature: '<b>Account signature</b>' }] });
+    query.mockResolvedValueOnce({ rows: [{ path: 'Drafts' }] });
     const res = await fetch(`${base}/api/mail/draft`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -198,6 +202,19 @@ describe('POST /api/mail/draft — local row persistence', () => {
         accountId: ACCOUNT_ID, to: ['mike@scanlan.ai'], cc: [], subject: 's',
         body: 'hello mike', bodyIsHtml: false, editedSignature: '',
       }),
+    });
+    expect(res.status).toBe(200);
+    const [, , , meta] = imapManager.upsertDraftMessageRecord.mock.calls[0];
+    expect(meta.bodyHtml).toContain('<div data-mailflow-signature="1" style="margin-top:16px;color:#555;font-size:13px"></div>');
+    expect(meta.bodyHtml).not.toContain('Account signature');
+    expect(meta.bodyText).not.toContain('Account signature');
+  });
+
+  it('does not mark a missing signature when no override was provided', async () => {
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: ['mike@scanlan.ai'], subject: 's', body: 'hello' }),
     });
     expect(res.status).toBe(200);
     const [, , , meta] = imapManager.upsertDraftMessageRecord.mock.calls[0];

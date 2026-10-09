@@ -1,0 +1,2 @@
+ALTER TABLE email_accounts
+  ADD COLUMN IF NOT EXISTS signature_enabled BOOLEAN NOT NULL DEFAULT TRUE;

@@ -202,6 +202,10 @@ function noteDraftsChanged(userId, accountId) {
   }
 }
 
+// The signature block's style. utils/draftSignature.js in the frontend matches it to recognise a
+// block whose marker attribute was lost, so the two must stay in step.
+const SIGNATURE_BLOCK_STYLE = 'margin-top:16px;color:#555;font-size:13px';
+
 function sanitizeHeaderValue(value) {
   if (typeof value !== 'string') return '';
   return value.replace(/[\r\n\0]/g, '').trim();
@@ -282,7 +286,12 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     // data-mailflow-signature marks the block so reopening this draft can lift the signature
     // back out instead of leaving it in the body and appending a second one. Without it every
     // save/reopen cycle added another copy (#432). Other clients ignore the attribute.
-    (effectiveSignature ? `<div data-mailflow-signature="1" style="margin-top:16px;color:#555;font-size:13px">${effectiveSignature}</div>` : '') +
+    // A signature turned off in the composer (#555) leaves an empty block, so reopening knows not
+    // to add one. It carries the same style as a full block: where the marker attribute does not
+    // survive (a body fetched again and sanitized), draftSignature.js still finds the block by
+    // that style and reads it as "no separate signature".
+    (effectiveSignature ? `<div data-mailflow-signature="1" style="${SIGNATURE_BLOCK_STYLE}">${effectiveSignature}</div>`
+      : editedSignature !== undefined ? `<div data-mailflow-signature="1" style="${SIGNATURE_BLOCK_STYLE}"></div>` : '') +
     (quotedBodyHtml || (quotedBody ? textToHtml(quotedBody) : ''));
   const { html: draftHtml, attachments: inlineImageAttachments } = embedInlineDataImages(rawHtml);
 

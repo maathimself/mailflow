@@ -374,12 +374,56 @@ describe('sanitizeEmail — crafted <style> CSS', () => {
 });
 
 describe('sanitizeEmail — crafted markup against the HTML5 pass', () => {
-  it('stays fast on a tag with tens of thousands of attributes', () => {
-    // parse5's tokenizer compares each attribute name with every earlier one on the tag,
-    // before any tree-adapter hook runs. This took 4 to 5 seconds per run.
-    let attrs = '';
-    for (let i = 0; i < 60000; i++) attrs += ` a${i}`;
-    expect(fastestRunMs(() => sanitizeEmail(`<p${attrs}>x</p>`), 2)).toBeLessThan(1000);
+  // parse5's tokenizer compares each attribute name with every earlier one on its tag, before
+  // any tree-adapter hook runs, so the budget cannot stop it. One tag with 26,000 attributes,
+  // under the 128 KB cap, took 1.2 s per run; a tag past MAX_ATTRIBUTES_PER_TAG skips the pass.
+  const LETTERS = 'abcdefghijklmnopqrstuvwxyz';
+  const names = (n) => Array.from({ length: n }, (_, i) => {
+    let s = '', x = i;
+    for (let k = 0; k < 4; k++) { s += LETTERS[x % 26]; x = Math.floor(x / 26); }
+    return s;
+  });
+  // As many distinct four-letter names as fit under the 128 KB cap.
+  const flood = (sep = ' ') => names(25000).join(sep);
+  function warnings(fn) {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    try { fn(); return warn.mock.calls.length; } finally { warn.mockRestore(); }
+  }
+
+  it('stays fast on one tag with tens of thousands of attributes under the size cap', () => {
+    const html = `<p ${flood()}>x</p>`;
+    expect(html.length).toBeLessThan(128 * 1024);
+    let ms;
+    expect(warnings(() => { ms = fastestRunMs(() => sanitizeEmail(html), 2); })).toBeGreaterThan(0);
+    expect(ms).toBeLessThan(300);
+    expect(sanitizeEmail(html)).toBe('<p>x</p>');
+  });
+
+  it("counts attributes the way parse5 does: on end tags, after '/', and between quoted values", () => {
+    const n = names(600);
+    for (const html of [
+      `<p>x</p ${n.join(' ')}>`,
+      `<p ${n.join('/')}>x</p>`,
+      `<p ${n.map(a => `${a}=""`).join('')}>x</p>`,
+    ]) expect(warnings(() => sanitizeEmail(html)), html.slice(0, 20)).toBe(1);
+  });
+
+  it('cannot be hidden from the count where tags are text to the tree builder', () => {
+    // Inside <svg>, <style> holds tags; text that opens a quote inside an HTML <style> or a
+    // comment must not make a later real tag look like part of a quoted value.
+    const tag = `<p ${names(600).join(' ')}>x</p>`;
+    for (const html of [`<svg><style>${tag}</style></svg>`, `<style><x a="</style>${tag}`, `<!-- <x a=" -->${tag}`]) {
+      expect(warnings(() => sanitizeEmail(html)), html.slice(0, 20)).toBe(1);
+    }
+  });
+
+  it('still rebuilds mail whose tags have an ordinary number of attributes', () => {
+    // The </head>-after-</body> case only renders if the HTML5 pass runs.
+    const attrs = names(400).map(a => `data-${a}="1"`).join(' ');
+    const html = `<html><head><style>p{color:red}</style><body><p ${attrs}>visible</p></body></head></html>`;
+    let out;
+    expect(warnings(() => { out = sanitizeEmail(html); })).toBe(0);
+    expect(out).toContain('<p>visible</p>');
   });
 });
 
