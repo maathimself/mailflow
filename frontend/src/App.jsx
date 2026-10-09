@@ -10,7 +10,7 @@ import MailApp from './components/MailApp.jsx';
 import LockScreen from './components/LockScreen.jsx';
 
 export default function App() {
-  const { user, setUser, loadPreferences, isLocked, setLocked } = useStore();
+  const { user, setUser, loadPreferences, isLocked, setLocked, lockScreen } = useStore();
   const [checking, setChecking] = useState(true);
 
   // Register service worker on first mount — independent of auth state.
@@ -59,19 +59,23 @@ export default function App() {
     api.me()
       .then(async (data) => {
         setUser(data.user);
-        // Server is authoritative for the screen lock (#235). Reconcile the overlay:
-        // show it if the session is locked; clear a stale client lock otherwise. Skip
-        // loading prefs while locked (the API is 423'd until unlock).
+        // Skip loading prefs while locked: the API is 423'd until unlock (#235).
         if (data.user?.locked) {
           setLocked(true);
           return;
         }
-        if (localStorage.getItem('mailflow_locked') === '1') setLocked(false);
+        // Locked in this browser but not on the server: the lock request never got there
+        // (the network was still down when auto-lock fired, or the backend was restarting).
+        // Send it again rather than let a reload lift the lock without the PIN.
+        if (localStorage.getItem('mailflow_locked') === '1') {
+          lockScreen();
+          return;
+        }
         // Load server preferences after confirming auth — overwrites localStorage so
         // settings survive cache clears and stay consistent across devices.
         await loadPreferences();
       })
-      .catch(() => {
+      .catch((err) => {
         const params = new URLSearchParams(window.location.search);
         const m = params.get('m');
         if (m) sessionStorage.setItem('mailflow_deep_link_id', m);
@@ -80,10 +84,12 @@ export default function App() {
         setUser(null);
         // Clear any stale client lock so a locked session that has since expired
         // doesn't strand the user back on the lock screen after they re-login (#235).
-        setLocked(false);
+        // Only a 401 means that: a 5xx or a network error says nothing about the lock,
+        // and clearing it then would let the next load in without the PIN.
+        if (err?.status === 401) setLocked(false);
       })
       .finally(() => setChecking(false));
-  }, [loadPreferences, setUser, setLocked]);
+  }, [loadPreferences, setUser, setLocked, lockScreen]);
 
   if (checking) {
     return (

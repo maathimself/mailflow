@@ -94,6 +94,7 @@
     "hidePassword": "Ocultar senha"
   },
   "compose": {
+    "unsupportedDraftFrom": "Escolha um remetente configurado antes de salvar ou enviar este rascunho.",
     "newMessage": "Nova mensagem",
     "reply": "Responder",
     "replyAll": "Responder a todos",
@@ -145,6 +146,18 @@
       "noCopy": "Enviada, mas não salva na pasta Enviados",
       "someRejected": "O servidor de e-mail recusou a entrega para {{addresses}}.",
       "action": "Ver"
+    },
+    "undoSend": {
+      "sending": "Enviando \"{{subject}}\"…",
+      "undone": "Envio desfeito",
+      "reopenLater": "Ela reabre quando você fechar a mensagem que está escrevendo",
+      "notSent": "Sua mensagem não foi enviada",
+      "lost": "O servidor reiniciou antes do envio, então a mensagem não foi entregue.",
+      "unknown": "Não foi possível confirmar se sua mensagem foi enviada",
+      "unknownBody": "Confira a pasta Enviados antes de enviá-la de novo.",
+      "reopen": "Reabrir",
+      "tooLate": "Tarde demais para desfazer: a mensagem já está sendo enviada",
+      "undoFailed": "Não foi possível desfazer: o servidor não respondeu"
     },
     "toolbar": {
       "removeTable": "Remover tabela",
@@ -302,6 +315,13 @@
     }
   },
   "messageList": {
+    "replyDraftChanged": "O rascunho de resposta mudou. Tente abri-lo novamente.",
+    "replyDraftKeepCurrent": "Salve a mensagem atual e resolva seus anexos antes de abrir este rascunho.",
+    "replyDraftUnavailable": "Este rascunho de resposta não está mais disponível.",
+    "replyDraftCancelled": "A abertura do rascunho de resposta foi cancelada porque a seleção ou o editor mudou. Tente abri-lo novamente.",
+    "replyDraftRetry": "Buscar novamente o rascunho de resposta",
+    "openReplyDraft": "Abrir rascunho de resposta",
+    "replyDraft": "Rascunho de resposta",
     "search": "Pesquisar…",
     "unread": "Não lidas",
     "showAll": "Mostrar todas",
@@ -405,6 +425,11 @@
       "automated": "Automáticos",
       "social": "Social"
     },
+    "categoryAlways": {
+      "done": "E-mails de {{value}} agora vão para {{category}}",
+      "doneBody": "Salvo como regra da caixa de entrada; os e-mails já recebidos também foram atualizados.",
+      "failed": "Não foi possível salvar a categoria deste remetente"
+    },
     "changeLayout": "Alterar layout",
     "layouts": {
       "focused": {
@@ -499,6 +524,7 @@
     "reply": "Responder",
     "replyAll": "Responder a todos",
     "forward": "Encaminhar",
+    "forwardAsAttachment": "Encaminhar como anexo",
     "moveToFolder": "Mover",
     "archive": "Arquivar",
     "snooze": {
@@ -509,6 +535,9 @@
       "custom": "Personalizado..."
     },
     "categorize": "Categorizar como…",
+    "categoryAlwaysSender": "Sempre para este remetente",
+    "categoryAlwaysDomain": "Sempre para este domínio",
+    "categoryAlwaysFor": "Sempre para {{value}}",
     "createRule": "Criar regra a partir da mensagem",
     "addToBlockList": "Adicionar à lista de bloqueio",
     "markAsSpam": "Marcar como spam",
@@ -818,6 +847,8 @@
       "actionMove": "Mover para pasta",
       "actionForward": "Encaminhar para",
       "actionForwardPlaceholder": "destinatario@exemplo.com",
+      "actionSetCategory": "Definir categoria",
+      "actionSetCategorySelect": "Selecione uma categoria…",
       "actionMovePlaceholder": "Caminho IMAP exato da pasta (ex.: Trabalho ou INBOX/Trabalho)",
       "actionMoveSelectFolder": "Selecione uma pasta…",
       "actionMoveRequiresAccount": "Requer uma conta específica",
@@ -977,6 +1008,7 @@
       "customCssSaved": "Salvo"
     },
     "messageList": {
+      "autoOpenReplyDrafts": "Abrir automaticamente as respostas salvas ao selecionar mensagens na caixa de entrada",
       "title": "Lista de mensagens",
       "senderFavicons": "Favicons dos remetentes",
       "senderFaviconsDesc": "Mostrar ícones de sites para remetentes sem foto de contato. Apenas o domínio do remetente, nunca o endereço de e-mail completo, é enviado ao Twenty Icons.",
@@ -1153,6 +1185,11 @@
       "eventTotpSuccess": "2FA verificado",
       "eventTotpFail": "Falha no 2FA",
       "eventSsoLogin": "Login via SSO",
+      "eventAdminPasswordSet": "Senha definida",
+      "eventAdminUserUpdate": "Conta editada",
+      "eventAdminTotpDisable": "2FA desativado",
+      "eventAdminUserDelete": "Conta excluída",
+      "byActor": "por {{actor}}",
       "qrCodeAlt": "QR code",
       "mailPolicyTitle": "Política de conexão com servidores de e-mail",
       "mailPolicyDesc": "Controla quais tipos de conexão os usuários podem configurar. Desative estas opções em instalações expostas à internet.",
@@ -1238,7 +1275,25 @@
       "deleteConfirmLabel": "Excluir usuário",
       "disable2faConfirmTitle": "Desativar o 2FA de \"{{username}}\"?",
       "disable2faConfirmBody": "Isso removerá a exigência do aplicativo autenticador. O usuário poderá reativá-lo por conta própria.",
-      "disable2faConfirmLabel": "Desativar 2FA"
+      "disable2faConfirmLabel": "Desativar 2FA",
+      "lastSeen": "Último acesso {{when}}",
+      "neverSeen": "Nunca acessou",
+      "edit": "Editar",
+      "editTitle": "Editar {{username}}",
+      "username": "Nome de usuário",
+      "usernameHint": "Usado para entrar no MailFlow.",
+      "recoveryEmail": "E-mail de recuperação",
+      "recoveryEmailHint": "Recebe o link de \"Esqueceu a senha?\". Deixe em branco para remover.",
+      "newPassword": "Nova senha",
+      "newPasswordHint": "Deixe em branco para manter a atual. Ao salvar uma nova, o usuário é desconectado de todos os dispositivos.",
+      "newPasswordHintSelf": "Deixe em branco para manter a atual. Seus outros dispositivos são desconectados; este continua conectado.",
+      "confirmPassword": "Confirmar nova senha",
+      "passwordTooShort": "A senha deve ter pelo menos 8 caracteres.",
+      "passwordMismatch": "As senhas não coincidem.",
+      "usernameTaken": "Esse nome de usuário já está em uso.",
+      "invalidEmail": "Esse endereço de e-mail não é válido.",
+      "saveFailed": "Não foi possível salvar: {{message}}",
+      "passwordNotSet": "As outras alterações foram salvas, mas a senha não foi definida: {{message}}"
     },
     "ai": {
       "title": "Assistente de IA",

@@ -402,6 +402,9 @@ export async function applyBlockList(messages, account, imapManager) {
   return remaining;
 }
 
+// The categories a set_category action may assign; the same set PATCH /messages/:id/category takes.
+export const RULE_CATEGORIES = new Set(['primary', 'newsletter', 'promotion', 'automated', 'social']);
+
 async function applyAction(action, msg, account, imapManager, ruleId, resolverCache = {}) {
   switch (action.type) {
     case 'forward': {
@@ -418,6 +421,15 @@ async function applyAction(action, msg, account, imapManager, ruleId, resolverCa
       });
     }
 
+    case 'set_category': {
+      // A MailFlow-side label, no IMAP call. Rules run after the ingest classifier, so the rule's
+      // category wins, and it is stored as chosen ('primary' included) so Recategorize and a
+      // re-sync leave it alone (#489). Not a destination: the message stays where it is.
+      if (!RULE_CATEGORIES.has(action.value)) return false;
+      await query('UPDATE messages SET category = $1 WHERE id = $2', [action.value, msg.id]);
+      msg.category = action.value;
+      return false;
+    }
     case 'mark_read': {
       await query(
         'UPDATE messages SET is_read = true, read_changed_at = NOW() WHERE id = $1',

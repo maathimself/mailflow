@@ -1,4 +1,6 @@
 import sanitizeHtml from 'sanitize-html';
+import { parse, serialize, defaultTreeAdapter } from 'parse5';
+import { logger } from './logger.js';
 
 // Strip the <head> element from email HTML, preserving any <style> blocks inside it.
 //
@@ -325,9 +327,136 @@ function stripDarkModeStyleBlocks(html) {
   );
 }
 
+// Re-serialize through the HTML5 tree builder first so the markup sanitize-html sees
+// has the structure a browser would build. htmlparser2 does not implement the spec's
+// error recovery: a stray </td> closes the nearest <td> on the whole stack, even one in
+// an outer table, and a </head> placed after </body> made stripEmailHead treat the
+// entire document as head.
+//
+// parse5 sets no limits, and this runs on every body that sync prefetches. Markup can make
+// it far costlier than its size: the serializer recurses once per level, the spec re-creates
+// every open formatting element, attributes and all, after each block, each foster-parented
+// node or repeated <body> costs a scan, and the tokenizer compares every attribute name with
+// all earlier ones on its tag. So large bodies skip the pass, a tag with too many attributes
+// skips it too, and every tree operation is charged against a budget proportional to the
+// input. Past the depth cap or the budget the body is sanitized as received, as it was before.
+const MAX_HTML5_LENGTH = 128 * 1024; // Gmail clips mail past 102 KB, so senders stay under it
+const MAX_TREE_DEPTH = 512; // Chromium's parser caps its tree depth at 512 as well
+// The tokenizer's duplicate check is quadratic per tag and runs before the tree adapter, so
+// the budget cannot stop it: one tag with 26,000 attributes in 128 KB took 1.2 s here.
+// Real mail has a handful of attributes per tag.
+const MAX_ATTRIBUTES_PER_TAG = 500;
+const TOO_COSTLY = new Error('HTML5 tree too deep or too large');
+
+const isSpace = (c) => c === ' ' || c === '\n' || c === '\t' || c === '\f' || c === '\r';
+const isAsciiAlpha = (c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+
+// The tokenizer states a tag goes through, as far as starting attributes goes (the spec's
+// tag-name to attribute-value states; self-closing folds into BEFORE_ATTR).
+const TAG_NAME = 0, BEFORE_ATTR = 1, ATTR_NAME = 2, AFTER_ATTR_NAME = 3, BEFORE_VALUE = 4;
+const DOUBLE_QUOTED = 5, SINGLE_QUOTED = 6, UNQUOTED = 7, END_TAG_OPEN = 8, TAG_STATES = 9, TAG_END = -1, NEW_ATTR = -2;
+
+// One character of a tag, from state `s`: the next state, TAG_END, or NEW_ATTR when the
+// character starts an attribute (the state is then ATTR_NAME).
+function stepTag(s, c) {
+  switch (s) {
+    case TAG_NAME: return c === '>' ? TAG_END : isSpace(c) || c === '/' ? BEFORE_ATTR : TAG_NAME;
+    case BEFORE_ATTR: return c === '>' ? TAG_END : isSpace(c) || c === '/' ? BEFORE_ATTR : NEW_ATTR;
+    case ATTR_NAME: return c === '>' ? TAG_END : isSpace(c) ? AFTER_ATTR_NAME : c === '/' ? BEFORE_ATTR : c === '=' ? BEFORE_VALUE : ATTR_NAME;
+    case AFTER_ATTR_NAME: return c === '>' ? TAG_END : isSpace(c) ? AFTER_ATTR_NAME : c === '/' ? BEFORE_ATTR : c === '=' ? BEFORE_VALUE : NEW_ATTR;
+    case BEFORE_VALUE: return c === '>' ? TAG_END : isSpace(c) ? BEFORE_VALUE : c === '"' ? DOUBLE_QUOTED : c === "'" ? SINGLE_QUOTED : UNQUOTED;
+    case DOUBLE_QUOTED: return c === '"' ? BEFORE_ATTR : DOUBLE_QUOTED;
+    case SINGLE_QUOTED: return c === "'" ? BEFORE_ATTR : SINGLE_QUOTED;
+    case END_TAG_OPEN: return TAG_NAME; // the `/` of `</x`
+    default: return c === '>' ? TAG_END : isSpace(c) ? BEFORE_ATTR : UNQUOTED;
+  }
+}
+
+// Whether some tag in `html` could have more than MAX_ATTRIBUTES_PER_TAG attributes, in one
+// linear pass. Where a tag starts depends on parse5's tree builder: inside <style>, <script>,
+// <textarea> or a comment, `<x` is text, except in <svg> or <math>, where <style> holds tags.
+// Rather than follow that, every `<` or `</` before a letter is taken as a possible tag, and
+// each is followed with the tokenizer's own attribute rules, which do not depend on where the
+// tag is. parse5's real tags are among them, so this never counts fewer attributes than parse5
+// does; text that only looks like a tag can only overcount, which skips the pass. Possible
+// tags in the same state behave alike from then on, so one counter per state (the highest)
+// is enough, and the pass is O(length * TAG_STATES).
+function hasTagWithTooManyAttributes(html) {
+  let counts = new Array(TAG_STATES).fill(-1);
+  let next = new Array(TAG_STATES);
+  for (let i = 0; i < html.length; i++) {
+    const c = html[i];
+    next.fill(-1);
+    for (let s = 0; s < TAG_STATES; s++) {
+      if (counts[s] < 0) continue;
+      let to = stepTag(s, c);
+      let count = counts[s];
+      if (to === TAG_END) continue;
+      if (to === NEW_ATTR) {
+        if (++count > MAX_ATTRIBUTES_PER_TAG) return true;
+        to = ATTR_NAME;
+      }
+      if (count > next[to]) next[to] = count;
+    }
+    // A possible tag starts here. Every candidate already open still reads each character,
+    // so none is skipped: an end tag's `/` goes through END_TAG_OPEN.
+    if (c === '<' && isAsciiAlpha(html[i + 1])) next[TAG_NAME] = Math.max(next[TAG_NAME], 0);
+    else if (c === '<' && html[i + 1] === '/' && isAsciiAlpha(html[i + 2])) next[END_TAG_OPEN] = Math.max(next[END_TAG_OPEN], 0);
+    [counts, next] = [next, counts];
+  }
+  return false;
+}
+
+function toBrowserTree(html) {
+  if (!html || html.length > MAX_HTML5_LENGTH) return html;
+  if (hasTagWithTooManyAttributes(html)) {
+    logger.warn(`sanitizeEmail: a tag has more than ${MAX_ATTRIBUTES_PER_TAG} attributes; sanitizing the HTML as received`);
+    return html;
+  }
+  let depth = 0;
+  let budget = 8 * html.length + 4096;
+  const spend = (cost) => { if ((budget -= cost) < 0) throw TOO_COSTLY; };
+  const treeAdapter = {
+    ...defaultTreeAdapter,
+    createElement(tagName, namespaceURI, attrs) {
+      let size = 2 * tagName.length + 5;
+      for (const { name, value } of attrs) size += name.length + value.length + 4;
+      spend(size);
+      return defaultTreeAdapter.createElement(tagName, namespaceURI, attrs);
+    },
+    // The default adapter scans the parent's children, or the recipient's attributes, here.
+    insertBefore(parentNode, newNode, referenceNode) {
+      spend(parentNode.childNodes.length);
+      defaultTreeAdapter.insertBefore(parentNode, newNode, referenceNode);
+    },
+    insertTextBefore(parentNode, text, referenceNode) {
+      spend(parentNode.childNodes.length);
+      defaultTreeAdapter.insertTextBefore(parentNode, text, referenceNode);
+    },
+    detachNode(node) {
+      if (node.parentNode) spend(node.parentNode.childNodes.length);
+      defaultTreeAdapter.detachNode(node);
+    },
+    adoptAttributes(recipient, attrs) {
+      spend(recipient.attrs.length + attrs.length);
+      defaultTreeAdapter.adoptAttributes(recipient, attrs);
+    },
+    onItemPush() { if (++depth > MAX_TREE_DEPTH) throw TOO_COSTLY; },
+    onItemPop() { depth--; },
+  };
+  try {
+    return serialize(parse(html, { treeAdapter }));
+  } catch (err) {
+    // Past a cap, a stack overflow, or anything else parse5 throws on some unusual body:
+    // sanitize the body as received rather than fail to show it.
+    logger.warn(`sanitizeEmail: ${err?.message || err}; sanitizing the HTML as received`);
+    return html;
+  }
+}
+
 // Sanitize HTML email body — permissive but safe.
-export function sanitizeEmail(html) {
-  const sanitized = sanitizeHtml(stripEmailHead(html), {
+export function sanitizeEmail(html, { preserveDraftSignature = false } = {}) {
+  const sanitized = sanitizeHtml(stripEmailHead(toBrowserTree(html)), {
     allowVulnerableTags: true,
     allowedTags: [
       'div','span','p','br','hr',
@@ -338,9 +467,12 @@ export function sanitizeEmail(html) {
       'strong','b','em','i','u','s','del','ins','sub','sup','small','big',
       'blockquote','pre','code','tt','kbd','samp',
       'center','font','strike',
-      'style',
+      // A lifted draft signature is inserted into the app DOM, where a stylesheet
+      // can affect the whole application rather than an isolated email iframe.
+      ...(preserveDraftSignature ? [] : ['style']),
     ],
     allowedAttributes: {
+      ...(preserveDraftSignature ? { div: ['data-mailflow-signature'] } : {}),
       '*': ['style', 'class', 'id', 'align', 'valign', 'width', 'height',
              'bgcolor', 'color', 'border', 'cellpadding', 'cellspacing',
              'colspan', 'rowspan', 'nowrap', 'dir', 'lang',
@@ -360,6 +492,10 @@ export function sanitizeEmail(html) {
       'th': ['abbr', 'axis', 'headers', 'scope'],
     },
     transformTags: {
+      // A browser never renders <title>, but discarding the tag keeps its text. The HTML5
+      // pass moves a <title> into <body> when junk ends the head early, or when a whole
+      // document is embedded in a forward, so stripEmailHead no longer catches it.
+      'title': (tagName) => ({ tagName, attribs: {}, text: '' }),
       // Ensure all links open safely.  Also normalise bare-domain hrefs like
       // "benchmade.com" → "https://benchmade.com" so they work as expected in
       // the sandboxed iframe, and strip relative/fragment hrefs that would

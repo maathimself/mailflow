@@ -98,7 +98,8 @@ router.post('/disable', totpLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Your account uses SSO login and has no password. Contact an administrator to disable 2FA.' });
   }
   const valid = await bcrypt.compare(password, user.password_hash);
-  if (!valid) return res.status(401).json({ error: 'Incorrect password' });
+  // Not 401: the client takes a 401 outside /auth/ for an expired session and signs out.
+  if (!valid) return res.status(403).json({ error: 'Incorrect password' });
 
   await query(
     'UPDATE users SET totp_secret = NULL, totp_enabled = false WHERE id = $1',

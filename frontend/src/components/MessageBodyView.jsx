@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { measureContentHeight, createHeightController, forceEagerImages } from '../utils/emailFrameHeight.js';
+import { forwardIframeKeydown } from '../utils/iframeKeys.js';
 
 // The email body, rendered in its own sandboxed frame.
 //
@@ -32,6 +33,8 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
     let iframeContextMenuHandler = null;
     let clickDoc = null;
     let iframeClickHandler = null;
+    let keyDoc = null;
+    let iframeKeyHandler = null;
 
     const setHeight = () => {
       const doc = iframe.contentDocument;
@@ -230,6 +233,15 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
       contextMenuDoc = doc;
       doc.addEventListener('contextmenu', iframeContextMenuHandler);
 
+      // Keyboard shortcuts after clicking into the body (#537): the frame's key presses never
+      // reach the page's listener on their own. Tracked like the handlers above.
+      if (keyDoc && iframeKeyHandler) {
+        keyDoc.removeEventListener('keydown', iframeKeyHandler);
+      }
+      iframeKeyHandler = (ev) => { forwardIframeKeydown(ev, document); };
+      keyDoc = doc;
+      doc.addEventListener('keydown', iframeKeyHandler);
+
       // Re-measure after each lazy-loaded image settles; also re-expand any
       // scroll containers whose content has grown due to the newly loaded image.
       doc.querySelectorAll('img').forEach(img => {
@@ -293,6 +305,9 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
       }
       if (clickDoc && iframeClickHandler) {
         clickDoc.removeEventListener('click', iframeClickHandler);
+      }
+      if (keyDoc && iframeKeyHandler) {
+        keyDoc.removeEventListener('keydown', iframeKeyHandler);
       }
       iframe.removeEventListener('load', onLoaded);
       emailScaleRef.current = 1;

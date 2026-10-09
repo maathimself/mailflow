@@ -94,6 +94,7 @@
     "hidePassword": "隐藏密码"
   },
   "compose": {
+    "unsupportedDraftFrom": "保存或发送此草稿前，请选择已配置的发件人。",
     "newMessage": "新邮件",
     "reply": "回复",
     "replyAll": "回复全部",
@@ -145,6 +146,18 @@
       "noCopy": "已发送，但未保存到已发送文件夹",
       "someRejected": "邮件服务器拒绝投递到 {{addresses}}。",
       "action": "查看"
+    },
+    "undoSend": {
+      "sending": "正在发送“{{subject}}”…",
+      "undone": "已撤销发送",
+      "reopenLater": "关闭正在编写的邮件后，它会重新打开",
+      "notSent": "您的邮件未发送",
+      "lost": "服务器在发送前重启，邮件未送达。",
+      "unknown": "无法确认邮件是否已发送",
+      "unknownBody": "再次发送前，请先检查“已发送”文件夹。",
+      "reopen": "重新打开",
+      "tooLate": "来不及撤销：邮件已在发送中",
+      "undoFailed": "无法撤销：服务器没有响应"
     },
     "toolbar": {
       "removeTable": "删除表格",
@@ -302,6 +315,13 @@
     }
   },
   "messageList": {
+    "replyDraftChanged": "回复草稿已更改。请尝试重新打开。",
+    "replyDraftKeepCurrent": "打开此草稿前，请保存当前邮件并处理其附件。",
+    "replyDraftUnavailable": "此回复草稿已不可用。",
+    "replyDraftCancelled": "所选邮件或编辑窗口已更改，因此已取消打开回复草稿。请尝试再次打开。",
+    "replyDraftRetry": "重新查找回复草稿",
+    "openReplyDraft": "打开回复草稿",
+    "replyDraft": "回复草稿",
     "search": "搜索…",
     "unread": "未读",
     "showAll": "显示全部",
@@ -405,6 +425,11 @@
       "automated": "自动邮件",
       "social": "社交"
     },
+    "categoryAlways": {
+      "done": "来自 {{value}} 的邮件现在归入{{category}}",
+      "doneBody": "已保存为收件箱规则；已收到的收件箱邮件也已更新。",
+      "failed": "无法保存此发件人的分类"
+    },
     "changeLayout": "更改布局",
     "layouts": {
       "focused": {
@@ -499,6 +524,7 @@
     "reply": "回复",
     "replyAll": "回复全部",
     "forward": "转发",
+    "forwardAsAttachment": "作为附件转发",
     "moveToFolder": "移动",
     "archive": "归档",
     "snooze": {
@@ -509,6 +535,9 @@
       "custom": "自定义……"
     },
     "categorize": "分类为…",
+    "categoryAlwaysSender": "始终用于此发件人",
+    "categoryAlwaysDomain": "始终用于此域名",
+    "categoryAlwaysFor": "始终用于 {{value}}",
     "createRule": "根据此邮件创建规则",
     "addToBlockList": "添加到黑名单",
     "markAsSpam": "标记为垃圾邮件",
@@ -811,6 +840,8 @@
       "actionMove": "移动到文件夹",
       "actionForward": "转发至",
       "actionForwardPlaceholder": "shoujianren@example.com",
+      "actionSetCategory": "设置分类",
+      "actionSetCategorySelect": "选择分类…",
       "actionMovePlaceholder": "文件夹名称",
       "actionMoveSelectFolder": "选择文件夹…",
       "actionMoveRequiresAccount": "需要指定账户",
@@ -977,6 +1008,7 @@
       "customCssSaved": "已保存"
     },
     "messageList": {
+      "autoOpenReplyDrafts": "选择收件箱邮件时自动打开已保存的回复",
       "title": "邮件列表",
       "senderFavicons": "发件人网站图标",
       "senderFaviconsDesc": "为没有联系人照片的发件人显示网站图标。只会将发件人的域名发送到 Twenty Icons，绝不会发送完整的电子邮件地址。",
@@ -1151,6 +1183,11 @@
       "activityBlocked": "已拦截",
       "savingProtection": "保存中…",
       "eventSsoLogin": "SSO 登录",
+      "eventAdminPasswordSet": "已设置密码",
+      "eventAdminUserUpdate": "已编辑账户",
+      "eventAdminTotpDisable": "已关闭双重认证",
+      "eventAdminUserDelete": "已删除账户",
+      "byActor": "（由 {{actor}} 操作）",
       "activityTitle": "登录活动",
       "loginProtectionTitle": "登录保护",
       "qrCodeAlt": "QR码",
@@ -1238,7 +1275,25 @@
       "deleteConfirmLabel": "删除用户",
       "disable2faConfirmTitle": "为「{{username}}」停用双重验证？",
       "disable2faConfirmBody": "此操作将解除其身份验证器应用要求。该用户可自行重新启用。",
-      "disable2faConfirmLabel": "停用双重验证"
+      "disable2faConfirmLabel": "停用双重验证",
+      "lastSeen": "最近访问：{{when}}",
+      "neverSeen": "从未登录",
+      "edit": "编辑",
+      "editTitle": "编辑 {{username}}",
+      "username": "用户名",
+      "usernameHint": "用于登录 MailFlow。",
+      "recoveryEmail": "恢复邮箱",
+      "recoveryEmailHint": "接收“忘记密码？”链接。留空即可移除。",
+      "newPassword": "新密码",
+      "newPasswordHint": "留空则保留当前密码。保存新密码后，该用户将在所有设备上退出登录。",
+      "newPasswordHintSelf": "留空则保留当前密码。你的其他设备将退出登录；此设备保持登录。",
+      "confirmPassword": "确认新密码",
+      "passwordTooShort": "密码至少需要 8 个字符。",
+      "passwordMismatch": "两次输入的密码不一致。",
+      "usernameTaken": "该用户名已被占用。",
+      "invalidEmail": "该邮箱地址无效。",
+      "saveFailed": "无法保存：{{message}}",
+      "passwordNotSet": "其他更改已保存，但未设置密码：{{message}}"
     },
     "ai": {
       "title": "AI 助手",

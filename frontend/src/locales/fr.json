@@ -94,6 +94,7 @@
     "hidePassword": "Masquer le mot de passe"
   },
   "compose": {
+    "unsupportedDraftFrom": "Choisissez un expéditeur configuré avant d’enregistrer ou d’envoyer ce brouillon.",
     "newMessage": "Nouveau message",
     "reply": "Répondre",
     "replyAll": "Répondre à tous",
@@ -145,6 +146,18 @@
       "noCopy": "Envoyé, mais non enregistré dans Envoyés",
       "someRejected": "Le serveur de messagerie a refusé la remise à {{addresses}}.",
       "action": "Voir"
+    },
+    "undoSend": {
+      "sending": "Envoi de « {{subject}} »…",
+      "undone": "Envoi annulé",
+      "reopenLater": "Il se rouvrira quand vous fermerez le message en cours de rédaction",
+      "notSent": "Votre message n'a pas été envoyé",
+      "lost": "Le serveur a redémarré avant l'envoi : le message n'a pas été remis.",
+      "unknown": "Impossible de confirmer l'envoi de votre message",
+      "unknownBody": "Vérifiez le dossier Envoyés avant de le renvoyer.",
+      "reopen": "Rouvrir",
+      "tooLate": "Trop tard pour annuler : le message est déjà en cours d'envoi",
+      "undoFailed": "Impossible d'annuler : le serveur n'a pas répondu"
     },
     "toolbar": {
       "removeTable": "Supprimer le tableau",
@@ -302,6 +315,13 @@
     }
   },
   "messageList": {
+    "replyDraftChanged": "Le brouillon de réponse a changé. Essayez de le rouvrir.",
+    "replyDraftKeepCurrent": "Enregistrez le message actuel et gérez ses pièces jointes avant d’ouvrir ce brouillon.",
+    "replyDraftUnavailable": "Ce brouillon de réponse n’est plus disponible.",
+    "replyDraftCancelled": "L’ouverture du brouillon de réponse a été annulée car la sélection ou l’éditeur a changé. Essayez de l’ouvrir à nouveau.",
+    "replyDraftRetry": "Rechercher à nouveau le brouillon de réponse",
+    "openReplyDraft": "Ouvrir le brouillon de réponse",
+    "replyDraft": "Brouillon de réponse",
     "search": "Rechercher…",
     "unread": "Non lus",
     "showAll": "Tout afficher",
@@ -405,6 +425,11 @@
       "automated": "Automatisé",
       "social": "Réseaux sociaux"
     },
+    "categoryAlways": {
+      "done": "Les e-mails de {{value}} vont désormais dans {{category}}",
+      "doneBody": "Enregistré comme règle de réception ; les e-mails déjà reçus ont aussi été mis à jour.",
+      "failed": "Impossible d’enregistrer la catégorie pour cet expéditeur"
+    },
     "changeLayout": "Changer la disposition",
     "layouts": {
       "focused": {
@@ -499,6 +524,7 @@
     "reply": "Répondre",
     "replyAll": "Répondre à tous",
     "forward": "Transférer",
+    "forwardAsAttachment": "Transférer en pièce jointe",
     "moveToFolder": "Déplacer",
     "archive": "Archiver",
     "snooze": {
@@ -509,6 +535,9 @@
       "custom": "Personnalisé..."
     },
     "categorize": "Catégoriser comme…",
+    "categoryAlwaysSender": "Toujours pour cet expéditeur",
+    "categoryAlwaysDomain": "Toujours pour ce domaine",
+    "categoryAlwaysFor": "Toujours pour {{value}}",
     "createRule": "Créer une règle depuis ce message",
     "addToBlockList": "Ajouter à la liste de blocage",
     "markAsSpam": "Marquer comme Spam",
@@ -811,6 +840,8 @@
       "actionMove": "Déplacer vers le dossier",
       "actionForward": "Transférer à",
       "actionForwardPlaceholder": "destinataire@example.com",
+      "actionSetCategory": "Définir la catégorie",
+      "actionSetCategorySelect": "Choisir une catégorie…",
       "actionMovePlaceholder": "Nom du dossier",
       "stopProcessing": "Arrêter le traitement des règles suivantes si celle-ci correspond",
       "stopProcessingHint": "Si cette règle correspond, les règles suivantes ne s'exécuteront pas pour le même message.",
@@ -977,6 +1008,7 @@
       "customCssSaved": "Enregistré"
     },
     "messageList": {
+      "autoOpenReplyDrafts": "Ouvrir automatiquement les réponses enregistrées à la sélection d’un message reçu",
       "title": "Liste des messages",
       "senderFavicons": "Favicons des expéditeurs",
       "senderFaviconsDesc": "Afficher les icônes de site web pour les expéditeurs sans photo de contact. Seul le domaine de l'expéditeur, jamais son adresse e-mail complète, est envoyé à Twenty Icons.",
@@ -1151,6 +1183,11 @@
       "activityBlocked": "Bloqué",
       "savingProtection": "Enregistrement…",
       "eventSsoLogin": "Connexion SSO",
+      "eventAdminPasswordSet": "Mot de passe défini",
+      "eventAdminUserUpdate": "Compte modifié",
+      "eventAdminTotpDisable": "2FA désactivé",
+      "eventAdminUserDelete": "Compte supprimé",
+      "byActor": "par {{actor}}",
       "activityTitle": "Activité de connexion",
       "loginProtectionTitle": "Protection de connexion",
       "qrCodeAlt": "code QR",
@@ -1238,7 +1275,25 @@
       "deleteConfirmLabel": "Supprimer l'utilisateur",
       "disable2faConfirmTitle": "Désactiver la 2FA pour « {{username}} » ?",
       "disable2faConfirmBody": "Cela supprimera l'exigence de leur application d'authentification. Ils peuvent la réactiver eux-mêmes.",
-      "disable2faConfirmLabel": "Désactiver la 2FA"
+      "disable2faConfirmLabel": "Désactiver la 2FA",
+      "lastSeen": "Dernière activité {{when}}",
+      "neverSeen": "Jamais connecté",
+      "edit": "Modifier",
+      "editTitle": "Modifier {{username}}",
+      "username": "Nom d’utilisateur",
+      "usernameHint": "Sert à se connecter à MailFlow.",
+      "recoveryEmail": "E-mail de récupération",
+      "recoveryEmailHint": "Reçoit le lien « Mot de passe oublié ? ». Laissez vide pour le retirer.",
+      "newPassword": "Nouveau mot de passe",
+      "newPasswordHint": "Laissez vide pour garder l’actuel. En enregistrer un nouveau déconnecte l’utilisateur sur tous ses appareils.",
+      "newPasswordHintSelf": "Laissez vide pour garder l’actuel. Vos autres appareils sont déconnectés ; celui-ci reste connecté.",
+      "confirmPassword": "Confirmer le nouveau mot de passe",
+      "passwordTooShort": "Le mot de passe doit contenir au moins 8 caractères.",
+      "passwordMismatch": "Les mots de passe ne correspondent pas.",
+      "usernameTaken": "Ce nom d’utilisateur est déjà pris.",
+      "invalidEmail": "Cette adresse e-mail n’est pas valide.",
+      "saveFailed": "Enregistrement impossible : {{message}}",
+      "passwordNotSet": "Les autres modifications ont été enregistrées, mais le mot de passe n’a pas été défini : {{message}}"
     },
     "ai": {
       "title": "Assistant IA",

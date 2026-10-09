@@ -1,3 +1,4 @@
+import { WebSocketServer } from 'ws';
 import { recordWsConnect, recordWsDisconnect } from './diagnosticsRing.js';
 
 // Derive the expected origin from APP_URL once at startup.
@@ -11,6 +12,13 @@ if (!ALLOWED_ORIGIN) {
   } else {
     console.warn('WARNING: APP_URL is not set — WebSocket origin validation is disabled. Set APP_URL in .env for production.');
   }
+}
+
+// Clients only ever send a small ping, in a single frame. ws otherwise buffers
+// messages of up to 100 MiB for the handler to parse, and holds each fragment
+// of an unfinished message as a view that keeps its whole socket read alive.
+export function createWebSocketServer(server) {
+  return new WebSocketServer({ server, maxPayload: 16 * 1024, maxFragments: 1 });
 }
 
 export function setupWebSocket(wss, sessionMiddleware, imapManager) {
@@ -55,26 +63,28 @@ export function setupWebSocket(wss, sessionMiddleware, imapManager) {
       }
       if (req.session.locked) {
         // Screen lock (#235) is server-enforced: don't stream live mail to a locked
-        // session. The client closes its own socket on lock; this blocks a new one.
+        // session. POST /auth/lock closes the sockets already open; this blocks a new one.
         ws.close(1008, 'Locked');
         return;
       }
       ws.userId = userId;
+      ws.sessionId = req.sessionID;
       recordWsConnect();
       ws._diagCounted = true;
       console.log(`WebSocket connected for user ${userId}`);
       ws.send(JSON.stringify({ type: 'connected' }));
+      // Attached only after authentication, so a socket still waiting on the
+      // session lookup, or already refused, never has its frames parsed.
+      ws.on('message', async (data) => {
+        try {
+          const msg = JSON.parse(data);
+          if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }));
+        } catch { /* ignore malformed client message */ }
+      });
       // Re-establish IMAP connections if the server restarted (skips already-connected accounts)
       imapManager.connectAllForUser(userId).catch(err => {
         console.error('WebSocket account reconnect failed:', err.message);
       });
-    });
-
-    ws.on('message', async (data) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }));
-      } catch { /* ignore malformed client message */ }
     });
 
     ws.on('close', () => {

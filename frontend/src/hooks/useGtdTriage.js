@@ -6,7 +6,7 @@ import {
   openDeepLinkMessage, collectThreadReadIds, openGtdThreadWithAutoRead,
   unclassifyThread,
 } from '../utils/gtd.js';
-import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
+import { openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFromMessage } from '../utils/composeFromMessage.js';
 import { resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
 import { classifyWithUndo } from '../utils/gtdClassification.js';
 import { doneGtdRow } from '../utils/gtdDone.js';
@@ -213,6 +213,16 @@ export function useGtdTriage() {
       case 'gtdRemove': removeStateRow(thread, data); break;
       case 'gtdDone': doneRow(thread, menu.doneStates); break;
       case 'delete': deleteRow(thread, menu.doneStates); break;
+      case 'forwardAsAttachment': {
+        try {
+          const message = await resolveContextMenuMessage(thread, 'gtdSidebar', api.resolveMessage);
+          openForwardAsAttachmentFromMessage(message, { openCompose });
+        } catch (err) {
+          console.error('GTD forward as attachment failed:', err.message);
+          scheduleGtdSectionsFetch();
+        }
+        break;
+      }
       case 'reply':
       case 'replyAll':
       case 'forward': {
@@ -256,7 +266,9 @@ export function useGtdTriage() {
   };
 
   // Bundle passed down to each row for its hover cluster + right-click menu.
-  const rowActions = { setRead, toggleStar, deleteRow, done: doneRow, openMenu: setContextMenu };
+  const rowActions = {
+    setRead, toggleStar, deleteRow, done: doneRow, classifyRow, openMenu: setContextMenu,
+  };
 
   return { contextMenu, setContextMenu, handleGtdAction, openRow, rowActions };
 }

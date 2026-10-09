@@ -91,6 +91,16 @@ export function folderDisplayName(folder, t, folderMappings) {
   return folder?.name || folder?.path || '';
 }
 
+// The recently used move targets for one account, newest first, resolved against the account's
+// live folder list (a recent folder since deleted or renamed drops out) and without the folder the
+// messages are already in. The single-message pickers and the bulk picker share it (#551).
+export function recentMoveTargets(recents, folders, { accountId, currentFolder } = {}) {
+  return (recents || [])
+    .filter(r => r.accountId === accountId && r.path !== currentFolder)
+    .map(r => (folders || []).find(f => f.path === r.path))
+    .filter(Boolean);
+}
+
 // The favorites a move picker offers for one message: that account's favorited folders, as the
 // picker's own folder objects, minus the message's folder and any listed elsewhere in the picker.
 // A favorite the user renamed carries that name as favoriteLabel, so the picker shows what the

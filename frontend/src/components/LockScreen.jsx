@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { signOut } from '../utils/signOut.js';
 
 export default function LockScreen() {
   const { t } = useTranslation();
@@ -11,14 +12,17 @@ export default function LockScreen() {
   const [unlocking, setUnlocking] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
 
+  // The same sign-out as the sidebar's: it clears this user's mailbox state and follows the
+  // SSO end-session URL when there is one, which this screen used to drop (#523).
   async function handleSignOut() {
     setSigningOut(true);
-    try {
-      await api.logout();
-    } catch { /* intentional */ }
     localStorage.removeItem('mailflow_locked_message');
-    setLocked(false);
-    setUser(null);
+    let signedOut = false;
+    const logout = () => api.logout().then((res) => { signedOut = true; return res; });
+    // Unlock locally (it clears the persisted lock flag) before the page navigates away. If the
+    // sign-out failed, the session may still be alive, and unlocked if the lock request failed
+    // too. Keep the lock then, so the next load sends it again.
+    await signOut({ setUser, logout, navigate: (url) => { if (signedOut) setLocked(false); window.location.href = url; } });
   }
 
   async function handleUnlock(e) {

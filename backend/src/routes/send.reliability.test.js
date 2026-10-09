@@ -38,6 +38,15 @@ const post = () => fetch(`${base}/api/mail/send`, {
   body: JSON.stringify({ accountId: 'a1', to: ['you@example.com'], subject: 'Test', body: 'Hello' }),
 });
 describe('send failure semantics', () => {
+  it('preserves References even when an external draft has no In-Reply-To', async () => {
+    const response = await fetch(`${base}/api/mail/send`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: 'a1', to: ['recipient@example.test'], subject: 'Reply',
+        body: 'Reply text', references: '<parent@example.test>' }),
+    });
+    expect(response.status).toBe(200);
+    expect(sendMail.mock.calls[0][0].references).toBe('<parent@example.test>');
+  });
   it('declares the sending software, which strict outbound filters require (#492)', async () => {
     expect((await post()).status).toBe(200);
     const opts = sendMail.mock.calls[0][0];

@@ -94,6 +94,7 @@
     "hidePassword": "Hide password"
   },
   "compose": {
+    "unsupportedDraftFrom": "Choose a configured sender before saving or sending this draft.",
     "newMessage": "New Message",
     "reply": "Reply",
     "replyAll": "Reply All",
@@ -145,6 +146,18 @@
       "noCopy": "Sent, but not saved to your Sent folder",
       "someRejected": "The mail server refused delivery to {{addresses}}.",
       "action": "View"
+    },
+    "undoSend": {
+      "sending": "Sending \"{{subject}}\"…",
+      "undone": "Sending undone",
+      "reopenLater": "It will reopen when you close the message you're writing",
+      "notSent": "Your message was not sent",
+      "lost": "The server restarted before sending it, so it was not delivered.",
+      "unknown": "Could not confirm that your message was sent",
+      "unknownBody": "Check your Sent folder before sending it again.",
+      "reopen": "Reopen",
+      "tooLate": "Too late to undo: the message is already being sent",
+      "undoFailed": "Could not undo: no response from the server"
     },
     "toolbar": {
       "removeTable": "Remove table",
@@ -302,6 +315,13 @@
     }
   },
   "messageList": {
+    "replyDraftChanged": "The reply draft changed. Try opening it again.",
+    "replyDraftKeepCurrent": "Save the current message and resolve its attachments before opening this draft.",
+    "replyDraftUnavailable": "This reply draft is no longer available.",
+    "replyDraftCancelled": "Reply draft opening was cancelled because the selection or composer changed. Try opening it again.",
+    "replyDraftRetry": "Retry reply draft lookup",
+    "openReplyDraft": "Open reply draft",
+    "replyDraft": "Reply draft",
     "search": "Search…",
     "unread": "Unread",
     "showAll": "Show all",
@@ -405,6 +425,11 @@
       "automated": "Automated",
       "social": "Social"
     },
+    "categoryAlways": {
+      "done": "Mail from {{value}} now goes to {{category}}",
+      "doneBody": "Saved as an inbox rule; inbox mail already received was updated too.",
+      "failed": "Couldn't save the category for this sender"
+    },
     "changeLayout": "Change layout",
     "layouts": {
       "focused": {
@@ -499,6 +524,7 @@
     "reply": "Reply",
     "replyAll": "Reply all",
     "forward": "Forward",
+    "forwardAsAttachment": "Forward as attachment",
     "moveToFolder": "Move",
     "archive": "Archive",
     "snooze": {
@@ -509,6 +535,9 @@
       "custom": "Custom..."
     },
     "categorize": "Categorize as…",
+    "categoryAlwaysSender": "Always for this sender",
+    "categoryAlwaysDomain": "Always for this domain",
+    "categoryAlwaysFor": "Always for {{value}}",
     "createRule": "Create rule from message",
     "addToBlockList": "Add to block list",
     "markAsSpam": "Mark as Spam",
@@ -818,6 +847,8 @@
       "actionMove": "Move to folder",
       "actionForward": "Forward to",
       "actionForwardPlaceholder": "recipient@example.com",
+      "actionSetCategory": "Set category",
+      "actionSetCategorySelect": "Select a category…",
       "actionMovePlaceholder": "Exact IMAP folder path (e.g. Work or INBOX/Work)",
       "actionMoveSelectFolder": "Select a folder…",
       "actionMoveRequiresAccount": "Requires a specific account",
@@ -977,6 +1008,7 @@
       "customCssSaved": "Saved"
     },
     "messageList": {
+      "autoOpenReplyDrafts": "Automatically open saved replies when selecting inbox messages",
       "title": "Message List",
       "senderFavicons": "Sender favicons",
       "senderFaviconsDesc": "Show website icons for senders without a contact photo. Only the sender's domain, never their full email address, is sent to Twenty Icons.",
@@ -1153,6 +1185,11 @@
       "eventTotpSuccess": "2FA verified",
       "eventTotpFail": "Failed 2FA",
       "eventSsoLogin": "SSO login",
+      "eventAdminPasswordSet": "Password set",
+      "eventAdminUserUpdate": "Account edited",
+      "eventAdminTotpDisable": "2FA turned off",
+      "eventAdminUserDelete": "Account deleted",
+      "byActor": "by {{actor}}",
       "qrCodeAlt": "QR code",
       "mailPolicyTitle": "Mail Server Connection Policy",
       "mailPolicyDesc": "Controls which connection types users are permitted to configure. Disable these for internet-facing deployments.",
@@ -1238,7 +1275,25 @@
       "deleteConfirmLabel": "Delete user",
       "disable2faConfirmTitle": "Disable 2FA for \"{{username}}\"?",
       "disable2faConfirmBody": "This will remove their authenticator app requirement. They can re-enable it themselves.",
-      "disable2faConfirmLabel": "Disable 2FA"
+      "disable2faConfirmLabel": "Disable 2FA",
+      "lastSeen": "Last seen {{when}}",
+      "neverSeen": "Never signed in",
+      "edit": "Edit",
+      "editTitle": "Edit {{username}}",
+      "username": "Username",
+      "usernameHint": "Used to sign in to MailFlow.",
+      "recoveryEmail": "Recovery email",
+      "recoveryEmailHint": "Receives the \"Forgot password?\" link. Leave empty to remove it.",
+      "newPassword": "New password",
+      "newPasswordHint": "Leave empty to keep the current one. Saving a new one signs the user out on every device.",
+      "newPasswordHintSelf": "Leave empty to keep the current one. Your other devices are signed out; this one stays signed in.",
+      "confirmPassword": "Confirm new password",
+      "passwordTooShort": "The password must be at least 8 characters.",
+      "passwordMismatch": "The passwords do not match.",
+      "usernameTaken": "That username is already taken.",
+      "invalidEmail": "That email address is not valid.",
+      "saveFailed": "Could not save: {{message}}",
+      "passwordNotSet": "The other changes were saved, but the password was not set: {{message}}"
     },
     "ai": {
       "title": "AI Assistant",

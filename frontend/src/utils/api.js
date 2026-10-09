@@ -112,6 +112,21 @@ function getMessageBody(id, remoteImages = false) {
   return promise;
 }
 
+// Sign-out must not hang here: getRegistration(), not serviceWorker.ready, because ready
+// never settles when the worker failed to register; and unsubscribe() is not awaited,
+// because it can wait on the push service.
+async function endPushSubscription() {
+  let sub;
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    sub = await reg?.pushManager?.getSubscription();
+  } catch {
+    return null;
+  }
+  sub?.unsubscribe().catch(() => {});
+  return sub?.endpoint ?? null;
+}
+
 export const api = {
   get: (path) => request('GET', path),
   post: (path, body, extraHeaders) => request('POST', path, body, extraHeaders),
@@ -122,7 +137,12 @@ export const api = {
   // Auth
   login: (username, password) => request('POST', '/auth/login', { username, password }),
   register: (username, password, inviteToken) => request('POST', '/auth/register', { username, password, inviteToken }),
-  logout: () => request('POST', '/auth/logout'),
+  // A push subscription outlives the session, so sign-out ends this browser's and names
+  // its endpoint for the server to delete.
+  logout: async () => {
+    const pushEndpoint = await endPushSubscription();
+    return request('POST', '/auth/logout', pushEndpoint ? { pushEndpoint } : undefined);
+  },
   lock: () => request('POST', '/auth/lock'),
   unlock: async (pin) => {
     // Custom (not request()) so we can read the lockout flag on failure: after too many
@@ -136,6 +156,10 @@ export const api = {
     const data = await res.json().catch(() => ({}));
     if (res.ok) return data;
     if (data.signedOut) {
+      // A lockout signs out without api.logout(), and the session is already gone, so only
+      // the browser's subscription can be ended here. Once it is, the push service answers
+      // the next send with 404/410, which prunes the row.
+      await endPushSubscription();
       window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
       const e = new Error('signed_out'); e.signedOut = true; throw e;
     }
@@ -189,6 +213,7 @@ export const api = {
     updateUser: (id, data) => request('PATCH', `/admin/users/${id}`, data),
     deleteUser: (id) => request('DELETE', `/admin/users/${id}`),
     disableUserTotp: (id) => request('POST', `/admin/users/${id}/totp/disable`),
+    setUserPassword: (id, password) => request('POST', `/admin/users/${id}/password`, { password }),
     getSettings: () => request('GET', '/admin/settings'),
     updateSettings: (data) => request('PATCH', '/admin/settings', data),
     getInvites: (params) => request('GET', '/admin/invites' + (params ? '?' + new URLSearchParams(params) : '')),
@@ -411,7 +436,16 @@ export const api = {
   reorderRules:(ids)      => request('PATCH',  '/rules/reorder', { ids }),
   runRules:    (accountId) => request('POST',  '/rules/run', accountId ? { accountId } : {}),
 
+  // Undo send: a send held on the server for the undo window (backend/src/services/sendHold.js)
+  getSendStatus: (id) => request('GET',  `/mail/send/${encodeURIComponent(id)}`),
+  cancelSend:    (id) => request('POST', `/mail/send/${encodeURIComponent(id)}/cancel`),
+
   // Drafts
+  getReplyDraftIndicators: (ids, scope = {}) => request('POST', '/mail/reply-drafts/indicators', { ids, ...scope }),
+  getReplyDraft: (id, options = {}) => {
+    const params = new URLSearchParams(Object.entries(options).filter(([, value]) => value !== undefined));
+    return request('GET', `/mail/messages/${encodeURIComponent(id)}/reply-draft?${params}`);
+  },
   saveDraft:   (data)              => request('POST',   '/mail/draft', data),
   deleteDraft: (accountId, uid, folder) =>
     request('DELETE', `/mail/draft/${uid}?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(folder)}`),
@@ -446,6 +480,8 @@ export const api = {
 
   // Manual category override for a single message
   setMessageCategory: (id, category) => request('PATCH', `/mail/messages/${id}/category`, { category }),
+  // "Always for this sender/domain" (#490): saves a set_category rule and recategorizes that sender's inbox mail.
+  setSenderCategory: (messageId, scope, category, name) => request('POST', '/rules/sender-category', { messageId, scope, category, name }),
 
   // Trigger unsubscribe for a newsletter message
   unsubscribeMessage: (id) => request('POST', `/mail/messages/${id}/unsubscribe`),

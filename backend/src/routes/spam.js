@@ -266,6 +266,29 @@ router.get('/explain', async (req, res, next) => {
     const row = data.rows[0];
     if (!row) return res.status(404).json({ error: 'Message not found' });
 
+    const storedDetails = typeof row.spam_details === 'string'
+      ? JSON.parse(row.spam_details)
+      : (row.spam_details ?? null);
+
+    // Replay what the verdict saw (#457). Recomputing against the row as it is now drifted from
+    // the verdict: attachments and bodies fill in after ingest, and the recompute had none of the
+    // headers the auth rules read. spamPipeline records every input below with each verdict.
+    if (storedDetails?.rulesFired) {
+      return res.json({
+        verdict: row.spam_verdict,
+        storedScore: row.spam_score_ml ?? null,
+        method: storedDetails.method || 'rules',
+        confidence: storedDetails.mlConfidence ?? storedDetails.rulesScore ?? null,
+        rulesFired: storedDetails.rulesFired,
+        rulesScore: storedDetails.rulesScore ?? null,
+        mlProbability: storedDetails.mlProbability ?? null,
+        mlTopTokens: storedDetails.topTokens || [],
+        replayed: true,
+        storedDetails,
+      });
+    }
+
+    // No recorded inputs (a verdict from before they were stored): recompute, as before.
     const msg = {
       subject: row.subject || '',
       body: row.body_text || '',
@@ -293,12 +316,11 @@ router.get('/explain', async (req, res, next) => {
       rulesFired: rules.fired.map(r => ({ name: r.name, weight: r.weight })),
       rulesScore: rules.score,
       mlProbability: mlResult?.probability ?? null,
-      mlTopTokens: extractTopTokens(model, tokens, 5).map(t => ({
+      mlTopTokens: extractTopTokens(model, tokens, 5, flagFeatures).map(t => ({
         token: t.token, contribution: Math.round(t.contribution * 1000) / 1000,
       })),
-      storedDetails: typeof row.spam_details === 'string'
-        ? JSON.parse(row.spam_details)
-        : (row.spam_details ?? null),
+      replayed: false,
+      storedDetails,
     });
   } catch (err) { next(err); }
 });

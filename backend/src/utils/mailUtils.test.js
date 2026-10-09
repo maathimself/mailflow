@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mappedFolderUsable, resolveTrashFolder, resolveArchiveFolder, resolveSentFolder, isAllMailFolder, resolveSpamFolder, getDeleteStrategy, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from './mailUtils.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mappedFolderUsable, resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, resolveSentFolder, isAllMailFolder, resolveSpamFolder, getDeleteStrategy, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from './mailUtils.js';
 
 vi.mock('../services/db.js', () => ({
   query: vi.fn(),
@@ -69,6 +69,95 @@ describe('resolveTrashFolder', () => {
     query.mockResolvedValue({ rows: [] });
     const result = await resolveTrashFolder(3, undefined);
     expect(result).toBeNull();
+  });
+});
+
+// Evaluates a folders lookup against `folders` rows the way Postgres would, so the tests below pin
+// which folders count as Trash or Drafts rather than the SQL that picks them. It knows only the
+// conditions the Trash and Drafts resolvers use, before and after this change, and throws on
+// anything else, so a rewritten query cannot pass by being misread.
+const FOLDER_CONDITIONS = [
+  [/special_use = '(\\\w+)'/y, ([, flag]) => f => f.special_use === flag],
+  [/lower\(name\) LIKE '%(\w+)%'/y, ([, word]) => f => f.name.toLowerCase().includes(word)],
+  [/lower\(name\) IN \(([^)]*)\)/y, ([, list]) => f => list.split(', ').includes(`'${f.name.toLowerCase()}'`)],
+  [/path = name/y, () => f => f.path === f.name],
+  [/upper\(path\) = \('INBOX' \|\| delimiter \|\| upper\(name\)\)/y,
+    () => f => f.delimiter !== null && f.path.toUpperCase() === `INBOX${f.delimiter}${f.name}`.toUpperCase()],
+];
+
+// SQL's AND binds tighter than its OR, as JS's && does ||.
+function folderCondition(text) {
+  let at = 0;
+  const take = (re) => { re.lastIndex = at; const m = re.exec(text); if (m) at = re.lastIndex; return m; };
+  const fail = () => { throw new Error(`unrecognised condition at "${text.slice(at)}" in: ${text}`); };
+  const term = () => {
+    if (take(/\(/y)) { const inner = anyOf(); return take(/\)/y) ? inner : fail(); }
+    for (const [re, build] of FOLDER_CONDITIONS) { const m = take(re); if (m) return build(m); }
+    return fail();
+  };
+  const allOf = () => { let t = term(); while (take(/ AND /y)) { const [a, b] = [t, term()]; t = f => a(f) && b(f); } return t; };
+  const anyOf = () => { let t = allOf(); while (take(/ OR /y)) { const [a, b] = [t, allOf()]; t = f => a(f) || b(f); } return t; };
+  const test = anyOf();
+  return at === text.length ? test : fail();
+}
+
+function selectFolders(rawSql, folders) {
+  const sql = rawSql.replace(/\s+/g, ' ').trim();
+  const [, where, first, limit] = sql.match(
+    /^SELECT path FROM folders WHERE account_id = \$1 AND (.+?)(?: ORDER BY \(CASE WHEN (.+) THEN 0 ELSE 1 END\))?(?: LIMIT (\d+))?$/
+  ) ?? [];
+  if (!where) throw new Error(`unrecognised query: ${sql}`);
+  let rows = folders.filter(folderCondition(where));
+  if (first) {
+    const isFirst = folderCondition(first);
+    rows = [...rows.filter(isFirst), ...rows.filter(f => !isFirst(f))];
+  }
+  return rows.slice(0, limit ? Number(limit) : undefined).map(({ path }) => ({ path }));
+}
+
+const answerFrom = (folders) => query.mockImplementation(async (sql) => ({ rows: selectFolders(sql, folders) }));
+
+// A folders row as syncFolders stores it: `name` is the last segment of the path.
+const folder = (path, special_use = null, delimiter = '/') => ({ path, name: path.split(delimiter).pop(), delimiter, special_use });
+
+// Delete expunges mail in any folder these sets hold instead of moving it to Trash, so a user's
+// own folder must never land in one.
+describe('Trash and Drafts folders found by name', () => {
+  afterEach(() => {
+    query.mockReset();
+  });
+
+  it('counts a second Trash at the top level, but not user folders like "Deleted clients" or "Old Account/Trash"', async () => {
+    answerFrom([
+      folder('INBOX'), folder('Trash'), folder('Deleted Messages', '\\Trash'),
+      folder('Deleted clients'), folder('Trash talk'), folder('Projects/Undeleted'),
+      folder('Old Account/Trash'), folder('Imported/Deleted Items'),
+    ]);
+    expect(await resolveTrashFolder(1, null)).toBe('Deleted Messages');
+    expect(await resolveAllTrashPaths(1, null)).toEqual(new Set(['Trash', 'Deleted Messages']));
+  });
+
+  it('counts a second Drafts under INBOX, but not user folders like "Blog drafts" or "Clients/Drafts"', async () => {
+    answerFrom([
+      folder('INBOX'), folder('Drafts', '\\Drafts'), folder('INBOX/Drafts'),
+      folder('Blog drafts'), folder('Draft Contracts'), folder('Clients/Old Drafts'), folder('Clients/Drafts'),
+    ]);
+    expect(await resolveAllDraftsPaths(1, null)).toEqual(new Set(['Drafts', 'INBOX/Drafts']));
+  });
+
+  it('counts stock names directly under INBOX on a server that keeps every folder there', async () => {
+    answerFrom([
+      folder('INBOX', null, '.'), folder('INBOX.Trash', '\\Trash', '.'), folder('INBOX.Deleted Messages', null, '.'),
+      folder('INBOX.Drafts', '\\Drafts', '.'), folder('INBOX.Clients.Trash', null, '.'), folder('INBOX.Clients.Drafts', null, '.'),
+    ]);
+    expect(await resolveAllTrashPaths(1, null)).toEqual(new Set(['INBOX.Trash', 'INBOX.Deleted Messages']));
+    expect(await resolveAllDraftsPaths(1, null)).toEqual(new Set(['INBOX.Drafts']));
+  });
+
+  it('never picks a user folder as the Trash destination', async () => {
+    answerFrom([folder('INBOX'), folder('Deleted clients'), folder('Old Account/Trash')]);
+    expect(await resolveTrashFolder(1, null)).toBeNull();
+    expect(await resolveAllTrashPaths(1, null)).toEqual(new Set());
   });
 });
 

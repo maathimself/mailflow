@@ -4,12 +4,12 @@ import session from 'express-session';
 import cors from 'cors';
 import { createServer } from 'http';
 import { readFileSync } from 'fs';
-import { WebSocketServer } from 'ws';
 import RedisStore from 'connect-redis';
 import 'dotenv/config';
 import { redisClient } from './services/redis.js';
 import { parseTrustProxyHops } from './utils/trustProxy.js';
 import { buildSessionOptions } from './utils/sessionConfig.js';
+import { mountBodyParsers } from './middleware/bodyParsers.js';
 
 import sendRoutes from './routes/send.js';
 import draftRoutes from './routes/draft.js';
@@ -44,10 +44,11 @@ import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
 import { parseVCard } from './utils/vcard.js';
 import { reloadAuthSettings } from './services/authLimiter.js';
-import { setupWebSocket } from './services/websocket.js';
+import { createWebSocketServer, setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
 import { getUpdateStatus } from './services/updateCheck.js';
 import { recordHttp } from './services/performanceMetrics.js';
+import { flushHeldSends } from './services/sendHold.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta = {};
@@ -70,7 +71,7 @@ if (trustProxyHops === null) {
 }
 app.set('trust proxy', trustProxyHops);
 const httpServer = createServer(app);
-const wss = new WebSocketServer({ server: httpServer });
+const wss = createWebSocketServer(httpServer);
 
 // Redis — connect the shared client before any route or session middleware uses it.
 await redisClient.connect();
@@ -129,20 +130,9 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'same-origin');
   next();
 });
-// 25 MB attachment limit → ~34 MB base64 on the wire; add headroom for the rest of the payload.
-app.use('/api/mail/send', express.json({ limit: '35mb' }));
-app.use('/api/mail/draft', express.json({ limit: '35mb' }));
-// A pet-import body carries a base64 spritesheet (~33% larger than the 5 MB sheet cap
-// enforced after decode in gtdPet.importPet), so it needs more than the global 1 MB.
-app.use('/api/gtd/pet/import', express.json({ limit: '8mb' }));
-app.use(express.json({ limit: '1mb' }));
-// Return a clean JSON error when the body parser rejects an oversized payload.
-app.use((err, req, res, next) => {
-  if (err.type === 'entity.too.large') {
-    return res.status(413).json({ error: 'Request too large. Total attachment size must not exceed 25 MB.' });
-  }
-  next(err);
-});
+// Body parsers live in middleware/bodyParsers.js so they can be exercised by tests. The larger
+// limits are for signed-in requests only, so those paths load the session there first.
+mountBodyParsers(app, sessionMiddleware);
 app.use(sessionMiddleware);
 
 // CSRF defense-in-depth for the cookie-authenticated /api surface. A mutating
@@ -312,7 +302,12 @@ httpServer.listen(PORT, () => {
 });
 
 function exitAfterClose(code) {
+  // A send held for its undo window lives only in this process: deliver it now rather than
+  // lose it with the restart (services/sendHold.js). Bounded to leave room for the rest.
+  const heldSendsFlushed = flushHeldSends(8000)
+    .catch(err => console.error('Flushing held sends failed:', err.message));
   httpServer.close(async () => {
+    await heldSendsFlushed;
     try { await redisClient.quit(); } catch { /* ignore */ }
     process.exit(code);
   });

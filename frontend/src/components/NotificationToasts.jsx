@@ -61,8 +61,10 @@ function ActionBar({ notification, onDismiss, isMobile }) {
     dismiss();
   };
 
+  // Undo send brings its own window; everything else uses the standard one.
+  const windowMs = notification.undoMs ?? UNDO_WINDOW_MS;
   useEffect(() => {
-    const timer = setTimeout(dismiss, UNDO_WINDOW_MS);
+    const timer = setTimeout(dismiss, windowMs);
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -83,13 +85,13 @@ function ActionBar({ notification, onDismiss, isMobile }) {
         overflow: 'hidden',
       }}
     >
-      {/* Progress bar — empties over 4.5s (the undo window) */}
+      {/* Progress bar — empties over the undo window */}
       <div style={{
         position: 'absolute',
         bottom: 0, left: 0,
         height: 2,
         background: 'var(--accent)',
-        animation: `action-bar-progress ${UNDO_WINDOW_MS}ms linear forwards`,
+        animation: `action-bar-progress ${windowMs}ms linear forwards`,
       }} />
 
       <span style={{
@@ -152,7 +154,7 @@ function Toast({ notification, onDismiss, isMobile }) {
   useEffect(() => {
     if (notification.persistent) return undefined;
 
-    const duration = notification.onUndo ? UNDO_WINDOW_MS : 5000;
+    const duration = notification.onUndo ? (notification.undoMs ?? UNDO_WINDOW_MS) : 5000;
     const timer = setTimeout(dismiss, duration);
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

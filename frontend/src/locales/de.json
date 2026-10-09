@@ -94,6 +94,7 @@
     "hidePassword": "Passwort verbergen"
   },
   "compose": {
+    "unsupportedDraftFrom": "Wähle einen eingerichteten Absender, bevor du diesen Entwurf speicherst oder sendest.",
     "newMessage": "Neue Nachricht",
     "reply": "Antworten",
     "replyAll": "Allen antworten",
@@ -145,6 +146,18 @@
       "noCopy": "Gesendet, aber nicht im Ordner Gesendet gespeichert",
       "someRejected": "Der Mailserver hat die Zustellung an {{addresses}} abgelehnt.",
       "action": "Anzeigen"
+    },
+    "undoSend": {
+      "sending": "„{{subject}}“ wird gesendet…",
+      "undone": "Senden rückgängig gemacht",
+      "reopenLater": "Sie wird wieder geöffnet, sobald Sie die Nachricht schließen, an der Sie gerade schreiben",
+      "notSent": "Ihre Nachricht wurde nicht gesendet",
+      "lost": "Der Server wurde vor dem Senden neu gestartet, die Nachricht wurde nicht zugestellt.",
+      "unknown": "Es konnte nicht bestätigt werden, ob Ihre Nachricht gesendet wurde",
+      "unknownBody": "Prüfen Sie den Ordner Gesendet, bevor Sie sie erneut senden.",
+      "reopen": "Wieder öffnen",
+      "tooLate": "Zu spät zum Rückgängigmachen: Die Nachricht wird bereits gesendet",
+      "undoFailed": "Rückgängigmachen nicht möglich: keine Antwort vom Server"
     },
     "toolbar": {
       "removeTable": "Tabelle entfernen",
@@ -302,6 +315,13 @@
     }
   },
   "messageList": {
+    "replyDraftChanged": "Der Antwortentwurf wurde geändert. Öffne ihn erneut.",
+    "replyDraftKeepCurrent": "Speichere die aktuelle Nachricht und kläre ihre Anhänge, bevor du diesen Entwurf öffnest.",
+    "replyDraftUnavailable": "Dieser Antwortentwurf ist nicht mehr verfügbar.",
+    "replyDraftCancelled": "Das Öffnen des Antwortentwurfs wurde abgebrochen, weil sich die Auswahl oder das Nachrichtenfenster geändert hat. Bitte erneut öffnen.",
+    "replyDraftRetry": "Antwortentwurf erneut suchen",
+    "openReplyDraft": "Antwortentwurf öffnen",
+    "replyDraft": "Antwortentwurf",
     "search": "Suchen…",
     "unread": "Ungelesen",
     "showAll": "Alle anzeigen",
@@ -405,6 +425,11 @@
       "automated": "Automatisch",
       "social": "Sozial"
     },
+    "categoryAlways": {
+      "done": "E-Mails von {{value}} landen jetzt in {{category}}",
+      "doneBody": "Als Posteingangsregel gespeichert; bereits empfangene Mails im Posteingang wurden ebenfalls aktualisiert.",
+      "failed": "Die Kategorie für diesen Absender konnte nicht gespeichert werden"
+    },
     "changeLayout": "Layout ändern",
     "layouts": {
       "focused": {
@@ -499,6 +524,7 @@
     "reply": "Antworten",
     "replyAll": "Allen antworten",
     "forward": "Weiterleiten",
+    "forwardAsAttachment": "Als Anhang weiterleiten",
     "moveToFolder": "Verschieben",
     "archive": "Archivieren",
     "snooze": {
@@ -529,6 +555,9 @@
       "search": "Ordner suchen…"
     },
     "categorize": "Kategorisieren als…",
+    "categoryAlwaysSender": "Immer für diesen Absender",
+    "categoryAlwaysDomain": "Immer für diese Domain",
+    "categoryAlwaysFor": "Immer für {{value}}",
     "createRule": "Regel aus Nachricht erstellen",
     "addToBlockList": "Zur Blockliste hinzufügen",
     "markAsSpam": "Als Spam markieren",
@@ -906,6 +935,7 @@
       "customCssSaved": "Gespeichert"
     },
     "messageList": {
+      "autoOpenReplyDrafts": "Gespeicherte Antworten beim Auswählen von Posteingangsnachrichten automatisch öffnen",
       "title": "Nachrichtenliste",
       "senderFavicons": "Absender-Favicons",
       "senderFaviconsDesc": "Website-Symbole für Absender ohne Kontaktfoto anzeigen. An Twenty Icons wird nur die Domain des Absenders gesendet, niemals die vollständige E-Mail-Adresse.",
@@ -1082,6 +1112,11 @@
       "eventTotpSuccess": "2FA bestätigt",
       "eventTotpFail": "Fehlgeschlagene 2FA",
       "eventSsoLogin": "SSO-Anmeldung",
+      "eventAdminPasswordSet": "Passwort gesetzt",
+      "eventAdminUserUpdate": "Konto bearbeitet",
+      "eventAdminTotpDisable": "2FA deaktiviert",
+      "eventAdminUserDelete": "Konto gelöscht",
+      "byActor": "von {{actor}}",
       "qrCodeAlt": "QR-Code",
       "mailPolicyTitle": "Verbindungsrichtlinie für Mailserver",
       "mailPolicyDesc": "Legt fest, welche Verbindungstypen Benutzer konfigurieren dürfen. Für öffentlich zugängliche Instanzen deaktivieren.",
@@ -1167,7 +1202,25 @@
       "deleteConfirmLabel": "Benutzer löschen",
       "disable2faConfirmTitle": "2FA für „{{username}}” deaktivieren?",
       "disable2faConfirmBody": "Dies entfernt die Anforderung der Authenticator-App. Der Benutzer kann sie selbst wieder aktivieren.",
-      "disable2faConfirmLabel": "2FA deaktivieren"
+      "disable2faConfirmLabel": "2FA deaktivieren",
+      "lastSeen": "Zuletzt aktiv {{when}}",
+      "neverSeen": "Nie angemeldet",
+      "edit": "Bearbeiten",
+      "editTitle": "{{username}} bearbeiten",
+      "username": "Benutzername",
+      "usernameHint": "Wird für die Anmeldung bei MailFlow verwendet.",
+      "recoveryEmail": "Wiederherstellungs-E-Mail",
+      "recoveryEmailHint": "Erhält den Link „Passwort vergessen?“. Leer lassen, um sie zu entfernen.",
+      "newPassword": "Neues Passwort",
+      "newPasswordHint": "Leer lassen, um das aktuelle zu behalten. Beim Speichern eines neuen wird der Benutzer auf allen Geräten abgemeldet.",
+      "newPasswordHintSelf": "Leer lassen, um das aktuelle zu behalten. Ihre anderen Geräte werden abgemeldet; dieses bleibt angemeldet.",
+      "confirmPassword": "Neues Passwort bestätigen",
+      "passwordTooShort": "Das Passwort muss mindestens 8 Zeichen lang sein.",
+      "passwordMismatch": "Die Passwörter stimmen nicht überein.",
+      "usernameTaken": "Dieser Benutzername ist bereits vergeben.",
+      "invalidEmail": "Diese E-Mail-Adresse ist ungültig.",
+      "saveFailed": "Speichern fehlgeschlagen: {{message}}",
+      "passwordNotSet": "Die anderen Änderungen wurden gespeichert, aber das Passwort wurde nicht gesetzt: {{message}}"
     },
     "ai": {
       "title": "KI-Assistent",
@@ -1538,6 +1591,8 @@
       "actionMove": "In Ordner verschieben",
       "actionForward": "Weiterleiten an",
       "actionForwardPlaceholder": "empfaenger@example.com",
+      "actionSetCategory": "Kategorie festlegen",
+      "actionSetCategorySelect": "Kategorie auswählen…",
       "nameLabel": "Regelname",
       "editButton": "Bearbeiten",
       "deleteConfirm": "Diese Regel löschen?",

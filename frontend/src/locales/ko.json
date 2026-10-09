@@ -94,6 +94,7 @@
     }
   },
   "compose": {
+    "unsupportedDraftFrom": "이 초안을 저장하거나 보내기 전에 설정된 발신자를 선택하세요.",
     "newMessage": "새 메일",
     "reply": "답장",
     "replyAll": "전체 답장",
@@ -184,7 +185,19 @@
       "copy": "주소 복사",
       "copyAll": "이 필드의 내용을 모두 복사하세요."
     },
-    "draftHasAttachments": "첨부 파일은 초안과 함께 저장되지 않습니다. 이 초안을 다시 열면 다시 첨부해야 합니다."
+    "draftHasAttachments": "첨부 파일은 초안과 함께 저장되지 않습니다. 이 초안을 다시 열면 다시 첨부해야 합니다.",
+    "undoSend": {
+      "sending": "\"{{subject}}\" 보내는 중…",
+      "undone": "전송이 취소되었습니다",
+      "reopenLater": "작성 중인 메시지를 닫으면 다시 열립니다",
+      "notSent": "메시지가 전송되지 않았습니다",
+      "lost": "전송 전에 서버가 다시 시작되어 메시지가 전달되지 않았습니다.",
+      "unknown": "메시지가 전송되었는지 확인할 수 없습니다",
+      "unknownBody": "다시 보내기 전에 보낸편지함을 확인하세요.",
+      "reopen": "다시 열기",
+      "tooLate": "실행 취소하기에 너무 늦었습니다: 메시지를 이미 보내는 중입니다",
+      "undoFailed": "실행 취소할 수 없습니다: 서버가 응답하지 않습니다"
+    }
   },
   "message": {
     "printConversation": "대화 인쇄",
@@ -302,6 +315,13 @@
     }
   },
   "messageList": {
+    "replyDraftChanged": "답장 초안이 변경되었습니다. 다시 열어 보세요.",
+    "replyDraftKeepCurrent": "이 초안을 열기 전에 현재 메시지를 저장하고 첨부 파일을 확인하세요.",
+    "replyDraftUnavailable": "이 답장 초안은 더 이상 사용할 수 없습니다.",
+    "replyDraftCancelled": "선택한 메시지 또는 작성 창이 변경되어 답장 초안 열기가 취소되었습니다. 다시 열어 주세요.",
+    "replyDraftRetry": "답장 초안 다시 찾기",
+    "openReplyDraft": "답장 초안 열기",
+    "replyDraft": "답장 초안",
     "search": "검색…",
     "unread": "읽지 않음",
     "showAll": "모두 표시",
@@ -401,6 +421,11 @@
       "automated": "자동 알림",
       "social": "소셜"
     },
+    "categoryAlways": {
+      "done": "{{value}}의 메일이 이제 {{category}}(으)로 분류됩니다",
+      "doneBody": "받은편지함 규칙으로 저장했습니다. 이미 받은 메일도 업데이트했습니다.",
+      "failed": "이 발신자의 카테고리를 저장하지 못했습니다"
+    },
     "emptyInboxDesc": "여기에 읽지 않은 메시지가 없습니다.",
     "composeAriaLabel": "새 메시지 작성",
     "noAccounts": "아직 계정이 없습니다",
@@ -498,6 +523,7 @@
     "unstar": "별표 제거",
     "moveToFolder": "이동",
     "forward": "전달",
+    "forwardAsAttachment": "첨부 파일로 전달",
     "archive": "보관",
     "snooze": {
       "label": "다시 알림",
@@ -511,6 +537,9 @@
     "createRule": "메시지에서 규칙 만들기",
     "addToBlockList": "차단 목록에 추가",
     "categorize": "카테고리 지정…",
+    "categoryAlwaysSender": "이 발신자에게 항상 적용",
+    "categoryAlwaysDomain": "이 도메인에 항상 적용",
+    "categoryAlwaysFor": "{{value}}에 항상 적용",
     "copyLink": "링크 복사",
     "delete": "삭제",
     "headers": {
@@ -817,6 +846,8 @@
       "actionForward": "다음으로 전달",
       "opEndsWith": "다음으로 끝남",
       "actionForwardPlaceholder": "수신자@example.com",
+      "actionSetCategory": "카테고리 지정",
+      "actionSetCategorySelect": "카테고리 선택…",
       "saving": "저장 중…",
       "actionMovePlaceholder": "정확한 IMAP 폴더 경로(예: 직장 또는 INBOX/직장)",
       "saveButton": "규칙 저장",
@@ -977,6 +1008,7 @@
       "typographyDescription": "인터페이스에 대한 글꼴 페어링 선택"
     },
     "messageList": {
+      "autoOpenReplyDrafts": "받은편지함 메시지를 선택할 때 저장된 답장 자동으로 열기",
       "senderFaviconsDesc": "연락처 사진이 없는 발신자의 웹사이트 아이콘을 표시합니다. 전체 이메일 주소가 아닌 발신자의 도메인만 Twenty Icons로 전송됩니다.",
       "title": "메시지 목록",
       "senderFavicons": "발신자 파비콘",
@@ -1154,6 +1186,11 @@
       "eventTotpFail": "2FA 실패",
       "eventTotpSuccess": "2FA 인증됨",
       "eventSsoLogin": "SSO 로그인",
+      "eventAdminPasswordSet": "비밀번호 설정됨",
+      "eventAdminUserUpdate": "계정 수정됨",
+      "eventAdminTotpDisable": "2FA 해제됨",
+      "eventAdminUserDelete": "계정 삭제됨",
+      "byActor": "({{actor}})",
       "allowInsecureTls": "안전하지 않은 TLS 허용",
       "mailPolicyDesc": "사용자가 구성할 수 있는 연결 유형을 제어합니다. 인터넷 연결 배포의 경우 이를 비활성화합니다.",
       "allowPrivateHosts": "사설/로컬 호스트 허용",
@@ -1232,6 +1269,24 @@
       "deleteConfirmLabel": "사용자 삭제",
       "inviteCreatedNoEmail": "초대가 생성되었습니다(이메일이 전송되지 않음 - 구성된 SMTP 계정이 없음).",
       "disable2faConfirmLabel": "2FA 비활성화",
+      "lastSeen": "마지막 접속 {{when}}",
+      "neverSeen": "로그인한 적 없음",
+      "edit": "편집",
+      "editTitle": "{{username}} 편집",
+      "username": "사용자 이름",
+      "usernameHint": "MailFlow에 로그인할 때 사용합니다.",
+      "recoveryEmail": "복구 이메일",
+      "recoveryEmailHint": "\"비밀번호를 잊으셨나요?\" 링크를 받습니다. 비워 두면 삭제됩니다.",
+      "newPassword": "새 비밀번호",
+      "newPasswordHint": "비워 두면 현재 비밀번호가 유지됩니다. 새 비밀번호를 저장하면 모든 기기에서 로그아웃됩니다.",
+      "newPasswordHintSelf": "비워 두면 현재 비밀번호가 유지됩니다. 다른 기기에서는 로그아웃되고 이 기기는 로그인 상태로 유지됩니다.",
+      "confirmPassword": "새 비밀번호 확인",
+      "passwordTooShort": "비밀번호는 8자 이상이어야 합니다.",
+      "passwordMismatch": "비밀번호가 일치하지 않습니다.",
+      "usernameTaken": "이미 사용 중인 사용자 이름입니다.",
+      "invalidEmail": "올바른 이메일 주소가 아닙니다.",
+      "saveFailed": "저장할 수 없습니다: {{message}}",
+      "passwordNotSet": "다른 변경 사항은 저장되었지만 비밀번호는 설정되지 않았습니다: {{message}}",
       "disable2faConfirmTitle": "\"{{username}}\"에 대해 2FA를 비활성화하시겠습니까?",
       "deleteConfirmTitle": "'{{username}}'을 삭제하시겠습니까?",
       "usedInvites": "사용됨 / 만료됨",

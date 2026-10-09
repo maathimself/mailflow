@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { query } from '../services/db.js';
+import bcrypt from 'bcryptjs';
+import { query, withTransaction } from '../services/db.js';
 import { requireAdmin } from '../middleware/auth.js';
+import { logAuthEvent } from '../services/authEvents.js';
 import { decrypt, encrypt } from '../services/encryption.js';
 import { validateHost, resolveForConnection } from '../services/hostValidation.js';
 import { createSmtpTransport } from '../services/smtpTransport.js';
@@ -11,6 +13,7 @@ import { imapManager } from '../index.js';
 import { stopCardavUser } from '../services/carddavSync.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { uuidParam } from '../utils/uuid.js';
+import { destroyUserSessions } from '../services/userSessions.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -32,19 +35,44 @@ export async function listUsers(req, res) {
   const offset = Math.max(parseInt(req.query.offset) || 0,   0);
   const [result, countResult] = await Promise.all([
     query(
-      'SELECT id, username, is_admin, totp_enabled, created_at, avatar FROM users ORDER BY created_at ASC LIMIT $1 OFFSET $2',
+      `SELECT id, username, is_admin, totp_enabled, created_at, avatar, last_seen_at, recovery_email,
+              password_hash IS NOT NULL AS has_password
+         FROM users ORDER BY created_at ASC LIMIT $1 OFFSET $2`,
       [limit, offset],
     ),
     query('SELECT COUNT(*) AS total FROM users'),
   ]);
   res.json({
-    users: result.rows.map(u => ({ ...u, avatar: safeAvatar(u.avatar), isAdmin: u.is_admin, totpEnabled: u.totp_enabled })),
+    users: result.rows.map(u => ({
+      id: u.id,
+      username: u.username,
+      created_at: u.created_at,
+      avatar: safeAvatar(u.avatar),
+      isAdmin: u.is_admin,
+      totpEnabled: u.totp_enabled,
+      lastSeenAt: u.last_seen_at,
+      recoveryEmail: u.recovery_email,
+      hasPassword: u.has_password,
+    })),
     total: parseInt(countResult.rows[0].total),
   });
 }
 router.get('/users', listUsers);
 
-router.post('/users/:id/totp/disable', async (req, res) => {
+// An admin can set any user's password and recovery email, and turn off their 2FA, so between
+// them any admin can sign in as any user. Each of those changes, and deleting a user, goes to the
+// security log with the admin who made it, not only to the server log. The admin's name is read from the database
+// rather than the session, which keeps the name they signed in with.
+async function logAdminChange(req, eventType, target) {
+  const actor = await query('SELECT username FROM users WHERE id = $1', [req.session.userId])
+    .then(r => r.rows[0]?.username, () => null);
+  logAuthEvent(eventType, {
+    username: target.username, userId: target.id,
+    actorUsername: actor || req.session.username || null, ip: req.ip, success: true,
+  });
+}
+
+export async function disableUserTotp(req, res) {
   const { id } = req.params;
   if (id === req.session.userId) {
     return res.status(400).json({ error: 'Use your account settings to manage your own 2FA.' });
@@ -53,29 +81,126 @@ router.post('/users/:id/totp/disable', async (req, res) => {
   if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
   await query('UPDATE users SET totp_secret = NULL, totp_enabled = false WHERE id = $1', [id]);
   console.log(`[admin] ${req.session.username} disabled 2FA for user ${target.rows[0].username} (${id})`);
+  await logAdminChange(req, 'admin_totp_disable', { id, username: target.rows[0].username });
   res.json({ ok: true });
-});
+}
+router.post('/users/:id/totp/disable', disableUserTotp);
 
-router.patch('/users/:id', async (req, res) => {
+// The same rules registration applies: stored lower-case, 1-120 characters, no control
+// characters. Returns the normalized name or an error message.
+function normalizeUsername(raw) {
+  if (typeof raw !== 'string') return { error: 'Username required' };
+  const username = raw.toLowerCase().trim();
+  if (username.length < 1 || username.length > 120) {
+    return { error: 'Username must be between 1 and 120 characters' };
+  }
+  // eslint-disable-next-line no-control-regex -- intentionally rejecting control characters
+  if (/[\x00-\x1f\x7f]/.test(username)) return { error: 'Username contains invalid characters' };
+  return { username };
+}
+
+// Changes any of isAdmin, username and recoveryEmail; fields left out are not touched.
+export async function updateUser(req, res) {
   const { id } = req.params;
-  const { isAdmin } = req.body;
+  const { isAdmin, username, recoveryEmail } = req.body ?? {};
 
   // Prevent removing your own admin status
   if (id === req.session.userId && isAdmin === false) {
     return res.status(400).json({ error: 'Cannot remove your own admin status' });
   }
 
-  const target = await query('SELECT username FROM users WHERE id = $1', [id]);
-  if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
+  const sets = [];
+  const values = [];
+  const changes = [];
+  if (isAdmin !== undefined) {
+    if (typeof isAdmin !== 'boolean') return res.status(400).json({ error: 'isAdmin must be true or false' });
+    values.push(isAdmin);
+    sets.push(`is_admin = $${values.length}`);
+    changes.push(`is_admin=${isAdmin}`);
+  }
+  let newUsername;
+  if (username !== undefined) {
+    const normalized = normalizeUsername(username);
+    if (normalized.error) return res.status(400).json({ error: normalized.error });
+    newUsername = normalized.username;
+    values.push(normalized.username);
+    sets.push(`username = $${values.length}`);
+    changes.push(`username=${normalized.username}`);
+  }
+  let email;
+  if (recoveryEmail !== undefined) {
+    email = recoveryEmail ? String(recoveryEmail).trim().toLowerCase() : null;
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Invalid email address' });
+    }
+    values.push(email);
+    sets.push(`recovery_email = $${values.length}`);
+    changes.push('recovery_email');
+  }
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to change' });
 
-  await query('UPDATE users SET is_admin = $1 WHERE id = $2', [isAdmin, id]);
-  console.log(`[admin] ${req.session.username} set is_admin=${isAdmin} for user ${target.rows[0].username} (${id})`);
+  const target = await query('SELECT username, recovery_email FROM users WHERE id = $1', [id]);
+  if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
+  const emailChanged = email !== undefined && email !== (target.rows[0].recovery_email ?? null);
+
+  values.push(id);
+  try {
+    await withTransaction(async client => {
+      await client.query(`UPDATE users SET ${sets.join(', ')} WHERE id = $${values.length}`, values);
+      // A reset link or login code already sent to the old address must stop working: the
+      // address may be changing because someone else has it.
+      if (emailChanged) {
+        await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [id]);
+        await client.query('DELETE FROM email_otp_tokens WHERE user_id = $1', [id]);
+      }
+    });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Username already taken' });
+    throw err;
+  }
+  console.log(`[admin] ${req.session.username} changed ${changes.join(', ')} for user ${target.rows[0].username} (${id})`);
+  const finalUsername = newUsername ?? target.rows[0].username;
+  // An admin renaming themselves: the session keeps the name for the server log lines.
+  if (id === req.session.userId) req.session.username = finalUsername;
+  await logAdminChange(req, 'admin_user_update', { id, username: finalUsername });
 
   // If user is currently logged in, their session isAdmin will be refreshed on next /me call
   res.json({ ok: true });
-});
+}
+router.patch('/users/:id', updateUser);
 
-router.delete('/users/:id', async (req, res) => {
+// Sets a user's password, for someone who has lost theirs and has no recovery email. It takes
+// away what a self-service reset does, and more: every session (an admin setting their own keeps
+// the session they are using), trusted devices, which skip the second factor, and any reset link
+// or login code already sent, which would otherwise still set a different password or sign in.
+export async function setUserPassword(req, res) {
+  const { id } = req.params;
+  const { password } = req.body ?? {};
+  if (typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  if (Buffer.byteLength(password, 'utf8') > 72) {
+    // bcrypt ignores everything past 72 bytes, so a longer password would not mean what it says.
+    return res.status(400).json({ error: 'Password must be at most 72 bytes' });
+  }
+  const target = await query('SELECT username FROM users WHERE id = $1', [id]);
+  if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
+
+  const hash = await bcrypt.hash(password, 12);
+  await withTransaction(async client => {
+    await client.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, id]);
+    await client.query('DELETE FROM trusted_devices WHERE user_id = $1', [id]);
+    await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [id]);
+    await client.query('DELETE FROM email_otp_tokens WHERE user_id = $1', [id]);
+  });
+  await destroyUserSessions(id, { exceptSessionId: id === req.session.userId ? req.sessionID : undefined });
+  console.log(`[admin] ${req.session.username} set a new password for user ${target.rows[0].username} (${id})`);
+  await logAdminChange(req, 'admin_password_set', { id, username: target.rows[0].username });
+  res.json({ ok: true });
+}
+router.post('/users/:id/password', setUserPassword);
+
+export async function deleteUser(req, res) {
   const { id } = req.params;
   if (id === req.session.userId) {
     return res.status(400).json({ error: 'Cannot delete your own account' });
@@ -93,8 +218,12 @@ router.delete('/users/:id', async (req, res) => {
   // completed delete as a 500. The hook swallows per-plugin errors.
   await pluginRegistry.runHook('onUserDelete', { userId: id });
   console.log(`[admin] ${req.session.username} deleted user ${target.rows[0].username} (${id})`);
+  // Logged once the delete has happened, and by name only: the event's user_id references
+  // users, and the row it would point at is gone.
+  await logAdminChange(req, 'admin_user_delete', { id: null, username: target.rows[0].username });
   res.json({ ok: true });
-});
+}
+router.delete('/users/:id', deleteUser);
 
 // ── System settings ────────────────────────────────────────────────────────────
 
@@ -110,7 +239,7 @@ router.get('/auth-events', async (req, res) => {
   const offset = Math.max(parseInt(req.query.offset) || 0, 0);
   const [eventsResult, countResult] = await Promise.all([
     query(
-      `SELECT id, event_type, username, user_id, ip, success, created_at
+      `SELECT id, event_type, username, user_id, actor_username, ip, success, created_at
        FROM auth_events ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
       [limit, offset]
     ),
@@ -339,6 +468,7 @@ router.post('/invites', async (req, res) => {
         transport = createSmtpTransport(acctResolved, {
           port: account.smtp_port,
           secure: account.smtp_port === 465,
+          requireTLS: account.smtp_port !== 465 && !policy.allowInsecureTls,
           auth: smtpAuth,
           tls: acctTls,
         });

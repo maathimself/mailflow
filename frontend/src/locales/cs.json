@@ -164,6 +164,13 @@
     "updateAvailable": "Je dostupná aktualizace: v{{version}}"
   },
   "messageList": {
+    "replyDraftChanged": "Koncept odpovědi se změnil. Zkuste jej znovu otevřít.",
+    "replyDraftKeepCurrent": "Před otevřením tohoto konceptu uložte aktuální zprávu a vyřešte její přílohy.",
+    "replyDraftUnavailable": "Tento koncept odpovědi již není dostupný.",
+    "replyDraftCancelled": "Otevírání konceptu odpovědi bylo zrušeno, protože se změnil výběr nebo okno zprávy. Zkuste jej otevřít znovu.",
+    "replyDraftRetry": "Znovu vyhledat koncept odpovědi",
+    "openReplyDraft": "Otevřít koncept odpovědi",
+    "replyDraft": "Koncept odpovědi",
     "search": "Hledat…",
     "unread": "Nepřečtené",
     "showAll": "Zobrazit vše",
@@ -278,6 +285,11 @@
       "promotion": "Propagace",
       "automated": "Automatické",
       "social": "Sociální sítě"
+    },
+    "categoryAlways": {
+      "done": "Pošta od {{value}} teď půjde do: {{category}}",
+      "doneBody": "Uloženo jako pravidlo doručené pošty; aktualizována i již přijatá pošta.",
+      "failed": "Kategorii pro tohoto odesílatele se nepodařilo uložit"
     },
     "changeLayout": "Změnit rozvržení",
     "layouts": {
@@ -421,6 +433,7 @@
     }
   },
   "compose": {
+    "unsupportedDraftFrom": "Před uložením nebo odesláním tohoto konceptu vyberte nastaveného odesílatele.",
     "newMessage": "Nová zpráva",
     "reply": "Odpovědět",
     "replyAll": "Odpovědět všem",
@@ -472,6 +485,18 @@
       "noCopy": "Zpráva byla odeslána, ale neuložila se do složky Odeslané",
       "someRejected": "Poštovní server odmítl doručení na {{addresses}}.",
       "action": "Zobrazit"
+    },
+    "undoSend": {
+      "sending": "Odesílání „{{subject}}“…",
+      "undone": "Odeslání vráceno zpět",
+      "reopenLater": "Znovu se otevře, až zavřete zprávu, kterou právě píšete",
+      "notSent": "Vaše zpráva nebyla odeslána",
+      "lost": "Server se před odesláním restartoval, takže zpráva nebyla doručena.",
+      "unknown": "Nepodařilo se ověřit, zda byla zpráva odeslána",
+      "unknownBody": "Než ji odešlete znovu, zkontrolujte složku Odeslané.",
+      "reopen": "Znovu otevřít",
+      "tooLate": "Na vrácení je pozdě: zpráva se už odesílá",
+      "undoFailed": "Nepodařilo se vrátit zpět: server neodpověděl"
     },
     "toolbar": {
       "removeTable": "Odebrat tabulku",
@@ -567,6 +592,7 @@
     "reply": "Odpovědět",
     "replyAll": "Odpovědět všem",
     "forward": "Přeposlat",
+    "forwardAsAttachment": "Přeposlat jako přílohu",
     "moveToFolder": "Přesunout",
     "archive": "Archivovat",
     "snooze": {
@@ -577,6 +603,9 @@
       "custom": "Vlastní…"
     },
     "categorize": "Zařadit jako…",
+    "categoryAlwaysSender": "Vždy pro tohoto odesílatele",
+    "categoryAlwaysDomain": "Vždy pro tuto doménu",
+    "categoryAlwaysFor": "Vždy pro {{value}}",
     "createRule": "Vytvořit pravidlo ze zprávy",
     "addToBlockList": "Přidat na seznam blokovaných",
     "markAsSpam": "Označit jako spam",
@@ -1189,6 +1218,8 @@
       "actionMove": "Přesunout do složky",
       "actionForward": "Přeposlat na",
       "actionForwardPlaceholder": "prijemce@example.com",
+      "actionSetCategory": "Nastavit kategorii",
+      "actionSetCategorySelect": "Vyberte kategorii…",
       "actionMovePlaceholder": "Přesná cesta ke složce IMAP (např. Práce nebo INBOX/Práce)",
       "actionMoveSelectFolder": "Vyberte složku…",
       "actionMoveRequiresAccount": "Vyžaduje konkrétní účet",
@@ -1296,6 +1327,7 @@
       "configureIn": "Možnosti nastavíte v části {{location}}"
     },
     "messageList": {
+      "autoOpenReplyDrafts": "Automaticky otevírat uložené odpovědi při výběru zpráv v doručené poště",
       "title": "Seznam zpráv",
       "senderFavicons": "Ikony webů odesílatelů",
       "senderFaviconsDesc": "Zobrazovat ikony webů u odesílatelů bez fotografie kontaktu. Službě Twenty Icons se odesílá pouze doména odesílatele, nikdy celá e-mailová adresa.",
@@ -1495,6 +1527,11 @@
       "eventTotpSuccess": "2FA ověřeno",
       "eventTotpFail": "Neúspěšné 2FA",
       "eventSsoLogin": "Přihlášení přes SSO",
+      "eventAdminPasswordSet": "Heslo nastaveno",
+      "eventAdminUserUpdate": "Účet upraven",
+      "eventAdminTotpDisable": "2FA vypnuto",
+      "eventAdminUserDelete": "Účet smazán",
+      "byActor": "uživatelem {{actor}}",
       "qrCodeAlt": "QR kód",
       "mailPolicyTitle": "Zásady připojení k poštovním serverům",
       "mailPolicyDesc": "Určuje, jaké typy připojení mohou uživatelé nastavovat. U instalací dostupných z internetu tyto možnosti vypněte.",
@@ -1576,7 +1613,25 @@
       "deleteConfirmLabel": "Smazat uživatele",
       "disable2faConfirmTitle": "Vypnout 2FA uživateli „{{username}}“?",
       "disable2faConfirmBody": "Tím odeberete požadavek na ověřovací aplikaci. Uživatel si jej může znovu zapnout.",
-      "disable2faConfirmLabel": "Vypnout 2FA"
+      "disable2faConfirmLabel": "Vypnout 2FA",
+      "lastSeen": "Naposledy aktivní {{when}}",
+      "neverSeen": "Nikdy se nepřihlásil",
+      "edit": "Upravit",
+      "editTitle": "Upravit {{username}}",
+      "username": "Uživatelské jméno",
+      "usernameHint": "Slouží k přihlášení do MailFlow.",
+      "recoveryEmail": "Záložní e-mail",
+      "recoveryEmailHint": "Dostává odkaz „Zapomenuté heslo?“. Nechte prázdné pro odebrání.",
+      "newPassword": "Nové heslo",
+      "newPasswordHint": "Nechte prázdné pro zachování současného. Uložením nového se uživatel odhlásí na všech zařízeních.",
+      "newPasswordHintSelf": "Nechte prázdné pro zachování současného. Vaše ostatní zařízení budou odhlášena; toto zůstane přihlášené.",
+      "confirmPassword": "Potvrďte nové heslo",
+      "passwordTooShort": "Heslo musí mít alespoň 8 znaků.",
+      "passwordMismatch": "Hesla se neshodují.",
+      "usernameTaken": "Toto uživatelské jméno je již obsazené.",
+      "invalidEmail": "Tato e-mailová adresa není platná.",
+      "saveFailed": "Uložení se nezdařilo: {{message}}",
+      "passwordNotSet": "Ostatní změny byly uloženy, ale heslo nebylo nastaveno: {{message}}"
     },
     "search": {
       "placeholder": "Hledat v nastavení…",

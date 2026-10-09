@@ -94,6 +94,7 @@
     "hidePassword": "Ocultar contraseña"
   },
   "compose": {
+    "unsupportedDraftFrom": "Elige un remitente configurado antes de guardar o enviar este borrador.",
     "newMessage": "Nuevo mensaje",
     "reply": "Responder",
     "replyAll": "Responder a todos",
@@ -145,6 +146,18 @@
       "noCopy": "Enviado, pero no guardado en Enviados",
       "someRejected": "El servidor de correo rechazó la entrega a {{addresses}}.",
       "action": "Ver"
+    },
+    "undoSend": {
+      "sending": "Enviando «{{subject}}»…",
+      "undone": "Envío deshecho",
+      "reopenLater": "Se volverá a abrir cuando cierres el mensaje que estás escribiendo",
+      "notSent": "Tu mensaje no se envió",
+      "lost": "El servidor se reinició antes de enviarlo, así que no se entregó.",
+      "unknown": "No se pudo confirmar que tu mensaje se enviara",
+      "unknownBody": "Revisa la carpeta Enviados antes de volver a enviarlo.",
+      "reopen": "Volver a abrir",
+      "tooLate": "Demasiado tarde para deshacer: el mensaje ya se está enviando",
+      "undoFailed": "No se pudo deshacer: el servidor no respondió"
     },
     "toolbar": {
       "removeTable": "Eliminar tabla",
@@ -302,6 +315,13 @@
     }
   },
   "messageList": {
+    "replyDraftChanged": "El borrador de respuesta ha cambiado. Intenta abrirlo de nuevo.",
+    "replyDraftKeepCurrent": "Guarda el mensaje actual y resuelve sus adjuntos antes de abrir este borrador.",
+    "replyDraftUnavailable": "Este borrador de respuesta ya no está disponible.",
+    "replyDraftCancelled": "Se canceló la apertura del borrador de respuesta porque cambió la selección o el editor. Intenta abrirlo de nuevo.",
+    "replyDraftRetry": "Volver a buscar el borrador de respuesta",
+    "openReplyDraft": "Abrir borrador de respuesta",
+    "replyDraft": "Borrador de respuesta",
     "search": "Buscar…",
     "unread": "No leídos",
     "showAll": "Mostrar todos",
@@ -405,6 +425,11 @@
       "automated": "Automático",
       "social": "Social"
     },
+    "categoryAlways": {
+      "done": "El correo de {{value}} ahora va a {{category}}",
+      "doneBody": "Guardado como regla de la bandeja de entrada; también se actualizó el correo ya recibido.",
+      "failed": "No se pudo guardar la categoría de este remitente"
+    },
     "changeLayout": "Cambiar diseño",
     "layouts": {
       "focused": {
@@ -499,6 +524,7 @@
     "reply": "Responder",
     "replyAll": "Responder a todos",
     "forward": "Reenviar",
+    "forwardAsAttachment": "Reenviar como adjunto",
     "moveToFolder": "Mover",
     "archive": "Archivar",
     "snooze": {
@@ -509,6 +535,9 @@
       "custom": "Personalizado..."
     },
     "categorize": "Categorizar como…",
+    "categoryAlwaysSender": "Siempre para este remitente",
+    "categoryAlwaysDomain": "Siempre para este dominio",
+    "categoryAlwaysFor": "Siempre para {{value}}",
     "createRule": "Crear regla desde este mensaje",
     "addToBlockList": "Añadir a la lista de bloqueo",
     "markAsSpam": "Marcar como Spam",
@@ -811,6 +840,8 @@
       "actionMove": "Mover a carpeta",
       "actionForward": "Reenviar a",
       "actionForwardPlaceholder": "destinatario@example.com",
+      "actionSetCategory": "Establecer categoría",
+      "actionSetCategorySelect": "Selecciona una categoría…",
       "actionMovePlaceholder": "Nombre de la carpeta",
       "stopProcessing": "Detener el procesamiento de reglas posteriores si esta coincide",
       "stopProcessingHint": "Si esta regla coincide, las reglas posteriores no se ejecutarán para el mismo mensaje.",
@@ -977,6 +1008,7 @@
       "customCssSaved": "Guardado"
     },
     "messageList": {
+      "autoOpenReplyDrafts": "Abrir automáticamente las respuestas guardadas al seleccionar mensajes de la bandeja de entrada",
       "title": "Lista de mensajes",
       "senderFavicons": "Favicons de remitentes",
       "senderFaviconsDesc": "Mostrar iconos de sitios web para los remitentes sin foto de contacto. Solo se envía a Twenty Icons el dominio del remitente, nunca su dirección de correo completa.",
@@ -1151,6 +1183,11 @@
       "activityBlocked": "Bloqueado",
       "savingProtection": "Guardando…",
       "eventSsoLogin": "Inicio de sesión SSO",
+      "eventAdminPasswordSet": "Contraseña establecida",
+      "eventAdminUserUpdate": "Cuenta editada",
+      "eventAdminTotpDisable": "2FA desactivado",
+      "eventAdminUserDelete": "Cuenta eliminada",
+      "byActor": "por {{actor}}",
       "activityTitle": "Actividad de inicio de sesión",
       "loginProtectionTitle": "Protección de inicio de sesión",
       "qrCodeAlt": "QR code",
@@ -1238,7 +1275,25 @@
       "deleteConfirmLabel": "Eliminar usuario",
       "disable2faConfirmTitle": "¿Desactivar 2FA para «{{username}}»?",
       "disable2faConfirmBody": "Esto eliminará el requisito de su aplicación de autenticación. Pueden volver a activarla ellos mismos.",
-      "disable2faConfirmLabel": "Desactivar 2FA"
+      "disable2faConfirmLabel": "Desactivar 2FA",
+      "lastSeen": "Último acceso {{when}}",
+      "neverSeen": "Nunca ha iniciado sesión",
+      "edit": "Editar",
+      "editTitle": "Editar {{username}}",
+      "username": "Nombre de usuario",
+      "usernameHint": "Se usa para iniciar sesión en MailFlow.",
+      "recoveryEmail": "Correo de recuperación",
+      "recoveryEmailHint": "Recibe el enlace de \"¿Olvidaste tu contraseña?\". Déjalo vacío para quitarlo.",
+      "newPassword": "Nueva contraseña",
+      "newPasswordHint": "Déjala vacía para mantener la actual. Al guardar una nueva, se cierra la sesión del usuario en todos los dispositivos.",
+      "newPasswordHintSelf": "Déjala vacía para mantener la actual. Se cierra la sesión en tus otros dispositivos; en este sigue abierta.",
+      "confirmPassword": "Confirmar nueva contraseña",
+      "passwordTooShort": "La contraseña debe tener al menos 8 caracteres.",
+      "passwordMismatch": "Las contraseñas no coinciden.",
+      "usernameTaken": "Ese nombre de usuario ya está en uso.",
+      "invalidEmail": "Esa dirección de correo no es válida.",
+      "saveFailed": "No se pudo guardar: {{message}}",
+      "passwordNotSet": "Los demás cambios se guardaron, pero la contraseña no se estableció: {{message}}"
     },
     "ai": {
       "title": "Asistente IA",

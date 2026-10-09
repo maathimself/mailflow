@@ -20,13 +20,15 @@ import {
 } from '../utils/gtd.js';
 import { formatDate } from '../utils/formatDate.js';
 import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
-import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
+import { openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFromMessage } from '../utils/composeFromMessage.js';
 import { selectedMessage, markMessageUnread } from '../utils/messageHotkeys.js';
 import { cancelScheduledMarkReadFor } from '../utils/markRead.js';
+import { saveSenderCategory } from '../utils/senderCategory.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
-import { folderDisplayName, folderMatchesQuery } from '../utils/folderDisplay.js';
+import { folderDisplayName, folderMatchesQuery, favoriteMoveTargets, recentMoveTargets } from '../utils/folderDisplay.js';
 import SpamBadge from './SpamBadge.jsx';
+import ReplyDraftIndicator from './ReplyDraftIndicator.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
@@ -127,7 +129,7 @@ export default function MessageList() {
     threadMessages, setThreadMessages, clearThreadMessages, loadingThread, setLoadingThread,
     hoverQuickActions, hoverActionSet, showMobileAvatars, showMessagePreviews,
     swipeActions,
-    folders, favoriteFolders, addFavoriteFolder, removeFavoriteFolder, setSelectedAccount,
+    folders, favoriteFolders, recentFolders, addFavoriteFolder, removeFavoriteFolder, setSelectedAccount,
     categorizationEnabled, categoryCounts, setCategoryCounts, adjustCategoryCount,
     markReadBehavior, markReadDelay,
     searchAllFolders,
@@ -2237,6 +2239,9 @@ export default function MessageList() {
           getMessageBody: api.getMessageBody,
         });
         break;
+      case 'forwardAsAttachment':
+        openForwardAsAttachmentFromMessage(message, { openCompose });
+        break;
       case 'bulkSelect':
         setSelectedIds(new Set([message.id]));
         break;
@@ -2426,21 +2431,38 @@ export default function MessageList() {
         break;
       }
       case 'setCategory': {
+        // Stored as chosen, 'primary' included, as the server does (#489).
         const newCategory = data || 'primary';
-        const dbCategory = newCategory === 'primary' ? null : newCategory;
         try {
           await api.setMessageCategory(message.id, newCategory);
           const inFilteredView = categorizationActive && activeCategory && activeCategory !== (newCategory || 'primary');
           if (inFilteredView) {
             removeMessage(message.id);
           } else {
-            updateMessage(message.id, { category: dbCategory });
+            updateMessage(message.id, { category: newCategory });
           }
           // Refresh category counts badge
           const countParams = selectedAccountId ? { accountId: selectedAccountId } : {};
           api.getCategoryCounts(countParams).then(d => setCategoryCounts(d.counts || {})).catch(() => {});
         } catch (err) {
           console.error('setCategory failed:', err?.message);
+        }
+        break;
+      }
+      case 'setCategoryAlways': {
+        // "Always for this sender/domain" (#490): every loaded inbox message from that sender moves
+        // with it, and leaves a category tab it no longer belongs to.
+        const category = data?.category;
+        const saved = await saveSenderCategory(message, data?.scope, category, {
+          t, api, getState: useStore.getState,
+          onMatch: loaded => {
+            if (categorizationActive && activeCategory && activeCategory !== category) removeMessage(loaded.id);
+            else updateMessage(loaded.id, { category });
+          },
+        });
+        if (saved) {
+          const countParams = selectedAccountId ? { accountId: selectedAccountId } : {};
+          api.getCategoryCounts(countParams).then(d => setCategoryCounts(d.counts || {})).catch(() => {});
         }
         break;
       }
@@ -2512,6 +2534,8 @@ export default function MessageList() {
           subject: message.subject || '',
           body,
           bodyIsHtml: !!bodyData.html,
+          inReplyTo: message.in_reply_to || undefined,
+          references: message.thread_references || undefined,
           ...(signature !== null ? { signature } : inline ? { signature: '' } : {}),
         });
       } catch (err) {
@@ -3668,38 +3692,56 @@ export default function MessageList() {
                         const q = pickerSearch.trim().toLowerCase();
                         const displayed = pickerFolders
                           .filter(f => f.path !== selectedFolder && (!q || folderMatchesQuery(f, q)));
+                        // Recent and favorite targets above the full list, as in the single-message
+                        // pickers (#551). The bulk picker only opens for one account's messages.
+                        const target = { accountId: selectedMsgs[0]?.account_id, currentFolder: selectedFolder };
+                        const recent = q ? [] : recentMoveTargets(recentFolders, pickerFolders, target);
+                        const favorites = q ? [] : favoriteMoveTargets(favoriteFolders, pickerFolders, { ...target, exclude: recent });
+                        const heading = label => (
+                          <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                            {label}
+                          </div>
+                        );
+                        const divider = <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />;
+                        const item = (f, key) => (
+                          <button
+                            key={key}
+                            onClick={() => handleBulkMove([...selectedIds], selectedMsgs, f.path)}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 8,
+                              width: '100%', padding: '8px 12px',
+                              background: 'none', border: 'none',
+                              color: 'var(--text-primary)', fontSize: 13,
+                              cursor: 'pointer', textAlign: 'left',
+                              transition: 'background 0.1s',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                          >
+                            <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
+                              <FolderIcon specialUse={f.special_use} />
+                            </span>
+                            <FolderPathLabel folder={f} label={f.favoriteLabel} />
+                          </button>
+                        );
                         return displayed.length === 0 ? (
                           <div style={{ padding: '12px 12px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
                             {t('contextMenu.folders.empty')}
                           </div>
                         ) : (
                           <>
-                            {!q && (
-                              <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                                {t('messageList.moveToFolder')}
-                              </div>
-                            )}
-                            {displayed.map(f => (
-                              <button
-                                key={f.path}
-                                onClick={() => handleBulkMove([...selectedIds], selectedMsgs, f.path)}
-                                style={{
-                                  display: 'flex', alignItems: 'center', gap: 8,
-                                  width: '100%', padding: '8px 12px',
-                                  background: 'none', border: 'none',
-                                  color: 'var(--text-primary)', fontSize: 13,
-                                  cursor: 'pointer', textAlign: 'left',
-                                  transition: 'background 0.1s',
-                                }}
-                                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                                onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                              >
-                                <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
-                                  <FolderIcon specialUse={f.special_use} />
-                                </span>
-                                <FolderPathLabel folder={f} />
-                              </button>
-                            ))}
+                            {recent.length > 0 && (<>
+                              {heading(t('contextMenu.folders.recent'))}
+                              {recent.map(f => item(f, `recent-${f.path}`))}
+                              {divider}
+                            </>)}
+                            {favorites.length > 0 && (<>
+                              {heading(t('contextMenu.folders.favorites'))}
+                              {favorites.map(f => item(f, `fav-${f.path}`))}
+                              {divider}
+                            </>)}
+                            {!q && heading(t('messageList.moveToFolder'))}
+                            {displayed.map(f => item(f, f.path))}
                           </>
                         );
                       })()}
@@ -3763,13 +3805,17 @@ export default function MessageList() {
                         const q = pickerSearch.trim().toLowerCase();
                         const displayed = pickerFolders
                           .filter(f => f.path !== selectedFolder && (!q || folderMatchesQuery(f, q)));
-                        return displayed.length === 0 ? (
-                          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
-                            {t('contextMenu.folders.empty')}
+                        const target = { accountId: selectedMsgs[0]?.account_id, currentFolder: selectedFolder };
+                        const recent = q ? [] : recentMoveTargets(recentFolders, pickerFolders, target);
+                        const favorites = q ? [] : favoriteMoveTargets(favoriteFolders, pickerFolders, { ...target, exclude: recent });
+                        const heading = label => (
+                          <div style={{ padding: '12px 20px 6px', fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', borderBottom: '1px solid var(--border-subtle)' }}>
+                            {label}
                           </div>
-                        ) : displayed.map(f => (
+                        );
+                        const item = (f, key) => (
                           <button
-                            key={f.path}
+                            key={key}
                             onClick={() => { handleBulkMove([...selectedIds], selectedMsgs, f.path); setShowFolderPicker(false); }}
                             style={{
                               display: 'flex', alignItems: 'center', gap: 14,
@@ -3784,9 +3830,29 @@ export default function MessageList() {
                             <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
                               <FolderIcon specialUse={f.special_use} />
                             </span>
-                            <FolderPathLabel folder={f} />
+                            <FolderPathLabel folder={f} label={f.favoriteLabel} />
                           </button>
-                        ));
+                        );
+                        if (displayed.length === 0) {
+                          return (
+                            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                              {t('contextMenu.folders.empty')}
+                            </div>
+                          );
+                        }
+                        const sectioned = recent.length > 0 || favorites.length > 0;
+                        return (<>
+                          {recent.length > 0 && (<>
+                            {heading(t('contextMenu.folders.recent'))}
+                            {recent.map(f => item(f, `recent-${f.path}`))}
+                          </>)}
+                          {favorites.length > 0 && (<>
+                            {heading(t('contextMenu.folders.favorites'))}
+                            {favorites.map(f => item(f, `fav-${f.path}`))}
+                          </>)}
+                          {sectioned && heading(t('messageList.foldersHeading'))}
+                          {displayed.map(f => item(f, f.path))}
+                        </>);
                       })()}
                     </div>
                   </div>
@@ -4153,8 +4219,10 @@ function UndoBar({ notification, onDismiss, showTopBorder }) {
     dismiss();
   };
 
+  // Undo send brings its own window; everything else uses the standard one.
+  const windowMs = notification.undoMs ?? UNDO_WINDOW_MS;
   useEffect(() => {
-    const timer = setTimeout(dismiss, UNDO_WINDOW_MS);
+    const timer = setTimeout(dismiss, windowMs);
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -4174,7 +4242,7 @@ function UndoBar({ notification, onDismiss, showTopBorder }) {
       <div style={{
         position: 'absolute', bottom: 0, left: 0,
         height: 2, background: 'var(--accent)',
-        animation: `action-bar-progress ${UNDO_WINDOW_MS}ms linear forwards`,
+        animation: `action-bar-progress ${windowMs}ms linear forwards`,
       }} />
       <span style={{
         flex: 1, minWidth: 0,
@@ -4564,6 +4632,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {message.subject || t('common.noSubject')}
             </span>
+            <ReplyDraftIndicator message={message} />
             <SpamBadge message={message} onClick={onExplainSpam} />
           </div>
           {/* Row 3: snippet */}
@@ -4895,6 +4964,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {message.subject || t('message.noSubject')}
           </span>
+          <ReplyDraftIndicator message={message} />
           <SpamBadge message={message} onClick={onExplainSpam} />
         </div>
 
