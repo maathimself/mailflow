@@ -5,7 +5,7 @@ vi.mock('../services/db.js', () => {
   // The transaction client runs its statements through the same mock, so they are recorded in order.
   return { query, pool: {}, withTransaction: vi.fn(async fn => fn({ query })) };
 });
-vi.mock('../index.js', () => ({ imapManager: { disconnectUser: vi.fn() } }));
+vi.mock('../index.js', () => ({ imapManager: { disconnectUser: vi.fn(async () => {}) } }));
 vi.mock('../services/encryption.js', () => ({ decrypt: v => v, encrypt: v => v }));
 vi.mock('../services/hostValidation.js', () => ({ validateHost: vi.fn(), resolveForConnection: vi.fn() }));
 vi.mock('../services/smtpTransport.js', () => ({ createSmtpTransport: vi.fn() }));
@@ -19,7 +19,7 @@ vi.mock('../services/redis.js', () => ({ redisClient: {} }));
 import bcrypt from 'bcryptjs';
 import { query } from '../services/db.js';
 import { destroyUserSessions } from '../services/userSessions.js';
-import { listUsers, updateUser, setUserPassword, disableUserTotp } from './admin.js';
+import { listUsers, updateUser, setUserPassword, disableUserTotp, deleteUser } from './admin.js';
 
 const ADMIN = 'aaaaaaaa-0000-4000-8000-000000000001';
 const USER = 'bbbbbbbb-0000-4000-8000-000000000002';
@@ -242,5 +242,45 @@ describe('the security log records admin changes and who made them', () => {
     const req = request({ id: ADMIN }, { username: 'Chefe' });
     await updateUser(req, reply());
     expect(req.session.username).toBe('chefe');
+  });
+});
+
+describe('deleting a user is in the security log', () => {
+  it('after the delete, by name, with the admin who did it', async () => {
+    users();
+    const res = reply();
+    await deleteUser(request({ id: USER }), res);
+    const run = sqls();
+    const del = run.indexOf('DELETE FROM users WHERE id = $1');
+    const log = run.findIndex(s => s.startsWith('INSERT INTO auth_events'));
+    expect(del).toBeGreaterThan(-1);
+    expect(log).toBeGreaterThan(del);
+    // No user_id: it references users, and that row is gone.
+    expect(events()).toEqual([['admin_user_delete', 'maria', null, 'admin-renamed', '203.0.113.7', true]]);
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it('not when the delete is refused, or the user does not exist', async () => {
+    users();
+    const own = reply();
+    await deleteUser(request({ id: ADMIN }), own);
+    expect(own.status).toHaveBeenCalledWith(400);
+    query.mockImplementation(async () => ({ rows: [] }));
+    const missing = reply();
+    await deleteUser(request({ id: USER }), missing);
+    expect(missing.status).toHaveBeenCalledWith(404);
+    expect(sqls()).not.toContain('DELETE FROM users WHERE id = $1');
+    expect(events()).toEqual([]);
+  });
+
+  it('not when the delete fails', async () => {
+    users();
+    const lookups = query.getMockImplementation();
+    query.mockImplementation(async (sql, params) => {
+      if (sql.startsWith('DELETE FROM users')) throw new Error('db down');
+      return lookups(sql, params);
+    });
+    await expect(deleteUser(request({ id: USER }), reply())).rejects.toThrow('db down');
+    expect(events()).toEqual([]);
   });
 });

@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { logger } from './logger.js';
 import {
   stripEmailHead,
   sanitizeEmail,
@@ -11,6 +12,25 @@ import {
 } from './emailSanitizer.js';
 
 // ── stripEmailHead ─────────────────────────────────────────────────────────
+
+describe('draft signature sanitization', () => {
+  it('keeps only the safe div signature marker when requested for draft composition', () => {
+    const html = '<p>Reply</p><div data-mailflow-signature="1" onclick="alert(1)"><strong>Thanks</strong><img src="javascript:alert(2)" onerror="alert(3)"><script>alert(4)</script></div><span data-mailflow-signature="1">Quoted</span>';
+    const sanitized = sanitizeEmail(html, { preserveDraftSignature: true });
+    expect(sanitized).toContain('<div data-mailflow-signature="1">');
+    expect(sanitized).toContain('<strong>Thanks</strong>');
+    expect(sanitized.match(/data-mailflow-signature/g)).toHaveLength(1);
+    expect(sanitized).not.toMatch(/onclick|onerror|javascript:|<script|alert\(4\)/i);
+    expect(sanitizeEmail(html)).not.toContain('data-mailflow-signature');
+  });
+
+  it('strips global CSS from composer-bound signatures while retaining ordinary email styles', () => {
+    const html = '<div data-mailflow-signature="1"><p>Thanks</p><style>body button{display:none!important}</style></div>';
+    const sanitized = sanitizeEmail(html, { preserveDraftSignature: true });
+    expect(sanitized).toBe('<div data-mailflow-signature="1"><p>Thanks</p></div>');
+    expect(sanitizeEmail(html)).toContain('<style>body button{display:none!important}</style>');
+  });
+});
 
 describe('stripEmailHead', () => {
   it('removes <head> and its text content', () => {
@@ -47,6 +67,76 @@ describe('stripEmailHead', () => {
 });
 
 // ── sanitizeEmail ──────────────────────────────────────────────────────────
+
+describe('sanitizeEmail — malformed markup', () => {
+  it('keeps the body when </head> comes after </body>', () => {
+    const out = sanitizeEmail('<html><head><style>p{color:red}</style><body><p>Je bezorging is bijgewerkt</p></body></head></html>');
+    expect(out).toContain('<p>Je bezorging is bijgewerkt</p>');
+    expect(out).toContain('p{color:red}');
+  });
+
+  it('does not let a stray </td> close a cell of the outer table', () => {
+    const out = sanitizeEmail(
+      '<table><tr><td><table><tr><td><tr><td>inner</td></tr></td></tr></table>' +
+      '<p>outer cell</p></td><td>second cell</td></tr></table>'
+    );
+    expect(out).toBe(
+      '<table><tbody><tr><td><table><tbody><tr><td></td></tr><tr><td>inner</td></tr></tbody></table>' +
+      '<p>outer cell</p></td><td>second cell</td></tr></tbody></table>'
+    );
+  });
+
+  it('still sanitizes markup nested deeper than the HTML5 rebuild allows', () => {
+    const out = sanitizeEmail(`<html><body>${'<div>'.repeat(5000)}deep text</body></html>`);
+    expect(out).toContain('deep text');
+  });
+
+  it('does not re-create unclosed formatting elements in every later paragraph', () => {
+    let open = '';
+    for (let i = 0; i < 200; i++) open += `<b class="c${i}">`;
+    const html = `<html><body><p>${open}</p>${'<p>x</p>'.repeat(500)}</body></html>`;
+    const out = sanitizeEmail(html);
+    expect(out.match(/<b /g)).toHaveLength(200);
+  });
+
+  it('does not show the <title> of a document forwarded inside the body', () => {
+    const out = sanitizeEmail(
+      '<div>FYI<html><head><title>Your receipt from Example Store</title></head>' +
+      '<body><p>Total: $12.00</p></body></html></div>'
+    );
+    expect(out).not.toContain('Your receipt');
+    expect(out).toContain('<p>Total: $12.00</p>');
+  });
+
+  it('does not copy a large attribute into every later paragraph', () => {
+    const html = `<html><body><p><b data-x="${'A'.repeat(20000)}">x</p>${'<p>x</p>'.repeat(1000)}</body></html>`;
+    expect(sanitizeEmail(html).match(/<b>/g)).toHaveLength(1);
+  });
+
+  it('gives up when the rebuild would rescan the tree without bound', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    try {
+      let bodies = '';
+      for (let i = 0; i < 2000; i++) bodies += `<body a${i}>`;
+      sanitizeEmail(`<html><body>${bodies}x</body></html>`);
+      sanitizeEmail(`<table>${'<i></i>'.repeat(2000)}</table>`);
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('keeps rebuilding ordinary malformed mail', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    try {
+      sanitizeEmail(`<html><body>${'<p><font face=Arial size=2>Paragraph text'.repeat(1000)}</body></html>`);
+      sanitizeEmail(`<table>${'<tr><td>row</td></tr><br>'.repeat(50)}</table>`);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
 
 describe('sanitizeEmail — XSS prevention', () => {
   it('strips <script> tags and their content', () => {
@@ -254,19 +344,19 @@ describe('sanitizeEmail — dark-mode CSS', () => {
   });
 });
 
-describe('sanitizeEmail — crafted <style> CSS', () => {
-  // Fastest of two runs so a GC pause or cold JIT cannot flake CI. Each input took
-  // 5 to 9 seconds per run when these passes were backtracking regexes.
-  function fastestRunMs(fn, runs) {
-    let fastest = Infinity;
-    for (let i = 0; i < runs; i++) {
-      const start = performance.now();
-      fn();
-      fastest = Math.min(fastest, performance.now() - start);
-    }
-    return fastest;
+// Fastest of two runs so a GC pause or cold JIT cannot flake CI.
+function fastestRunMs(fn, runs) {
+  let fastest = Infinity;
+  for (let i = 0; i < runs; i++) {
+    const start = performance.now();
+    fn();
+    fastest = Math.min(fastest, performance.now() - start);
   }
+  return fastest;
+}
 
+describe('sanitizeEmail — crafted <style> CSS', () => {
+  // Each input took 5 to 9 seconds per run when these passes were backtracking regexes.
   it('stays linear on input crafted against each pass', () => {
     // Each input holds the `)`, `{` or `]` its old regex needed, where the regex could not
     // use it, so skipping a pass only when that character is absent still fails here.
@@ -280,6 +370,16 @@ describe('sanitizeEmail — crafted <style> CSS', () => {
       const html = `<style>${css}</style>`;
       expect(fastestRunMs(() => sanitizeEmail(html), 2), name).toBeLessThan(1000);
     }
+  });
+});
+
+describe('sanitizeEmail — crafted markup against the HTML5 pass', () => {
+  it('stays fast on a tag with tens of thousands of attributes', () => {
+    // parse5's tokenizer compares each attribute name with every earlier one on the tag,
+    // before any tree-adapter hook runs. This took 4 to 5 seconds per run.
+    let attrs = '';
+    for (let i = 0; i < 60000; i++) attrs += ` a${i}`;
+    expect(fastestRunMs(() => sanitizeEmail(`<p${attrs}>x</p>`), 2)).toBeLessThan(1000);
   });
 });
 

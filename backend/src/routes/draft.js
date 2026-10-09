@@ -4,17 +4,216 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import sanitizeHtml from 'sanitize-html';
-import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
+import { sanitizeSignature, sanitizeComposeBody, sanitizeEmail } from '../services/emailSanitizer.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
 import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
+import { draftFolderPaths, createReplyGraph, replyChainIdsFor, indexReplyDrafts, createReplyDraftIndex, headerIds } from '../services/replyDraftLookup.js';
 
 const router = Router();
 router.use(requireAuth);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const MAX_REPLY_CONVERSATION = 10000;
+
+function groupReplyRows(rows, keys) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = row.lookup_key || row.thread_key || row.thread_id || (keys.length === 1 ? keys[0] : null);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return groups;
+}
+
+async function replyContexts(userId, ids, { accountId, threaded }) {
+  const seeds = (await query(`
+    SELECT m.id, m.account_id, m.folder, m.message_id, m.in_reply_to,
+      m.thread_references, m.thread_id, m.thread_key, m.date, m.uid FROM messages m
+    JOIN email_accounts a ON a.id = m.account_id
+    WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2 AND a.enabled = true
+      AND m.is_deleted = false AND m.folder = 'INBOX'`, [ids, userId])).rows
+    .filter(row => ids.includes(row.id) && (!accountId || row.account_id === accountId));
+  const keys = [...new Set(seeds.map(row => row.thread_key || row.thread_id).filter(Boolean))];
+  const oversized = new Set();
+  const memberRows = threaded && keys.length ? (await query(`
+    /* row_members */ SELECT member.*, requested.key AS lookup_key
+    FROM unnest($2::text[]) AS requested(key)
+    CROSS JOIN LATERAL (
+      SELECT m.id, m.account_id, m.folder, m.message_id, m.in_reply_to,
+        m.thread_references, m.thread_id, m.thread_key, m.date, m.uid FROM messages m
+      JOIN email_accounts a ON a.id = m.account_id
+      WHERE a.user_id = $1 AND a.enabled = true AND m.is_deleted = false AND m.folder = 'INBOX'
+        AND m.thread_key = requested.key
+        AND (($3::uuid IS NOT NULL AND m.account_id = $3)
+          OR ($3::uuid IS NULL AND COALESCE(a.include_in_unified_inbox, true)))
+      LIMIT $4
+    ) member`, [userId, keys, accountId || null, MAX_REPLY_CONVERSATION + 1])).rows : seeds;
+  const groups = groupReplyRows(memberRows.filter(row => !accountId || row.account_id === accountId), keys);
+  for (const [key, rows] of groups) {
+    if (rows.length > MAX_REPLY_CONVERSATION) { oversized.add(key); groups.delete(key); }
+  }
+  const members = [...groups.values()].flat();
+  const accountIds = [...new Set(members.map(row => row.account_id))];
+  const accounts = new Map(accountIds.length ? (await query(`
+    SELECT * FROM email_accounts WHERE id = ANY($1::uuid[]) AND user_id = $2 AND enabled = true`,
+  [accountIds, userId])).rows.filter(account => accountIds.includes(account.id)).map(account => [account.id, account]) : []);
+  const paths = new Map();
+  if (accounts.size) {
+    const folders = (await query(`
+      SELECT account_id, path, special_use FROM folders WHERE account_id = ANY($1::uuid[])
+        AND COALESCE(no_select, false) = false`, [[...accounts.keys()]])).rows;
+    for (const [id, account] of accounts) paths.set(id, draftFolderPaths(id, account.folder_mappings, folders));
+  }
+  return { seeds, members, paths, accounts, keys, groups, oversized };
+}
+
+async function replyGraph(context) {
+  const accountIds = [...context.accounts.keys()];
+  const requested = context.keys.filter(key => !context.oversized.has(key)).map(key => ({ key,
+    thread_ids: [...new Set((context.groups.get(key) || []).map(row => row.thread_id).filter(Boolean))] }));
+  if (!accountIds.length || !requested.length) return new Map();
+  // Apply the cap to each conversation, so a large row cannot crowd out the
+  // other rows. LATERAL bounds rows transferred without copying account data.
+  const conversation = (await query(`
+    SELECT conversation.*, requested.key AS lookup_key
+    FROM jsonb_to_recordset($2::jsonb) AS requested(key text, thread_ids text[])
+    CROSS JOIN LATERAL (
+      SELECT id, account_id, message_id, in_reply_to, thread_references, thread_id, thread_key
+      FROM messages WHERE account_id = ANY($1::uuid[]) AND is_deleted = false
+        AND (thread_key = requested.key OR thread_id = ANY(requested.thread_ids))
+      LIMIT $3
+    ) conversation`, [accountIds, JSON.stringify(requested), MAX_REPLY_CONVERSATION + 1])).rows;
+  const groups = groupReplyRows(conversation, context.keys);
+  for (const [key, rows] of groups) if (rows.length > MAX_REPLY_CONVERSATION) context.oversized.add(key);
+  const eligible = row => !context.oversized.has(row.lookup_key || row.thread_key || row.thread_id);
+  return createReplyGraph([...conversation, ...context.members, ...context.seeds].filter(eligible));
+}
+
+function rowMembers(seed, context, threaded) {
+  return threaded ? context.groups?.get(seed.thread_key || seed.thread_id) || [] : [seed];
+}
+
+function rowDraft(seed, context, index, threaded) {
+  const matches = rowMembers(seed, context, threaded).map(member =>
+    index.get(member.account_id)?.get(member.message_id)).filter(Boolean);
+  return matches.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0)
+    || String(a.id).localeCompare(String(b.id)))[0] || null;
+}
+
+function replyScope(input) {
+  const accountId = input.accountId || null;
+  if (accountId && !UUID_RE.test(accountId)) throw Object.assign(new Error('Invalid account ID'), { status: 400 });
+  return { accountId, threaded: input.threaded === true || input.threaded === 'true' };
+}
+
+const CACHED_DRAFT_PAGE_SIZE = 500;
+
+async function cachedReplyDraftIndex(context) {
+  const accountIds = [...context.accounts.keys()];
+  const paths = [...new Set([...context.paths.values()].flat())];
+  if (!accountIds.length || !paths.length) return new Map();
+  const pageAfter = async after => (await query(`
+    /* draft_candidates */ SELECT id, account_id, folder, uid, message_id,
+      in_reply_to, thread_references, thread_id, thread_key, date FROM messages
+    WHERE account_id = ANY($1::uuid[]) AND folder = ANY($2::text[]) AND is_deleted = false
+      AND (in_reply_to IS NOT NULL OR thread_references IS NOT NULL)
+      AND ($3::uuid IS NULL OR id > $3::uuid)
+    ORDER BY id LIMIT $4`, [accountIds, paths, after, CACHED_DRAFT_PAGE_SIZE])).rows;
+  let page = await pageAfter(null);
+  if (!page.length) return new Map();
+  const index = createReplyDraftIndex(await replyGraph(context), context.paths);
+  while (page.length) {
+    index.add(page);
+    if (page.length < CACHED_DRAFT_PAGE_SIZE) break;
+    page = await pageAfter(page.at(-1).id);
+  }
+  return index.result(context.members);
+}
+
+router.post('/reply-drafts/indicators', async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => typeof id !== 'string' || !UUID_RE.test(id))) {
+    return res.status(400).json({ error: 'At most 100 message IDs required' });
+  }
+  try {
+    const scope = replyScope(req.body);
+    const context = await replyContexts(req.session.userId, [...new Set(ids)], scope);
+    if (!context.seeds.length) return res.json({ indicators: {} });
+    const index = await cachedReplyDraftIndex(context);
+    res.json({ indicators: Object.fromEntries(context.seeds.map(seed => {
+      const draft = rowDraft(seed, context, index, scope.threaded);
+      return [seed.id, context.oversized.has(seed.thread_key || seed.thread_id) ? { unknown: true }
+        : { exists: Boolean(draft), ...(draft ? { accountId: draft.account_id } : {}) }];
+    })) });
+  } catch (err) {
+    console.error('Reply draft indicators failed:', err.message);
+    res.status(err.status || 503).json({ error: 'Could not check reply drafts' });
+  }
+});
+
+router.get('/messages/:id/reply-draft', async (req, res) => {
+  if (!UUID_RE.test(req.params.id)) return res.status(400).json({ error: 'Invalid message ID' });
+  try {
+    const scope = replyScope(req.query);
+    const context = await replyContexts(req.session.userId, [req.params.id], scope);
+    const selected = context.seeds[0];
+    if (!selected) return res.status(404).json({ error: 'Message not found' });
+    const candidates = [];
+    const searches = new Map();
+    const graph = await replyGraph(context);
+    if (context.oversized.has(selected.thread_key || selected.thread_id)) throw new Error('Reply conversation is too large to check');
+    const reachable = replyChainIdsFor(graph, rowMembers(selected, context, scope.threaded));
+    for (const [accountId, account] of context.accounts) {
+      const ids = [...reachable.get(accountId) || []];
+      const paths = context.paths.get(accountId) || [];
+      if (!ids.length || !paths.length) continue;
+      searches.set(accountId, { account, paths, ids });
+      candidates.push(...await imapManager.findReplyDrafts(account, paths, ids));
+    }
+    const index = indexReplyDrafts(graph, candidates, context.paths);
+    const draft = rowDraft(selected, context, index, scope.threaded);
+    if (!draft || req.query.open !== 'true') return res.json({ draft });
+    if (!draft.message_id) throw new Error('This draft has no verifiable Message-ID');
+    const search = searches.get(draft.account_id);
+    const body = await imapManager.fetchMessageBody(search.account, draft.uid, draft.folder);
+    if (body?.html == null && body?.text == null) throw new Error('Could not read the reply draft body');
+    const confirmed = await imapManager.confirmReplyDraft(search.account, draft);
+    const stillReplies = confirmed && [...headerIds(confirmed.in_reply_to), ...headerIds(confirmed.thread_references)]
+      .some(id => search.ids.includes(id));
+    if (!confirmed || confirmed.folder !== draft.folder || Number(confirmed.uid) !== Number(draft.uid)
+      || confirmed.message_id !== draft.message_id || confirmed.uid_validity !== draft.uid_validity || !stillReplies) return res.status(409).json({ error: 'This reply draft changed on the mail server. Try again.' });
+    res.json({ draft: confirmed, body: { ...body,
+      html: body.html == null ? null : sanitizeEmail(body.html, { preserveDraftSignature: true }) } });
+  } catch (err) {
+    console.error('Reply draft lookup failed:', err.message);
+    res.status(err.status || 503).json({ error: 'Could not check reply drafts' });
+  }
+});
+
+// Tells the user's tabs that a Drafts folder changed, so the Inbox re-checks its reply-draft
+// markers. The composer refreshes its own tab; this reaches the user's other tabs and devices.
+// Best-effort: the draft is already saved or deleted, and a failed notice only delays a marker.
+function noteDraftsChanged(userId, accountId) {
+  try {
+    imapManager.broadcast({ type: 'drafts_changed', accountId }, userId);
+  } catch (err) {
+    console.warn('Drafts change notice failed:', err.message);
+  }
+}
 
 function sanitizeHeaderValue(value) {
   if (typeof value !== 'string') return '';
   return value.replace(/[\r\n\0]/g, '').trim();
+}
+
+function replyHeader(value, single = false) {
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string' || value.length > 8192) throw Object.assign(new Error('Invalid reply header'), { status: 400 });
+  const unfolded = value.replace(/\r\n[ \t]+/g, ' ').trim();
+  const valid = single ? /^<[^<>\s]+>$/ : /^<[^<>\s]+>(?:[ \t]+<[^<>\s]+>)*$/;
+  if (/[\r\n\0]/.test(unfolded) || !valid.test(unfolded)) throw Object.assign(new Error('Invalid reply header'), { status: 400 });
+  return unfolded;
 }
 
 // Extract { name, email } from an RFC 5322 address string ("Name <email>",
@@ -37,7 +236,9 @@ function textToHtml(text) {
     .join('');
 }
 
-async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature }) {
+async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, inReplyTo, references }) {
+  const replyToId = replyHeader(inReplyTo, true);
+  const referenceIds = replyHeader(references) || replyToId;
   const acctResult = await query(
     'SELECT * FROM email_accounts WHERE id = $1',
     [accountId]
@@ -97,6 +298,8 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     cc: (Array.isArray(cc) ? cc : []).filter(Boolean).join(', ') || undefined,
     bcc: (Array.isArray(bcc) ? bcc : []).filter(Boolean).join(', ') || undefined,
     subject: sanitizeHeaderValue(subject || ''),
+    ...(replyToId ? { inReplyTo: replyToId } : {}),
+    ...(referenceIds ? { references: referenceIds } : {}),
     text: textBody,
     html: draftHtml,
     ...(inlineImageAttachments.length ? { attachments: inlineImageAttachments } : {}),
@@ -116,7 +319,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   return {
     rawMessage: Buffer.concat(chunks),
     account,
-    meta: { messageId, fromName, fromEmail, bodyHtml: rawHtml, bodyText: textBody, snippet },
+    meta: { messageId, fromName, fromEmail, bodyHtml: rawHtml, bodyText: textBody, snippet, inReplyTo: replyToId, references: referenceIds },
   };
 }
 
@@ -193,6 +396,7 @@ export async function deleteSentDraft(userId, account, { uid, folder, accountId 
       return false;
     }
     await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [target.account.id, target.uid, target.folder]);
+    noteDraftsChanged(userId, target.account.id);
     return true;
   } catch (err) {
     console.error(`Draft: failed to delete sent draft uid=${JSON.stringify(uid)}: ${err.message}`);
@@ -201,7 +405,7 @@ export async function deleteSentDraft(userId, account, { uid, folder, accountId 
 }
 
 router.post('/draft', async (req, res) => {
-  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder, existingAccountId } = req.body;
+  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder, existingAccountId, inReplyTo, references } = req.body;
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
 
   const ownerCheck = await query(
@@ -211,7 +415,7 @@ router.post('/draft', async (req, res) => {
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   try {
-    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature });
+    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, inReplyTo, references });
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });
@@ -246,6 +450,8 @@ router.post('/draft', async (req, res) => {
           snippet: meta.snippet,
           bodyHtml: meta.bodyHtml,
           bodyText: meta.bodyText,
+          inReplyTo: meta.inReplyTo,
+          references: meta.references,
         });
       } catch (rowErr) {
         console.error(`Draft: failed to persist local row uid=${uid}: ${rowErr.message}`);
@@ -269,7 +475,8 @@ router.post('/draft', async (req, res) => {
       }
     }
 
-    res.json({ uid, folder: draftsFolder });
+    noteDraftsChanged(req.session.userId, account.id);
+    res.json({ uid, folder: draftsFolder, ...(req.body.includeIdentity === true ? { messageId: meta.messageId } : {}) });
   } catch (err) {
     console.error('Save draft failed:', err.message);
     res.status(err.status || 500).json({ error: err.message || 'Failed to save draft' });
@@ -299,6 +506,7 @@ router.delete('/draft/:uid', async (req, res) => {
       'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
       [account.id, uid, folder]
     );
+    noteDraftsChanged(req.session.userId, account.id);
     res.json({ ok: true });
   } catch (err) {
     console.error('Delete draft failed:', err.message);

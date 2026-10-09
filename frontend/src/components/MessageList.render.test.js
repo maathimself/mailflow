@@ -308,7 +308,8 @@ describe('MessageList — reopening a saved draft keeps its Bcc', () => {
   // The Bcc lives only in the draft on the server, and saving a reopened draft replaces that copy.
   // Compose used to open with an empty Bcc, so the next save erased the recipients for good.
   const DRAFT = { ...MESSAGE, id: 'draft-1', folder: 'Drafts', uid: 7, is_read: true, subject: 'Draft subject',
-    to_addresses: [{ name: '', email: 'alice@example.com' }], cc_addresses: [] };
+    to_addresses: [{ name: '', email: 'alice@example.com' }], cc_addresses: [],
+    in_reply_to: '<parent@example.com>', thread_references: '<root@example.com> <parent@example.com>' };
 
   const openDraft = async ({ bcc }) => {
     ROUTES = { '/mail/messages/draft-1/body': [200, { html: '<p>hello</p>', text: 'hello' }], '/mail/messages/draft-1/bcc': bcc };
@@ -331,6 +332,8 @@ describe('MessageList — reopening a saved draft keeps its Bcc', () => {
     assert.equal(opened.length, 1);
     assert.equal(opened[0].draftUid, 7);
     assert.deepEqual(opened[0].bcc, bcc);
+    assert.equal(opened[0].inReplyTo, DRAFT.in_reply_to);
+    assert.equal(opened[0].references, DRAFT.thread_references);
   });
 
   test('a draft whose Bcc cannot be read opens read-only, with an error, never in compose', async () => {
@@ -414,5 +417,20 @@ describe('MessageList — bulk move picker offers Recent and Favorites (#551)', 
       input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
     });
     assert.deepEqual(pickerLines(), ['Archive']);
+  });
+});
+
+describe('MessageList reply draft indicators', () => {
+  test('renders the action in both message and collapsed conversation rows', async () => {
+    for (const [row, threadedView] of [[MESSAGE, false], [THREAD, true]]) {
+      useStore.setState({ replyDrafts: { [row.id]: { exists: true } } });
+      await mount({ rows: [row], threadedView });
+      assert.ok(container.querySelector(`[data-msgid="${row.id}"] [aria-label="Open reply draft"]`));
+    }
+  });
+  test('hides indicators outside the inbox', async () => {
+    useStore.setState({ replyDrafts: { [MESSAGE.id]: { exists: true } } });
+    await mount({ rows: [{ ...MESSAGE, folder: 'Archive' }], threadedView: false, folder: 'Archive' });
+    assert.equal(container.querySelector('[aria-label="Open reply draft"]'), null);
   });
 });

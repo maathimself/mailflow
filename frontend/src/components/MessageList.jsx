@@ -28,6 +28,7 @@ import SenderAvatarImage from './SenderAvatarImage.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
 import { folderDisplayName, folderMatchesQuery, favoriteMoveTargets, recentMoveTargets } from '../utils/folderDisplay.js';
 import SpamBadge from './SpamBadge.jsx';
+import ReplyDraftIndicator from './ReplyDraftIndicator.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { createLatestRequest } from '../utils/latestRequest.js';
@@ -2533,6 +2534,8 @@ export default function MessageList() {
           subject: message.subject || '',
           body,
           bodyIsHtml: !!bodyData.html,
+          inReplyTo: message.in_reply_to || undefined,
+          references: message.thread_references || undefined,
           ...(signature !== null ? { signature } : inline ? { signature: '' } : {}),
         });
       } catch (err) {
@@ -4629,6 +4632,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {message.subject || t('common.noSubject')}
             </span>
+            <ReplyDraftIndicator message={message} />
             <SpamBadge message={message} onClick={onExplainSpam} />
           </div>
           {/* Row 3: snippet */}
@@ -4960,6 +4964,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {message.subject || t('message.noSubject')}
           </span>
+          <ReplyDraftIndicator message={message} />
           <SpamBadge message={message} onClick={onExplainSpam} />
         </div>
 

@@ -60,8 +60,8 @@ export async function listUsers(req, res) {
 router.get('/users', listUsers);
 
 // An admin can set any user's password and recovery email, and turn off their 2FA, so between
-// them any admin can sign in as any user. Each of those changes goes to the security log with the
-// admin who made it, not only to the server log. The admin's name is read from the database
+// them any admin can sign in as any user. Each of those changes, and deleting a user, goes to the
+// security log with the admin who made it, not only to the server log. The admin's name is read from the database
 // rather than the session, which keeps the name they signed in with.
 async function logAdminChange(req, eventType, target) {
   const actor = await query('SELECT username FROM users WHERE id = $1', [req.session.userId])
@@ -200,7 +200,7 @@ export async function setUserPassword(req, res) {
 }
 router.post('/users/:id/password', setUserPassword);
 
-router.delete('/users/:id', async (req, res) => {
+export async function deleteUser(req, res) {
   const { id } = req.params;
   if (id === req.session.userId) {
     return res.status(400).json({ error: 'Cannot delete your own account' });
@@ -218,8 +218,12 @@ router.delete('/users/:id', async (req, res) => {
   // completed delete as a 500. The hook swallows per-plugin errors.
   await pluginRegistry.runHook('onUserDelete', { userId: id });
   console.log(`[admin] ${req.session.username} deleted user ${target.rows[0].username} (${id})`);
+  // Logged once the delete has happened, and by name only: the event's user_id references
+  // users, and the row it would point at is gone.
+  await logAdminChange(req, 'admin_user_delete', { id: null, username: target.rows[0].username });
   res.json({ ok: true });
-});
+}
+router.delete('/users/:id', deleteUser);
 
 // ── System settings ────────────────────────────────────────────────────────────
 

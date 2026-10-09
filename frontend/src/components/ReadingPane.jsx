@@ -2,6 +2,7 @@ import { useStore } from '../store/index.js';
 import { resolveConversationMode } from '../utils/conversationMode.js';
 import { resolveConversationSelection, shouldUseConversationPane } from '../utils/conversation.js';
 import ConversationPane from './ConversationPane.jsx';
+import ReplyDraftIndicator from './ReplyDraftIndicator.jsx';
 import MessagePane from './MessagePane.jsx';
 
 // Chooses what the reading area shows.
@@ -23,6 +24,8 @@ export default function ReadingPane() {
   const searchQuery = useStore(s => s.searchQuery);
   const threadMessages = useStore(s => s.threadMessages);
 
+  const replyDraft = useStore(state => state.replyDrafts[selectedMessageId]);
+
   const mode = resolveConversationMode({ conversationMode });
   if (!selectedMessageId) return <MessagePane />;
 
@@ -37,9 +40,8 @@ export default function ReadingPane() {
 
   // A message with no thread of its own is just a message, and a search deliberately shows
   // the one matched message rather than its conversation.
-  if (!shouldUseConversationPane({ mode, searchQuery, message: selected })) return <MessagePane />;
+  const pane = !shouldUseConversationPane({ mode, searchQuery, message: selected }) ? <MessagePane /> : (
 
-  return (
     <ConversationPane
       threadId={selected.thread_id}
       folder={selectedFolder}
@@ -50,4 +52,8 @@ export default function ReadingPane() {
       selectedMessageId={selectedMessageId}
     />
   );
+  return <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%', minHeight: 0 }}>
+    {selectedFolder?.toUpperCase() === 'INBOX' && (replyDraft?.exists || replyDraft?.error) && <div style={{ flexShrink: 0, padding: '4px 12px' }}><ReplyDraftIndicator message={selected} /></div>}
+    <div style={{ display: 'flex', flex: 1, minWidth: 0, minHeight: 0 }}>{pane}</div>
+  </div>;
 }
