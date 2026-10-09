@@ -17,8 +17,12 @@ export default function LockScreen() {
   async function handleSignOut() {
     setSigningOut(true);
     localStorage.removeItem('mailflow_locked_message');
-    // Unlock locally (it clears the persisted lock flag) before the page navigates away.
-    await signOut({ setUser, navigate: (url) => { setLocked(false); window.location.href = url; } });
+    let signedOut = false;
+    const logout = () => api.logout().then((res) => { signedOut = true; return res; });
+    // Unlock locally (it clears the persisted lock flag) before the page navigates away. If the
+    // sign-out failed, the session may still be alive, and unlocked if the lock request failed
+    // too. Keep the lock then, so the next load sends it again.
+    await signOut({ setUser, logout, navigate: (url) => { if (signedOut) setLocked(false); window.location.href = url; } });
   }
 
   async function handleUnlock(e) {
