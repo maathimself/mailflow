@@ -657,6 +657,21 @@ describe('automatic Cc and Bcc (#491)', () => {
     } finally { await close(); }
   });
 
+  test('after undo send of a draft opened from the list, a From switch still adds no automatic Bcc', async () => {
+    // The other side of the two tests above: this one was opened from a draft, so it stays one.
+    const accounts = [account('A', { bcc: ['a-arch@example.invalid'] }), account('B', { bcc: ['b-arch@example.invalid'] })];
+    const close = await sendAndUndo(
+      { accountId: 'A', draftUid: 7, draftFolder: 'Drafts', to: ['x@example.invalid'], subject: 'Plan', body: '<p>Plan</p>' },
+      { accounts },
+    );
+    try {
+      assert.equal(useStore.getState().composeData.draftUid, 7, 'reopened with its draft');
+      assert.equal(chips('compose.bcc'), null, 'no Bcc row: the draft saved none');
+      await chooseFrom('account:B');
+      assert.equal(chips('compose.bcc'), null, 'nor from the account From switches to');
+    } finally { await close(); }
+  });
+
   test('a From switch keeps a recipient the user added for an automatic address', async () => {
     const accounts = [account('A', { cc: ['boss@example.invalid'] }), account('B')];
     const close = await mountCompose({ to: ['x@example.invalid'], subject: 'Plan' }, { accounts });
