@@ -1,6 +1,7 @@
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { doneGtdRow } from './gtdDone.js';
+import { getGtdMetadataRefreshGeneration } from '../plugins/gtd/metadataStore.js';
 import {
   clearGtdRemovalGuard,
   completedGtdRemovalMap,
@@ -118,4 +119,13 @@ describe('doneGtdRow', () => {
     ]);
     assert.equal(completedGtdRemovalMap.size, 1);
   });
+});
+
+
+it('refreshes indicators after sidebar Done and uncertain failure', async () => {
+  const before = getGtdMetadataRefreshGeneration();
+  await doneGtdRow(thread, states, deps());
+  assert.equal(getGtdMetadataRefreshGeneration(), before + 1);
+  await doneGtdRow(thread, states, deps({ gtdDone: async () => { throw new Error('lost response'); } }));
+  assert.equal(getGtdMetadataRefreshGeneration(), before + 2);
 });

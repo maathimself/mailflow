@@ -434,3 +434,29 @@ describe('MessageList reply draft indicators', () => {
     assert.equal(container.querySelector('[aria-label="Open reply draft"]'), null);
   });
 });
+
+
+describe('plugin row metadata', () => {
+  test('shows GTD chips on flat and threaded inbox rows only for activated accounts', async () => {
+    await import('../plugins/gtd/index.jsx');
+    const { patchGtdMetadata, clearGtdMetadata } = await import('../plugins/gtd/metadataStore.js');
+    try {
+      for (const [row, threadedView] of [[MESSAGE, false], [THREAD, true]]) {
+        await mount({ rows: [row], threadedView });
+        await React.act(async () => {
+          useStore.setState({ accounts: [{ ...ACCOUNT, gtd_enabled: true }], enabledPlugins: ['gtd'], activeGtdTab: null });
+          patchGtdMetadata(row, 'todo', row.date);
+        });
+        assert.ok(container.querySelector(`[data-msgid="${row.id}"] [aria-label="gtd.state.todo"]`));
+        await React.act(async () => { useStore.setState({ enabledPlugins: [] }); });
+        assert.equal(container.querySelector('[aria-label="gtd.state.todo"]'), null);
+        await React.act(async () => {
+          useStore.setState({ enabledPlugins: ['gtd'], accounts: [ACCOUNT] });
+        });
+        assert.equal(container.querySelector('[aria-label="gtd.state.todo"]'), null);
+      }
+    } finally {
+      await React.act(async () => { clearGtdMetadata(); useStore.setState({ enabledPlugins: [], accounts: [ACCOUNT] }); });
+    }
+  });
+});

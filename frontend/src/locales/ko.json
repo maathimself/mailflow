@@ -1836,6 +1836,7 @@
     "priorityNormal": "우선순위 없음"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: 라벨이 있는 가장 오래된 메일의 경과 일수: {{count}}",
     "title": "GTD",
     "inbox": "받은편지함",
     "waiting": "대기 중",

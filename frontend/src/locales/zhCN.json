@@ -1840,6 +1840,7 @@
     "show": "显示右侧边栏"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}：带此标签的最早邮件距今的天数：{{count}}",
     "title": "GTD",
     "inbox": "收件箱",
     "waiting": "等待中",

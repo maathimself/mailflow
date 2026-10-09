@@ -1840,6 +1840,7 @@
     "show": "Show right sidebar"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: oldest labeled message age (days): {{count}}",
     "title": "GTD",
     "inbox": "Inbox",
     "waiting": "Waiting",

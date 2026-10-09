@@ -30,7 +30,7 @@ function GtdContextSubmenu({ message, account, onClose, onBack }) {
     });
     onClose();
   };
-  const removeFrom = (state) => { unclassifyThread(message.id, state, { gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t }); onClose(); };
+  const removeFrom = (state) => { unclassifyThread(message.id, state, { gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t, message }); onClose(); };
   return (
     <>
       <div
