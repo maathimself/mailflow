@@ -1498,6 +1498,19 @@ describe('_syncSpamFolder — periodic spam poll guards', () => {
   });
 });
 
+// A plain-text message with a photo that is disposed inline and has a Content-ID:
+// there is no HTML body to reference it.
+const textWithInlinePhoto = {
+  type: 'multipart/mixed',
+  childNodes: [
+    { part: '1', type: 'text/plain', encoding: '7bit', parameters: { charset: 'utf-8' } },
+    {
+      part: '2', type: 'image/jpeg', encoding: 'base64', id: '<x@apple>', size: 40000,
+      disposition: 'inline', dispositionParameters: { filename: 'IMG_0001.jpeg' },
+    },
+  ],
+};
+
 describe('walkStructure attachment classification', () => {
   const walk = (node) => {
     const results = { textParts: [], attachments: [] };
@@ -1813,6 +1826,110 @@ describe('calendar-only messages', () => {
       bodyParts: new Map([['1', Buffer.from('<p>Invite</p>')], ['2', Buffer.from(ics)]]),
     };
     expect(extractBodyFromMsg(msg).html).toBe('<p>Invite</p>');
+  });
+});
+
+// The body route caches the list fetchMessageBody returns, and every download route
+// resolves parts from that cache, so a part missing from it cannot be opened at all.
+// Most of these drive the real fetchMessageBody and fetchAttachment through the pool
+// against a fake server holding one message; the synced-body cases call
+// extractBodyFromMsg, which lists the same parts.
+describe('inline images the body never shows are listed as attachments', () => {
+  let seq = 700;
+  function serve(structure, parts) {
+    const account = { id: `acct-parts-${++seq}`, user_id: 'u1', imap_host: 'imap.example.test', email_address: 'p@example.test', auth_user: 'p', auth_pass: 'enc' };
+    ImapFlow.mockImplementation(function () {
+      const client = new EventEmitter();
+      client.usable = true;
+      client.connect = vi.fn(() => Promise.resolve());
+      client.logout = vi.fn(() => Promise.resolve());
+      client.close = vi.fn();
+      client.getMailboxLock = vi.fn(async () => ({ release() {} }));
+      client.fetch = vi.fn(async function* (range, fetchQuery) {
+        yield {
+          uid: 42,
+          bodyStructure: fetchQuery.bodyStructure ? structure : undefined,
+          bodyParts: fetchQuery.bodyParts
+            ? new Map(fetchQuery.bodyParts.filter(p => p in parts).map(p => [p, Buffer.from(parts[p])]))
+            : undefined,
+        };
+      });
+      return client;
+    });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    return { mgr: new ImapManager({ clients: new Set() }), account };
+  }
+
+  it('lists an inline photo in a plain-text message', async () => {
+    const { mgr, account } = serve(textWithInlinePhoto, { '1': 'here is the photo', '2': '/9j/4AAQ' });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body.text).toBe('here is the photo');
+    expect(body.attachments).toEqual([{
+      part: '2', filename: 'IMG_0001.jpeg', type: 'image/jpeg', encoding: 'base64', size: 40000, disposition: 'inline',
+    }]);
+  });
+
+  it('lists only the inline images the HTML does not reference', async () => {
+    // Hand-picked Content-IDs, as PHPMailer allows: the HTML references logo-dark in angle
+    // brackets and another case, logo is a prefix of it but is not referenced, and the
+    // third image has an empty Content-ID, which nothing can reference.
+    const image = (part, id, filename) => ({
+      part, type: 'image/png', encoding: 'base64', id, size: 12,
+      disposition: 'inline', dispositionParameters: { filename },
+    });
+    const { mgr, account } = serve({
+      type: 'multipart/related',
+      childNodes: [
+        { part: '1', type: 'text/html', encoding: '7bit', parameters: { charset: 'utf-8' } },
+        image('2', '<logo-dark>', 'logo-dark.png'),
+        image('3', '<logo>', 'logo.png'),
+        image('4', '<>', 'spacer.png'),
+      ],
+    }, { '1': '<p>hi</p><img src="cid:<LOGO-DARK>">', '2': 'iVBORw0KGgo=', '3': 'AAAA', '4': 'BBBB' });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body.html).toBe('<p>hi</p><img src="data:image/png;base64,iVBORw0KGgo=">');
+    expect(body.attachments.map(a => a.filename)).toEqual(['logo.png', 'spacer.png']);
+  });
+
+  it('lists an inline photo when the body is read from a synced message', () => {
+    const body = extractBodyFromMsg({
+      bodyStructure: textWithInlinePhoto,
+      bodyParts: new Map([['1', Buffer.from('here is the photo')]]),
+    });
+    expect(body.text).toBe('here is the photo');
+    expect(body.attachments.map(a => a.filename)).toEqual(['IMG_0001.jpeg']);
+  });
+
+  it('names an unnamed inline image after its type', () => {
+    const body = extractBodyFromMsg({
+      bodyStructure: {
+        type: 'multipart/mixed',
+        childNodes: [
+          { part: '1', type: 'text/plain', encoding: '7bit' },
+          { part: '2', type: 'image/jpeg', encoding: 'base64', id: '<a@x>' },
+          { part: '3', type: 'image/svg+xml', encoding: '7bit', id: '<b@x>' },
+        ],
+      },
+      bodyParts: new Map([['1', Buffer.from('two pictures')]]),
+    });
+    expect(body.attachments.map(a => a.filename)).toEqual(['image.jpg', 'image.svg']);
+  });
+
+  it('downloads a listed inline image with its own transfer encoding', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"/>';
+    const { mgr, account } = serve({
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'text/plain', encoding: '7bit' },
+        {
+          part: '2', type: 'image/svg+xml', encoding: '7bit', id: '<s@x>',
+          disposition: 'inline', dispositionParameters: { filename: 'logo.svg' },
+        },
+      ],
+    }, { '1': 'logo attached', '2': svg });
+    const buf = await mgr.fetchAttachment(account, 42, 'INBOX', '2');
+    expect(buf.toString()).toBe(svg);
   });
 });
 

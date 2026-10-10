@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto';
 const IMG_TAG_RE = /<img\b([^>]*)>/gi;
 const DATA_SRC_RE = /\ssrc=["'](data:image\/([^;]+);base64,([^"']+))["']/i;
 
-function mimeToExtension(mimeSubtype) {
+export function mimeToExtension(mimeSubtype) {
   const sub = (mimeSubtype || 'png').toLowerCase();
   if (sub === 'jpeg') return 'jpg';
   if (sub === 'svg+xml') return 'svg';

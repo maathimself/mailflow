@@ -22,6 +22,7 @@ import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList } from './inboxRules.js';
 import { classifyAndTagMessage } from './spamPipeline.js';
 import { generateVCard } from '../utils/vcard.js';
+import { mimeToExtension } from '../utils/inlineImages.js';
 import { truncateFilename } from '../utils/contentDisposition.js';
 import { BLOCK, WARN } from './attachmentExtensions.js';
 import { randomUUID } from 'crypto';
@@ -570,6 +571,7 @@ export function extractBodyFromMsg(msg) {
     if (part.type === 'text/html' && !html) html = decoded;
     else if (part.type === 'text/plain' && !text) text = decoded;
   }
+  listUnreferencedInlineImages(results, html);
   return { html, text, attachments: results.attachments };
 }
 
@@ -766,6 +768,40 @@ export function walkStructure(node, results) {
   }
 }
 
+// A cid: reference in HTML or CSS, with or without angle brackets: src="cid:abc123" and
+// src="cid:<abc123>". The Content-ID ends where the URL does: at whitespace, a quote, ')', an
+// angle bracket or the '&' of &quot;. So cid:logo-dark is not a reference to logo.
+const CID_REFERENCE_RE = /cid:<?([^\s"'<>)&]+)>?/gi;
+
+// An inline image is shown only where the HTML references its Content-ID, so one
+// the HTML never references, or any when there is no HTML body (a photo sent
+// inline with a plain-text message), is listed as an attachment instead.
+function listUnreferencedInlineImages(results, html) {
+  const referenced = new Set();
+  for (const [, cid] of (html || '').matchAll(CID_REFERENCE_RE)) referenced.add(cid.toLowerCase());
+  for (const img of results.inlineImages || []) {
+    if (referenced.has(img.cid.toLowerCase())) continue;
+    results.attachments.push({
+      part: img.part,
+      filename: img.filename || `image.${mimeToExtension(img.type.split('/')[1])}`,
+      type: img.type,
+      encoding: img.encoding,
+      size: img.size,
+      disposition: img.disposition,
+    });
+  }
+}
+
+function findPart(node, partNum) {
+  if (!node) return null;
+  if (node.part === partNum) return node;
+  for (const child of node.childNodes || []) {
+    const found = findPart(child, partNum);
+    if (found) return found;
+  }
+  return null;
+}
+
 // A forwarded message attached as a file ("Forward as attachment" in Gmail, Outlook or MailFlow) is
 // a message/rfc822 part, and imapflow gives it the embedded message's structure as children. Walking
 // into those children filed the forwarded message's parts as the outer message's own: the .eml never
@@ -870,7 +906,8 @@ function walkNode(node, results) {
       charset: node.parameters?.charset || 'utf-8',
     });
   } else if (type.startsWith('image/') && node.id && disposition !== 'attachment') {
-    // Inline image referenced via cid: in the HTML body
+    // Inline image referenced via cid: in the HTML body. One the HTML never
+    // references is listed as an attachment once the body is known.
     results.inlineImages = results.inlineImages || [];
     results.inlineImages.push({
       part: node.part || '1',
@@ -878,6 +915,9 @@ function walkNode(node, results) {
       encoding: node.encoding || 'base64',
       // Content-ID header value is wrapped in angle brackets — strip them
       cid: (node.id || '').replace(/^<|>$/g, ''),
+      filename,
+      size: node.dispositionParameters?.size ? parseInt(node.dispositionParameters.size) : node.size || 0,
+      disposition,
     });
   } else if (filename) {
     // Named non-text part without an explicit disposition — still an attachment.
@@ -6096,6 +6136,9 @@ export class ImapManager {
           }
         }
 
+        // Before Step 3, which replaces the cid: references this looks for.
+        listUnreferencedInlineImages(results, html);
+
         // Step 3: replace cid: references in HTML with data: URIs so inline
         // images render inside the sandboxed srcdoc iframe
         if (html && inlineImages.length > 0) {
@@ -6116,13 +6159,10 @@ export class ImapManager {
             const embedded = new Set();
             let repeatBudget = INLINE_IMAGE_REPEAT_BUDGET;
             let overBudget = 0;
-            // cid: refs appear with and without angle brackets — match both.
-            // e.g.  src="cid:abc123"  and  src="cid:<abc123>"
-            // The Content-ID ends where the URL does in HTML or CSS: at whitespace, a quote,
-            // ')', an angle bracket or the '&' of &quot;. Content-IDs, types and base64 text
-            // all come from the sender, so none of them become regex or replacement-string
-            // syntax, and a single pass never rescans an image it has inserted.
-            html = html.replace(/cid:<?([^\s"'<>)&]+)>?/gi, (ref, cid) => {
+            // Content-IDs, types and base64 text all come from the sender, so none of them
+            // become regex or replacement-string syntax, and a single pass never rescans an
+            // image it has inserted.
+            html = html.replace(CID_REFERENCE_RE, (ref, cid) => {
               const key = cid.toLowerCase();
               const dataUri = dataUris.get(key);
               if (!dataUri) return ref;
@@ -6270,8 +6310,9 @@ export class ImapManager {
           if (msg.bodyStructure) {
             const r = { textParts: [], attachments: [] };
             walkStructure(msg.bodyStructure, r);
-            const att = r.attachments.find(a => a.part === partNum);
-            if (att) encoding = att.encoding;
+            // Inline images the body never shows are listed at body time, not by this walk.
+            const att = r.attachments.find(a => a.part === partNum) || findPart(msg.bodyStructure, partNum);
+            if (att?.encoding) encoding = att.encoding;
           }
           const buf = msg.bodyParts?.get(partNum);
           if (buf) {
