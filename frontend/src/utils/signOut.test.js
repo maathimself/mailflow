@@ -34,4 +34,12 @@ describe('signOut (#523, #310)', () => {
     assert.equal(storage.getItem('mailflow_theme'), 'light');
     assert.ok(SIGN_OUT_CLEARED_KEYS.includes('mailflow_expanded_accounts'));
   });
+
+  it('clears the reading and reply-draft preferences, which the next sign-in would otherwise start from', async () => {
+    const storage = memoryStorage({ mailflow_after_remove: 'previous', mailflow_auto_open_reply_drafts: 'true', mailflow_theme: 'light' });
+    await signOut({ setUser: () => {}, storage, logout: async () => ({ ok: true }), navigate: () => {} });
+    assert.equal(storage.getItem('mailflow_after_remove'), null);
+    assert.equal(storage.getItem('mailflow_auto_open_reply_drafts'), null);
+    assert.equal(storage.getItem('mailflow_theme'), 'light');
+  });
 });
