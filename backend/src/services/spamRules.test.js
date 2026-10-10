@@ -95,6 +95,18 @@ describe('scoreRules — individual rules', () => {
     expect(fired.some(r => r.name === 'FROM_REPLYTO_MISMATCH')).toBe(false);
   });
 
+  it('judges the files inside a forwarded .eml, which the attachment list shows as one file', () => {
+    const forward = (contains) => ({ filename: 'Fwd.eml', type: 'message/rfc822', contains });
+    const names = (attachments) => scoreRules({ ...baseEmail, attachments }).fired.map(r => r.name).sort();
+    expect(names([forward([{ filename: 'invoice.exe', type: 'application/octet-stream' }])]))
+      .toEqual(['ATTACHMENT_EXECUTABLE']);
+    expect(names([forward([{ filename: 'login.html', type: 'text/html' }])])).toEqual(['ATTACHMENT_ACTIVE_CONTENT']);
+    expect(names([forward([{ filename: 'scan.pdf.exe', type: 'application/octet-stream' }])]))
+      .toEqual(['ATTACHMENT_DOUBLE_EXT', 'ATTACHMENT_EXECUTABLE']);
+    expect(names([forward([{ filename: 'report.pdf', type: 'application/pdf' }])])).toEqual([]);
+    expect(names([forward()])).toEqual([]);
+  });
+
   it('ATTACHMENT_EXECUTABLE fires on .exe attachment', () => {
     const { score, fired } = scoreRules({
       ...baseEmail,

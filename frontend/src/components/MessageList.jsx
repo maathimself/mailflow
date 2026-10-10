@@ -8,6 +8,7 @@ import { useMobile } from '../hooks/useMobile.js';
 import { isAccountInUnifiedInbox } from '../utils/unifiedInbox.js';
 import { shouldSyncFolder, folderSyncKey } from '../utils/folderSync.js';
 import { resolveThreadMessages } from '../utils/threadActions.js';
+import { keepDraftsApart } from '../utils/conversationActions.js';
 import { unreadDeltaByAccount } from '../utils/countSnapshots.js';
 import { splitDraftSignature } from '../utils/draftSignature.js';
 import { useSwipeRow } from '../hooks/useSwipeRow.js';
@@ -19,7 +20,7 @@ import {
   gtdActiveForContext, buildGtdDisplaySections, GTD_COLORS, GTD_CHIP_BG, sectionBadge, isSelectedRow,
 } from '../utils/gtd.js';
 import { formatDate } from '../utils/formatDate.js';
-import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
+import { advanceSelectionAfterRemoval, registerRowOpener } from '../utils/listSelection.js';
 import { openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFromMessage } from '../utils/composeFromMessage.js';
 import { selectedMessage, markMessageUnread } from '../utils/messageHotkeys.js';
 import { cancelScheduledMarkReadFor } from '../utils/markRead.js';
@@ -995,7 +996,8 @@ export default function MessageList() {
 
     let deleteMessages = [message];
     try {
-      deleteMessages = await resolveMessagesForThreadAction(message);
+      // Drafts and the rest of a conversation are never deleted together (keepDraftsApart).
+      deleteMessages = keepDraftsApart(await resolveMessagesForThreadAction(message), message.id);
     } catch (err) {
       console.error('Failed to load thread for delete:', err.message);
       addNotification({ type: 'error', title: t('messageList.deleted.failTitle'), body: t('messageList.deleted.failBody') });
@@ -1006,14 +1008,8 @@ export default function MessageList() {
     const visibleMessage = message;
     ids.forEach((id) => setPendingDelete(id));
 
-    // Advance selection to the next visible message before removing this one
-    const { selectedMessageId, setSelectedMessage } = useStore.getState();
-    if (selectedMessageId === visibleMessage.id) {
-      const displayMsgs = scRef.current.displayMessages || [];
-      const idx = displayMsgs.findIndex(m => m.id === visibleMessage.id);
-      const next = displayMsgs[idx + 1] || displayMsgs[idx - 1] || null;
-      setSelectedMessage(next?.id ?? null);
-    }
+    // Open what takes its place (the afterRemove setting) before removing this one.
+    advanceSelectionAfterRemoval(visibleMessage.id);
 
     removeMessage(visibleMessage.id);
     if (expandedThreadId === tid) setExpandedThreadId(null);
@@ -1509,7 +1505,7 @@ export default function MessageList() {
     // (newest) message was deleted and the rest of the thread survived.
     let deleteIds = ids;
     try {
-      const resolved = await Promise.all(msgs.map(m => resolveMessagesForThreadAction(m)));
+      const resolved = await Promise.all(msgs.map(async m => keepDraftsApart(await resolveMessagesForThreadAction(m), m.id)));
       deleteIds = [...new Set([...ids, ...resolved.flat().map(m => m?.id).filter(Boolean)])];
     } catch (err) {
       console.error('Failed to load thread for bulk delete:', err.message);
@@ -1584,7 +1580,7 @@ export default function MessageList() {
     let moveIds = ids;
     try {
       const resolved = await Promise.all(msgs.map(async (m) => {
-        const thread = await resolveMessagesForThreadAction(m);
+        const thread = keepDraftsApart(await resolveMessagesForThreadAction(m), m.id);
         return thread.filter(tm => tm?.account_id === m.account_id);
       }));
       moveIds = [...new Set([...ids, ...resolved.flat().map(m => m?.id).filter(Boolean)])];
@@ -2301,7 +2297,7 @@ export default function MessageList() {
         const moved = message;
         let moveMessages;
         try {
-          moveMessages = await resolveMessagesForThreadAction(message);
+          moveMessages = keepDraftsApart(await resolveMessagesForThreadAction(message), message.id);
         } catch (err) {
           console.error('Failed to load thread for move:', err.message);
           addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
@@ -2550,6 +2546,16 @@ export default function MessageList() {
     listRef.current?.focus({ preventScroll: true });
     markMessageReadOnOpen(message);
   };
+
+  // An advance after a delete, archive or move anywhere (the panes included) opens the next row
+  // exactly as a click does (utils/listSelection.js). In Drafts a click opens the composer, so
+  // there the advance only moves the highlight, as it always has.
+  const rowOpenerRef = useRef(null);
+  rowOpenerRef.current = (row) => {
+    if (isDraftsFolder) { setSelectedMessage(row.id); return; }
+    handleSelect(row);
+  };
+  useEffect(() => registerRowOpener(row => rowOpenerRef.current?.(row)), []);
 
   // Mark a message read when it is opened, honoring the manual/delay/instant setting.
   // Shared by the main-pane selection (handleSelect) and the detached-window open

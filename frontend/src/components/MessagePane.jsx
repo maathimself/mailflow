@@ -10,6 +10,7 @@ import { useMobile } from '../hooks/useMobile.js';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
 import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
 import { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } from '../utils/markRead.js';
+import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
 import { markMessageUnread } from '../utils/messageHotkeys.js';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFromMessage } from '../utils/composeFromMessage.js';
@@ -230,6 +231,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const performSingleSpamLabel = useCallback(async (label) => {
     if (!message) return;
     const wasUnread = !message.is_read;
+    advanceSelectionAfterRemoval(message.id);
     removeMessage(message.id);
     closeWindowIfWindowed();
     if (wasUnread) decrementUnread(message.account_id);
@@ -1035,6 +1037,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     if (!message) return;
     setShowMovePicker(false);
     const moved = message;
+    advanceSelectionAfterRemoval(moved.id);
     removeMessage(moved.id);
     closeWindowIfWindowed();
     if (!moved.is_read) decrementUnread(moved.account_id);
@@ -1150,6 +1153,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const handleDelete = () => {
     const deleted = message;
     setPendingDelete(deleted.id);
+    advanceSelectionAfterRemoval(deleted.id);
     removeMessage(deleted.id);
     closeWindowIfWindowed();
     if (!deleted.is_read) decrementUnread(deleted.account_id);
@@ -1181,6 +1185,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handleArchive = () => {
     const archived = message;
+    advanceSelectionAfterRemoval(archived.id);
     removeMessage(archived.id);
     closeWindowIfWindowed();
     if (!archived.is_read) decrementUnread(archived.account_id);
@@ -1287,6 +1292,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       case 'snooze':
         if (data) {
           const snoozedMsg = message;
+          advanceSelectionAfterRemoval(snoozedMsg.id);
           removeMessage(snoozedMsg.id);
           closeWindowIfWindowed();
           if (!snoozedMsg.is_read) decrementUnread(snoozedMsg.account_id);
@@ -1388,6 +1394,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         actionLabel: t('message.unsubscribe.moveToTrash'),
         onAction: () => {
           const { removeMessage, decrementUnread, restoreMessages, incrementUnread } = useStore.getState();
+          advanceSelectionAfterRemoval(msg.id);
           removeMessage(msg.id);
           if (!msg.is_read) decrementUnread(msg.account_id);
           api.deleteMessage(msg.id).catch(() => {

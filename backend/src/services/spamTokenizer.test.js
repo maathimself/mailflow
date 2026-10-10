@@ -239,6 +239,13 @@ describe('tokenFingerprint', () => {
 describe('attachment_is_executable (#457)', () => {
   const flag = attachments => extractFlagFeatures({ subject: '', body: '', attachments }).attachment_is_executable;
 
+  it('looks inside a forwarded .eml for a program', () => {
+    const forward = contains => ({ filename: 'Fwd.eml', type: 'message/rfc822', contains });
+    expect(flag([forward([{ filename: 'payload.exe', type: 'application/octet-stream' }])])).toBe(1);
+    expect(flag([forward([{ filename: 'report.pdf', type: 'application/pdf' }])])).toBe(0);
+    expect(extractFlagFeatures({ subject: '', body: '', attachments: [forward([{ filename: 'a.exe' }])] }).has_attachment).toBe(1);
+  });
+
   it('means the BLOCK tier: files that run code when opened', () => {
     for (const filename of ['invoice.exe', 'run.ps1', 'shortcut.lnk', 'disk.iso', 'install.sh']) {
       expect(flag([{ filename }]), filename).toBe(1);

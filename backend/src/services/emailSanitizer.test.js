@@ -5,6 +5,7 @@ import {
   sanitizeEmail,
   sanitizeSignature,
   sanitizeComposeBody,
+  composeHtmlToText,
   hasRemoteImages,
   blockRemoteImages,
   rewriteEbayImageserUrls,
@@ -374,12 +375,56 @@ describe('sanitizeEmail — crafted <style> CSS', () => {
 });
 
 describe('sanitizeEmail — crafted markup against the HTML5 pass', () => {
-  it('stays fast on a tag with tens of thousands of attributes', () => {
-    // parse5's tokenizer compares each attribute name with every earlier one on the tag,
-    // before any tree-adapter hook runs. This took 4 to 5 seconds per run.
-    let attrs = '';
-    for (let i = 0; i < 60000; i++) attrs += ` a${i}`;
-    expect(fastestRunMs(() => sanitizeEmail(`<p${attrs}>x</p>`), 2)).toBeLessThan(1000);
+  // parse5's tokenizer compares each attribute name with every earlier one on its tag, before
+  // any tree-adapter hook runs, so the budget cannot stop it. One tag with 26,000 attributes,
+  // under the 128 KB cap, took 1.2 s per run; a tag past MAX_ATTRIBUTES_PER_TAG skips the pass.
+  const LETTERS = 'abcdefghijklmnopqrstuvwxyz';
+  const names = (n) => Array.from({ length: n }, (_, i) => {
+    let s = '', x = i;
+    for (let k = 0; k < 4; k++) { s += LETTERS[x % 26]; x = Math.floor(x / 26); }
+    return s;
+  });
+  // As many distinct four-letter names as fit under the 128 KB cap.
+  const flood = (sep = ' ') => names(25000).join(sep);
+  function warnings(fn) {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    try { fn(); return warn.mock.calls.length; } finally { warn.mockRestore(); }
+  }
+
+  it('stays fast on one tag with tens of thousands of attributes under the size cap', () => {
+    const html = `<p ${flood()}>x</p>`;
+    expect(html.length).toBeLessThan(128 * 1024);
+    let ms;
+    expect(warnings(() => { ms = fastestRunMs(() => sanitizeEmail(html), 2); })).toBeGreaterThan(0);
+    expect(ms).toBeLessThan(300);
+    expect(sanitizeEmail(html)).toBe('<p>x</p>');
+  });
+
+  it("counts attributes the way parse5 does: on end tags, after '/', and between quoted values", () => {
+    const n = names(600);
+    for (const html of [
+      `<p>x</p ${n.join(' ')}>`,
+      `<p ${n.join('/')}>x</p>`,
+      `<p ${n.map(a => `${a}=""`).join('')}>x</p>`,
+    ]) expect(warnings(() => sanitizeEmail(html)), html.slice(0, 20)).toBe(1);
+  });
+
+  it('cannot be hidden from the count where tags are text to the tree builder', () => {
+    // Inside <svg>, <style> holds tags; text that opens a quote inside an HTML <style> or a
+    // comment must not make a later real tag look like part of a quoted value.
+    const tag = `<p ${names(600).join(' ')}>x</p>`;
+    for (const html of [`<svg><style>${tag}</style></svg>`, `<style><x a="</style>${tag}`, `<!-- <x a=" -->${tag}`]) {
+      expect(warnings(() => sanitizeEmail(html)), html.slice(0, 20)).toBe(1);
+    }
+  });
+
+  it('still rebuilds mail whose tags have an ordinary number of attributes', () => {
+    // The </head>-after-</body> case only renders if the HTML5 pass runs.
+    const attrs = names(400).map(a => `data-${a}="1"`).join(' ');
+    const html = `<html><head><style>p{color:red}</style><body><p ${attrs}>visible</p></body></head></html>`;
+    let out;
+    expect(warnings(() => { out = sanitizeEmail(html); })).toBe(0);
+    expect(out).toContain('<p>visible</p>');
   });
 });
 
@@ -633,5 +678,33 @@ describe('sanitizeComposeBody link hrefs', () => {
   it('applies the same rules to signatures', () => {
     expect(hrefOf(sanitizeSignature('<a href="http://example.com">site</a>'))).toBe('https://example.com');
     expect(hrefOf(sanitizeSignature('<a href="javascript:alert(1)">x</a>'))).toBe(null);
+  });
+});
+
+describe('composeHtmlToText', () => {
+  const cases = [
+    ['paragraphs, and an empty one as a blank line', '<p>A</p><p>B</p><p></p><p>C</p>', 'A\nB\n\nC'],
+    ['an empty line written as <p><br></p>', '<p>A</p><p><br></p><p>B</p>', 'A\n\nB'],
+    ['entities decoded once', '<p>Fish &amp; chips &lt;b&gt; caf&eacute; &mdash; it&rsquo;s &quot;ok&quot; &#8364;5 &#x1F600;</p>', 'Fish & chips <b> café — it’s "ok" €5 😀'],
+    ['literal escaped text stays literal', '<p>Type &amp;amp; for an ampersand</p>', 'Type &amp; for an ampersand'],
+    ['line breaks', 'one<br>two<br/>three', 'one\ntwo\nthree'],
+    ['a break ending a block adds no blank line, as in a browser', '<p>end<br></p><p>next</p>', 'end\nnext'],
+    ['typed spacing kept, source whitespace collapsed', '<div>\n  <p>two&nbsp;&nbsp;spaces\n   here</p>\n</div>', 'two  spaces here'],
+    ['text before and after blocks', 'intro<ul><li>x</li><li>y &amp; z</li></ul>tail', 'intro\n- x\n- y & z\ntail'],
+    ['nested blocks give one break', 'x<div><div><p>deep</p></div></div>y', 'x\ndeep\ny'],
+    ['a rule', '<p>a</p><hr><p>b</p>', 'a\n---\nb'],
+    ['table cells on their row', '<table><tr><th>Name</th><th>Qty</th></tr><tr><td>Tea</td><td>2</td></tr></table>', 'Name Qty\nTea 2'],
+    ['<pre> keeps its lines and indentation', '<pre><code>if (a &lt; b) {\n    go();\n}</code></pre><p>done</p>', 'if (a < b) {\n    go();\n}\ndone'],
+    ['scripts and styles are not text', '<style>p{color:red}</style><p>Visible</p><script>alert(1)</script>', 'Visible'],
+    ['control characters in the text do not act as line breaks', '<p>a\u0001b</p><p>c\u0002d</p>', 'ab\ncd'],
+    ['nothing', '', ''],
+  ];
+  for (const [name, html, text] of cases) it(name, () => expect(composeHtmlToText(html)).toBe(text));
+
+  it('stays linear on long runs of spaces', () => {
+    // Trimming line ends with /[ \t]+\n/ took 4 s for the first of these.
+    for (const html of [`<p>${'&nbsp;'.repeat(100000)}x</p>`, `<pre>${' '.repeat(100000)}x</pre>`]) {
+      expect(fastestRunMs(() => composeHtmlToText(html), 2), html.slice(0, 12)).toBeLessThan(1000);
+    }
   });
 });

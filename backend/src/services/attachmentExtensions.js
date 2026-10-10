@@ -25,3 +25,11 @@ export const NOTICE = new Set(['zip', 'rar', '7z', 'gz', 'tgz', 'tar', 'bz2', 'x
 
 export const DECOY = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'rtf', 'odt', 'ods', 'odp',
   'jpg', 'jpeg', 'png', 'gif', 'mp3', 'mp4', 'mov', 'avi', 'wav']);
+
+// The files to judge: each attachment plus, for a forwarded message attached as an .eml, the files
+// inside it (walkStructure records them as `contains`). Without this, wrapping a program in a
+// forward hid it from every attachment rule, since the list itself only shows the .eml.
+export function attachmentsWithContained(attachments) {
+  const list = Array.isArray(attachments) ? attachments : [];
+  return list.flatMap(a => [a, ...(Array.isArray(a?.contains) ? a.contains : [])]);
+}

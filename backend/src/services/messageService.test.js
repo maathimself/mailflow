@@ -173,7 +173,11 @@ describe('listMessages — threaded mode', () => {
     expect(query.mock.calls[2][0]).toContain('DISTINCT ON (m.account_id, m.thread_key, m.message_id)');
   });
 
-  it('scopes thread_totals to INBOX when viewing a specific account INBOX', async () => {
+  // #576: the badge counts the thread across folders so it matches the thread route, which
+  // loads every folder. Scoped to INBOX, a received message plus your reply (in Sent) counted 1.
+  const threadTotalsSql = (sql) => sql.slice(sql.indexOf('thread_totals AS'), sql.indexOf('ranked AS'));
+
+  it('counts thread messages across all folders for a specific account INBOX (#576)', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
       .mockResolvedValueOnce({ rows: [{ total_count: 10, unread_count: 0 }] })
@@ -182,8 +186,9 @@ describe('listMessages — threaded mode', () => {
 
     await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'INBOX', threaded: 'true' });
 
-    const cteSql = query.mock.calls[2][0];
-    expect(cteSql).toContain('AND folder = $2');
+    const totals = threadTotalsSql(query.mock.calls[2][0]);
+    expect(totals).toContain('COUNT(DISTINCT (m.account_id, m.message_id))');
+    expect(totals).not.toMatch(/folder\s*=/);
   });
 
   it('counts thread messages across all folders when viewing a non-INBOX folder', async () => {
@@ -195,13 +200,12 @@ describe('listMessages — threaded mode', () => {
 
     await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'Sent', threaded: 'true' });
 
-    // thread_totals must not be scoped to a specific folder so the badge reflects true thread size
-    const cteSql = query.mock.calls[2][0];
-    expect(cteSql).not.toContain('AND folder = $2');
-    expect(cteSql).not.toContain("AND folder = 'INBOX'");
+    const totals = threadTotalsSql(query.mock.calls[2][0]);
+    expect(totals).toContain('COUNT(DISTINCT (m.account_id, m.message_id))');
+    expect(totals).not.toMatch(/folder\s*=/);
   });
 
-  it('scopes thread_totals to INBOX for unified inbox threaded view', async () => {
+  it('counts thread messages across all folders for the unified inbox threaded view (#576)', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }, { id: 'acc-2' }] })
       .mockResolvedValueOnce({ rows: [{ n: 20 }] })
@@ -210,8 +214,12 @@ describe('listMessages — threaded mode', () => {
 
     await listMessages({ userId: 'user-1', threaded: 'true' });
 
-    const cteSql = query.mock.calls[2][0];
-    expect(cteSql).toContain("AND folder = 'INBOX'");
+    const sql = query.mock.calls[2][0];
+    const totals = threadTotalsSql(sql);
+    expect(totals).toContain('COUNT(DISTINCT (m.account_id, m.message_id))');
+    expect(totals).not.toMatch(/folder\s*=/);
+    // The listed rows themselves stay INBOX-only; only the count widens.
+    expect(sql).toContain("m.folder = 'INBOX'");
   });
 });
 

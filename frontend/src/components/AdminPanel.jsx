@@ -374,6 +374,12 @@ function AccountForm({ initial, onSave, onCancel }) {
         value={form.signature || ''}
         onChange={val => set('signature', val)}
       />
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 13, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+        <input type="checkbox" checked={form.signature_enabled !== false}
+          onChange={e => set('signature_enabled', e.target.checked)}
+          style={{ accentColor: 'var(--accent)' }} />
+        {t('admin.accounts.signatureEnabledDefault')}
+      </label>
 
       {isEdit && (
         <>
@@ -605,7 +611,7 @@ function AccountsTab() {
 
   const handleEdit = async (form) => {
     const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, antispam_enabled: !!form.antispam_enabled, trusted_authserv_id: (form.trusted_authserv_id || '').trim() || null, include_in_unified_inbox: form.include_in_unified_inbox !== false };
-    Object.assign(updates, autoRecipientFields(form));
+    Object.assign(updates, autoRecipientFields(form), { signature_enabled: form.signature_enabled !== false });
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;
     // Separate SMTP credentials (optional). A username sends both (a blank password on
@@ -1646,7 +1652,7 @@ function SwipeActionIcon({ action, size = 17 }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, conversationMode, setConversationMode, autoOpenReplyDrafts, setAutoOpenReplyDrafts, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, hoverActionSet, setHoverActionSet, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, accounts, defaultSender, setDefaultSender } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, conversationMode, setConversationMode, autoOpenReplyDrafts, setAutoOpenReplyDrafts, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, hoverActionSet, setHoverActionSet, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, afterRemove, setAfterRemove, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, accounts, defaultSender, setDefaultSender } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
@@ -2262,6 +2268,41 @@ function LayoutsTab() {
             );
           })}
         </div>
+      </div>
+
+      {/* What opens after the open message is deleted, archived or moved (#572) */}
+      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('admin.messageList.afterRemove')}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {[
+            { id: 'next',     label: t('admin.messageList.afterRemoveNext'),     desc: t('admin.messageList.afterRemoveNextDesc') },
+            { id: 'previous', label: t('admin.messageList.afterRemovePrevious'), desc: t('admin.messageList.afterRemovePreviousDesc') },
+            { id: 'list',     label: t('admin.messageList.afterRemoveList'),     desc: t('admin.messageList.afterRemoveListDesc') },
+          ].map(({ id, label, desc }) => {
+            const active = afterRemove === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setAfterRemove(id)}
+                aria-pressed={active}
+                style={{
+                  flex: 1, padding: '10px 12px', textAlign: 'left',
+                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+                  borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+                }}
+                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
+                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-tertiary)' }}>{t('admin.messageList.afterRemoveMobile')}</div>
       </div>
 
       {/* Mark as read behaviour */}
@@ -8724,6 +8765,7 @@ function makeSearchIndex(t) {
     { label: t('admin.messageList.threadingMode'), keywords: ['thread', 'conversation', 'grouping', 'threading', 'group'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.composeFormat'), keywords: ['compose', 'format', 'rich text', 'plain text', 'html', 'editor'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.defaultReplyAction'), keywords: ['reply', 'reply all', 'default reply'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
+    { label: t('admin.messageList.afterRemove'), keywords: ['next message', 'auto advance', 'after delete', 'after archive', 'open next', 'previous message'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.markReadBehavior'), keywords: ['mark read', 'mark as read', 'read delay', 'auto read', 'manual read', 'unread'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     // Appearance > Fonts & Language
     { label: t('admin.appearance.language'), keywords: ['language', 'locale', 'french', 'english', 'spanish', 'german', 'deutsch', 'russian', 'chinese', 'italian', 'czech', 'čeština', 'portuguese', 'português', 'brasil', 'korean', '한국어', 'français', 'español'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },

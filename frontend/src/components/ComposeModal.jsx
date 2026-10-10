@@ -23,6 +23,7 @@ import { copyToClipboard } from '../utils/clipboard.js';
 import { resolveInitialFrom } from '../utils/defaultSender.js';
 import { initialComposeFocus, isComposeSendShortcut } from '../utils/composeFromMessage.js';
 import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } from '../utils/autoRecipients.js';
+import { resolveSignatureEnabled } from '../utils/composeSignature.js';
 import { UNDO_SEND_SECONDS, undoWindowMs, trackHeldSend, reopenCompose } from '../utils/heldSend.js';
 import { openSentMessage } from '../utils/openSentMessage.js';
 
@@ -223,6 +224,12 @@ export default function ComposeModal() {
   // reopened draft gets nothing, because its saved Cc and Bcc are what the user left, and neither
   // does a message reopened by undo send, whose Cc and Bcc are what it was sent with.
   const [autoInit] = useState(() => {
+    // A message reopened by undo send carries on with what its composer knew when it was sent,
+    // so an automatic address the user removed then stays out across From switches, as it would
+    // have with that composer still open.
+    if (composeData?.restored && composeData.autoRecipients) {
+      return { cc: parseChips(composeData.cc), bcc: parseChips(composeData.bcc), auto: composeData.autoRecipients };
+    }
     const account = accounts.find(a => a.id === resolveFrom(fromValue).accountId);
     const opened = openAutoRecipients(
       { to: parseChips(composeData?.to), cc: parseChips(composeData?.cc), bcc: parseChips(composeData?.bcc) },
@@ -246,6 +253,8 @@ export default function ComposeModal() {
   const [showEmptySubjectWarn, setShowEmptySubjectWarn] = useState(false);
   const [showForgottenAttachWarn, setShowForgottenAttachWarn] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
+  // 'close' asks what to do on closing; 'discard' (the Discard button) only confirms the delete.
+  const [closeDialogMode, setCloseDialogMode] = useState('close');
   const [showAttachWarnForDraft, setShowAttachWarnForDraft] = useState(false);
   const [attachWarnDraftCloseAfter, setAttachWarnDraftCloseAfter] = useState(false);
   const [showPrioritySheet, setShowPrioritySheet] = useState(false);
@@ -253,8 +262,6 @@ export default function ComposeModal() {
   const [ccBccMenuPos, setCcBccMenuPos] = useState(null);
   const ccBccMenuBtnRef = useRef(null);
   const [draftUid, setDraftUid] = useState(() => composeData?.draftUid ?? null);
-  const [draftFolder, setDraftFolder] = useState(() => composeData?.draftFolder ?? null);
-  const [draftAccountId, setDraftAccountId] = useState(() => composeData?.draftAccountId ?? composeData?.accountId ?? null);
   const [savingDraft, setSavingDraft] = useState(false);
   // Given back with a message reopened after undo send; drafts do not carry attachments.
   const [attachments, setAttachments] = useState(() => composeData?.attachments || []);
@@ -267,8 +274,12 @@ export default function ComposeModal() {
   const initialBccRef = useRef(normalizeTo(autoInit.bcc));
   // Start at fwdAttachments.length so pre-loaded forwarded attachments aren't dirty.
   // True when the compose was opened by clicking an existing draft from the list.
-  // Used by handleClose to decide whether to prompt about an unmodified draft.
-  const draftWasPreExisting = useRef(composeData?.draftUid != null);
+  // Used by handleClose to decide whether to prompt about an unmodified draft, and to keep a From
+  // switch from swapping the automatic Cc and Bcc. A message reopened by undo send keeps what its
+  // composer had: one that was only autosaved has a draft by then, but was not opened from one.
+  const draftWasPreExisting = useRef(composeData?.restored
+    ? !!composeData.draftWasPreExisting
+    : composeData?.draftUid != null);
   // A message reopened after undo send is newer than its draft, if it has one at all (and a
   // draft never has the attachments), so it counts as unsaved until it is saved.
   const unsavedRestoreRef = useRef(!!composeData?.restored);
@@ -343,10 +354,20 @@ export default function ComposeModal() {
   posRef.current = pos;
   customSizeRef.current = customSize;
 
-  const [plainSig, setPlainSig] = useState(() => stripHtml(composeData?.signature ?? fromSignature ?? ''));
+  // A reopened draft saved without a signature ('') starts with the signature turned off, but the
+  // From signature is kept ready, so turning it on shows it.
+  const [plainSig, setPlainSig] = useState(() => stripHtml(composeData?.signature || fromSignature || ''));
   // Tracks the user's current (possibly edited) rich-text signature; kept current by onInput.
-  const signatureContentRef = useRef(DOMPurify.sanitize(composeData?.signature ?? fromSignature ?? ''));
+  const signatureContentRef = useRef(DOMPurify.sanitize(composeData?.signature || fromSignature || ''));
   const [hasRichSignature, setHasRichSignature] = useState(() => Boolean(signatureContentRef.current));
+  // Whether this message goes out with the signature (#555). A reopened draft says so itself
+  // ('' is off; utils/composeSignature.js); otherwise it follows the From mailbox's default, again
+  // whenever From changes. Off keeps the signature's text, so turning it back on restores edits.
+  const [signatureEnabled, setSignatureEnabled] = useState(() => resolveSignatureEnabled(fromAccount, composeData?.signature));
+  const signatureToggledRef = useRef(false);
+  // The From value whose mailbox default was last applied; null until the accounts have loaded.
+  const signatureDefaultForRef = useRef(fromAccount ? fromValue : null);
+  const signatureAutoChangedRef = useRef(false);
   // A sender change can reveal a previously absent signature editor. Populate
   // it on mount; a stable callback preserves edits and the caret on rerenders.
   const attachSignatureEditor = useCallback(node => {
@@ -364,6 +385,9 @@ export default function ComposeModal() {
   const lastSaveAtRef = useRef(Date.now());
   const bodyEditedRef = useRef(false);
   const draftPointerRef = useRef({ uid: composeData?.draftUid ?? null, folder: composeData?.draftFolder ?? null, accountId: composeData?.draftAccountId ?? composeData?.accountId ?? null });
+  // Set once Discard starts (#573): saves refuse to run, so none can recreate the draft being deleted.
+  const discardedRef = useRef(false);
+  const [discarding, setDiscarding] = useState(false);
 
   const editor = useEditor({
     extensions: [
@@ -655,11 +679,11 @@ export default function ComposeModal() {
     // identity afterwards still swaps in that account's signature. See utils/draftSignature.js.
     if (!signatureInitializedRef.current && !fromValueChanged && composeData?.signature !== undefined) {
       signatureInitializedRef.current = true;
-      const draftSig = DOMPurify.sanitize(composeData.signature);
+      const draftSig = DOMPurify.sanitize(composeData.signature || fromSignature || '');
       if (signatureRef.current) signatureRef.current.innerHTML = draftSig;
       signatureContentRef.current = draftSig;
       setHasRichSignature(Boolean(draftSig));
-      setPlainSig(stripHtml(composeData.signature));
+      setPlainSig(stripHtml(draftSig));
       return;
     }
     if (!signatureInitializedRef.current && fromSignature != null) {
@@ -675,6 +699,20 @@ export default function ComposeModal() {
       setPlainSig('');
     }
   }, [fromValue, fromSignature, composeData?.signature]);
+
+  // Apply the From mailbox's "show signature by default" when From changes, and once when the
+  // accounts load after the composer opened, unless a reopened draft or the user already decided.
+  useLayoutEffect(() => {
+    if (!fromAccount || signatureDefaultForRef.current === fromValue) return;
+    const accountsJustLoaded = signatureDefaultForRef.current === null;
+    signatureDefaultForRef.current = fromValue;
+    if (accountsJustLoaded && (composeData?.signature !== undefined || signatureToggledRef.current)) return;
+    const next = resolveSignatureEnabled(fromAccount);
+    if (next !== signatureEnabled) {
+      signatureAutoChangedRef.current = true;
+      setSignatureEnabled(next);
+    }
+  }, [fromValue, fromAccount]); // eslint-disable-line react-hooks/exhaustive-deps -- applies the default on a From change or account load only, never when the user toggles
 
   // Swap the automatic Cc and Bcc when From moves to another account, or when the account loads
   // after the composer opened (#491). An alias keeps its account's id, so it changes nothing. The
@@ -852,6 +890,8 @@ export default function ComposeModal() {
     }
     const ccFinal = [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])];
     const bccFinal = [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])];
+    // Taken with the recipients it describes: From stays usable while the request is out.
+    const autoAtSend = autoRef.current;
     const sentQuotedHtml = !plaintextEmail && (quotedBodyHtml != null || quotedHtmlRef.current)
       ? (quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml)
       : null;
@@ -869,8 +909,9 @@ export default function ComposeModal() {
         bodyIsHtml: !plaintextEmail,
         ...(quotedBody ? { quotedBody } : {}),
         ...(sentQuotedHtml != null ? { quotedBodyHtml: sentQuotedHtml } : {}),
-        ...(signatureContentRef.current || fromSignature != null || composeData?.signature !== undefined
-          ? { editedSignature: plaintextEmail ? plainSig : signatureContentRef.current }
+        // Off sends an empty override, or the server would add the account's signature.
+        ...(!signatureEnabled || signatureContentRef.current || fromSignature != null || composeData?.signature !== undefined
+          ? { editedSignature: !signatureEnabled ? '' : plaintextEmail ? plainSig : signatureContentRef.current }
           : {}),
         inReplyTo: composeData?.inReplyTo,
         references: composeData?.references || undefined,
@@ -966,13 +1007,16 @@ export default function ComposeModal() {
           quotedBody,
           quotedBodyHtml: sentQuotedHtml,
           // '' means no signature. The composer reads this as HTML, so plain text is escaped.
-          signature: plaintextEmail
-            ? plainSig.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-            : signatureContentRef.current,
+          signature: !signatureEnabled ? ''
+            : plaintextEmail
+              ? plainSig.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+              : signatureContentRef.current,
           attachments,
           forwardedAttachments: fwdAttachments,
           priority,
           restored: true,
+          autoRecipients: autoAtSend,
+          draftWasPreExisting: draftWasPreExisting.current,
           sendError: undefined,
         };
         const pendingId = sendResult.pendingId;
@@ -1050,7 +1094,8 @@ export default function ComposeModal() {
     bodyIsHtml: !plaintextEmail,
     quotedBody,
     quotedBodyHtml: quotedHtmlRef.current?.innerHTML || quotedBodyHtml || '',
-    editedSignature: plaintextEmail ? plainSig : signatureContentRef.current,
+    // Off is saved as an empty signature, so toggling counts as an edit and is autosaved.
+    editedSignature: !signatureEnabled ? '' : plaintextEmail ? plainSig : signatureContentRef.current,
     attachments: attachments.map(a => a.name),
     forwardedAttachments: fwdAttachments.map(a => `${a.messageId}:${a.part}`),
   });
@@ -1060,6 +1105,7 @@ export default function ComposeModal() {
     || (fwdAttachments.length > 0 && !composeData?.externalAttachments?.length);
   saveRef.current = async value => {
     if (useStore.getState().user?.id !== composeOwner) return false;
+    if (discardedRef.current) return false;
     const { accountId, aliasId } = resolveFrom(value.fromValue || fromValue);
     if (unsupportedSenderRef.current) { setError(t("compose.unsupportedDraftFrom", { defaultValue: "Choose a configured sender before saving or sending this draft.", email: composeData?.unsupportedFrom })); return false; }
     if (!accountId) { setError(t('compose.selectAccount')); return false; }
@@ -1084,8 +1130,6 @@ export default function ComposeModal() {
       if (result.uid != null) {
         draftPointerRef.current = { uid: result.uid, folder: result.folder, accountId };
         setDraftUid(result.uid);
-        setDraftFolder(result.folder);
-        setDraftAccountId(accountId);
         updateComposePersistedKey(composeSession, `${accountId}:${result.folder}:${result.uid}:${result.messageId || ""}:${composeData?.draftUidValidity || ""}`);
       }
       unsavedRestoreRef.current = false;
@@ -1137,6 +1181,16 @@ export default function ComposeModal() {
       composeSwitchRef.current.markSaved(initialSavedSnapshotRef.current);
     }
   }, [fromValue]);
+
+  // A mailbox default applied automatically is no more an edit than the From change behind it.
+  useLayoutEffect(() => {
+    if (!signatureAutoChangedRef.current) return;
+    signatureAutoChangedRef.current = false;
+    if (draftPointerRef.current.uid == null && initialSavedSnapshotRef.current) {
+      initialSavedSnapshotRef.current.editedSignature = snapshotRef.current().editedSignature;
+      composeSwitchRef.current.markSaved(initialSavedSnapshotRef.current);
+    }
+  }, [signatureEnabled]);
 
   useEffect(() => {
     if (plaintextEmail || !editor || editorBaselineReadyRef.current) return;
@@ -1281,6 +1335,7 @@ export default function ComposeModal() {
   };
 
   const handleClose = () => {
+    setCloseDialogMode('close');
     if (isDirty() || switchBlockRef.current()) {
       setShowCloseDialog(true);
     } else if (draftUid != null && draftWasPreExisting.current) {
@@ -1289,6 +1344,39 @@ export default function ComposeModal() {
     } else {
       closeCompose();
     }
+  };
+
+  // Delete whatever this composer saved to Drafts, then close (#573). An autosave still running
+  // would create or replace the draft after the delete and leave it behind, so new saves are
+  // refused first and the running one is awaited; the newest pointer then names the draft. A
+  // failed delete keeps the composer open with an error rather than closing as if it worked.
+  const discardDraft = async () => {
+    if (discardedRef.current) return;
+    discardedRef.current = true;
+    setDiscarding(true);
+    await composeSwitchRef.current?.waitForIdle?.();
+    const { uid, folder, accountId } = draftPointerRef.current;
+    if (uid != null && folder != null && accountId) {
+      try {
+        await api.deleteDraft(accountId, uid, folder);
+      } catch {
+        discardedRef.current = false;
+        setDiscarding(false);
+        setError(t('compose.discardFailed'));
+        return;
+      }
+      useStore.getState().invalidateReplyDrafts();
+    }
+    const active = useStore.getState();
+    if (active.composing && active.composeSession === composeSession) closeCompose();
+  };
+
+  // The Discard button: nothing typed and nothing saved closes straight away; otherwise confirm.
+  const hasSavedDraft = () => draftPointerRef.current.uid != null;
+  const requestDiscard = (sheet) => {
+    if (!isDirty() && !switchBlockRef.current() && !hasSavedDraft()) { closeCompose(); return; }
+    setCloseDialogMode('discard');
+    if (sheet) setShowDiscardSheet(true); else setShowCloseDialog(true);
   };
 
   const renderSignatureEditor = () => plaintextEmail ? (
@@ -1315,6 +1403,31 @@ export default function ComposeModal() {
     />
   );
 
+  // Signature on/off for this message (#555), shown only when there is a signature to turn on.
+  const renderSignatureToggle = () => ((plaintextEmail ? plainSig : hasRichSignature) ? (
+    <button type="button"
+      title={t('compose.insertSignature')}
+      aria-label={t('compose.insertSignature')}
+      aria-pressed={signatureEnabled}
+      disabled={sending}
+      onMouseDown={e => e.preventDefault()}
+      onClick={() => { signatureToggledRef.current = true; setSignatureEnabled(on => !on); }}
+      style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        padding: isMobile ? '6px 4px' : '3px 6px', border: 'none', borderRadius: 4,
+        background: signatureEnabled ? 'var(--bg-hover)' : 'none',
+        color: signatureEnabled ? 'var(--accent)' : 'var(--text-secondary)',
+        cursor: sending ? 'default' : 'pointer', flex: isMobile ? 1 : undefined,
+        WebkitTapHighlightColor: 'transparent',
+      }}>
+      <svg width={isMobile ? 16 : 13} height={isMobile ? 16 : 13} viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+        <path d="M6 16c2-6 3-8 4-8s-2 8 0 8c1 0 2-4 3-4s0 3 2 3l3-1" />
+      </svg>
+    </button>
+  ) : null);
+
   const modeLabel = isReply
     ? (replyAll ? t('compose.replyAll') : t('compose.reply'))
     : isForward ? t('compose.forward') : t('compose.newMessage');
@@ -1333,6 +1446,15 @@ export default function ComposeModal() {
     return next;
   };
 
+  // The close prompt offers Save only when closing with unsaved edits; the Discard button's
+  // confirmation never does.
+  const closeAsks = closeDialogMode === 'close' && isDirty();
+  // The same trash glyph as the message menus' Delete.
+  const trashIcon = (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+      <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+    </svg>
+  );
   const sendSpinner = (
     <div style={{
       width: 14, height: 14, borderRadius: '50%',
@@ -1414,6 +1536,7 @@ export default function ComposeModal() {
           <button
             onClick={() => {
               if (isDirty() || switchBlockRef.current() || (draftUid != null && draftWasPreExisting.current)) {
+                setCloseDialogMode('close');
                 setShowDiscardSheet(true);
               } else {
                 closeCompose();
@@ -1435,6 +1558,20 @@ export default function ComposeModal() {
             {modeLabel}
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 60, justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => requestDiscard(true)}
+              disabled={discarding}
+              aria-label={t('compose.discard')}
+              title={t('compose.discard')}
+              style={{
+                background: 'none', border: 'none', padding: '4px 8px',
+                cursor: discarding ? 'default' : 'pointer', display: 'flex', alignItems: 'center',
+                color: 'var(--text-tertiary)',
+                WebkitTapHighlightColor: 'transparent',
+              }}
+            >
+              {trashIcon}
+            </button>
             <button
               onClick={() => setShowPrioritySheet(true)}
               style={{
@@ -1610,6 +1747,20 @@ export default function ComposeModal() {
           </div>
 
           {/* Body */}
+          {/* Plain text has no toolbar on a phone: a strip for attaching and the signature toggle. */}
+          {plaintextEmail && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '4px 10px', borderBottom: '1px solid var(--border-subtle)' }}>
+              <button type="button" title={t('compose.toolbar.attachFile')} aria-label={t('compose.toolbar.attachFile')}
+                onClick={() => fileInputRef.current?.click()}
+                style={{ background: 'none', border: 'none', borderRadius: 4, padding: '6px 4px', color: 'var(--text-secondary)',
+                  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, WebkitTapHighlightColor: 'transparent' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+                </svg>
+              </button>
+              {renderSignatureToggle()}
+            </div>
+          )}
           {plaintextEmail ? (
             <textarea
               ref={textareaRef}
@@ -1630,6 +1781,7 @@ export default function ComposeModal() {
           ) : (
             <div className="tiptap-compose" style={{ flex: '1 0 auto', minHeight: 200, display: 'flex', flexDirection: 'column' }}>
               <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()}
+                signatureControl={renderSignatureToggle()}
                 htmlMode={htmlMode}
                 onToggleHtml={() => {
                   if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
@@ -1693,7 +1845,7 @@ export default function ComposeModal() {
           )}
 
           {/* Signature */}
-          {(plaintextEmail ? plainSig : hasRichSignature) && (
+          {signatureEnabled && (plaintextEmail ? plainSig : hasRichSignature) && (
             <div style={{ padding: '0 16px 12px' }}>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: '8px 0 6px', userSelect: 'none' }}>
                 -- signature
@@ -1803,9 +1955,9 @@ export default function ComposeModal() {
             animation: 'sheet-enter 0.22s var(--ease-emphasized) both',
           }}>
             <div style={{ padding: '16px 20px 8px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>
-              {isDirty() ? t('compose.closeDraft.title') : t('compose.discardDraft.title')}
+              {closeAsks ? t('compose.closeDraft.title') : t('compose.discardDraft.title')}
             </div>
-            {isDirty() && (
+            {closeAsks && (
               <button
                 onClick={() => { setShowDiscardSheet(false); handleSaveDraft(true); }}
                 disabled={savingDraft}
@@ -1815,22 +1967,17 @@ export default function ComposeModal() {
               </button>
             )}
             <button
-              onClick={() => {
-                setShowDiscardSheet(false);
-                if (draftUid != null && draftFolder != null && draftAccountId) {
-                  api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
-                }
-                closeCompose();
-              }}
+              onClick={() => { setShowDiscardSheet(false); discardDraft(); }}
+              disabled={discarding}
               style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--red)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
             >
-              {isDirty() ? t('compose.closeDraft.discard') : t('compose.discardDraft.discard')}
+              {closeAsks ? t('compose.closeDraft.discard') : t('compose.discardDraft.discard')}
             </button>
             <button
               onClick={() => setShowDiscardSheet(false)}
               style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 16, fontWeight: 500, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
             >
-              {isDirty() ? t('compose.closeDraft.keepEditing') : t('compose.discardDraft.keepEditing')}
+              {closeAsks ? t('compose.closeDraft.keepEditing') : t('compose.discardDraft.keepEditing')}
             </button>
           </div>
         </>
@@ -2256,6 +2403,7 @@ export default function ComposeModal() {
 
       {/* Toolbar — sits outside overflow container so dropdowns are never clipped */}
       {!plaintextEmail && <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()} onInsertImage={() => imageInputRef.current?.click()}
+        signatureControl={renderSignatureToggle()}
         htmlMode={htmlMode}
         onToggleHtml={() => {
           if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
@@ -2345,7 +2493,7 @@ export default function ComposeModal() {
           </div>
         )}
 
-        {(plaintextEmail ? plainSig : hasRichSignature) ? (
+        {signatureEnabled && (plaintextEmail ? plainSig : hasRichSignature) ? (
           <div style={{ padding: '0 14px 10px' }}>
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, userSelect: 'none' }}>
               -- signature
@@ -2428,6 +2576,7 @@ export default function ComposeModal() {
             </svg>
           </button>
         )}
+        {plaintextEmail && renderSignatureToggle()}
 
         {error && <span style={{ fontSize: 12, color: 'var(--red)', flex: 1 }}>{error}</span>}
 
@@ -2454,6 +2603,15 @@ export default function ComposeModal() {
           style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: savingDraft ? 'default' : 'pointer', fontSize: 12, padding: '4px 8px' }}
         >
           {savingDraft ? t('compose.savingDraft') : t('compose.saveDraft')}
+        </button>
+        <button
+          onClick={() => requestDiscard(false)}
+          disabled={discarding}
+          aria-label={t('compose.discard')}
+          title={t('compose.discard')}
+          style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: discarding ? 'default' : 'pointer', padding: '4px 6px', display: 'flex', alignItems: 'center' }}
+        >
+          {trashIcon}
         </button>
       </div>
 
@@ -2558,10 +2716,10 @@ export default function ComposeModal() {
           minWidth: 280, maxWidth: 380, padding: '20px 24px 16px',
         }}>
           <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
-            {isDirty() ? t('compose.closeDraft.title') : t('compose.discardDraft.title')}
+            {closeAsks ? t('compose.closeDraft.title') : t('compose.discardDraft.title')}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {isDirty() && (
+            {closeAsks && (
               <button
                 onClick={() => { setShowCloseDialog(false); handleSaveDraft(true); }}
                 disabled={savingDraft}
@@ -2571,22 +2729,17 @@ export default function ComposeModal() {
               </button>
             )}
             <button
-              onClick={() => {
-                setShowCloseDialog(false);
-                if (draftUid != null && draftFolder != null && draftAccountId) {
-                  api.deleteDraft(draftAccountId, draftUid, draftFolder).catch(() => {});
-                }
-                closeCompose();
-              }}
+              onClick={() => { setShowCloseDialog(false); discardDraft(); }}
+              disabled={discarding}
               style={{ padding: '8px 16px', background: 'none', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--red)', fontSize: 13, cursor: 'pointer', textAlign: 'center' }}
             >
-              {isDirty() ? t('compose.closeDraft.discard') : t('compose.discardDraft.discard')}
+              {closeAsks ? t('compose.closeDraft.discard') : t('compose.discardDraft.discard')}
             </button>
             <button
               onClick={() => setShowCloseDialog(false)}
               style={{ padding: '8px 16px', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer', textAlign: 'center' }}
             >
-              {isDirty() ? t('compose.closeDraft.keepEditing') : t('compose.discardDraft.keepEditing')}
+              {closeAsks ? t('compose.closeDraft.keepEditing') : t('compose.discardDraft.keepEditing')}
             </button>
           </div>
         </div>
@@ -2796,7 +2949,7 @@ function ColorMenuSection({ title, colors, activeColor, onColor, onClear, clearL
   );
 }
 
-function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, isMobile, aiEnabled, onAiAction, aiPanelOpen }) {
+function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMode, onToggleHtml, isMobile, aiEnabled, onAiAction, aiPanelOpen }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const savedSelectionRef = useRef(null);
@@ -3016,6 +3169,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
               style={{ background: es.link ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: es.link ? 'var(--accent)' : 'var(--text-secondary)', WebkitTapHighlightColor: 'transparent' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
             </button>
+            {signatureControl}
             {aiEnabled && (
               <button ref={aiBtnRef} title={t('compose.toolbar.aiAssist')} onMouseDown={e => {
                 e.preventDefault();
@@ -3140,6 +3294,8 @@ function RichToolbar({ editor, onAttach, onInsertImage, htmlMode, onToggleHtml, 
             <rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>
           </svg>
         </button>
+
+        {signatureControl}
 
         {aiEnabled && (
           <>
