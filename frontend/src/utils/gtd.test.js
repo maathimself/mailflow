@@ -1,3 +1,4 @@
+import { getGtdMetadataRefreshGeneration, patchGtdMetadata, getGtdMetadata } from '../plugins/gtd/metadataStore.js';
 // Run with: node --test src/utils/gtd.test.js
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -1560,4 +1561,20 @@ describe('unclassifyThread', () => {
     await unclassifyThread('m1', 'todo', deps);
     assert.deepEqual(calls, [['notify', 'gtd.removeFailed', 'gtd.onlyCopy']]);
   });
+});
+
+
+it('unclassification clears cached thread metadata and refetches on success and uncertain failure', async () => {
+  const { unclassifyThread } = await import('./gtd.js');
+  const message = { id: 'unclassify-row', account_id: 'account' };
+  const deps = { message, gtdUnclassify: async () => ({ removed: true }), addNotification() {}, scheduleGtdSectionsFetch() {}, t: key => key };
+  const before = getGtdMetadataRefreshGeneration();
+  patchGtdMetadata(message, 'watch', null);
+  await unclassifyThread(message.id, 'watch', deps);
+  assert.equal(getGtdMetadata(message.id), null);
+  assert.equal(getGtdMetadataRefreshGeneration(), before + 1);
+  patchGtdMetadata(message, 'watch', null);
+  await unclassifyThread(message.id, 'watch', { ...deps, gtdUnclassify: async () => { throw new Error('offline'); } });
+  assert.equal(getGtdMetadata(message.id), null);
+  assert.equal(getGtdMetadataRefreshGeneration(), before + 2);
 });

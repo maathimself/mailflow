@@ -633,6 +633,7 @@
     }
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: stáří nejstarší zprávy s tímto štítkem (dny): {{count}}",
     "title": "GTD",
     "inbox": "Doručené",
     "waiting": "Čeká se",

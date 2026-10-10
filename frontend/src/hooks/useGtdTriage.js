@@ -196,7 +196,7 @@ export function useGtdTriage() {
   });
 
   const removeStateRow = (thread, state) => unclassifyThread(thread.id, state, {
-    gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t,
+    gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t, message: thread,
   });
 
   // ContextMenu's onAction, routed to the primitives above. GTD section heads are

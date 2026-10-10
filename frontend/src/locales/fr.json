@@ -1840,6 +1840,7 @@
     "show": "Afficher la barre latérale droite"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}} : âge du plus ancien message portant cette étiquette (jours) : {{count}}",
     "title": "GTD",
     "inbox": "Boîte de réception",
     "waiting": "En attente",

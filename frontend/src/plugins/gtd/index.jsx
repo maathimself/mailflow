@@ -10,6 +10,9 @@ import GtdSidebarContent from '../../components/GtdSidebarContent.jsx';
 import GtdRuntime from './GtdRuntime.jsx';
 import GtdSettings from './GtdSettings.jsx';
 import GtdRowDone from './GtdRowDone.jsx';
+import GtdInboxIndicators from './GtdInboxIndicators.jsx';
+import { shouldShowInboxGtdMetadata } from './indicators.js';
+import { invalidateGtdMetadata } from './metadataStore.js';
 import { buildGtdContextItems } from './GtdContextMenu.jsx';
 import { gtdActiveForContext } from '../../utils/gtd.js';
 import { accountAffectsUnifiedInbox } from '../../utils/unifiedInbox.js';
@@ -54,12 +57,23 @@ registerSlot('row-hover-action', {
   render: (ctx) => <GtdRowDone message={ctx.message} done={ctx.done} />,
 });
 
+registerSlot('message-row-meta', {
+  pluginId: 'gtd',
+  isActive: ctx => {
+    const store = useStore.getState();
+    return gtdActiveForContext(store.accounts, ctx.message.account_id, true)
+      && shouldShowInboxGtdMetadata(store);
+  },
+  render: ctx => <GtdInboxIndicators message={ctx.message} />,
+});
+
 // WS: a GTD label folder changed (tick / classify copy-remove / transition strip). Refetch the
 // rail+tab sections when the event's account is in the current rail scope (debounced in the store).
 registerWsHandler('gtd_sections_updated', {
   pluginId: 'gtd',
   handler: (data) => {
     const store = useStore.getState();
+    invalidateGtdMetadata();
     if (
       (store.selectedAccountId === null && accountAffectsUnifiedInbox(store.accounts, data.accountId)) ||
       store.selectedAccountId === data.accountId
@@ -76,6 +90,7 @@ registerReconnectHandler({
   pluginId: 'gtd',
   handler: () => {
     const { accounts, selectedAccountId, scheduleGtdSectionsFetch } = useStore.getState();
+    invalidateGtdMetadata();
     if (gtdActiveForContext(accounts, selectedAccountId, true)) scheduleGtdSectionsFetch();
   },
 });
