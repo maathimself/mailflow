@@ -43,3 +43,16 @@ export async function reset(key) {
   try { await redisClient.del(`rl:${key}`); } catch { /* best effort */ }
   memory.delete(key);
 }
+
+// Hand back one hit that consume() counted (e.g. once a CardDAV password checks out).
+export async function release(key) {
+  const rk = `rl:${key}`;
+  try {
+    const count = await redisClient.decr(rk);
+    // DECR on a key that expired mid-request recreates it at -1, which is a free extra hit.
+    if (count < 0) await redisClient.del(rk);
+  } catch {
+    const b = memory.get(key);
+    if (b && b.count > 0) b.count--;
+  }
+}
