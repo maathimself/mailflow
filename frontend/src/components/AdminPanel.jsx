@@ -7087,21 +7087,44 @@ function MailboxCleanupTab() {
 
   useEffect(() => { if (accountId) load(accountId); }, [accountId, load]);
 
-  const cleanupSender = async (s) => {
+  // Senders ticked for a batch run; keyed by fromEmail. Only ever read through
+  // `selectedSenders`, so senders that vanish after a refresh drop out on their own.
+  const [selected, setSelected] = useState(() => new Set());
+  const senders = data?.tier1Senders || [];
+  const selectedSenders = senders.filter(s => selected.has(s.fromEmail));
+  const allSelected = senders.length > 0 && selectedSenders.length === senders.length;
+  // The row-button busy marker for a batch run; not a valid fromEmail, so no row matches it.
+  const BATCH = '*';
+  useEffect(() => { setSelected(new Set()); }, [accountId]);
+
+  const toggleSender = (email) => setSelected(prev => {
+    const next = new Set(prev);
+    if (!next.delete(email)) next.add(email);
+    return next;
+  });
+
+  // One confirm and one progress bar for the whole list; each sender is still resolved server-side
+  // (own account, INBOX, exact sender) and moved in <=500-id batches, in sequence.
+  const cleanupSenders = async (list) => {
     const isArchive = action === 'archive';
-    const label = s.fromName ? `${s.fromName} <${s.fromEmail}>` : s.fromEmail;
+    const labelOf = (s) => (s.fromName ? `${s.fromName} <${s.fromEmail}>` : s.fromEmail);
+    const shown = list.slice(0, 3).map(labelOf).join(', ');
+    const label = list.length > 3 ? `${shown} +${list.length - 3}` : shown;
+    const grandTotal = list.reduce((n, s) => n + s.count, 0);
     const confirmKey = isArchive ? 'admin.cleanup.confirmArchive' : 'admin.cleanup.confirm';
-    if (!window.confirm(t(confirmKey, { count: s.count, sender: label }))) return;
-    setBusySender(s.fromEmail); setError(''); setProgress({ done: 0, total: s.count });
+    if (!window.confirm(t(confirmKey, { count: grandTotal, sender: label }))) return;
+    setBusySender(list.length === 1 ? list[0].fromEmail : BATCH); setError(''); setProgress({ done: 0, total: grandTotal });
     try {
-      const { ids } = await api.cleanupPreview(accountId, s.fromEmail);
       const runBatch = isArchive ? api.bulkArchive : api.bulkDelete;
       let done = 0;
-      for (let i = 0; i < ids.length; i += 500) {
-        const batch = ids.slice(i, i + 500);
-        await runBatch(batch);
-        done += batch.length;
-        setProgress({ done, total: ids.length });
+      for (const s of list) {
+        const { ids } = await api.cleanupPreview(accountId, s.fromEmail);
+        for (let i = 0; i < ids.length; i += 500) {
+          const batch = ids.slice(i, i + 500);
+          await runBatch(batch);
+          done += batch.length;
+          setProgress({ done, total: grandTotal });
+        }
       }
     } catch (e) { setError(e.message); }
     finally {
@@ -7123,7 +7146,7 @@ function MailboxCleanupTab() {
 
       {accounts.length > 1 && (
         <Field label={t('admin.cleanup.account')}>
-          <select value={accountId} onChange={e => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
+          <select value={accountId} disabled={!!busySender} onChange={e => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
             {accounts.map(a => <option key={a.id} value={a.id}>{a.email_address}</option>)}
           </select>
         </Field>
@@ -7178,8 +7201,44 @@ function MailboxCleanupTab() {
             <div style={muted}>{t('admin.cleanup.noneFound')}</div>
           ) : (
             <div style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 4px', borderBottom: '1px solid var(--border-subtle)' }}>
+                <input
+                  type="checkbox"
+                  id="cleanup-select-all"
+                  checked={allSelected}
+                  disabled={!!busySender}
+                  onChange={() => setSelected(allSelected ? new Set() : new Set(senders.map(s => s.fromEmail)))}
+                />
+                <label htmlFor="cleanup-select-all" style={{ ...muted, flex: 1, cursor: 'pointer' }}>
+                  {t(allSelected ? 'messageList.deselectAll' : 'messageList.selectAll')}
+                </label>
+                <button
+                  type="button"
+                  disabled={!!busySender || selectedSenders.length === 0}
+                  onClick={() => cleanupSenders(selectedSenders)}
+                  style={{
+                    flexShrink: 0, padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 500,
+                    border: '1px solid var(--border)',
+                    cursor: (busySender || selectedSenders.length === 0) ? 'not-allowed' : 'pointer',
+                    background: action === 'archive' ? 'var(--accent)' : 'var(--amber, #d97706)',
+                    color: action === 'archive' ? 'var(--accent-text, white)' : 'white',
+                    opacity: selectedSenders.length === 0 || (busySender && busySender !== BATCH) ? 0.5 : 1,
+                  }}
+                >
+                  {busySender === BATCH && progress
+                    ? `${progress.done.toLocaleString()}/${progress.total.toLocaleString()}`
+                    : `${t(action === 'archive' ? 'admin.cleanup.archive' : 'admin.cleanup.moveToTrash')} (${selectedSenders.length})`}
+                </button>
+              </div>
               {data.tier1Senders.map(s => (
                 <div key={s.fromEmail} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 4px', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <input
+                    type="checkbox"
+                    checked={selected.has(s.fromEmail)}
+                    disabled={!!busySender}
+                    onChange={() => toggleSender(s.fromEmail)}
+                    aria-label={s.fromName || s.fromEmail}
+                  />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.fromName || s.fromEmail}</div>
                     {s.fromName && <div style={{ ...muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.fromEmail}</div>}
@@ -7188,7 +7247,7 @@ function MailboxCleanupTab() {
                   <button
                     type="button"
                     disabled={!!busySender}
-                    onClick={() => cleanupSender(s)}
+                    onClick={() => cleanupSenders([s])}
                     style={{
                       flexShrink: 0, padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 500,
                       border: '1px solid var(--border)', cursor: busySender ? 'not-allowed' : 'pointer',
