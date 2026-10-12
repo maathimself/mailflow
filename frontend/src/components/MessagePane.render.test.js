@@ -815,3 +815,31 @@ describe('the next message opens after the pane removes the open one', () => {
     useStore.setState({ afterRemove: 'next' });
   });
 });
+
+// #585: a message you sent shows its Bcc under To and Cc; mail without one shows none.
+describe('the Bcc line', () => {
+  const realFetch = globalThis.fetch;
+  after(() => { globalThis.fetch = realFetch; });
+  const open = async (id, bccAddresses) => {
+    globalThis.fetch = async (url) => (String(url).includes(`/messages/${id}/body`)
+      ? { ok: true, status: 200, json: async () => ({ html: '', text: 'hi', attachments: [], bccAddresses }) }
+      : realFetch(url));
+    const sent = { ...MSG_A, id, folder: 'Sent', cc_addresses: [{ name: 'Cee', email: 'cc@x.z' }] };
+    useStore.getState().setMessages([sent]);
+    await React.act(async () => { useStore.getState().setSelectedMessage(id); });
+    await React.act(async () => { root.render(React.createElement(MessagePane)); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 30)); });
+    return document.getElementById('root').textContent;
+  };
+
+  test('lists the Bcc of a message you sent', async () => {
+    const text = await open('sent-bcc', [{ name: 'Hidden', email: 'hidden@x.z' }]);
+    assert.match(text, /Bcc\s*Hidden/);
+    assert.match(text, /Cc\s*Cee/);
+  });
+
+  test('shows no Bcc line when there is none', async () => {
+    const text = await open('sent-nobcc', []);
+    assert.doesNotMatch(text, /Bcc/);
+  });
+});

@@ -118,6 +118,10 @@ export const useStore = create((set, get) => ({
       // run that outlived a logout would finish and write the previous user's result into this
       // device's cache, under their message id, for whoever signs in next.
       aiRuns.abortAll();
+      // The message remembered for the lock screen is the leaving user's too. After a lockout,
+      // App.jsx clears the lock right after it clears the user, and setLocked(false) would
+      // restore that message for whoever signs in next.
+      if (get().user) localStorage.removeItem('mailflow_locked_message');
     }
     set(state => ({
       user,
@@ -127,6 +131,27 @@ export const useStore = create((set, get) => ({
         senderFaviconsLoaded: false,
         senderFavicons: false,
         senderFaviconsSaving: false,
+      } : {}),
+      // An expired session signs out without reloading the page. Without this, the next user
+      // to sign in here would see the previous user's mail and open compose, and would have
+      // the previous user's settings until loadPreferences replaced them, or for the whole
+      // session where the new user has never saved their own. Only when a signed-in user
+      // leaves: a cold load has nothing to clear, and clearing there would drop the reading
+      // preferences seeded from localStorage until loadPreferences ran.
+      ...(state.user && state.user.id !== user?.id ? {
+        messages: [], searchResults: [], searchQuery: '', selectedMessageId: null,
+        threadMessages: {}, expandedThreadId: null,
+        accounts: [], accountsReady: false, folders: {},
+        notifications: [], backfillProgress: {},
+        gtdSections: null, categoryCounts: {}, activeGtdTab: null,
+        // Reply-draft lookups and handoffs still in flight stop on the user id, so the
+        // revision need not move.
+        replyDrafts: {},
+        composing: false, composeData: null, prepareComposeSwitch: null, messageWindows: [],
+        enabledPlugins: [], autoLockMinutes: 0, blockRemoteImages: true,
+        imageWhitelist: { addresses: [], domains: [] }, shortcuts: {}, aiActions: null,
+        hiddenFolders: {}, categorizationEnabled: false, gtdPetSlug: null,
+        autoOpenReplyDrafts: false, afterRemove: 'next',
       } : {}),
     }));
   },

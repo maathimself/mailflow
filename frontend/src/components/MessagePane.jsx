@@ -1467,6 +1467,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     } catch { return []; }
   })();
 
+  // Only messages you sent (or drafts you saved) have a Bcc on record (#585).
+  const bccList = Array.isArray(body?.bccAddresses) ? body.bccAddresses : [];
+
   const attachments = body?.attachments || [];
   const previewable = attachments.filter(att => previewKind(att));
   // "Download all" hands over every file at once, so it asks first whenever one of them would. While
@@ -2128,6 +2131,16 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                       </span>
                     </div>
                   )}
+                  {bccList.length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span>Bcc </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {bccList.map((r, i) => (
+                          <span key={i}>{r.name || r.email}{i < bccList.length - 1 ? ', ' : ''}</span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
@@ -2174,6 +2187,19 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                           <span key={i}>
                             {r.name ? `${r.name} <${r.email}>` : r.email}
                             {i < ccList.length - 1 ? ', ' : ''}
+                          </span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
+                  {bccList.length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                      <span>Bcc </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {bccList.map((r, i) => (
+                          <span key={i}>
+                            {r.name ? `${r.name} <${r.email}>` : r.email}
+                            {i < bccList.length - 1 ? ', ' : ''}
                           </span>
                         ))}
                       </span>
