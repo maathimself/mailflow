@@ -242,6 +242,9 @@
     "replyAll": "전체 답장",
     "more": "더 보기",
     "print": "인쇄",
+    "showDark": "어두운 색으로 보기",
+    "showOriginal": "원래 색으로 보기",
+    "cannotShowDark": "텍스트를 읽기 어렵게 만들지 않고는 이 이메일을 어둡게 표시할 수 없습니다",
     "summarize": "요약",
     "summary": "요약",
     "aiActions": "AI 액션",
@@ -396,6 +399,7 @@
     "pullToSync": "당겨서 동기화",
     "releaseToSync": "동기화하려면 손을 떼세요",
     "noSearchResults": "검색결과가 없습니다",
+    "searching": "검색 중…",
     "clearSearch": "검색 지우기",
     "noSearchResultsDesc": "{{query}}에 대한 결과가 없습니다.",
     "searchHelp": {
@@ -1006,6 +1010,8 @@
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
       "customCssDescription": "활성 테마 뒤에 추가 CSS를 삽입합니다. CSS 사용자 정의 속성(예: --accent, --bg-primary)을 사용하여 테마 값을 재정의하거나 자신만의 규칙을 추가하세요. 모든 사용자에게 적용됩니다.",
       "description": "인터페이스의 색상 테마를 선택하세요",
+      "darkEmailBodies": "어두운 메일 본문",
+      "darkEmailBodiesDesc": "어두운 테마에서 HTML 메일도 어두운 색으로 표시합니다. 보낸 사람의 어두운 디자인이 있으면 그것을, 없으면 MailFlow가 색을 바꿔 표시합니다. 메일이 원래대로 표시를 요청하거나 어둡게 표시하면 텍스트를 읽기 어려워지는 경우에는 보낸 그대로 표시됩니다. 각 메일을 따로 전환할 수 있습니다.",
       "typographyDescription": "인터페이스에 대한 글꼴 페어링 선택"
     },
     "messageList": {

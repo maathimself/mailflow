@@ -304,7 +304,10 @@ export default function MessageList() {
     return () => { cancelled = true; };
   }, [categorizationActive, selectedAccountId, selectedFolder, messagesRefreshToken, unifiedInboxAccountKey, setCategoryCounts]);
 
+  // Bumped by every new search, by clearing the query, and by a change of account or folder, so a
+  // response (or a page of more results) that arrives after any of them is dropped (#592).
   const searchSeq = useRef(0);
+  const isSearching = useStore(s => s.isSearching);
   const refreshRequestRef = useRef(null);
   if (refreshRequestRef.current === null) refreshRequestRef.current = createLatestRequest();
   // Bumped to force the search effect to re-run (e.g. after rules move messages) so an
@@ -549,6 +552,7 @@ export default function MessageList() {
   useEffect(() => {
     clearTimeout(searchTimer.current);
     if (!searchQuery.trim()) {
+      searchSeq.current += 1;
       setIsSearching(false);
       setSearchResults([]);
       setSearchHasMore(false);
@@ -603,12 +607,13 @@ export default function MessageList() {
   const loadMoreSearch = useCallback(async () => {
     if (searchLoadingMore) return;
     const qSnapshot = searchQuery; // capture before async gap
+    const seq = searchSeq.current;
     setSearchLoadingMore(true);
     try {
       const offset = searchFetchedOffsetRef.current;
       const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, limit: searchPageSize, folder: searchFolder });
-      // Discard results if the query changed while we were fetching
-      if (useStore.getState().searchQuery !== qSnapshot) return;
+      // Discard results if the query, account or folder changed while we were fetching
+      if (searchSeq.current !== seq || useStore.getState().searchQuery !== qSnapshot) return;
       searchFetchedOffsetRef.current = offset + data.messages.length;
       const current = useStore.getState().searchResults;
       useStore.setState({ searchResults: [...current, ...applyReadGuard(data.messages)] });
@@ -623,9 +628,10 @@ export default function MessageList() {
   const prefetchSearchAfterRemoval = useCallback(async (offset) => {
     const qSnapshot = useStore.getState().searchQuery;
     if (!qSnapshot.trim()) return;
+    const seq = searchSeq.current;
     try {
       const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, limit: searchPageSize, folder: searchFolder });
-      if (useStore.getState().searchQuery !== qSnapshot) return;
+      if (searchSeq.current !== seq || useStore.getState().searchQuery !== qSnapshot) return;
       searchFetchedOffsetRef.current = Math.max(searchFetchedOffsetRef.current, offset + data.messages.length);
       const additions = applyReadGuard(data.messages);
       if (!additions.length) {
@@ -3555,6 +3561,7 @@ export default function MessageList() {
           <EmptyState
             folderSyncing={folderSyncing}
             searchQuery={searchQuery}
+            searching={isSearching}
             searchError={searchError}
             unreadOnly={unreadOnly}
             selectedFolder={selectedFolder}
@@ -4289,8 +4296,22 @@ function UndoBar({ notification, onDismiss, showTopBorder }) {
   );
 }
 
-function EmptyState({ folderSyncing, searchQuery, searchError, unreadOnly, selectedFolder, accounts, onClearSearch, onRetrySearch, onShowAll, onCompose }) {
+function EmptyState({ folderSyncing, searchQuery, searching, searchError, unreadOnly, selectedFolder, accounts, onClearSearch, onRetrySearch, onShowAll, onCompose }) {
   const { t } = useTranslation();
+
+  // A search still waiting for its debounce or its response has no results yet, not none (#592).
+  if (searchQuery && searching) {
+    return (
+      <div role="status" aria-live="polite" style={{ padding: '60px 40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
+        <div aria-hidden="true" style={{
+          width: 24, height: 24, margin: '0 auto 12px',
+          border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
+          borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+        }} />
+        <div style={{ fontSize: 14 }}>{t('messageList.searching')}</div>
+      </div>
+    );
+  }
 
   if (folderSyncing) {
     return (

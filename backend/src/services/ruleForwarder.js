@@ -2,7 +2,7 @@ import { createHmac } from 'crypto';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { query } from './db.js';
 import { deriveKey } from './encryption.js';
-import { sanitizeEmail } from './emailSanitizer.js';
+import { sanitizeEmail, withoutDarkScheme } from './emailSanitizer.js';
 import { createAccountSmtpTransport } from './smtpTransport.js';
 import { MAILER_ID } from './mailerIdentity.js';
 
@@ -156,7 +156,7 @@ export function buildForwardMessage({
       `<strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}<br>`),
     '</div><br>',
   ].join('');
-  const safeHtml = html ? sanitizeEmail(html) : html;
+  const safeHtml = html ? withoutDarkScheme(sanitizeEmail(html)) : html;
   const plainBody = text || htmlToPlainText(safeHtml);
 
   return {
@@ -255,7 +255,7 @@ async function loadForwardContent({ row, account, imapManager }) {
     });
   }
 
-  const safeHtml = html ? sanitizeEmail(html) : html;
+  const safeHtml = html ? withoutDarkScheme(sanitizeEmail(html)) : html;
   const embedded = embedInlineDataImages(safeHtml);
   const attachments = [
     ...embedded.attachments,

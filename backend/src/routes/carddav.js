@@ -57,6 +57,23 @@ function cardavRateLimit(req, res, next) {
 
 // ── HTTP Basic authentication middleware ──────────────────────────────────────
 
+// The server's sign-in policies that a password alone cannot satisfy: password login turned off
+// for SSO (internal_auth_disabled), and two-factor required for everyone (mfa_enforcement). Web
+// login applies both (routes/auth.js); CardDAV's HTTP Basic carries only a password, so under
+// either one it refuses instead, as it does for an account with TOTP.
+async function cardavPolicy() {
+  const r = await query(
+    "SELECT key, value FROM system_settings WHERE key IN ('internal_auth_disabled', 'mfa_enforcement')"
+  );
+  const settings = Object.fromEntries(r.rows.map(row => [row.key, row.value]));
+  return {
+    passwordLoginDisabled: settings.internal_auth_disabled === 'true',
+    mfaRequired: settings.mfa_enforcement === 'required',
+  };
+}
+
+const refuse = (res, reason) => res.status(403).set('Content-Type', 'text/plain').send(reason);
+
 async function cardavAuth(req, res, next) {
   const auth = req.headers['authorization'] || '';
   if (!auth.startsWith('Basic ')) {
@@ -75,6 +92,12 @@ async function cardavAuth(req, res, next) {
   const password = decoded.slice(colon + 1);
 
   try {
+    const policy = await cardavPolicy();
+    // Before the password is checked, as web login does: a server that takes no passwords must
+    // not say whether one is right.
+    if (policy.passwordLoginDisabled) {
+      return refuse(res, 'Password sign-in is turned off on this server (it signs in through SSO), so CardDAV is not available.');
+    }
     const r = await query(
       'SELECT id, password_hash, totp_enabled FROM users WHERE username = $1',
       [username]
@@ -110,9 +133,12 @@ async function cardavAuth(req, res, next) {
     // Block access entirely for accounts with 2FA enabled until app-specific
     // passwords are implemented. Return 403 (not 401) so clients don't retry.
     if (user.totp_enabled) {
-      return res.status(403)
-        .set('Content-Type', 'text/plain')
-        .send('Two-factor authentication is enabled. CardDAV requires an app-specific password.');
+      return refuse(res, 'Two-factor authentication is enabled. CardDAV requires an app-specific password.');
+    }
+    // Web login asks a user without TOTP for an emailed code or enrolment when two-factor is
+    // required; CardDAV can ask for neither.
+    if (policy.mfaRequired) {
+      return refuse(res, 'Two-factor authentication is required on this server. CardDAV requires an app-specific password.');
     }
     req.cardavUserId = user.id;
     next();

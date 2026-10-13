@@ -151,6 +151,22 @@ describe('buildForwardMessage', () => {
     expect(mail.text).toContain('Second line');
   });
 
+  // #228: the sanitizer keeps a sender's dark CSS for MailFlow's reader, switched off. A forward
+  // leaves MailFlow, where a mail client ignoring media="not all" would apply it on a light page.
+  it("leaves the sender's switched-off dark CSS out of a forward", () => {
+    const mail = buildForwardMessage({
+      row: { subject: 'Styled', from_name: 'S', from_email: 'sender@example.com', to_addresses: [], cc_addresses: [], date: null },
+      account,
+      recipient: 'recipient@example.com',
+      text: '',
+      html: '<style>.a{color:#111}@media (prefers-color-scheme: dark){.a{color:#eee}}</style><p class="a">Hi</p>',
+      attachments: [],
+    });
+    expect(mail.html).toContain('class="a"');
+    expect(mail.html).not.toContain('data-mf-dark-scheme');
+    expect(mail.html).not.toContain('#eee');
+  });
+
   it('preserves a text-only body without adding an HTML alternative', () => {
     const mail = buildForwardMessage({
       row: {

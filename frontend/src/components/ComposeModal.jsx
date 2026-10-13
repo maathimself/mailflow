@@ -26,6 +26,7 @@ import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } f
 import { resolveSignatureEnabled } from '../utils/composeSignature.js';
 import { UNDO_SEND_SECONDS, undoWindowMs, trackHeldSend, reopenCompose } from '../utils/heldSend.js';
 import { openSentMessage } from '../utils/openSentMessage.js';
+import { frameGeometry } from '../utils/frameGeometry.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -557,15 +558,15 @@ export default function ComposeModal() {
     const captureEl = e.currentTarget;
     const pointerId = e.pointerId;
     captureEl.setPointerCapture(pointerId);
-    // Finish any entry animation so getBoundingClientRect reflects the final position.
+    // Finish any entry animation so the measured position is the final one.
     el.getAnimations().forEach(a => a.finish());
-    const rect = el.getBoundingClientRect();
+    // In layout pixels, not screen pixels: see utils/frameGeometry.js (#591).
+    const start = frameGeometry(el);
     const startMouseX = e.clientX;
     const startMouseY = e.clientY;
-    const startX = rect.left;
-    const startY = rect.top;
-    const w = rect.width;
-    const h = rect.height;
+    const startX = start.x;
+    const startY = start.y;
+    const { w, h } = start;
     // Immediately switch from bottom/right to top/left in the DOM — no re-render
     // needed, so there is no frame where the window jumps to a stale position.
     el.style.bottom = '';
@@ -581,8 +582,8 @@ export default function ComposeModal() {
     // Mutate the DOM directly during drag — avoids a React re-render on every
     // pointermove event, which was the source of lag and jerkiness.
     const onMove = (ev) => {
-      curX = Math.max(0, Math.min(window.innerWidth - w, startX + ev.clientX - startMouseX));
-      curY = Math.max(0, Math.min(Math.max(0, window.innerHeight - h), startY + ev.clientY - startMouseY));
+      curX = Math.max(0, Math.min(start.viewW - w, startX + (ev.clientX - startMouseX) / start.scale));
+      curY = Math.max(0, Math.min(Math.max(0, start.viewH - h), startY + (ev.clientY - startMouseY) / start.scale));
       el.style.left = curX + 'px';
       el.style.top = curY + 'px';
     };
@@ -619,24 +620,24 @@ export default function ComposeModal() {
     const pointerId = e.pointerId;
     captureEl.setPointerCapture(pointerId);
     el.getAnimations().forEach(a => a.finish());
-    const rect = el.getBoundingClientRect();
+    const start = frameGeometry(el);
     const startMouseX = e.clientX;
     const startMouseY = e.clientY;
-    const startWidth = rect.width;
-    const startHeight = rect.height;
+    const startWidth = start.w;
+    const startHeight = start.h;
     // Switch to top/left positioning if not already positioned.
     el.style.bottom = '';
     el.style.right = '';
-    if (!el.style.top) el.style.top = rect.top + 'px';
-    if (!el.style.left) el.style.left = rect.left + 'px';
-    setPos(prev => prev ?? { x: rect.left, y: rect.top });
+    if (!el.style.top) el.style.top = start.y + 'px';
+    if (!el.style.left) el.style.left = start.x + 'px';
+    setPos(prev => prev ?? { x: start.x, y: start.y });
     document.body.style.cursor = 'nwse-resize';
     document.body.style.userSelect = 'none';
     let curW = startWidth;
     let curH = startHeight;
     const onMove = (ev) => {
-      curW = Math.min(window.innerWidth - 16, Math.max(360, startWidth + ev.clientX - startMouseX));
-      curH = Math.min(window.innerHeight - 40, Math.max(200, startHeight + ev.clientY - startMouseY));
+      curW = Math.min(start.viewW - 16, Math.max(360, startWidth + (ev.clientX - startMouseX) / start.scale));
+      curH = Math.min(start.viewH - 40, Math.max(200, startHeight + (ev.clientY - startMouseY) / start.scale));
       el.style.width = curW + 'px';
       el.style.height = curH + 'px';
     };

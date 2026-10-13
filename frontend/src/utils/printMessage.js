@@ -1,4 +1,6 @@
 import DOMPurify from 'dompurify';
+import { remoteLoadsCsp } from './remoteImagePolicy.js';
+import { formatDateTime } from './formatDate.js';
 
 // Print documents for one message or a whole conversation (#521).
 //
@@ -12,10 +14,14 @@ const parseList = (raw) => {
 };
 const fmtAddr = (r) => r.name ? `${esc(r.name)} &lt;${esc(r.email)}&gt;` : esc(r.email);
 
-const HEAD = (title) => `<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'"><title>${esc(title)}</title>`;
+// The print window loads remote images as the email frame does (utils/remoteImagePolicy.js): none
+// when a printed body was served blocked, through MailFlow's image proxy alone when proxied. Any
+// one blocked message of a conversation is enough to load none, rather than a blocked one loading
+// them.
+const HEAD = (title, remoteBlocked = false, remoteProxied = false) => `<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none';${remoteLoadsCsp(remoteBlocked, remoteProxied)}"><title>${esc(title)}</title>`;
 
 function metaHtml(message) {
-  const date = message.date ? new Date(message.date).toLocaleString() : '';
+  const date = formatDateTime(message.date);
   const fromStr = message.from_name
     ? `${esc(message.from_name)} &lt;${esc(message.from_email)}&gt;`
     : esc(message.from_email);
@@ -41,6 +47,8 @@ function bodyHtml(body) {
 // conversation under the first message's subject, each with its own sender, recipients and date.
 export function buildPrintDocument(entries) {
   const first = entries[0]?.message || {};
+  const remoteBlocked = entries.some(e => e.body?.remoteImagesBlocked);
+  const remoteProxied = entries.some(e => e.body?.remoteImagesProxied);
   const subject = esc(first.subject) || '(no subject)';
   const style = `<style>
   body { font-family: Arial, sans-serif; font-size: 14px; color: #111; margin: 32px; }
@@ -53,7 +61,7 @@ export function buildPrintDocument(entries) {
   @media print { body { margin: 16px; } }
 </style></head><body>`;
   if (entries.length === 1) {
-    return `${HEAD(first.subject)}
+    return `${HEAD(first.subject, remoteBlocked, remoteProxied)}
 ${style}
 <div class="header">
   <h1>${subject}</h1>
@@ -62,7 +70,7 @@ ${style}
 ${bodyHtml(entries[0].body)}
 </body></html>`;
   }
-  return `${HEAD(first.subject)}
+  return `${HEAD(first.subject, remoteBlocked, remoteProxied)}
 ${style}
 <div class="header"><h1>${subject}</h1></div>
 ${entries.map(({ message, body }) => `<div class="message">

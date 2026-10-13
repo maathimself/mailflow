@@ -10,6 +10,7 @@ import { pluginRegistry } from '../plugins/registry.js';
 import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
 import { refreshMicrosoftToken, refreshGoogleToken } from '../routes/oauth.js';
 import { sanitizeEmail } from './emailSanitizer.js';
+import { settleCids } from '../utils/cidRefs.js';
 import { logger } from './logger.js';
 import { recordBroadcast, recordWarning, recordSyncSignal } from './diagnosticsRing.js';
 import { decrypt } from './encryption.js';
@@ -5838,7 +5839,7 @@ export class ImapManager {
         );
         if (existing.rows.length) continue;
 
-        const { html, text, attachments } = await this.fetchMessageBody(
+        const { html, text, attachments, cidsComplete } = await this.fetchMessageBody(
           account, msg.uid, msg.folder || 'INBOX'
         );
         const safeHtml = html ? sanitizeEmail(html) : null;
@@ -5849,7 +5850,8 @@ export class ImapManager {
              SET body_html = $1, body_text = $2, attachments = $3,
                  snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
              WHERE id = $4`,
-            [sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
+            // Settled when its cid: references can never resolve (utils/cidRefs.js, #595).
+            [sanitizeStr(settleCids(safeHtml, cidsComplete)), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
           );
         }
       } catch (err) {
@@ -5901,7 +5903,7 @@ export class ImapManager {
         );
         if (existing.rows.length) continue;
 
-        const { html, text, attachments } = await this.fetchMessageBody(account, msg.uid, msg.folder);
+        const { html, text, attachments, cidsComplete } = await this.fetchMessageBody(account, msg.uid, msg.folder);
         const safeHtml = html ? sanitizeEmail(html) : null;
         if (safeHtml || text) {
           const snip = snippetFromBody(text, safeHtml || html);
@@ -5910,7 +5912,8 @@ export class ImapManager {
              SET body_html = $1, body_text = $2, attachments = $3,
                  snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
              WHERE id = $4`,
-            [sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
+            // Settled when its cid: references can never resolve (utils/cidRefs.js, #595).
+            [sanitizeStr(settleCids(safeHtml, cidsComplete)), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
           );
         }
       } catch (err) {
@@ -5994,6 +5997,10 @@ export class ImapManager {
       let html = null;
       let text = null;
       let attachments;
+      // False when a cid: reference is left in the HTML because its image's bytes did not arrive,
+      // so a later view should fetch again; a reference no part answers, or one over the repeat
+      // budget, stays whatever happens and leaves this true (utils/cidRefs.js, #595).
+      let cidsComplete = true;
       // Always address by UID string with uid:true option — direct UID FETCH avoids
       // the two-step SEARCH+FETCH path that object-range syntax triggers, which can
       // silently return nothing on stale connections or when a server-side search
@@ -6147,12 +6154,13 @@ export class ImapManager {
         // images render inside the sandboxed srcdoc iframe
         if (html && inlineImages.length > 0) {
           const dataUris = new Map();
+          const missingImages = new Set();
           for (const img of inlineImages) {
             if (!img.cid) continue;
             const key = img.cid.toLowerCase();
             if (dataUris.has(key)) continue;
             const buf = prefetched.get(img.part);
-            if (!buf || looksLikeTextPayload(buf)) continue;
+            if (!buf || looksLikeTextPayload(buf)) { missingImages.add(key); continue; }
             const enc = (img.encoding || '').toLowerCase();
             const b64 = enc === 'base64'
               ? buf.toString('ascii').replace(/\s/g, '')
@@ -6181,6 +6189,11 @@ export class ImapManager {
               console.warn(`fetchMessageBody: uid=${uid} folder=${folder} account=${logAccount(account)}: left ${overBudget} repeated inline image reference(s) as cid:, past the ${INLINE_IMAGE_REPEAT_BUDGET / (1024 * 1024)} MB repeat budget`);
             }
           }
+          if (missingImages.size > 0) {
+            for (const [, cid] of html.matchAll(CID_REFERENCE_RE)) {
+              if (missingImages.has(cid.toLowerCase())) { cidsComplete = false; break; }
+            }
+          }
         }
       } finally {
         lock.release();
@@ -6188,7 +6201,7 @@ export class ImapManager {
 
       // Some malformed emails include NUL bytes that PostgreSQL rejects in text
       // columns. Strip them once here so all callers are safe.
-      return { html: sanitizeStr(html), text: sanitizeStr(text), attachments };
+      return { html: sanitizeStr(html), text: sanitizeStr(text), attachments, cidsComplete };
     });
 
     // Providers flagged preferFreshBodyFetch (e.g. PurelyMail) skip the shared pool on the

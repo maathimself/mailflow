@@ -15,6 +15,17 @@ import { logger } from './logger.js';
 // extracting <style> blocks so that Outlook-only CSS rules (e.g. mso-* properties,
 // table layout overrides) are not applied in browser rendering, where they can break
 // font sizes, spacing, and colors that the email author tuned for non-Outlook clients.
+// Case-insensitive indexOf for an ASCII needle, searched in the string itself. Searching a
+// toLowerCase() copy instead gives wrong positions once the text holds a character whose lowercase
+// is longer (İ becomes two characters): offsets drifted by one per İ, so text was cut at the wrong
+// place and a following block could be skipped.
+function indexOfCi(str, needle, from) {
+  const re = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  re.lastIndex = from;
+  const m = re.exec(str);
+  return m ? m.index : -1;
+}
+
 // Replace every `<tag …>content</tag>` span in linear time. A lazy
 // `<tag\b[^>]*>[\s\S]*?</tag>` /g regex is O(n²) on hostile email HTML on TWO axes:
 // the `[^>]*>` opener backtracks futilely when a tag has no `>`, and the lazy
@@ -27,8 +38,6 @@ import { logger } from './logger.js';
 // `>` or close exists at/after an opener, none exists for any later opener either
 // (positions only advance), so we stop — exactly what the regex would leave unmatched.
 function scanPaired(str, openNameRe, closeLiteral, transform) {
-  const lower = str.toLowerCase();
-  const close = closeLiteral.toLowerCase();
   let out = '';
   let pos = 0;
   let m;
@@ -37,7 +46,7 @@ function scanPaired(str, openNameRe, closeLiteral, transform) {
     const gt = str.indexOf('>', m.index);
     if (gt === -1) break; // unterminated opening tag — no match, like [^>]*> would fail
     const contentStart = gt + 1;
-    const closeIdx = lower.indexOf(close, contentStart);
+    const closeIdx = indexOfCi(str, closeLiteral, contentStart);
     if (closeIdx === -1) break;
     const spanEnd = closeIdx + closeLiteral.length;
     out += str.slice(pos, m.index) + transform(str.slice(m.index, contentStart), str.slice(contentStart, closeIdx), str.slice(closeIdx, spanEnd));
@@ -52,7 +61,6 @@ function scanPaired(str, openNameRe, closeLiteral, transform) {
 // /<!--\[if(?!\s*!)[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi without its backtracking.
 function stripMsoConditionals(hc) {
   const END = '<![endif]-->';
-  const lower = hc.toLowerCase();
   const openRe = /<!--\[if/gi;
   let out = '';
   let pos = 0;
@@ -65,7 +73,7 @@ function stripMsoConditionals(hc) {
     const rb = hc.indexOf(']', after);
     if (rb === -1) break;
     if (hc[rb + 1] !== '>') { openRe.lastIndex = after; continue; } // ']' not immediately '>' — no match
-    const endIdx = lower.indexOf(END.toLowerCase(), rb + 2);
+    const endIdx = indexOfCi(hc, END, rb + 2);
     if (endIdx === -1) break;
     out += hc.slice(pos, m.index);
     pos = endIdx + END.length;
@@ -221,17 +229,34 @@ function upgradeStyleBlocks(html) {
   );
 }
 
+// The sender's dark design (#228). @media (prefers-color-scheme: dark) blocks used to be deleted,
+// because they fired against the forced-white frame (white text on white). They are moved instead,
+// each whole, into one style element at the end of the stored body that is switched off
+// (media="not all"), so the stored body stays a light email. splitDarkScheme below reads that back
+// out; the body route sends it as its own field and the frame applies it only when it shows the
+// message dark. The dark condition becomes one that always holds, so a block's other conditions
+// (a max-width, say) still apply. Nothing here parses or rewrites selectors.
+export const DARK_SCHEME_STYLE_ATTR = 'data-mf-dark-scheme';
+// Left in the body when the sender asked to stay light (color-scheme: only light), so the reader
+// never renders that message dark.
+export const LIGHT_ONLY_MARKER = '<!--mf-light-only-->';
+const LIGHT_ONLY_RE = /\b(?:only\s+light|light\s+only)\b/i;
+
 // Strip dark-mode CSS from a <style> block's text content.
-// Targets @media (prefers-color-scheme: dark) blocks, Outlook dark-mode attribute
-// selectors, and properties that invert or override the forced-light background.
-function stripDarkModeCss(css) {
-  // Remove @media (prefers-color-scheme: dark) { ... } blocks.
-  let out = stripDarkMediaBlocks(css);
+// Targets @media (prefers-color-scheme: dark) blocks (moved into `moved`, see above), Outlook
+// dark-mode attribute selectors, and properties that invert or override the forced-light background.
+function stripDarkModeCss(css, moved = [], flags = {}) {
+  // Move @media (prefers-color-scheme: dark) { ... } blocks out.
+  let out = stripDarkMediaBlocks(css, moved);
   // Remove rules scoped to Outlook dark-mode attribute selectors
   // (e.g. [data-ogsc], [data-ogsb]).
   out = stripOutlookDarkRules(out);
-  // Strip color-scheme declarations — the iframe meta tag controls this instead.
-  out = out.replace(/\bcolor-scheme\s*:[^;!}]+;?/gi, '');
+  // Strip color-scheme declarations — the iframe meta tag controls this instead. One that asks
+  // to stay light is remembered first.
+  out = out.replace(/\bcolor-scheme\s*:[^;!}]+;?/gi, (decl) => {
+    if (LIGHT_ONLY_RE.test(decl)) flags.lightOnly = true;
+    return '';
+  });
   // Strip filter:invert(...) — used to simulate dark mode by inverting the page,
   // which breaks rendering on our forced-white background.
   out = stripInvertFilters(out);
@@ -249,7 +274,7 @@ function stripDarkModeCss(css) {
 // that reach the same `{` or `]` share its outcome, so after one fails the scan resumes
 // past it; once the `{`, `]` or `)` a candidate needs is missing, every later candidate
 // lacks it too, so the scan stops.
-function stripDarkMediaBlocks(css) {
+function stripDarkMediaBlocks(css, moved = []) {
   const atMedia = /@media\b/gi;
   let out = '';
   let pos = 0;
@@ -257,9 +282,11 @@ function stripDarkMediaBlocks(css) {
   while ((m = atMedia.exec(css)) !== null) {
     const open = css.indexOf('{', atMedia.lastIndex);
     if (open === -1) break;
-    const dark = /prefers-color-scheme\s*:\s*dark/i.test(css.slice(atMedia.lastIndex, open));
+    const prelude = css.slice(atMedia.lastIndex, open);
+    const dark = /prefers-color-scheme\s*:\s*dark/i.test(prelude);
     const end = dark ? mediaBlockEnd(css, open) : -1;
     if (end === -1) { atMedia.lastIndex = open; continue; }
+    moved.push(`@media${prelude.replace(/prefers-color-scheme\s*:\s*dark/gi, 'min-width: 0px')}${css.slice(open, end)}`);
     out += css.slice(pos, m.index);
     pos = end;
     atMedia.lastIndex = end;
@@ -312,19 +339,72 @@ function stripInvertFilters(css) {
   while ((m = invertRe.exec(css)) !== null) {
     const paren = css.indexOf(')', invertRe.lastIndex);
     if (paren === -1) break;
+    // The declaration ends at its ';' or at the '}' closing its rule, whichever comes first; the
+    // '}' stays. Looking only for ';' ran across the end of a rule written without one
+    // (img{filter:invert(1)}) and deleted the rules after it up to the next ';'.
     const semi = css.indexOf(';', paren + 1);
+    const brace = css.indexOf('}', paren + 1);
     out += css.slice(pos, m.index);
-    pos = semi === -1 ? css.length : semi + 1;
+    if (brace !== -1 && (semi === -1 || brace < semi)) pos = brace;
+    else pos = semi === -1 ? css.length : semi + 1;
     invertRe.lastIndex = pos;
   }
   return out + css.slice(pos);
 }
 
-function stripDarkModeStyleBlocks(html) {
+// Whether the raw message asks to stay light in a <meta name="color-scheme"> (or the older
+// supported-color-schemes). The head is gone by the time style blocks are processed, so this reads
+// the input. Each <meta is examined only up to its own '>', so crafted markup stays linear.
+function declaresLightOnly(html) {
+  if (!html) return false;
+  const metaRe = /<meta\b/gi;
+  let m;
+  while ((m = metaRe.exec(html)) !== null) {
+    const end = html.indexOf('>', metaRe.lastIndex);
+    if (end === -1) return false;
+    const tag = html.slice(m.index, end);
+    if (/\bname\s*=\s*["']?(?:color-scheme|supported-color-schemes)\b/i.test(tag) && LIGHT_ONLY_RE.test(tag)) return true;
+    metaRe.lastIndex = end;
+  }
+  return false;
+}
+
+// The other half of the format stripDarkModeStyleBlocks writes into a stored body: the email's own
+// HTML, the sender's dark CSS, and whether it asked to stay light, as separate values. The body
+// route sends them as separate fields, so the reader never matches markup and the HTML a reply,
+// forward or print reuses is the sanitized email alone. Writer and reader live together here so
+// the format cannot drift.
+const DARK_STYLE_OPEN = `<style ${DARK_SCHEME_STYLE_ATTR} media="not all">`;
+export function splitDarkScheme(stored) {
+  if (typeof stored !== 'string') return { html: stored, darkCss: null, lightOnly: false };
+  const lightOnly = stored.includes(LIGHT_ONLY_MARKER);
+  let html = lightOnly ? stored.split(LIGHT_ONLY_MARKER).join('') : stored;
+  let darkCss = null;
+  const start = html.lastIndexOf(DARK_STYLE_OPEN);
+  const end = start === -1 ? -1 : html.indexOf('</style>', start);
+  if (end !== -1) {
+    darkCss = html.slice(start + DARK_STYLE_OPEN.length, end) || null;
+    html = html.slice(0, start) + html.slice(end + '</style>'.length);
+  }
+  return { html, darkCss: lightOnly ? null : darkCss, lightOnly };
+}
+
+// The stored body as an email again, for HTML that leaves MailFlow straight from the server.
+export const withoutDarkScheme = (stored) => splitDarkScheme(stored).html;
+
+function stripDarkModeStyleBlocks(html, { lightOnly = false } = {}) {
   if (!html) return html;
-  return scanPaired(html, /<style\b/gi, '</style>', (open, content, close) =>
-    open + stripDarkModeCss(content) + close
+  const moved = [];
+  const flags = { lightOnly };
+  const out = scanPaired(html, /<style\b/gi, '</style>', (open, content, close) =>
+    open + stripDarkModeCss(content, moved, flags) + close
   );
+  if (flags.lightOnly) return LIGHT_ONLY_MARKER + out;
+  if (!moved.length) return out;
+  // The moved blocks get the same clean-up as the rest, so an invert() in the sender's dark CSS
+  // cannot flip the colors back once it is switched on.
+  const darkCss = stripInvertFilters(stripOutlookDarkRules(moved.join('\n')).replace(/\bcolor-scheme\s*:[^;!}]+;?/gi, ''));
+  return `${out}<style ${DARK_SCHEME_STYLE_ATTR} media="not all">${darkCss}</style>`;
 }
 
 // Re-serialize through the HTML5 tree builder first so the markup sanitize-html sees
@@ -548,8 +628,9 @@ export function sanitizeEmail(html, { preserveDraftSignature = false } = {}) {
 
   // Upgrade http:// URLs in <style> block CSS content — sanitize-html's transformTags
   // only handles attributes, so CSS url() inside <style> blocks must be fixed afterward.
-  // Then strip dark-mode CSS that would override the forced-light rendering environment.
-  return stripDarkModeStyleBlocks(upgradeStyleBlocks(stripExternalStyleBlockUrls(sanitized)));
+  // Then move the sender's dark-mode CSS aside (see stripDarkModeStyleBlocks) so it cannot override
+  // the forced-light rendering.
+  return stripDarkModeStyleBlocks(upgradeStyleBlocks(stripExternalStyleBlockUrls(sanitized)), { lightOnly: declaresLightOnly(html) });
 }
 
 // The text/plain part of a message written in the composer: its body or its signature, as HTML.
@@ -699,24 +780,167 @@ export function sanitizeSignature(html) {
   });
 }
 
-// Returns true if the sanitized HTML contains any remote http/https image references,
-// including CSS @import with a bare quoted URL (not wrapped in url()) which bypasses
-// the url() pattern check but still causes an outbound stylesheet request.
+// Remote here means http(s) or protocol-relative ("//host/...", which the email frame resolves to
+// https); browsers ignore leading whitespace in a URL, so the patterns below do too.
+
+const REMOTE_URL = /^\s*(?:https?:)?\/\//i;
+const isCssSpace = (c) => c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
+
+// Every remote URL in CSS text, rewritten by `rewrite(kind, url, token)`, which returns the text
+// that replaces the whole token: kind 'url' for url(...), 'string' for a quoted URL inside
+// image-set(), 'import' for an @import rule (through its ';'). `token` is { text, before, value,
+// after }: the token as written, split around the URL's own characters (`value`, untrimmed), so a
+// rewrite can replace the URL alone. Anything else is copied as it is.
+//
+// One pass from left to right that never reads text twice: every search for a closing character
+// remembers where it last looked. Patterns that scan ahead from each candidate (url\(...\)) cost
+// time in proportion to candidates times length, and a <style> of 40,000 unclosed url( held the
+// event loop for half a minute. Here time grows only with the length of the CSS.
+// Case-insensitive needles are searched with regexes over the CSS itself, not over a lowercased
+// copy: lowercasing can change the length of a string (İ becomes two characters), and positions in
+// the copy would then point at the wrong text.
+const CSS_NEEDLES = { 'url(': /url\(/gi, 'image-set(': /image-set\(/gi, '@import': /@import/gi };
+const startsWithCi = (text, at, needle) => text.slice(at, at + needle.length).toLowerCase() === needle;
+
+function rewriteCssUrls(css, rewrite) {
+  const n = css.length;
+  const found = new Map();
+  // The next index of `needle` at or after `from`. A result is reused while it still answers the
+  // question, so a search never covers the same text twice as long as `from` only grows.
+  const next = (needle, from) => {
+    const hit = found.get(needle);
+    if (hit && hit.from <= from && (hit.at === -1 || hit.at >= from)) return hit.at;
+    let at;
+    const re = CSS_NEEDLES[needle];
+    if (re) {
+      re.lastIndex = from;
+      const m = re.exec(css);
+      at = m ? m.index : -1;
+    } else {
+      at = css.indexOf(needle, from);
+    }
+    found.set(needle, { from, at });
+    return at;
+  };
+  // A url( token starting at `start` (the 'u'): its pieces and the index after its ')', or null.
+  const urlToken = (start) => {
+    let j = start + 4;
+    while (j < n && isCssSpace(css[j])) j += 1;
+    let valueStart;
+    let valueEnd;
+    let k;
+    if (css[j] === '"' || css[j] === "'") {
+      const close = next(css[j], j + 1);
+      if (close === -1) return null;
+      valueStart = j + 1;
+      valueEnd = close;
+      k = close + 1;
+    } else {
+      k = j;
+      while (k < n && css[k] !== ')' && css[k] !== '(' && css[k] !== '"' && css[k] !== "'" && !isCssSpace(css[k])) k += 1;
+      valueStart = j;
+      valueEnd = k;
+    }
+    while (k < n && isCssSpace(css[k])) k += 1;
+    if (css[k] !== ')') return null;
+    const end = k + 1;
+    return {
+      value: css.slice(valueStart, valueEnd), end,
+      token: { text: css.slice(start, end), before: css.slice(start, valueStart), value: css.slice(valueStart, valueEnd), after: css.slice(valueEnd, end) },
+    };
+  };
+
+  let out = '';
+  let i = 0;
+  while (i < n) {
+    const candidates = [['url', next('url(', i)], ['set', next('image-set(', i)], ['import', next('@import', i)]]
+      .filter(([, at]) => at !== -1);
+    if (!candidates.length) break;
+    const [kind, at] = candidates.reduce((a, b) => (b[1] < a[1] ? b : a));
+    out += css.slice(i, at);
+    if (kind === 'url') {
+      const token = urlToken(at);
+      if (token && REMOTE_URL.test(token.value)) { out += rewrite('url', token.value.trim(), token.token); i = token.end; continue; }
+      out += css.slice(at, at + 4);
+      i = at + 4;
+    } else if (kind === 'import') {
+      const semi = next(';', at);
+      const end = semi === -1 ? n : semi + 1;
+      let j = at + 7;
+      while (j < end && isCssSpace(css[j])) j += 1;
+      let target = '';
+      if (startsWithCi(css, j, 'url(')) target = urlToken(j)?.value ?? '';
+      else if (css[j] === '"' || css[j] === "'") { const close = next(css[j], j + 1); target = close === -1 ? '' : css.slice(j + 1, close); }
+      if (REMOTE_URL.test(target)) {
+        const text = css.slice(at, end);
+        out += rewrite('import', target.trim(), { text, before: text, value: '', after: '' });
+        i = end;
+        continue;
+      }
+      out += css.slice(at, at + 7);
+      i = at + 7;
+    } else {
+      // image-set( ... ): to its matching ')', its quoted URLs and url() tokens rewritten.
+      const open = at + 'image-set('.length;
+      out += css.slice(at, open);
+      let depth = 1;
+      let k = open;
+      while (k < n && depth > 0) {
+        const c = css[k];
+        if (c === '"' || c === "'") {
+          const close = next(c, k + 1);
+          const stop = close === -1 ? n : close + 1;
+          const value = css.slice(k + 1, close === -1 ? n : close);
+          out += REMOTE_URL.test(value)
+            ? rewrite('string', value.trim(), { text: css.slice(k, stop), before: c, value, after: close === -1 ? '' : c })
+            : css.slice(k, stop);
+          k = stop;
+        } else if (startsWithCi(css, k, 'url(')) {
+          const token = urlToken(k);
+          if (token && REMOTE_URL.test(token.value)) { out += rewrite('url', token.value.trim(), token.token); k = token.end; }
+          else { out += css.slice(k, k + 4); k += 4; depth += 1; }
+        } else {
+          if (c === '(') depth += 1;
+          else if (c === ')') depth -= 1;
+          out += c;
+          k += 1;
+        }
+      }
+      i = k;
+    }
+  }
+  return out + css.slice(i);
+}
+
+// Remote loads in CSS text made inert: url(...) and quoted URLs in image-set() become data:,
+// (which draws nothing) and remote @imports are dropped. url(data:,) carries no quotes, so it is
+// safe inside any attribute or style block.
+const blockCssUrls = (css) =>
+  rewriteCssUrls(css, (kind) => (kind === 'import' ? '' : kind === 'url' ? 'url(data:,)' : '"data:,"'));
+
+// An attribute value as written in the HTML, and back. Sanitized HTML writes values in double
+// quotes with " as &quot;, & as &amp; and < > as &lt; &gt;; a CSS URL quoted with " is only
+// visible once decoded, and what was decoded is encoded again the same way.
+const decodeAttr = (v) => v
+  .replace(/&quot;|&#0*34;|&#x0*22;/gi, '"').replace(/&#0*39;|&#x0*27;|&apos;/gi, "'")
+  .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&amp;/gi, '&');
+const encodeAttr = (v) => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// Whether the HTML loads anything remote that blockRemoteImages would stop: exactly when blocking
+// would change it, so the two can never disagree.
 export function hasRemoteImages(html) {
   if (!html) return false;
-  return (
-    /<img\b[^>]*\ssrc=["']https?:\/\//i.test(html) ||
-    /<img\b[^>]*\ssrcset=["'][^"']*https?:\/\//i.test(html) ||
-    /\sbackground=["']https?:\/\//i.test(html) ||
-    /url\(\s*['"]?https?:\/\//i.test(html) ||
-    /@import\s+["']https?:\/\//i.test(html)
-  );
+  return blockRemoteImages(html) !== html;
 }
 
 // Rewrite remote http/https image references so the browser makes no network requests.
 // data: and cid: sources are always left intact.
 // Never call this on HTML that will be written back to the database — apply only at
 // response time so the canonical cached body remains unmodified.
+//
+// This is the first line only: the email frame also forbids remote images, fonts and media in its
+// Content-Security-Policy whenever a body is served blocked (remoteImagesBlocked), which stops what
+// no pattern here can foresee (CSS escapes, for one).
 export function blockRemoteImages(html) {
   if (!html) return html;
 
@@ -725,8 +949,9 @@ export function blockRemoteImages(html) {
   // height:auto CSS (like marketing templates) would then collapse all images to 0px tall,
   // making the entire email appear blank.  Reading the explicit width/height attributes
   // lets us generate a grey rectangle that matches the layout slot the author intended.
+  // An attribute value runs to its own quote: a URL may hold the other one (a'b.png in "...").
   let out = html.replace(
-    /(<img\b[^>]*?)\ssrc=(["'])(https?:\/\/[^\s"']*)\2/gi,
+    /(<img\b[^>]*?)\ssrc=(?:"\s*(?:https?:)?\/\/[^"]*"|'\s*(?:https?:)?\/\/[^']*')/gi,
     (match, pre) => {
       const wMatch = pre.match(/\bwidth=["']?(\d+)["']?/i);
       const hMatch = pre.match(/\bheight=["']?(\d+)["']?/i);
@@ -741,42 +966,101 @@ export function blockRemoteImages(html) {
 
   // Remove img srcset entirely when it contains any remote URLs.
   out = out.replace(
-    /(<img\b[^>]*?)\ssrcset=(["'])([^"']*)\2/gi,
-    (_, pre, q, val) =>
-      /https?:\/\//i.test(val)
-        ? pre
-        : `${pre} srcset=${q}${val}${q}`
+    /(<img\b[^>]*?)\ssrcset=(?:"([^"]*)"|'([^']*)')/gi,
+    (match, pre, doubleQuoted, singleQuoted) =>
+      /(?:^|[\s,])(?:https?:)?\/\//i.test(doubleQuoted ?? singleQuoted) ? pre : match
   );
 
   // Blank background="https://..." attribute (table-based marketing email layouts).
   out = out.replace(
-    /(\s)background=(["'])(https?:\/\/[^\s"']*)\2/gi,
-    '$1background=$2$2'
+    /(\s)background=(?:"\s*(?:https?:)?\/\/[^"]*"|'\s*(?:https?:)?\/\/[^']*')/gi,
+    '$1background=""'
   );
 
-  // Block CSS url(https://...) in inline style= attributes.
+  // Block CSS url(https://...) in inline style= attributes, read as the browser will read them.
+  // Left byte for byte as it was when there is nothing to block.
   out = out.replace(
-    /\sstyle="([^"]*)"/gi,
-    (_, styleVal) => {
-      const blocked = styleVal.replace(
-        /url\(\s*(['"]?)https?:\/\/[^'")]+\1\s*\)/gi,
-        'url("data:,")'
-      );
-      return ` style="${blocked}"`;
+    /(\sstyle=)(?:"([^"]*)"|'([^']*)')/gi,
+    (match, attr, doubleQuoted, singleQuoted) => {
+      const css = decodeAttr(doubleQuoted ?? singleQuoted);
+      const blocked = blockCssUrls(css);
+      return blocked === css ? match : `${attr}"${encodeAttr(blocked)}"`;
     }
   );
 
-  // Block remote CSS loads inside <style> blocks:
-  // 1. Strip @import "https://..." (bare quoted form — not caught by url() pattern).
-  // 2. Strip @import url(https://...) (url() form).
-  // 3. Replace remaining url(https://...) CSS property values with data:,.
-  out = scanPaired(out, /<style\b/gi, '</style>', (open, content, close) => {
-    const blocked = content
-      .replace(/@import\s+["']https?:\/\/[^"']*["']\s*;?/gi, '')
-      .replace(/@import\s+url\(\s*["']?https?:\/\/[^"')]*["']?\s*\)\s*;?/gi, '')
-      .replace(/url\(\s*(['"]?)https?:\/\/[^'")]+\1\s*\)/gi, 'url("data:,")');
-    return open + blocked + close;
-  });
+  // Block remote CSS loads inside <style> blocks: remote @imports dropped, url(...) and
+  // image-set() URLs made inert.
+  out = scanPaired(out, /<style\b/gi, '</style>', (open, content, close) => open + blockCssUrls(content) + close);
 
   return out;
+}
+
+// The URL a remote image reference loads, from its text: protocol-relative ("//host/...") is
+// https, as the email frame resolves it.
+const remoteUrlOf = (text) => {
+  const url = text.trim();
+  return url.startsWith('//') ? `https:${url}` : url;
+};
+
+// Every remote image reference in sanitized HTML, passed to `replace(raw, url)`: `raw` is the
+// reference exactly as written in the HTML (in an attribute, with its entities), `url` what it
+// loads. The result takes the place of `raw` and nothing around it changes, so a replacement that
+// carries `raw` can always be turned back into the original HTML. Covers what blockRemoteImages
+// blocks, but for remote @imports, which are left alone: they are stylesheets, not images, and the
+// email frame's CSP never loads one.
+function rewriteRemoteImageRefs(html, replace) {
+  if (!html) return html;
+  const remote = (raw) => /^\s*(?:https?:)?\/\//i.test(raw);
+  // An attribute value runs to its own quote: a URL may hold the other one.
+  const attrUrl = (_, pre, doubleQuoted, singleQuoted) => {
+    const q = doubleQuoted === undefined ? "'" : '"';
+    const raw = doubleQuoted ?? singleQuoted;
+    return `${pre}${q}${replace(raw, remoteUrlOf(decodeAttr(raw)))}${q}`;
+  };
+  let out = html.replace(/(<img\b[^>]*?\ssrc=)(?:"(\s*(?:https?:)?\/\/[^"]*)"|'(\s*(?:https?:)?\/\/[^']*)')/gi, attrUrl);
+  out = out.replace(
+    /(<img\b[^>]*?\ssrcset=)(?:"([^"]*)"|'([^']*)')/gi,
+    (_, pre, doubleQuoted, singleQuoted) => {
+      const q = doubleQuoted === undefined ? "'" : '"';
+      const value = doubleQuoted ?? singleQuoted;
+      return `${pre}${q}${value.replace(/(^|,)(\s*)([^\s,]+)/g, (m, sep, ws, raw) =>
+        (remote(raw) ? `${sep}${ws}${replace(raw, remoteUrlOf(decodeAttr(raw)))}` : m))}${q}`;
+    },
+  );
+  out = out.replace(/(\sbackground=)(?:"(\s*(?:https?:)?\/\/[^"]*)"|'(\s*(?:https?:)?\/\/[^']*)')/gi, attrUrl);
+  // An inline style is read decoded, as the browser reads it; each URL is replaced as it is
+  // written in the HTML (encodeAttr of its decoded text, which is how sanitized HTML writes it).
+  out = out.replace(
+    /(\sstyle=)(?:"([^"]*)"|'([^']*)')/gi,
+    (match, attr, doubleQuoted, singleQuoted) => {
+      const css = decodeAttr(doubleQuoted ?? singleQuoted);
+      const rewritten = rewriteCssUrls(css, (kind, url, token) => (kind === 'import'
+        ? token.text
+        : `${token.before}${replace(encodeAttr(token.value), remoteUrlOf(url))}${token.after}`));
+      return rewritten === css ? match : `${attr}"${encodeAttr(rewritten)}"`;
+    },
+  );
+  out = scanPaired(out, /<style\b/gi, '</style>', (open, content, close) => open + rewriteCssUrls(content, (kind, url, token) => (kind === 'import'
+    ? token.text
+    : `${token.before}${replace(token.value, remoteUrlOf(url))}${token.after}`)) + close);
+  return out;
+}
+
+// Remote images loaded through MailFlow's image proxy: every remote image reference in sanitized
+// HTML becomes `toProxy(raw)` (routes/mail.js imageProxyPath), which carries the reference as it
+// was written, so the original can be restored exactly (the frontend's utils/imageProxy.js does,
+// for replies and forwards).
+export function proxyRemoteImages(html, toProxy) {
+  return rewriteRemoteImageRefs(html, (raw) => toProxy(raw));
+}
+
+// The remote image references in sanitized HTML, as written, with what each loads: the only URLs
+// the image proxy will fetch for this message.
+export function remoteImageRefs(html) {
+  const refs = new Map();
+  rewriteRemoteImageRefs(html, (raw, url) => {
+    if (!refs.has(raw)) refs.set(raw, url);
+    return raw;
+  });
+  return refs;
 }

@@ -151,7 +151,7 @@ export const useStore = create((set, get) => ({
         enabledPlugins: [], autoLockMinutes: 0, blockRemoteImages: true,
         imageWhitelist: { addresses: [], domains: [] }, shortcuts: {}, aiActions: null,
         hiddenFolders: {}, categorizationEnabled: false, gtdPetSlug: null,
-        autoOpenReplyDrafts: false, afterRemove: 'next',
+        autoOpenReplyDrafts: false, afterRemove: 'next', darkEmailBodies: false,
       } : {}),
     }));
   },
@@ -553,8 +553,12 @@ export const useStore = create((set, get) => ({
           w.messageId === messageId ? { ...w, minimized: false, z: seq } : w),
       };
     }
-    const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
-    const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+    // The screen in the window's own pixels: MailApp scales the interface by the font size, so at
+    // 125% a screen-sized window in screen pixels opens a quarter taller than the screen, with its
+    // resize handle out of reach (#591).
+    const scale = (state.fontSize || 100) / 100;
+    const vw = (typeof window !== 'undefined' ? window.innerWidth : 1280) / scale;
+    const vh = (typeof window !== 'undefined' ? window.innerHeight : 800) / scale;
     const w = Math.min(660, Math.max(360, vw - 80));
     const h = Math.min(740, Math.max(280, vh - 80));
     // Cascade each new window down-right so they don't stack exactly on top.
@@ -762,6 +766,15 @@ export const useStore = create((set, get) => ({
     localStorage.setItem('mailflow_after_remove', val);
     set({ afterRemove: val });
     schedulePrefSave({ afterRemove: val });
+  },
+
+  // Show email bodies dark in a dark theme where that is safe (#228, utils/darkScheme.js). Off by
+  // default: a message can always be switched to dark, or back, on its own.
+  darkEmailBodies: localStorage.getItem('mailflow_dark_email_bodies') === 'true',
+  setDarkEmailBodies: (value) => {
+    localStorage.setItem('mailflow_dark_email_bodies', String(Boolean(value)));
+    set({ darkEmailBodies: Boolean(value) });
+    schedulePrefSave({ darkEmailBodies: Boolean(value) });
   },
 
   markReadBehavior: localStorage.getItem('mailflow_mark_read_behavior') || 'immediate',
@@ -1317,6 +1330,10 @@ export const useStore = create((set, get) => ({
       if (prefs.replyDefault === 'reply' || prefs.replyDefault === 'replyAll') {
         localStorage.setItem('mailflow_reply_default', prefs.replyDefault);
         set({ replyDefault: prefs.replyDefault });
+      }
+      if (typeof prefs.darkEmailBodies === 'boolean') {
+        localStorage.setItem('mailflow_dark_email_bodies', String(prefs.darkEmailBodies));
+        set({ darkEmailBodies: prefs.darkEmailBodies });
       }
       if (['next', 'previous', 'list'].includes(prefs.afterRemove)) {
         localStorage.setItem('mailflow_after_remove', prefs.afterRemove);

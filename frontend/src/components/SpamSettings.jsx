@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { spamApi } from '../utils/spamApi.js';
+import { formatDateTime } from '../utils/formatDate.js';
 
 // Antispam settings panel (v0.2) — mounted as the "Antispam" tab in AdminPanel.
 // Global-per-user scope: model status, thresholds, decay, master switch,
@@ -178,7 +179,7 @@ export default function SpamSettings() {
           <Stat label={t('spam.statRecords')} value={String(status.trainingRecords)} />
           <Stat label={t('spam.statVersion')} value={String(status.modelVersion ?? '—')} />
           <Stat label={t('spam.statLastTrained')}
-            value={status.lastTrainedAt ? new Date(status.lastTrainedAt).toLocaleString() : t('spam.never')} />
+            value={status.lastTrainedAt ? formatDateTime(status.lastTrainedAt) : t('spam.never')} />
           <Stat label={t('spam.statDecay')} value={`${status.decayThresholdDays ?? 90} ${t('spam.days')}`} />
         </div>
       </Row>
@@ -267,7 +268,7 @@ export default function SpamSettings() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5 }}>
               {deletions.map((d, i) => (
                 <div key={i} style={{ color: 'var(--text-secondary)' }}>
-                  • {t(`spam.deleteScope.${d.scope}`)} — {d.records_deleted} {t('spam.records')} — {new Date(d.requested_at).toLocaleString()}
+                  • {t(`spam.deleteScope.${d.scope}`)} — {d.records_deleted} {t('spam.records')} — {formatDateTime(d.requested_at)}
                 </div>
               ))}
             </div>

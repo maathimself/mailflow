@@ -33,6 +33,12 @@ describe('safeFetch — SSRF guard', () => {
     )).toBe('ERR_BLOCKED_PRIVATE_IP');
   });
 
+  it('blocks an IPv4-mapped IPv6 literal, which the URL parser rewrites to hex', async () => {
+    expect(await causeCode(
+      safeFetch(`http://[::ffff:127.0.0.1]:${port}/ok`, {}, { allowPrivate: false, requireHttps: false })
+    )).toBe('ERR_BLOCKED_PRIVATE_IP');
+  });
+
   it('blocks a hostname that resolves to a private IP', async () => {
     expect(await causeCode(
       safeFetch(`http://localhost:${port}/ok`, {}, { allowPrivate: false, requireHttps: false })

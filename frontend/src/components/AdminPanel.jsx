@@ -36,6 +36,7 @@ import { isValidForwardAddress } from '../utils/ruleActions.js';
 import { folderParentLabel } from '../utils/folderDisplay.js';
 import AdminUserEditor from './AdminUserEditor.jsx';
 import { formatRelativeTime, daysSince } from '../utils/relativeTime.js';
+import { formatDateTime, formatDay, formatTime } from '../utils/formatDate.js';
 import { htmlLang } from '../utils/browserLanguage.js';
 import SpamSettings from './SpamSettings.jsx';
 import BackupSettings from './BackupSettings.jsx';
@@ -1185,7 +1186,7 @@ function AccountsTab() {
             {[
               ['IMAP', `${account.imap_host}:${account.imap_port}`],
               ['SMTP', `${account.smtp_host}:${account.smtp_port}`],
-              [t('admin.accounts.lastSync'), account.last_sync ? new Date(account.last_sync).toLocaleTimeString() : t('common.never')],
+              [t('admin.accounts.lastSync'), account.last_sync ? formatTime(account.last_sync) : t('common.never')],
             ].map(([label, val]) => (
               <div key={label} style={{ fontSize: 11 }}>
                 <span style={{ color: 'var(--text-tertiary)' }}>{label} </span>
@@ -1226,7 +1227,7 @@ function AccountsTab() {
 // ─── Themes Tab ───────────────────────────────────────────────────────────────
 function ThemesTab() {
   const { t } = useTranslation();
-  const { theme, setTheme } = useStore();
+  const { theme, setTheme, darkEmailBodies, setDarkEmailBodies } = useStore();
   const [customCss, setCustomCss] = useState('');
   const [cssSaving, setCssSaving] = useState(false);
   const [cssSaved, setCssSaved] = useState(false);
@@ -1267,6 +1268,21 @@ function ThemesTab() {
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
         {t('admin.appearance.description')}
       </div>
+
+      {/* Dark email bodies (#228): what is shown dark, and why the rest is not, is in utils/darkScheme.js. */}
+      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 20, cursor: 'pointer' }}>
+        <input
+          id="dark-email-bodies"
+          type="checkbox"
+          checked={darkEmailBodies}
+          onChange={event => setDarkEmailBodies(event.target.checked)}
+          style={{ marginTop: 2 }}
+        />
+        <span>
+          <span style={{ display: 'block', fontSize: 13, color: 'var(--text-primary)' }}>{t('admin.appearance.darkEmailBodies')}</span>
+          <span style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.appearance.darkEmailBodiesDesc')}</span>
+        </span>
+      </label>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
         {Object.entries(THEMES).map(([key, themeObj]) => (
@@ -2474,7 +2490,7 @@ function CardDavCard() {
                 <div style={{ marginTop: 4 }}>
                   {t('admin.integrations.carddav.summary', { contacts: status.contactCount ?? 0, books: status.bookCount ?? 0 })}
                   {' · '}
-                  {t('admin.integrations.carddav.lastSync', { when: status.lastSyncAt ? new Date(status.lastSyncAt).toLocaleString() : t('common.never') })}
+                  {t('admin.integrations.carddav.lastSync', { when: status.lastSyncAt ? formatDateTime(status.lastSyncAt) : t('common.never') })}
                 </div>
                 {status.lastError && (
                   <div style={{ marginTop: 4, color: 'var(--red, #f87171)' }}>{t('admin.integrations.carddav.syncFailed', { error: status.lastError })}</div>
@@ -4484,7 +4500,7 @@ function AISection() {
                       {cancelling ? t('admin.ai.cancelling') : t('common.cancel')}
                     </button>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>{t('admin.ai.deviceExpires', { time: new Date(pendingDevice.expiresAt).toLocaleTimeString() })}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>{t('admin.ai.deviceExpires', { time: formatTime(pendingDevice.expiresAt) })}</div>
                 </div>
               )}
             </div>
@@ -5290,11 +5306,11 @@ function UsersAndInvitesPanel() {
                 )}
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
-                {t('admin.users.joined', { date: new Date(u.created_at).toLocaleDateString() })}
+                {t('admin.users.joined', { date: formatDay(u.created_at) })}
               </div>
               {/* Last request, not last login: sessions roll, so a daily user rarely logs in. */}
               <div
-                title={u.lastSeenAt ? new Date(u.lastSeenAt).toLocaleString() : undefined}
+                title={u.lastSeenAt ? formatDateTime(u.lastSeenAt) : undefined}
                 style={{
                   fontSize: 11, marginTop: 1,
                   color: u.lastSeenAt && daysSince(u.lastSeenAt) > 90 ? 'var(--amber)' : 'var(--text-tertiary)',
@@ -5495,7 +5511,7 @@ function UsersAndInvitesPanel() {
                       {inv.email}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
-                      {t('admin.users.inviteExpires', { date: new Date(inv.expires_at).toLocaleDateString() })}
+                      {t('admin.users.inviteExpires', { date: formatDay(inv.expires_at) })}
                     </div>
                   </div>
                   <button
@@ -5545,8 +5561,8 @@ function UsersAndInvitesPanel() {
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
                     {inv.used_at
-                      ? t('admin.users.inviteUsedBy', { username: inv.used_by_username || 'unknown', date: new Date(inv.used_at).toLocaleDateString() })
-                      : t('admin.users.inviteExpired', { date: new Date(inv.expires_at).toLocaleDateString() })}
+                      ? t('admin.users.inviteUsedBy', { username: inv.used_by_username || 'unknown', date: formatDay(inv.used_at) })
+                      : t('admin.users.inviteExpired', { date: formatDay(inv.expires_at) })}
                   </div>
                 </div>
                 <IconBtn onClick={() => handleRevokeInvite(inv.id)} title={t('admin.users.inviteDelete')} danger>
@@ -8641,7 +8657,7 @@ function SecurityTab() {
                   {authEvents.map(ev => (
                     <tr key={ev.id} style={{ borderBottom: '1px solid var(--border-subtle, var(--border))' }}>
                       <td style={{ padding: '6px 8px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                        {new Date(ev.created_at).toLocaleString()}
+                        {formatDateTime(ev.created_at)}
                       </td>
                       <td style={{ padding: '6px 8px', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
                         {eventLabel(ev.event_type)}
@@ -8808,6 +8824,7 @@ function makeSearchIndex(t) {
     { label: t('admin.rules.subTabBlockList'), keywords: ['block', 'blocked', 'sender', 'blacklist', 'spam', 'domain'], tab: 'rules', subtab: 'block-list', breadcrumb: `${tabLabel('rules')} › ${t('admin.rules.subTabBlockList')}` },
     // Appearance > Theme
     { label: tabLabel('theme'), keywords: ['theme', 'dark', 'light', 'color', 'colour', 'dark mode', 'light mode'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
+    { label: t('admin.appearance.darkEmailBodies'), keywords: ['dark email', 'email body', 'dark mode', 'dark message', 'white background'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
     // Appearance > Layout
     { label: t('admin.appearance.layout'), keywords: ['layout', 'pane', 'split', 'preview', 'reading pane', 'side by side', 'stacked'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.scrollingMode'), keywords: ['scroll', 'infinite', 'paginated', 'pagination', 'pages'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },

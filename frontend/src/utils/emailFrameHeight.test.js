@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { measureContentHeight, createHeightController, forceEagerImages } from './emailFrameHeight.js';
+import { measureContentHeight, createHeightController, forceEagerImages, pinFrameRoot } from './emailFrameHeight.js';
 
 describe('measureContentHeight', () => {
   test('uses the wrapper box, offset by where the wrapper starts', () => {
@@ -168,5 +168,20 @@ describe('forceEagerImages', () => {
     assert.equal(forceEagerImages(null), 0);
     assert.equal(forceEagerImages(undefined), 0);
     assert.equal(forceEagerImages({}), 0);
+  });
+});
+
+describe('pinFrameRoot', () => {
+  test("pins html and body to their content with inline !important, beating the email's own inline body styles", async () => {
+    const { JSDOM } = await import('jsdom');
+    const doc = new JSDOM('<!doctype html><html><body style="height:100% !important;overflow:auto"><p>x</p></body></html>').window.document;
+    pinFrameRoot(doc);
+    for (const el of [doc.body, doc.documentElement]) {
+      assert.equal(el.style.getPropertyValue('height'), 'auto');
+      assert.equal(el.style.getPropertyPriority('height'), 'important');
+      assert.equal(el.style.getPropertyValue('min-height'), '0px');
+      assert.equal(el.style.getPropertyValue('overflow-y'), 'hidden');
+      assert.equal(el.style.getPropertyPriority('overflow-y'), 'important');
+    }
   });
 });

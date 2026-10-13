@@ -137,3 +137,62 @@ describe('CardDAV Basic auth and the shared login rate limit', () => {
     expect((await propfind('right')).status).toBe(207);
   });
 });
+
+// Sign-in policies a password alone cannot satisfy: CardDAV's HTTP Basic refuses under them, as web
+// login would ask for more than a password (routes/auth.js).
+describe('CardDAV under the server sign-in policies', () => {
+  let server;
+  let base;
+  let settings;
+
+  beforeAll(async () => {
+    await new Promise(resolve => { server = buildApp().listen(0, resolve); });
+    base = `http://127.0.0.1:${server.address().port}`;
+  });
+  afterAll(async () => { await new Promise(resolve => server.close(resolve)); });
+  beforeEach(() => {
+    rs.store.clear();
+    settings = [];
+    query.mockReset().mockImplementation(async (sql) => (/system_settings/.test(sql) ? { rows: settings } : { rows: [USER] }));
+  });
+
+  const propfind = password => fetch(`${base}/carddav/`, {
+    method: 'PROPFIND',
+    headers: { Authorization: `Basic ${Buffer.from(`alice:${password}`).toString('base64')}` },
+  });
+
+  it('refuses every password when password sign-in is off for SSO, without checking it', async () => {
+    settings = [{ key: 'internal_auth_disabled', value: 'true' }];
+    const compare = vi.spyOn(bcrypt, 'compare');
+    const right = await propfind('right');
+    const wrong = await propfind('wrong');
+    // The same answer either way, so it says nothing about whether a leftover password is right.
+    expect([right.status, wrong.status]).toEqual([403, 403]);
+    expect(await right.text()).toBe(await wrong.text());
+    expect(compare).not.toHaveBeenCalled();
+    expect(query.mock.calls.some(([sql]) => /FROM users/.test(sql))).toBe(false);
+    // Nothing was guessed, so nothing is counted against the address.
+    expect([...rs.store.keys()]).toEqual([]);
+  });
+
+  it('refuses a right password when two-factor is required, and still counts wrong ones', async () => {
+    settings = [{ key: 'mfa_enforcement', value: 'required' }];
+    const right = await propfind('right');
+    expect(right.status).toBe(403);
+    expect(await right.text()).toMatch(/two-factor authentication is required/i);
+    expect((await propfind('wrong')).status).toBe(401);
+    // A client that keeps sending the right password does not use up the address's budget.
+    for (let i = 0; i < 4; i++) expect((await propfind('right')).status).toBe(403);
+  });
+
+  it('lets a password through when neither policy is on', async () => {
+    settings = [{ key: 'internal_auth_disabled', value: 'false' }, { key: 'mfa_enforcement', value: 'off' }];
+    expect((await propfind('right')).status).toBe(207);
+  });
+
+  it('fails closed when the policy cannot be read', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    query.mockImplementation(async (sql) => { if (/system_settings/.test(sql)) throw new Error('db down'); return { rows: [USER] }; });
+    expect((await propfind('right')).status).toBe(500);
+  });
+});
