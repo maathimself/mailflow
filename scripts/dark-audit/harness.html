@@ -37,9 +37,9 @@ function fitHeight() {
 
 // Loads an email as the reader does: its frame document, then the same layout fixes
 // MessageBodyView makes before showing it (scale-to-fit for wide emails aside).
-async function load(html, darkCss, remoteImagesBlocked = false) {
+async function load(html, darkCss, remoteImagesBlocked = false, remoteImagesProxied = false) {
   const loaded = new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
-  frame.srcdoc = buildFrameDoc({ html, palette: DARK_DEFAULTS, darkCss, remoteImagesBlocked });
+  frame.srcdoc = buildFrameDoc({ html, palette: DARK_DEFAULTS, darkCss, remoteImagesBlocked, remoteImagesProxied });
   await loaded;
   const d = doc();
   if (!d.getElementById(SCALE_WRAPPER)) throw new Error('frame document did not load');

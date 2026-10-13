@@ -553,8 +553,12 @@ export const useStore = create((set, get) => ({
           w.messageId === messageId ? { ...w, minimized: false, z: seq } : w),
       };
     }
-    const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
-    const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+    // The screen in the window's own pixels: MailApp scales the interface by the font size, so at
+    // 125% a screen-sized window in screen pixels opens a quarter taller than the screen, with its
+    // resize handle out of reach (#591).
+    const scale = (state.fontSize || 100) / 100;
+    const vw = (typeof window !== 'undefined' ? window.innerWidth : 1280) / scale;
+    const vh = (typeof window !== 'undefined' ? window.innerHeight : 800) / scale;
     const w = Math.min(660, Math.max(360, vw - 80));
     const h = Math.min(740, Math.max(280, vh - 80));
     // Cascade each new window down-right so they don't stack exactly on top.

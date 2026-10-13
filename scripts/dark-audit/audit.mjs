@@ -28,7 +28,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { chromium } from 'playwright';
+import { chromium, firefox, webkit } from 'playwright';
 import { summarize, compareWithLight } from '../../frontend/src/utils/emailContrast.js';
 import { PREPARED } from './prepare.mjs';
 
@@ -54,8 +54,13 @@ function sameMeasurement(a, b) {
 // `proxyImage(u)`, when given, answers the reader's image proxy URLs (/api/mail/messages/:id/image)
 // with image bytes, standing in for the backend: the self-test uses it.
 const PROXY_PATH = /^\/api\/mail\/messages\/[0-9a-f-]{36}\/image$/;
+// AUDIT_BROWSER picks the engine: chromium (the default), firefox or webkit. Dark email bodies
+// run in the reader's own browser, so each engine is worth an audit of its own.
+const ENGINES = { chromium, firefox, webkit };
 export async function openHarness(stats = {}, { proxyImage = null } = {}) {
-  const browser = await chromium.launch();
+  const engine = ENGINES[process.env.AUDIT_BROWSER || 'chromium'];
+  if (!engine) throw new Error(`AUDIT_BROWSER must be one of ${Object.keys(ENGINES).join(', ')}`);
+  const browser = await engine.launch();
   const context = await browser.newContext({ viewport: { width: WIDTH, height: 1500 } });
   stats.requests = 0;
   stats.served = 0;
@@ -100,7 +105,7 @@ export async function auditEmails(emails, { shotsDir = null, onProgress, stats =
       imagesBlocked: Boolean(email.imagesBlocked), modes: {},
     };
     try {
-      const height = await page.evaluate(([html, css, blocked]) => window.harness.load(html, css, blocked), [email.html, email.darkCss, Boolean(email.imagesBlocked)]);
+      const height = await page.evaluate(([html, css, blocked, proxied]) => window.harness.load(html, css, blocked, proxied), [email.html, email.darkCss, Boolean(email.imagesBlocked), Boolean(email.proxied)]);
       const light = await page.evaluate(() => window.harness.light());
       result.modes.light = { summary: summarize(light), bright: await shoot(email.key, 'light'), height };
       for (const mode of DARK_MODES) {

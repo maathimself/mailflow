@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useRef } from 'react';
+import { frameGeometry } from '../utils/frameGeometry.js';
 
 // Generic draggable / resizable in-app window frame (#219). The message-window
 // feature renders a MessagePane inside one of these. The drag/resize technique
@@ -54,18 +55,18 @@ export default function FloatingWindow({
     const pointerId = e.pointerId;
     captureEl.setPointerCapture(pointerId);
     gestureActiveRef.current = true;
-    const startRect = el.getBoundingClientRect();
+    // In layout pixels, not screen pixels: see utils/frameGeometry.js (#591).
+    const start = frameGeometry(el);
     const startMouseX = e.clientX;
     const startMouseY = e.clientY;
-    const w = startRect.width;
-    const h = startRect.height;
+    const { w, h } = start;
     document.body.style.cursor = 'grabbing';
     document.body.style.userSelect = 'none';
-    let curX = startRect.left;
-    let curY = startRect.top;
+    let curX = start.x;
+    let curY = start.y;
     const onMove = (ev) => {
-      curX = Math.max(0, Math.min(window.innerWidth - w, startRect.left + ev.clientX - startMouseX));
-      curY = Math.max(0, Math.min(Math.max(0, window.innerHeight - h), startRect.top + ev.clientY - startMouseY));
+      curX = Math.max(0, Math.min(start.viewW - w, start.x + (ev.clientX - startMouseX) / start.scale));
+      curY = Math.max(0, Math.min(Math.max(0, start.viewH - h), start.y + (ev.clientY - startMouseY) / start.scale));
       el.style.left = curX + 'px';
       el.style.top = curY + 'px';
     };
@@ -79,7 +80,8 @@ export default function FloatingWindow({
       document.body.style.userSelect = '';
       gestureActiveRef.current = false;
       gestureCleanupRef.current = null;
-      if (commit) onCommitRect?.({ x: curX, y: curY, w, h });
+      // A click that did not move it changes nothing.
+      if (commit && (curX !== start.x || curY !== start.y)) onCommitRect?.({ x: curX, y: curY, w, h });
     };
     const onUp = () => cleanup({ commit: true });
     const onCancel = () => cleanup({ commit: false });
@@ -101,18 +103,17 @@ export default function FloatingWindow({
     const pointerId = e.pointerId;
     captureEl.setPointerCapture(pointerId);
     gestureActiveRef.current = true;
-    const startRect = el.getBoundingClientRect();
+    const start = frameGeometry(el);
     const startMouseX = e.clientX;
     const startMouseY = e.clientY;
-    const x = startRect.left;
-    const y = startRect.top;
+    const { x, y } = start;
     document.body.style.cursor = 'nwse-resize';
     document.body.style.userSelect = 'none';
-    let curW = startRect.width;
-    let curH = startRect.height;
+    let curW = start.w;
+    let curH = start.h;
     const onMove = (ev) => {
-      curW = Math.min(window.innerWidth - x - 4, Math.max(MIN_W, startRect.width + ev.clientX - startMouseX));
-      curH = Math.min(window.innerHeight - y - 4, Math.max(MIN_H, startRect.height + ev.clientY - startMouseY));
+      curW = Math.min(start.viewW - x - 4, Math.max(MIN_W, start.w + (ev.clientX - startMouseX) / start.scale));
+      curH = Math.min(start.viewH - y - 4, Math.max(MIN_H, start.h + (ev.clientY - startMouseY) / start.scale));
       el.style.width = curW + 'px';
       el.style.height = curH + 'px';
     };
@@ -126,7 +127,7 @@ export default function FloatingWindow({
       document.body.style.userSelect = '';
       gestureActiveRef.current = false;
       gestureCleanupRef.current = null;
-      if (commit) onCommitRect?.({ x, y, w: curW, h: curH });
+      if (commit && (curW !== start.w || curH !== start.h)) onCommitRect?.({ x, y, w: curW, h: curH });
     };
     const onUp = () => cleanup({ commit: true });
     const onCancel = () => cleanup({ commit: false });

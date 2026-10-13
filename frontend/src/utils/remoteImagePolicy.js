@@ -9,10 +9,18 @@
 export const BLOCKED_REMOTE_LOADS = "img-src data: blob:; font-src data:; media-src data: blob:;";
 
 // When a body's allowed images come through the image proxy (remoteImagesProxied), they come from
-// MailFlow itself ('self'); nothing loads straight from a sender's server. Remote fonts and media
-// are not proxied and stay off.
-export const PROXIED_REMOTE_LOADS = "img-src 'self' data: blob:; font-src data:; media-src data: blob:;";
+// MailFlow itself; nothing loads straight from a sender's server. Remote fonts and media are not
+// proxied and stay off.
+//
+// MailFlow's origin is named as well as 'self': in a srcdoc frame, which the email frame is,
+// Firefox does not count the page's own origin as 'self', and refused every proxied image without
+// requesting it. Chromium and WebKit accept either.
+const ORIGIN = /^https?:\/\/[^\s'";,]+$/;
+export function proxiedRemoteLoads(origin) {
+  const own = typeof origin === 'string' && ORIGIN.test(origin) ? ` ${origin}` : '';
+  return `img-src 'self'${own} data: blob:; font-src data:; media-src data: blob:;`;
+}
 
 // The directives to add to a document's CSP, after a directive ending in ';'.
-export const remoteLoadsCsp = (blocked, proxied = false) =>
-  (blocked ? ` ${BLOCKED_REMOTE_LOADS}` : proxied ? ` ${PROXIED_REMOTE_LOADS}` : '');
+export const remoteLoadsCsp = (blocked, proxied = false, origin = (globalThis.window ?? globalThis).location?.origin) =>
+  (blocked ? ` ${BLOCKED_REMOTE_LOADS}` : proxied ? ` ${proxiedRemoteLoads(origin)}` : '');

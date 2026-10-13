@@ -96,9 +96,11 @@ export const FIXTURES = {
   // same gray as its color: recoloring the color alone left the text drawn in the old gray (seen in
   // real mail).
   inheritedFill: `<table width="100%" bgcolor="#ffffff"><tr><td style="color:#3e3e3e;-webkit-text-fill-color:#3e3e3e;padding:20px"><div style="color:#3e3e3e">Text drawn with a fill color its cell set.</div></td></tr></table>`,
-  // A remote logo loaded through MailFlow's image proxy: the page can read its pixels, so a dark
-  // one on a transparent background gets its backing like an inline image.
-  proxiedLogo: `<p>Logo:</p><img width="160" height="50" src="${PROXY_URL}">`,
+  // A remote logo loaded through MailFlow's image proxy, in a frame whose CSP allows images from
+  // MailFlow alone, as the reader's is: it must load in every engine (Firefox refused 'self' in a
+  // srcdoc frame), and the page can read its pixels, so a dark one on a transparent background gets
+  // its backing like an inline image.
+  proxiedLogo: { proxied: true, html: `<p>Logo:</p><img width="160" height="50" src="${PROXY_URL}">` },
   // A sender that asks to stay light.
   lightOnly: '<html><head><meta name="color-scheme" content="only light"></head><body><p style="color:#333">Keep me light please.</p><img src="https://example.invalid/pixel.gif" width="1" height="1"></body></html>',
 };
