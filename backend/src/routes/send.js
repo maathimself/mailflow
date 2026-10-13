@@ -563,6 +563,9 @@ router.post('/send', async (req, res) => {
           fromEmail,
           to: mapRecipientList(normalizedTo),
           cc: mapRecipientList(normalizedCc),
+          // The Sent copy carries a Bcc header, but the row did not, so the reading pane had no
+          // Bcc to show for a message you sent (#585).
+          bcc: mapRecipientList(normalizedBcc),
           snippet: buildSentSnippet(body, bodyIsHtml),
           date: new Date(),
           // Carried so the Sent row threads into its conversation via the References chain

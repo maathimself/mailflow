@@ -246,6 +246,9 @@
     "delete": "Löschen",
     "downloadEml": "Als .eml herunterladen",
     "print": "Drucken",
+    "showDark": "Dunkel anzeigen",
+    "showOriginal": "Originalfarben anzeigen",
+    "cannotShowDark": "Diese E-Mail kann nicht dunkel angezeigt werden, ohne dass Text schwer lesbar wird",
     "printConversation": "Unterhaltung drucken",
     "preparingPrint": "Druck wird vorbereitet…",
     "more": "Mehr",
@@ -921,6 +924,8 @@
     "appearance": {
       "title": "Darstellung",
       "description": "Ein Farbdesign für die Oberfläche auswählen",
+      "darkEmailBodies": "Dunkle E-Mail-Inhalte",
+      "darkEmailBodiesDesc": "In einem dunklen Design auch HTML-E-Mails dunkel anzeigen: mit dem eigenen dunklen Design des Absenders, wenn es eines gibt, sonst von MailFlow umgefärbt. Eine E-Mail bleibt wie gesendet, wenn sie das verlangt oder wenn Text dunkel schwer lesbar würde. Jede Nachricht lässt sich einzeln umschalten.",
       "typography": "Typografie",
       "typographyDescription": "Eine Schriftpaarung für die Oberfläche auswählen",
       "typographyLoading": "Schriften werden geladen…",

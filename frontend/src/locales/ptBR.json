@@ -246,6 +246,9 @@
     "delete": "Excluir",
     "downloadEml": "Baixar como .eml",
     "print": "Imprimir",
+    "showDark": "Mostrar em cores escuras",
+    "showOriginal": "Mostrar cores originais",
+    "cannotShowDark": "Este e-mail não pode ser exibido escuro sem dificultar a leitura do texto",
     "printConversation": "Imprimir conversa",
     "preparingPrint": "Preparando impressão…",
     "more": "Mais",
@@ -994,6 +997,8 @@
     "appearance": {
       "title": "Aparência",
       "description": "Escolha um tema de cores para a interface",
+      "darkEmailBodies": "Corpo do e-mail escuro",
+      "darkEmailBodiesDesc": "Em um tema escuro, mostra também os e-mails HTML em cores escuras: com o design escuro do remetente quando houver, senão recoloridos pelo MailFlow. Um e-mail fica como foi enviado quando pede isso ou quando mostrá-lo escuro dificultaria a leitura do texto. Cada mensagem pode ser alternada individualmente.",
       "typography": "Tipografia",
       "typographyDescription": "Escolha uma combinação de fontes para a interface",
       "typographyLoading": "Carregando fontes…",

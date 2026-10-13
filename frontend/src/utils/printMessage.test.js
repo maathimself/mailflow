@@ -19,9 +19,34 @@ const B = { ...A, subject: 'Re: Invoice <42> & receipt', from_name: '', from_ema
 describe('buildPrintDocument', () => {
   it('blocks scripts in the print window and escapes the subject', () => {
     const html = buildPrintDocument([{ message: A, body: { text: 'hi' } }]);
-    assert.match(html, /Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'"/);
+    assert.match(html, /Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none';"/);
     assert.match(html, /<title>Invoice &lt;42&gt; &amp; receipt<\/title>/);
     assert.match(html, /<h1>Invoice &lt;42&gt; &amp; receipt<\/h1>/);
+  });
+
+  // A body served with remote images blocked prints without them, whatever the email's HTML still
+  // references: the print window's CSP forbids remote loads, as the email frame's does.
+  it('forbids remote loads when a printed body was served with remote images blocked', () => {
+    const blocked = buildPrintDocument([{ message: A, body: { html: '<p>x</p>', remoteImagesBlocked: true } }]);
+    assert.match(blocked, /base-uri 'none'; img-src data: blob:; font-src data:; media-src data: blob:;"/);
+    const conversation = buildPrintDocument([
+      { message: A, body: { html: '<p>allowed</p>', remoteImagesBlocked: false } },
+      { message: B, body: { html: '<p>blocked</p>', remoteImagesBlocked: true } },
+    ]);
+    assert.match(conversation, /img-src data: blob:;/, 'any blocked message is enough');
+    const allowed = buildPrintDocument([{ message: A, body: { html: '<p>x</p>', remoteImagesBlocked: false } }]);
+    assert.doesNotMatch(allowed, /img-src/);
+  });
+
+  it('loads proxied images from MailFlow alone', () => {
+    const proxied = buildPrintDocument([{ message: A, body: { html: '<p>x</p>', remoteImagesProxied: true } }]);
+    assert.match(proxied, /base-uri 'none'; img-src 'self' data: blob:; font-src data:; media-src data: blob:;"/);
+    const mixed = buildPrintDocument([
+      { message: A, body: { html: '<p>x</p>', remoteImagesProxied: true } },
+      { message: B, body: { html: '<p>y</p>', remoteImagesBlocked: true } },
+    ]);
+    assert.match(mixed, /img-src data: blob:;/, 'a blocked message wins');
+    assert.doesNotMatch(mixed, /img-src 'self'/);
   });
 
   it('strips script and event handlers from an HTML body', () => {

@@ -1,0 +1,12 @@
+{
+  "name": "mailflow-dark-audit",
+  "private": true,
+  "type": "module",
+  "description": "Dark email bodies audit harness (#228): renders a private email corpus and scores contrast. See audit.mjs.",
+  "scripts": {
+    "selftest": "node selftest.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.55.0"
+  }
+}

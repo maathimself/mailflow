@@ -11,6 +11,7 @@ import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/pri
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import MessageBodyView from './MessageBodyView.jsx';
+import { isDarkTheme, canShowDark, showDark } from '../utils/darkScheme.js';
 import AiResultBox from './AiResultBox.jsx';
 import { useAiActions } from '../hooks/useAiActions.js';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
@@ -22,14 +23,17 @@ import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 // document and a thread can run to dozens of messages. Only what the reader has opened is
 // ever rendered, which is how Gmail and Thunderbird handle the same problem.
 //
-function CardBtn({ onClick, children }) {
+// `disabled` is aria-disabled with the click ignored, so its title still explains why on hover.
+function CardBtn({ onClick, children, disabled = false, title }) {
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      title={title}
+      aria-disabled={disabled || undefined}
       style={{
         padding: '4px 10px', background: 'none', border: '1px solid var(--border)',
         borderRadius: 4, color: 'var(--text-primary)', font: 'inherit', fontSize: 13,
-        cursor: 'pointer',
+        cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1,
       }}
     >
       {children}
@@ -50,6 +54,18 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
   const adjustCategoryCount = useStore(s => s.adjustCategoryCount);
   const [body, setBody] = useState(null);
   const [error, setError] = useState(null);
+  // Dark email bodies (#228): the setting, and this card's own choice made with its toggle.
+  const theme = useStore(s => s.theme);
+  const darkEmailBodies = useStore(s => s.darkEmailBodies);
+  const [darkChoice, setDarkChoice] = useState(undefined);
+  // What the frame last showed (see MessageBodyView onDarkResult).
+  const [darkResult, setDarkResult] = useState(null);
+  const bodyDark = showDark({ body, themeKey: theme, setting: darkEmailBodies, override: darkChoice });
+  const darkToggleShown = isDarkTheme(theme) && canShowDark(body);
+  // HTML asked for dark is left as sent when showing it dark would make text unreadable
+  // (utils/darkBody.js); until the frame says, it is taken as dark so the card does not flash.
+  const darkRefused = Boolean(body?.html) && bodyDark && darkResult?.requested === true && darkResult.outcome === 'light';
+  const shownDark = bodyDark && !darkRefused;
   const [loading, setLoading] = useState(false);
   const iframeRef = useRef(null);
   const emailScaleRef = useRef(1);
@@ -264,14 +280,18 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
             // same card the reading pane already gives them.
             <div className="msg-card" style={{
               padding: '14px 16px 12px',
-              background: 'white',
+              // The frame's own background, so the card and the body read as one surface: the
+              // sender's dark background where their design sets one, otherwise the theme's.
+              background: shownDark ? (darkResult?.surface || 'var(--bg-primary)') : 'white',
               borderRadius: 4,
-              border: '1px solid var(--border-subtle)',
+              border: shownDark ? 'none' : '1px solid var(--border-subtle)',
               overflow: 'hidden',
             }}>
               <MessageBodyView
                 iframeRef={iframeRef}
                 body={body}
+                dark={bodyDark}
+                onDarkResult={setDarkResult}
                 messageId={message.id}
                 emailScaleRef={emailScaleRef}
                 hasNativeContextTarget={false}
@@ -282,7 +302,15 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
           {!body?.html && body?.text && (
             // translate="yes" undoes <body>'s translate="no" for the message itself; React writes
             // it as the element's whole text, so a translator has no React text node to break.
-            <div translate="yes" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{body.text}</div>
+            <div translate="yes" style={{
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              // Plain text follows a dark theme; switched to its original colors it gets the
+              // reading pane's white card (#228). A light theme leaves it as it always was.
+              ...(darkToggleShown && !bodyDark ? {
+                padding: '14px 16px 12px', background: 'white', color: '#1a1a1a',
+                borderRadius: 4, border: '1px solid var(--border-subtle)',
+              } : {}),
+            }}>{body.text}</div>
           )}
 
           {/* Reply and forward are per message, not per thread: replying to a conversation
@@ -311,6 +339,15 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
               <CardBtn onClick={handleMarkUnread}>{t('contextMenu.markUnread')}</CardBtn>
             )}
             <CardBtn onClick={handlePrint}>{t('message.print')}</CardBtn>
+            {darkToggleShown && (
+              <CardBtn
+                onClick={() => setDarkChoice(bodyDark ? 'original' : 'dark')}
+                disabled={darkRefused}
+                title={darkRefused ? t('message.cannotShowDark') : undefined}
+              >
+                {shownDark ? t('message.showOriginal') : t('message.showDark')}
+              </CardBtn>
+            )}
             <CardBtn onClick={() => downloadEml(message.id)}>{t('message.downloadEml')}</CardBtn>
             {aiEnabled && body && (
               <div style={{ position: 'relative' }}>

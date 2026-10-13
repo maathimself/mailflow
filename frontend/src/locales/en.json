@@ -246,6 +246,9 @@
     "delete": "Delete",
     "downloadEml": "Download .eml",
     "print": "Print",
+    "showDark": "Show in dark colors",
+    "showOriginal": "Show original colors",
+    "cannotShowDark": "This email can't be shown dark without making text hard to read",
     "printConversation": "Print conversation",
     "preparingPrint": "Preparing to print…",
     "more": "More",
@@ -994,6 +997,8 @@
     "appearance": {
       "title": "Appearance",
       "description": "Choose a color theme for the interface",
+      "darkEmailBodies": "Dark email bodies",
+      "darkEmailBodiesDesc": "In a dark theme, show HTML emails in dark colors too: with the sender's own dark design when there is one, otherwise recolored by MailFlow. An email stays as sent when it asks to, or when showing it dark would make text hard to read. Any message can be switched on its own.",
       "typography": "Typography",
       "typographyDescription": "Choose a font pairing for the interface",
       "typographyLoading": "Loading fonts…",

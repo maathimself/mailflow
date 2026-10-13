@@ -1226,7 +1226,7 @@ function AccountsTab() {
 // ─── Themes Tab ───────────────────────────────────────────────────────────────
 function ThemesTab() {
   const { t } = useTranslation();
-  const { theme, setTheme } = useStore();
+  const { theme, setTheme, darkEmailBodies, setDarkEmailBodies } = useStore();
   const [customCss, setCustomCss] = useState('');
   const [cssSaving, setCssSaving] = useState(false);
   const [cssSaved, setCssSaved] = useState(false);
@@ -1267,6 +1267,21 @@ function ThemesTab() {
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
         {t('admin.appearance.description')}
       </div>
+
+      {/* Dark email bodies (#228): what is shown dark, and why the rest is not, is in utils/darkScheme.js. */}
+      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 20, cursor: 'pointer' }}>
+        <input
+          id="dark-email-bodies"
+          type="checkbox"
+          checked={darkEmailBodies}
+          onChange={event => setDarkEmailBodies(event.target.checked)}
+          style={{ marginTop: 2 }}
+        />
+        <span>
+          <span style={{ display: 'block', fontSize: 13, color: 'var(--text-primary)' }}>{t('admin.appearance.darkEmailBodies')}</span>
+          <span style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.appearance.darkEmailBodiesDesc')}</span>
+        </span>
+      </label>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
         {Object.entries(THEMES).map(([key, themeObj]) => (
@@ -8749,6 +8764,7 @@ function makeSearchIndex(t) {
     { label: t('admin.rules.subTabBlockList'), keywords: ['block', 'blocked', 'sender', 'blacklist', 'spam', 'domain'], tab: 'rules', subtab: 'block-list', breadcrumb: `${tabLabel('rules')} › ${t('admin.rules.subTabBlockList')}` },
     // Appearance > Theme
     { label: tabLabel('theme'), keywords: ['theme', 'dark', 'light', 'color', 'colour', 'dark mode', 'light mode'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
+    { label: t('admin.appearance.darkEmailBodies'), keywords: ['dark email', 'email body', 'dark mode', 'dark message', 'white background'], tab: 'appearance', subtab: 'theme', breadcrumb: `${tabLabel('appearance')} › ${tabLabel('theme')}` },
     // Appearance > Layout
     { label: t('admin.appearance.layout'), keywords: ['layout', 'pane', 'split', 'preview', 'reading pane', 'side by side', 'stacked'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.scrollingMode'), keywords: ['scroll', 'infinite', 'paginated', 'pagination', 'pages'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },

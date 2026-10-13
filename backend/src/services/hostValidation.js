@@ -1,5 +1,6 @@
 import { isIPv4, isIPv6 } from 'net';
 import { promises as dnsPromises } from 'dns';
+import { domainToASCII } from 'url';
 
 function ipv4ToLong(ip) {
   const parts = ip.split('.').map(Number);
@@ -27,40 +28,75 @@ function isPrivateIPv4(ip) {
   );
 }
 
-function isPrivateIPv6(ip) {
-  const h = ip.toLowerCase();
-  if (h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80')) return true;
-  // IPv4-mapped IPv6 (::ffff:x.x.x.x) — check the embedded IPv4 address.
-  // Without this, ::ffff:127.0.0.1 bypasses the IPv4 private-range checks.
-  if (h.startsWith('::ffff:')) {
-    const embedded = h.slice(7);
-    if (isIPv4(embedded)) return isPrivateIPv4(embedded);
+// One address has many spellings (::1, 0:0:0:0:0:0:0:1, ::1%lo, or ::ffff:7f00:1 for
+// ::ffff:127.0.0.1), so classify its eight 16-bit groups rather than its text.
+function ipv6Groups(ip) {
+  let h = ip.split('%')[0];
+  const tail = h.slice(h.lastIndexOf(':') + 1);
+  if (isIPv4(tail)) {
+    const n = ipv4ToLong(tail);
+    h = `${h.slice(0, -tail.length)}${(n >>> 16).toString(16)}:${(n & 0xffff).toString(16)}`;
   }
+  const [head, rest] = h.split('::');
+  const groups = s => (s ? s.split(':').map(g => parseInt(g, 16)) : []);
+  if (rest === undefined) return groups(head);
+  const hi = groups(head);
+  const lo = groups(rest);
+  return [...hi, ...new Array(8 - hi.length - lo.length).fill(0), ...lo];
+}
+
+function isPrivateIPv6(ip) {
+  const g = ipv6Groups(ip);
+  const zero = (from, to) => g.slice(from, to).every(x => x === 0);
+  const embedded = i => `${g[i] >> 8}.${g[i] & 0xff}.${g[i + 1] >> 8}.${g[i + 1] & 0xff}`;
+  // ::/96 holds :: (which connects to loopback), ::1 and the IPv4-compatible ::x.x.x.x.
+  if (zero(0, 6)) return true;
+  if ((g[0] & 0xfe00) === 0xfc00 || (g[0] & 0xffc0) === 0xfe80) return true; // fc00::/7, fe80::/10
+  // IPv4-mapped IPv6 (::ffff:x.x.x.x) and NAT64 (64:ff9b::x.x.x.x) — check the embedded IPv4.
+  // Without this, ::ffff:127.0.0.1 bypasses the IPv4 private-range checks.
+  if (zero(0, 5) && g[5] === 0xffff) return isPrivateIPv4(embedded(6));
+  if (g[0] === 0x64 && g[1] === 0xff9b && zero(2, 6)) return isPrivateIPv4(embedded(6));
   // 6to4 (2002::/16) — embeds an IPv4 address in bits 16-47.
   // e.g. 2002:7f00:0001:: wraps 127.0.0.1 and bypasses IPv4 checks without this guard.
-  const sixToFour = h.match(/^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4}):/);
-  if (sixToFour) {
-    const hi = parseInt(sixToFour[1].padStart(4, '0'), 16);
-    const lo = parseInt(sixToFour[2].padStart(4, '0'), 16);
-    const embedded = `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
-    if (isPrivateIPv4(embedded)) return true;
-  }
+  if (g[0] === 0x2002 && isPrivateIPv4(embedded(1))) return true;
   // Teredo (2001:0000::/32) — reject the entire prefix; Teredo tunnels UDP through NAT
   // and can reach private ranges via the embedded server/client address fields.
-  if (/^2001:0{1,4}:/.test(h)) return true;
+  if (g[0] === 0x2001 && g[1] === 0) return true;
   return false;
+}
+
+// getaddrinfo (glibc, musl) reads 2130706433, 0x7f000001, 0177.0.0.1 and 127.1 as IPv4
+// addresses, but net.isIPv4 accepts only the dotted quad. The URL parser reads the same
+// inet_aton forms, so use it to find the address the socket would connect to.
+function inetAtonIPv4(host) {
+  if (!/^[0-9a-fx.]+$/.test(host)) return null;
+  try {
+    const { hostname } = new URL(`http://${host}/`);
+    return isIPv4(hostname) ? hostname : null;
+  } catch {
+    return null;
+  }
 }
 
 // Synchronous check: literal IPs and reserved hostnames.
 export function validateHostLiteral(host, { allowPrivate = false } = {}) {
   if (!host || typeof host !== 'string') return null;
   if (allowPrivate) return null;
-  const h = host.trim().toLowerCase();
+  let h = host.trim();
+  // dns.lookup converts a non-ASCII host to ASCII before getaddrinfo reads it, so
+  // １２７.０.０.１ reaches 127.0.0.1 and ::１ reaches ::1. Check the converted form, and
+  // refuse a host that domainToASCII rejects, as it does every Unicode spelling of IPv6.
+  if (/[^\p{ASCII}]/u.test(h)) {
+    h = domainToASCII(h);
+    if (!h) return 'Host is not a valid hostname';
+  }
+  h = h.toLowerCase();
   if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.localhost') || h.endsWith('.internal')) {
     return 'Host cannot be a local address';
   }
   const bare = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h;
-  if (isIPv4(bare) && isPrivateIPv4(bare)) return 'Host cannot be a private or reserved IP address';
+  const v4 = isIPv4(bare) ? bare : inetAtonIPv4(bare);
+  if (v4 && isPrivateIPv4(v4)) return 'Host cannot be a private or reserved IP address';
   if (isIPv6(bare) && isPrivateIPv6(bare)) return 'Host cannot be a private or reserved IP address';
   return null;
 }

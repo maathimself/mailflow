@@ -358,6 +358,9 @@
     "delete": "Smazat",
     "downloadEml": "Stáhnout jako .eml",
     "print": "Vytisknout",
+    "showDark": "Zobrazit v tmavých barvách",
+    "showOriginal": "Zobrazit původní barvy",
+    "cannotShowDark": "Tento e-mail nelze zobrazit tmavě, aniž by se zhoršila čitelnost textu",
     "printConversation": "Vytisknout konverzaci",
     "preparingPrint": "Příprava tisku…",
     "more": "Další",
@@ -1040,6 +1043,8 @@
     "appearance": {
       "title": "Vzhled",
       "description": "Vyberte barevný motiv rozhraní",
+      "darkEmailBodies": "Tmavý obsah e-mailů",
+      "darkEmailBodiesDesc": "V tmavém motivu zobrazovat v tmavých barvách i e-maily HTML: s vlastním tmavým vzhledem odesílatele, pokud ho mají, jinak přebarvené aplikací MailFlow. E-mail zůstane tak, jak byl odeslán, když o to žádá nebo když by tmavé zobrazení zhoršilo čitelnost textu. Každou zprávu lze přepnout samostatně.",
       "typography": "Typografie",
       "typographyDescription": "Vyberte kombinaci písem pro rozhraní",
       "typographyLoading": "Načítání písem…",

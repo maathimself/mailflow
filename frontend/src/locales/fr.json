@@ -246,6 +246,9 @@
     "delete": "Supprimer",
     "downloadEml": "Télécharger en .eml",
     "print": "Imprimer",
+    "showDark": "Afficher en couleurs sombres",
+    "showOriginal": "Afficher les couleurs d'origine",
+    "cannotShowDark": "Cet e-mail ne peut pas être affiché en sombre sans rendre le texte difficile à lire",
     "printConversation": "Imprimer la conversation",
     "preparingPrint": "Préparation de l'impression…",
     "more": "Plus",
@@ -994,6 +997,8 @@
     "appearance": {
       "title": "Apparence",
       "description": "Choisissez un thème de couleur pour l'interface",
+      "darkEmailBodies": "Corps des e-mails sombres",
+      "darkEmailBodiesDesc": "Avec un thème sombre, afficher aussi les e-mails HTML en couleurs sombres : avec la version sombre de l'expéditeur s'il en a une, sinon recolorés par MailFlow. Un e-mail reste tel qu'envoyé s'il le demande ou si l'afficher en sombre rendrait le texte difficile à lire. Chaque message peut être basculé individuellement.",
       "typography": "Typographie",
       "typographyDescription": "Choisissez une combinaison de polices pour l'interface",
       "typographyLoading": "Chargement des polices…",

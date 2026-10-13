@@ -246,6 +246,9 @@
     "delete": "删除",
     "downloadEml": "下载为 .eml",
     "print": "打印",
+    "showDark": "以深色显示",
+    "showOriginal": "显示原始颜色",
+    "cannotShowDark": "无法以深色显示此邮件，否则文字将难以阅读",
     "printConversation": "打印会话",
     "preparingPrint": "正在准备打印…",
     "more": "更多",
@@ -994,6 +997,8 @@
     "appearance": {
       "title": "外观",
       "description": "为界面选择一种配色主题",
+      "darkEmailBodies": "深色邮件正文",
+      "darkEmailBodiesDesc": "在深色主题中，也以深色显示 HTML 邮件：若发件人提供深色设计则使用它，否则由 MailFlow 重新着色。如果邮件要求保持原样，或深色显示会使文字难以阅读，则保持原样。每封邮件都可以单独切换。",
       "typography": "字体排版",
       "typographyDescription": "为界面选择一种字体搭配方案",
       "typographyLoading": "加载字体中…",

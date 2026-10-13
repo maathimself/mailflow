@@ -289,7 +289,9 @@ for (const stage of ['first lookup', 'after save']) for (const nextUser of [null
     useStore.getState().setUser(nextUser);
     pending.resolve({ draft: draft('0'), body: { text: 'Old owner', attachments: [] } });
     assert.equal(await opening, false);
-    assert.equal(useStore.getState().composeData?.subject, stage === 'after save' ? 'Existing' : undefined);
+    // An identity change closes the composer that was open (store setUser), and the cancelled
+    // handoff must not open one for the new owner.
+    assert.equal(useStore.getState().composeData, null);
     assert.deepEqual(useStore.getState().replyDrafts, {});
     assert.deepEqual(useStore.getState().notifications, []);
   });

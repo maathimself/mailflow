@@ -248,6 +248,9 @@
     "delete": "Usuń",
     "downloadEml": "Pobierz jako .eml",
     "print": "Drukuj",
+    "showDark": "Pokaż w ciemnych kolorach",
+    "showOriginal": "Pokaż oryginalne kolory",
+    "cannotShowDark": "Tej wiadomości nie można wyświetlić w trybie ciemnym bez pogorszenia czytelności tekstu",
     "printConversation": "Drukuj konwersację",
     "preparingPrint": "Przygotowywanie wydruku…",
     "more": "Więcej",
@@ -1010,6 +1013,8 @@
     "appearance": {
       "title": "Wygląd",
       "description": "Wybierz motyw kolorystyczny interfejsu",
+      "darkEmailBodies": "Ciemna treść wiadomości",
+      "darkEmailBodiesDesc": "W ciemnym motywie pokazuj w ciemnych kolorach także e-maile HTML: z własnym ciemnym wyglądem nadawcy, jeśli go mają, a w przeciwnym razie przebarwione przez MailFlow. E-mail wygląda tak, jak go wysłano, gdy o to prosi lub gdy ciemne wyświetlanie pogorszyłoby czytelność tekstu. Każdą wiadomość można przełączyć osobno.",
       "typography": "Typografia",
       "typographyDescription": "Wybierz zestaw czcionek dla interfejsu",
       "typographyLoading": "Wczytywanie czcionek…",

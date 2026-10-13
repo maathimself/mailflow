@@ -14,6 +14,10 @@ const {
   macTeamIdentifier,
   normalizeHost,
 } = require('./security.cjs');
+const { createNotificationRetainer } = require('./notificationRetainer.cjs');
+
+// New-mail notifications stay referenced while they can be clicked (#587).
+const newMailNotifications = createNotificationRetainer();
 
 const CONFIG_FILE = 'mailflow-host.json';
 const UPDATE_STATUS_CHANNEL = 'mailflow:updates:status';
@@ -670,6 +674,7 @@ function showNewMailNotification({ title, body, count, messageId, accountId, fol
     runBackgroundMailAction(action, messageId)
       .catch((error) => console.error(`Could not ${action} from desktop notification:`, error));
   });
+  newMailNotifications.retain(notification);
   notification.show();
 
   return { shown: true };

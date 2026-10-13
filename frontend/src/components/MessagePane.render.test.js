@@ -855,3 +855,90 @@ describe('the next message opens after the pane removes the open one', () => {
     useStore.setState({ afterRemove: 'next' });
   });
 });
+
+// #585: a message you sent shows its Bcc under To and Cc; mail without one shows none.
+describe('the Bcc line', () => {
+  const realFetch = globalThis.fetch;
+  after(() => { globalThis.fetch = realFetch; });
+  const open = async (id, bccAddresses) => {
+    globalThis.fetch = async (url) => (String(url).includes(`/messages/${id}/body`)
+      ? { ok: true, status: 200, json: async () => ({ html: '', text: 'hi', attachments: [], bccAddresses }) }
+      : realFetch(url));
+    const sent = { ...MSG_A, id, folder: 'Sent', cc_addresses: [{ name: 'Cee', email: 'cc@x.z' }] };
+    useStore.getState().setMessages([sent]);
+    await React.act(async () => { useStore.getState().setSelectedMessage(id); });
+    await React.act(async () => { root.render(React.createElement(MessagePane)); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 30)); });
+    return document.getElementById('root').textContent;
+  };
+
+  test('lists the Bcc of a message you sent', async () => {
+    const text = await open('sent-bcc', [{ name: 'Hidden', email: 'hidden@x.z' }]);
+    assert.match(text, /Bcc\s*Hidden/);
+    assert.match(text, /Cc\s*Cee/);
+  });
+
+  test('shows no Bcc line when there is none', async () => {
+    const text = await open('sent-nobcc', []);
+    assert.doesNotMatch(text, /Bcc/);
+  });
+});
+
+// #228: a body that can be shown dark gets a toggle in a dark theme; the setting picks the default.
+describe('dark email bodies', () => {
+  const realFetch = globalThis.fetch;
+  after(() => { globalThis.fetch = realFetch; useStore.setState({ theme: 'dark', darkEmailBodies: false }); });
+  const open = async (id, bodyJson, { theme = 'dark', setting = false } = {}) => {
+    globalThis.fetch = async (url) => (String(url).includes(`/messages/${id}/body`)
+      ? { ok: true, status: 200, json: async () => ({ attachments: [], ...bodyJson }) }
+      : realFetch(url));
+    useStore.setState({ theme, darkEmailBodies: setting });
+    useStore.getState().setMessages([{ ...MSG_A, id }]);
+    await React.act(async () => { useStore.getState().setSelectedMessage(id); });
+    await React.act(async () => { root.render(React.createElement(MessagePane)); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 30)); });
+  };
+  const toggle = () => [...document.querySelectorAll('button')]
+    .find(b => ['message.showDark', 'message.showOriginal'].includes(b.getAttribute('aria-label')));
+  const textCard = () => [...document.querySelectorAll('.msg-card')].find(el => el.textContent.includes('plain words'));
+  const click = el => React.act(async () => { el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
+
+  test('a plain-text message follows a dark theme, and switches to the original and back', async () => {
+    await open('dark-text-1', { text: 'plain words' });
+    assert.equal(textCard().style.background, 'var(--bg-primary)');
+    assert.equal(toggle().getAttribute('aria-label'), 'message.showOriginal');
+    assert.equal(toggle().getAttribute('aria-pressed'), 'true');
+    await click(toggle());
+    assert.equal(textCard().style.background, 'white');
+    assert.equal(toggle().getAttribute('aria-label'), 'message.showDark');
+    await click(toggle());
+    assert.equal(textCard().style.background, 'var(--bg-primary)');
+  });
+
+  test("HTML with its own dark design follows the setting, and the toggle switches it", async () => {
+    const html = { html: '<p>styled</p>', darkCss: '@media (min-width: 0px){p{color:#eee}}', lightOnly: false, text: '' };
+    await open('dark-html-own', html);
+    assert.equal(toggle().getAttribute('aria-label'), 'message.showDark');
+    await click(toggle());
+    assert.equal(toggle().getAttribute('aria-label'), 'message.showOriginal');
+    await open('dark-html-own-2', html, { setting: true });
+    assert.equal(toggle().getAttribute('aria-label'), 'message.showOriginal');
+  });
+
+  test('HTML without its own dark design can be shown dark too: MailFlow recolors it', async () => {
+    await open('dark-html-plain', { html: '<p>plain html</p>', text: '' });
+    assert.equal(toggle().getAttribute('aria-label'), 'message.showDark');
+    await click(toggle());
+    assert.equal(toggle().getAttribute('aria-label'), 'message.showOriginal');
+    await open('dark-html-plain-2', { html: '<p>plain html</p>', text: '' }, { setting: true });
+    assert.equal(toggle().getAttribute('aria-label'), 'message.showOriginal');
+  });
+
+  test('no toggle in a light theme, or for HTML that asks to stay light', async () => {
+    await open('dark-text-3', { text: 'plain words' }, { theme: 'light', setting: true });
+    assert.equal(toggle(), undefined);
+    assert.equal(textCard().style.background, 'white');
+    await open('dark-html-1', { html: '<p>plain html</p>', text: '', lightOnly: true }, { setting: true });
+    assert.equal(toggle(), undefined);
+  });
+});
