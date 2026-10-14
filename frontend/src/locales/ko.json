@@ -180,6 +180,8 @@
       "aiReplyInstruction": "AI 답장 지시",
       "aiReplyGenerate": "생성",
       "aiReplyReading": "대화를 읽는 중…",
+      "aiWritePlaceholder": "이메일에 무엇을 쓸까요? 예: 견적 요청",
+      "aiWriteInstruction": "AI 초안 지시",
       "moreFormatting": "추가 서식 지정",
       "aiPanelTitle": "AI 제안"
     },

@@ -194,7 +194,9 @@
       "aiReplyPlaceholder": "回复要说什么？例如：批准设计稿",
       "aiReplyInstruction": "AI 回复的指示",
       "aiReplyGenerate": "生成",
-      "aiReplyReading": "正在阅读对话…"
+      "aiReplyReading": "正在阅读对话…",
+      "aiWritePlaceholder": "邮件要说什么？例如：请求报价",
+      "aiWriteInstruction": "AI 草稿的指示"
     },
     "priority": "优先级",
     "priorityHigh": "高优先级",

@@ -194,7 +194,9 @@
       "aiReplyPlaceholder": "Co ma zawierać odpowiedź? Np. zatwierdź projekt",
       "aiReplyInstruction": "Polecenie dla odpowiedzi AI",
       "aiReplyGenerate": "Generuj",
-      "aiReplyReading": "Czytanie konwersacji…"
+      "aiReplyReading": "Czytanie konwersacji…",
+      "aiWritePlaceholder": "Co ma zawierać e-mail? Np. poproś o wycenę",
+      "aiWriteInstruction": "Polecenie dla szkicu AI"
     },
     "priority": "Priorytet",
     "priorityHigh": "Wysoki priorytet",

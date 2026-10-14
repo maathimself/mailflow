@@ -28,7 +28,7 @@ import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } f
 import { resolveSignatureEnabled } from '../utils/composeSignature.js';
 import { UNDO_SEND_SECONDS, undoWindowMs, trackHeldSend, reopenCompose } from '../utils/heldSend.js';
 import { openSentMessage } from '../utils/openSentMessage.js';
-import { loadReplyConversation, buildReplyPrompt, aiTextToHtml, MAX_INSTRUCTION_CHARS } from '../utils/aiReply.js';
+import { loadReplyConversation, buildReplyPrompt, buildDraftPrompt, aiTextToHtml, MAX_INSTRUCTION_CHARS } from '../utils/aiReply.js';
 import { frameGeometry } from '../utils/frameGeometry.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
@@ -801,8 +801,8 @@ export default function ComposeModal() {
 
   const handleAiAction = async (action) => {
     aiAbortRef.current?.abort();
-    // "Reply with AI" waits for the user's instruction before it asks for anything.
-    if (action === 'reply') {
+    // "Reply with AI" and "Write draft" wait for the user's instruction before they ask for anything.
+    if (action === 'reply' || action === 'draft') {
       setAiPanel({ action, status: 'input', instruction: '', text: '' });
       return;
     }
@@ -812,12 +812,7 @@ export default function ComposeModal() {
     const currentText = plaintextEmail ? body
       : (htmlMode ? htmlSource.replace(/<[^>]+>/g, ' ') : (editor?.getText() ?? ''));
 
-    const toStr = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])].join(', ');
     const PROMPTS = {
-      draft: {
-        system: 'You are a professional email writing assistant. Write a complete, well-structured email based on the provided subject and recipient context. Return only the email body text. Use plain text with no markdown or HTML. Use double newlines between paragraphs.',
-        user: `Subject: ${subject || '(none)'}\nTo: ${toStr || '(none)'}\n\nWrite a complete professional email.`,
-      },
       improve: {
         system: 'You are a professional email writing assistant. Improve the following email for clarity, tone, and professionalism. Return only the improved email body text. Use plain text with no markdown or HTML.',
         user: currentText.trim() || '(empty)',
@@ -831,7 +826,8 @@ export default function ComposeModal() {
         user: currentText.trim() || '(empty)',
       },
     };
-    const { system, user } = PROMPTS[action] || PROMPTS.draft;
+    if (!PROMPTS[action]) return;
+    const { system, user } = PROMPTS[action];
     const messages = [
       { role: 'system', content: system },
       { role: 'user', content: user.slice(0, 16000) },
@@ -852,36 +848,42 @@ export default function ComposeModal() {
     }
   };
 
-  // Writes a reply from the conversation and the user's instruction. The conversation is read
-  // first (the panel says so meanwhile), then the reply streams in like the other actions.
-  const generateAiReply = async (instruction) => {
+  // Writes from the user's instruction: a reply from the conversation, or a new email from its
+  // subject and recipients. For a reply the conversation is read first (the panel says so
+  // meanwhile); then the text streams in like the other actions.
+  const generateFromInstruction = async (action, instruction) => {
     aiAbortRef.current?.abort();
     const controller = new AbortController();
     aiAbortRef.current = controller;
-    setAiPanel({ action: 'reply', status: 'reading', instruction, text: '' });
+    const replying = action === 'reply';
+    setAiPanel({ action, status: replying ? 'reading' : 'generating', instruction, text: '' });
+    const closing = {
+      senderName: fromAlias?.name || fromAccount?.sender_name || fromAccount?.name,
+      hasSignature: signatureEnabled && !!stripHtml(signatureContentRef.current || '').trim(),
+    };
 
     try {
-      if (!aiReplyConversationRef.current) {
-        const conversation = await loadReplyConversation({
-          threadId: composeData?.threadId,
-          inReplyTo: composeData?.inReplyTo,
-          accountId: composeData?.accountId,
-          quotedBody,
-          originalFrom: composeData?.originalFrom,
-          accounts,
-        }, { getThread: api.getThread, getMessageBody: api.getMessageBody, resolveMessage: api.resolveMessage });
-        // Kept only when something was found, so a failed load is tried again next time.
-        if (conversation.length) aiReplyConversationRef.current = conversation;
+      let messages;
+      if (replying) {
+        if (!aiReplyConversationRef.current) {
+          const conversation = await loadReplyConversation({
+            threadId: composeData?.threadId,
+            inReplyTo: composeData?.inReplyTo,
+            accountId: composeData?.accountId,
+            quotedBody,
+            originalFrom: composeData?.originalFrom,
+            accounts,
+          }, { getThread: api.getThread, getMessageBody: api.getMessageBody, resolveMessage: api.resolveMessage });
+          // Kept only when something was found, so a failed load is tried again next time.
+          if (conversation.length) aiReplyConversationRef.current = conversation;
+        }
+        if (controller.signal.aborted) return;
+        setAiPanel(p => p ? { ...p, status: 'generating' } : p);
+        messages = buildReplyPrompt({ conversation: aiReplyConversationRef.current || [], instruction, subject, ...closing });
+      } else {
+        const to = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])].join(', ');
+        messages = buildDraftPrompt({ instruction, subject, to, ...closing });
       }
-      if (controller.signal.aborted) return;
-      setAiPanel(p => p ? { ...p, status: 'generating' } : p);
-      const messages = buildReplyPrompt({
-        conversation: aiReplyConversationRef.current || [],
-        instruction,
-        subject,
-        senderName: fromAlias?.name || fromAccount?.sender_name || fromAccount?.name,
-        hasSignature: signatureEnabled && !!stripHtml(signatureContentRef.current || '').trim(),
-      });
       const fullText = await api.ai.chat(messages, {
         signal: controller.signal,
         onDelta: (text) => setAiPanel(p => p ? { ...p, text } : p),
@@ -1868,7 +1870,7 @@ export default function ComposeModal() {
                   mobile
                   panel={aiPanel}
                   onInstructionChange={instruction => setAiPanel(p => p ? { ...p, instruction } : p)}
-                  onGenerateReply={generateAiReply}
+                  onGenerate={generateFromInstruction}
                   onApply={applyAiText}
                   onClose={closeAiPanel}
                 />
@@ -2466,7 +2468,7 @@ export default function ComposeModal() {
         <ComposeAiPanel
           panel={aiPanel}
           onInstructionChange={instruction => setAiPanel(p => p ? { ...p, instruction } : p)}
-          onGenerateReply={generateAiReply}
+          onGenerate={generateFromInstruction}
           onApply={applyAiText}
           onClose={closeAiPanel}
         />
@@ -2977,7 +2979,7 @@ function ColorMenuSection({ title, colors, activeColor, onColor, onClear, clearL
 // The AI's suggestion above the editor, with Apply and Dismiss once it is ready. For "Reply with
 // AI" it also holds the instruction, which stays editable so the reply can be asked for again in
 // other words.
-function ComposeAiPanel({ panel, mobile = false, onInstructionChange, onGenerateReply, onApply, onClose }) {
+function ComposeAiPanel({ panel, mobile = false, onInstructionChange, onGenerate, onApply, onClose }) {
   const { t } = useTranslation();
   const busy = panel.status === 'reading' || panel.status === 'generating';
   const buttonBase = mobile
@@ -2985,13 +2987,16 @@ function ComposeAiPanel({ panel, mobile = false, onInstructionChange, onGenerate
     : { fontSize: 12, padding: '5px 14px', borderRadius: 6, cursor: 'pointer' };
   const primary = { ...buttonBase, background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', fontWeight: 500 };
   const secondary = { ...buttonBase, background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)' };
-  const generate = () => { if (!busy) onGenerateReply(panel.instruction); };
+  const generate = () => { if (!busy) onGenerate(panel.action, panel.instruction); };
+  const replying = panel.action === 'reply';
+  // Writing a reply or a new email starts from an instruction; the other actions rework the text.
+  const instructed = replying || panel.action === 'draft';
 
   return (
     <div style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', padding: mobile ? '10px 16px' : '10px 14px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>
-          {panel.action === 'reply' ? t('compose.toolbar.aiReply') : t('compose.toolbar.aiPanelTitle')}
+          {replying ? t('compose.toolbar.aiReply') : instructed ? t('compose.toolbar.aiWriteDraft') : t('compose.toolbar.aiPanelTitle')}
         </span>
         <button
           onClick={onClose}
@@ -2999,15 +3004,15 @@ function ComposeAiPanel({ panel, mobile = false, onInstructionChange, onGenerate
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', fontSize: 16, lineHeight: 1, padding: '0 2px' }}
         >×</button>
       </div>
-      {panel.action === 'reply' && (
+      {instructed && (
         <div style={{ display: 'flex', gap: 8, marginBottom: panel.status === 'input' ? 0 : 8 }}>
           <input
             autoFocus
             value={panel.instruction}
             onChange={e => onInstructionChange(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); generate(); } }}
-            placeholder={t('compose.toolbar.aiReplyPlaceholder')}
-            aria-label={t('compose.toolbar.aiReplyInstruction')}
+            placeholder={replying ? t('compose.toolbar.aiReplyPlaceholder') : t('compose.toolbar.aiWritePlaceholder')}
+            aria-label={replying ? t('compose.toolbar.aiReplyInstruction') : t('compose.toolbar.aiWriteInstruction')}
             maxLength={MAX_INSTRUCTION_CHARS}
             style={{
               flex: 1, minWidth: 0, background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
@@ -3573,8 +3578,10 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
           padding: '4px 0', minWidth: 148,
         }}>
           {[
-            ...(aiReplyEnabled ? [{ key: 'reply', label: t('compose.toolbar.aiReply') }] : []),
-            { key: 'draft', label: t('compose.toolbar.aiWriteDraft') },
+            // A reply is written from the conversation, which Write draft does not read.
+            aiReplyEnabled
+              ? { key: 'reply', label: t('compose.toolbar.aiReply') }
+              : { key: 'draft', label: t('compose.toolbar.aiWriteDraft') },
             { key: 'improve', label: t('compose.toolbar.aiImprove') },
             { key: 'shorten', label: t('compose.toolbar.aiShorten') },
             { key: 'grammar', label: t('compose.toolbar.aiFixGrammar') },

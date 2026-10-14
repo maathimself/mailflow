@@ -554,7 +554,9 @@
       "aiReplyPlaceholder": "Co má odpověď říct? Např. schval grafiku",
       "aiReplyInstruction": "Pokyn pro odpověď AI",
       "aiReplyGenerate": "Vygenerovat",
-      "aiReplyReading": "Čtení konverzace…"
+      "aiReplyReading": "Čtení konverzace…",
+      "aiWritePlaceholder": "Co má e-mail říct? Např. požádej o cenovou nabídku",
+      "aiWriteInstruction": "Pokyn pro koncept AI"
     },
     "priority": "Priorita",
     "priorityHigh": "Vysoká priorita",

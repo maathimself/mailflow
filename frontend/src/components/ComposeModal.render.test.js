@@ -1055,6 +1055,7 @@ describe('Reply with AI', () => {
 
     test('writes the reply from the conversation and the instruction', async () => {
       await openAiMenu();
+      assert.equal(button('compose.toolbar.aiWriteDraft'), undefined, 'a reply offers Reply with AI, not a draft that ignores the conversation');
       await press(button('compose.toolbar.aiReply'));
       assert.equal(chats.length, 0, 'nothing is asked before the instruction is given');
       await typeInto(instructionField(), 'approve it');
@@ -1074,7 +1075,7 @@ describe('Reply with AI', () => {
     test('Apply puts the reply in the editor and keeps the quoted message', async () => {
       await click(button('compose.toolbar.aiApply'));
       const editor = document.querySelector('.ProseMirror').editor;
-      assert.equal(editor.getHTML(), '<p>Hi Ana,</p><p>Approved, thank you.</p>');
+      assert.equal(editor.getHTML(), '<p>Hi Ana,</p><p></p><p>Approved, thank you.</p>', 'the blank line between paragraphs is kept');
       assert.equal(instructionField(), null, 'the panel closes');
       assert.match(document.body.textContent, /Done, the logo is bigger now\. Can you approve\?/, 'the quoted original is still there');
     });
@@ -1181,13 +1182,43 @@ describe('Reply with AI', () => {
   });
 
   describe('in a new message', () => {
-    before(() => mount({ accountId: 'acct', to: [], cc: [], subject: '', body: '' }));
+    before(() => mount({ accountId: 'acct', to: ['Bob <bob@example.invalid>'], cc: [], subject: 'Quote', body: '' }));
     after(() => unmount());
+    const draftField = () => document.querySelector('input[aria-label="compose.toolbar.aiWriteInstruction"]');
 
-    test('is not offered, since there is nothing to reply to', async () => {
+    test('Reply with AI is not offered, since there is nothing to reply to', async () => {
       await openAiMenu();
       assert.ok(button('compose.toolbar.aiWriteDraft'), 'the AI menu is open');
       assert.equal(button('compose.toolbar.aiReply'), undefined);
+    });
+
+    test('Write draft asks what to write before it writes anything', async () => {
+      const asked = chats.length;
+      await press(button('compose.toolbar.aiWriteDraft'));
+      assert.ok(draftField(), 'the instruction field is open');
+      assert.equal(document.activeElement?.getAttribute('aria-label'), 'compose.toolbar.aiWriteInstruction', 'and has the focus');
+      assert.equal(chats.length, asked, 'nothing is asked yet');
+      await typeInto(draftField(), 'ask for a quote for 500 boxes');
+      answer = 'Hi Bob,\n\nCould you send a quote for 500 boxes?\n\nThanks';
+      await click(button('compose.toolbar.aiReplyGenerate'));
+      await React.act(async () => {});
+      const request = chats.at(-1).map(m => m.content).join('\n');
+      assert.match(request, /Subject: Quote\nTo: Bob <bob@example\.invalid>/);
+      assert.match(request, /Instruction for the email: ask for a quote for 500 boxes$/);
+    });
+
+    test('Apply keeps the blank lines between paragraphs', async () => {
+      await click(button('compose.toolbar.aiApply'));
+      const editor = document.querySelector('.ProseMirror').editor;
+      assert.equal(editor.getHTML(), '<p>Hi Bob,</p><p></p><p>Could you send a quote for 500 boxes?</p><p></p><p>Thanks</p>');
+    });
+
+    test('with the field left empty, it writes from the subject on its own', async () => {
+      await openAiMenu();
+      await press(button('compose.toolbar.aiWriteDraft'));
+      await click(button('compose.toolbar.aiReplyGenerate'));
+      await React.act(async () => {});
+      assert.match(chats.at(-1)[1].content, /Instruction for the email: Write a suitable email for this subject\.$/);
     });
   });
 });

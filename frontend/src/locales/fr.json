@@ -194,7 +194,9 @@
       "aiReplyPlaceholder": "Que doit dire la réponse ? Ex. : approuver la maquette",
       "aiReplyInstruction": "Instruction pour la réponse de l'IA",
       "aiReplyGenerate": "Générer",
-      "aiReplyReading": "Lecture de la conversation…"
+      "aiReplyReading": "Lecture de la conversation…",
+      "aiWritePlaceholder": "Que doit dire l'e-mail ? Ex. : demander un devis",
+      "aiWriteInstruction": "Instruction pour le brouillon de l'IA"
     },
     "priority": "Priorité",
     "priorityHigh": "Haute priorité",

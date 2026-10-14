@@ -4,7 +4,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   aiReplyAvailable, stripQuotedReply, htmlToText, unquote, pickContextMessages, ownAddresses, toContextMessage,
-  loadReplyConversation, buildReplyPrompt, aiTextToHtml,
+  loadReplyConversation, buildReplyPrompt, buildDraftPrompt, aiTextToHtml,
   MAX_CONTEXT_MESSAGES, CONTEXT_BUDGET_CHARS, MAX_INSTRUCTION_CHARS,
 } from './aiReply.js';
 
@@ -272,9 +272,37 @@ describe('buildReplyPrompt', () => {
   });
 });
 
+describe('buildDraftPrompt', () => {
+  test('puts the instruction, the subject and the recipients in the request', () => {
+    const [system, user] = buildDraftPrompt({ instruction: 'Ask for a quote for 500 boxes', subject: 'Quote', to: 'Ana <ana@example.test>', hasSignature: true });
+    assert.equal(system.role, 'system');
+    assert.match(user.content, /^Subject: Quote\nTo: Ana <ana@example\.test>\n/);
+    assert.match(user.content, /Instruction for the email: Ask for a quote for 500 boxes$/);
+    assert.match(system.content, /Do not invent facts/);
+    assert.match(system.content, /Do not add a signature/);
+  });
+
+  test('without an instruction, asks for an email from the subject alone', () => {
+    const [, user] = buildDraftPrompt({ instruction: '  ', subject: '', to: '' });
+    assert.match(user.content, /Subject: \(none\)\nTo: \(none\)/);
+    assert.match(user.content, /Instruction for the email: Write a suitable email for this subject\.$/);
+  });
+
+  test('signs with the sender\'s name when there is no signature, instead of a placeholder', () => {
+    assert.match(buildDraftPrompt({ senderName: 'Mateus' })[0].content, /Sign off with the name Mateus\./);
+    assert.match(buildDraftPrompt({})[0].content, /End with a brief closing line\./);
+  });
+});
+
 describe('aiTextToHtml', () => {
-  test('turns paragraphs and line breaks into editor HTML', () => {
-    assert.equal(aiTextToHtml('Hi Ana,\n\nApproved.\nThanks'), '<p>Hi Ana,</p><p>Approved.<br>Thanks</p>');
+  test('keeps the blank line between paragraphs, and a line break within one', () => {
+    // The editor sets paragraphs almost touching, so the blank line is an empty paragraph, as
+    // Enter pressed twice leaves it; without it the text ran together once applied.
+    assert.equal(aiTextToHtml('Hi Ana,\n\nApproved.\nThanks'), '<p>Hi Ana,</p><p></p><p>Approved.<br>Thanks</p>');
+  });
+
+  test('reads a blank line with spaces in it, or Windows line endings, as a blank line', () => {
+    assert.equal(aiTextToHtml('One.\n  \nTwo.\r\n\r\nThree.\n\n\n\nFour.'), '<p>One.</p><p></p><p>Two.</p><p></p><p>Three.</p><p></p><p>Four.</p>');
   });
 
   test('keeps markup the AI wrote as text, so an email cannot put a link into the reply', () => {

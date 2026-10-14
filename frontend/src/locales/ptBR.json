@@ -194,7 +194,9 @@
       "aiReplyPlaceholder": "O que responder? Ex.: aprove a arte",
       "aiReplyInstruction": "Instrução para a resposta da IA",
       "aiReplyGenerate": "Gerar",
-      "aiReplyReading": "Lendo a conversa…"
+      "aiReplyReading": "Lendo a conversa…",
+      "aiWritePlaceholder": "O que escrever? Ex.: peça um orçamento",
+      "aiWriteInstruction": "Instrução para o rascunho da IA"
     },
     "priority": "Prioridade",
     "priorityHigh": "Prioridade alta",

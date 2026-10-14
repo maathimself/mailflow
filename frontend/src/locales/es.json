@@ -194,7 +194,9 @@
       "aiReplyPlaceholder": "¿Qué debe decir la respuesta? P. ej.: aprobar el diseño",
       "aiReplyInstruction": "Instrucción para la respuesta de la IA",
       "aiReplyGenerate": "Generar",
-      "aiReplyReading": "Leyendo la conversación…"
+      "aiReplyReading": "Leyendo la conversación…",
+      "aiWritePlaceholder": "¿Qué debe decir el correo? P. ej.: pedir un presupuesto",
+      "aiWriteInstruction": "Instrucción para el borrador de la IA"
     },
     "priority": "Prioridad",
     "priorityHigh": "Alta prioridad",
