@@ -3306,6 +3306,21 @@ export default function MessageList() {
         </div>
       )}
 
+      {searchQuery.trim() && isSearching && displayMessages.length > 0 && (
+        <div role="status" aria-live="polite" style={{
+          display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+          padding: '8px 14px', color: 'var(--text-tertiary)', fontSize: 12,
+          borderBottom: '1px solid var(--border-subtle)',
+        }}>
+          <div aria-hidden="true" style={{
+            width: 14, height: 14, flexShrink: 0,
+            border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
+            borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+          }} />
+          <span>{t('messageList.searching')}</span>
+        </div>
+      )}
+
       {/* Category + GTD tabs — shown in INBOX when categorization and/or GTD is active */}
       {(categorizationActive || gtdActive) && selectedFolder === 'INBOX' && !searchQuery.trim() && (
         <div style={{ position: 'relative', flexShrink: 0, borderBottom: '1px solid var(--border-subtle)' }}>
@@ -4048,7 +4063,7 @@ export default function MessageList() {
         {/* Infinite scroll footer */}
         {scrollMode === 'infinite' && (<>
           {/* Search mode: load more search results */}
-          {searchQuery.trim() ? (<>
+          {searchQuery.trim() ? (!isSearching && <>
             {searchLoadingMore && (
               <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
                 <div style={{
@@ -4119,7 +4134,7 @@ export default function MessageList() {
         </>)}
 
         {/* Pagination footer */}
-        {scrollMode === 'paginated' && !loadingMessages && messagesTotal > 0 && (() => {
+        {scrollMode === 'paginated' && !searchQuery.trim() && !loadingMessages && messagesTotal > 0 && (() => {
           const totalPages = Math.ceil(messagesTotal / pageSize) || 1;
           const btnStyle = (disabled) => ({
             padding: '5px 14px', fontSize: 12, borderRadius: 6, cursor: disabled ? 'default' : 'pointer',
