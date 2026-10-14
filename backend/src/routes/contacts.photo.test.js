@@ -4,6 +4,7 @@ import http from 'node:http';
 // The photo is served on the app origin, so it has to go out as an image type whatever its
 // stored data: URI declares. These rows skip parseVCard, like rows saved before it checked.
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
+vi.mock('../services/safeFetch.js', () => ({ safeFetch: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'user-1' }; next(); },
 }));
@@ -11,6 +12,7 @@ vi.mock('../middleware/auth.js', () => ({
 import express from 'express';
 import contactsRoutes from './contacts.js';
 import { query } from '../services/db.js';
+import { safeFetch } from '../services/safeFetch.js';
 
 const HTML = Buffer.from('<p>not an image</p>');
 const PHOTO_URL = '/api/contacts/photo?email=a%40example.com';
@@ -46,6 +48,13 @@ describe('GET /api/contacts/photo', () => {
     expect(res.headers.get('content-type')).toBe('image/jpeg');
   });
 
+  it('sends its own nosniff and sandbox headers, whatever proxy is in front', async () => {
+    const res = await fetchPhoto(`data:image/png;base64,${Buffer.from([0x89, 0x50]).toString('base64')}`);
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
+    expect(res.headers.get('cross-origin-resource-policy')).toBe('same-origin');
+  });
+
   it('keeps an allowed image type and sends the decoded bytes', async () => {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     const res = await fetchPhoto(`data:image/png;base64,${png.toString('base64')}`);
@@ -65,5 +74,22 @@ describe('GET /api/contacts/photo', () => {
     expect(res.headers['content-type']).toBe('image/jpeg');
     // The new validator still earns a 304, so photos stay cacheable.
     expect((await get(PHOTO_URL, { 'If-None-Match': res.headers.etag })).statusCode).toBe(304);
+  });
+});
+
+describe('GET /api/contacts/gravatar', () => {
+  let server, base;
+  beforeAll(async () => { await new Promise(r => { server = buildApp().listen(0, r); }); base = `http://127.0.0.1:${server.address().port}`; });
+  afterAll(async () => { await new Promise(r => server.close(r)); });
+
+  it('sends the same safety headers, fetched and from its cache', async () => {
+    safeFetch.mockResolvedValue({ status: 200, ok: true, headers: new Headers({ 'content-type': 'image/png' }), arrayBuffer: async () => new Uint8Array([0x89, 0x50]).buffer });
+    for (const pass of ['fetched', 'cached']) {
+      const res = await fetch(`${base}/api/contacts/gravatar?email=someone%40example.com`);
+      expect(res.status, pass).toBe(200);
+      expect(res.headers.get('x-content-type-options'), pass).toBe('nosniff');
+      expect(res.headers.get('content-security-policy'), pass).toBe("default-src 'none'; sandbox");
+    }
+    expect(safeFetch).toHaveBeenCalledTimes(1);
   });
 });

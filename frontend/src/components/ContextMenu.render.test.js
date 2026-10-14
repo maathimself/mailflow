@@ -118,3 +118,40 @@ describe('ContextMenu — Forward as attachment (#466)', () => {
     assert.deepEqual(calls, [['forwardAsAttachment']]);
   });
 });
+
+describe('ContextMenu — a snoozed message (#269)', () => {
+  // Picker rows are an icon and their text: matched by their own text, not their whole content.
+  const ownText = text => [...dom.window.document.querySelectorAll('div, span')].find(el =>
+    [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim() === text));
+  const clickOwn = async (text) => {
+    const el = ownText(text);
+    assert.ok(el, `expected "${text}" in the menu`);
+    await React.act(async () => { el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+  };
+  const SNOOZED = { id: 'm9', account_id: 'acct-1', folder: 'Snoozed', from_email: 'a@b.example', is_read: true, snooze_until: '2030-01-01T09:00:00Z' };
+
+  test('offers to change when it comes back, or to bring it back now, not to snooze it again', async () => {
+    const calls = await openMenu(SNOOZED);
+    assert.equal(byText('contextMenu.snooze.label'), undefined);
+    await click('contextMenu.snooze.unsnooze');
+    assert.deepEqual(calls, [['unsnooze']]);
+  });
+
+  test('the same picker then changes the time', async () => {
+    const calls = await openMenu(SNOOZED);
+    await click('contextMenu.snooze.change');
+    assert.ok(ownText('contextMenu.snooze.change'), 'the picker says what it does');
+    await clickOwn('contextMenu.snooze.threeHours');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0], 'changeSnooze');
+    assert.ok(new Date(calls[0][1]) > new Date(), 'a time in the future');
+  });
+
+  test('a message in any other folder is snoozed as before', async () => {
+    const calls = await openMenu({ ...SNOOZED, folder: 'INBOX', snooze_until: undefined });
+    assert.equal(byText('contextMenu.snooze.unsnooze'), undefined);
+    await click('contextMenu.snooze.label');
+    await clickOwn('contextMenu.snooze.threeHours');
+    assert.equal(calls[0][0], 'snooze');
+  });
+});

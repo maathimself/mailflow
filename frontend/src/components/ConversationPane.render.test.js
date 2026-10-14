@@ -100,6 +100,13 @@ const cards = () => document.querySelectorAll('[aria-expanded]');
 const openCards = () => document.querySelectorAll('[aria-expanded="true"]');
 
 describe('conversation pane', () => {
+  // These cards show HTML emails as sent. Dark email bodies (#228), on by default, are covered
+  // by the plain-text card below and by MessagePane's tests.
+  before(async () => {
+    const { useStore } = await import('../store/index.js');
+    useStore.setState({ darkEmailBodies: false });
+  });
+
   test('renders one card per message with only the newest open', async () => {
     await React.act(async () => {
       root.render(React.createElement(ConversationPane, { threadId: '<1@x>', folder: 'INBOX' }));
@@ -255,10 +262,18 @@ describe('conversation actions', () => {
   const requests = [];
   let realFetch;
   let printWin;
+  // Set by a test to hold the next star request until it says how the server answers.
+  let starAnswer = null;
   before(() => {
     realFetch = globalThis.fetch;
     globalThis.fetch = async (url, opts = {}) => {
       requests.push({ url: String(url), method: opts.method || 'GET', body: opts.body });
+      if (starAnswer && String(url).endsWith('/star')) {
+        const ok = await starAnswer;
+        return ok
+          ? { ok: true, status: 200, json: async () => ({ ok: true }) }
+          : { ok: false, status: 500, json: async () => ({ error: 'IMAP store failed' }) };
+      }
       if (String(url).includes('/ai/status')) return { ok: true, status: 200, json: async () => ({ enabled: true, features: { summarize: true, compose: true } }) };
       if (String(url).includes('/ai/chat')) {
         const sse = 'data: {"choices":[{"delta":{"content":"Short "}}]}\n\ndata: {"choices":[{"delta":{"content":"summary."}}]}\n\ndata: [DONE]\n\n';
@@ -302,6 +317,17 @@ describe('conversation actions', () => {
     assert.equal(star.method, 'PATCH');
     assert.deepEqual(JSON.parse(star.body), { starred: true });
     assert.ok(button('m1', 'contextMenu.unstar'), 'the card now offers unstar');
+  });
+
+  // The server answers only once the mail server has the flag, which takes seconds on Gmail.
+  test('the star changes at once, and is put back when the server refuses it', async (t) => {
+    let answer;
+    starAnswer = new Promise(resolve => { answer = resolve; });
+    t.after(() => { starAnswer = null; });
+    await click(button('m1', 'contextMenu.unstar'));
+    assert.ok(button('m1', 'contextMenu.star'), 'unstarred before the server answered');
+    await React.act(async () => { answer(false); await new Promise(r => setTimeout(r, 20)); });
+    assert.ok(button('m1', 'contextMenu.unstar'), 'starred again once the server refused');
   });
 
   test('mark unread sends the unread change and hides the button', async () => {

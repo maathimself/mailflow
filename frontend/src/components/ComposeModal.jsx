@@ -22,6 +22,7 @@ import { ComposerLink } from '../utils/editorLink.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { resolveInitialFrom } from '../utils/defaultSender.js';
 import { initialComposeFocus, isComposeSendShortcut } from '../utils/composeFromMessage.js';
+import { unproxyImages } from '../utils/imageProxy.js';
 import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } from '../utils/autoRecipients.js';
 import { resolveSignatureEnabled } from '../utils/composeSignature.js';
 import { UNDO_SEND_SECONDS, undoWindowMs, trackHeldSend, reopenCompose } from '../utils/heldSend.js';
@@ -966,13 +967,14 @@ export default function ComposeModal() {
         cc: ccFinal,
         bcc: bccFinal,
         subject,
-        body: bodyToSend,
+        // Images shown through MailFlow's proxy go out as the email's own references.
+        body: plaintextEmail ? bodyToSend : unproxyImages(bodyToSend),
         bodyIsHtml: !plaintextEmail,
         ...(quotedBody ? { quotedBody } : {}),
-        ...(sentQuotedHtml != null ? { quotedBodyHtml: sentQuotedHtml } : {}),
+        ...(sentQuotedHtml != null ? { quotedBodyHtml: unproxyImages(sentQuotedHtml) } : {}),
         // Off sends an empty override, or the server would add the account's signature.
         ...(!signatureEnabled || signatureContentRef.current || fromSignature != null || composeData?.signature !== undefined
-          ? { editedSignature: !signatureEnabled ? '' : plaintextEmail ? plainSig : signatureContentRef.current }
+          ? { editedSignature: !signatureEnabled ? '' : plaintextEmail ? plainSig : unproxyImages(signatureContentRef.current) }
           : {}),
         inReplyTo: composeData?.inReplyTo,
         references: composeData?.references || undefined,
@@ -1181,12 +1183,14 @@ export default function ComposeModal() {
         includeIdentity: true,
         ...(aliasId ? { aliasId } : {}),
         to: value.to, cc: value.cc, bcc: value.bcc, subject: value.subject,
-        body: value.body, bodyIsHtml: value.bodyIsHtml,
+        // Images shown through MailFlow's proxy are saved as the email's own references.
+        body: value.bodyIsHtml ? unproxyImages(value.body) : value.body, bodyIsHtml: value.bodyIsHtml,
         ...(composeData?.inReplyTo ? { inReplyTo: composeData.inReplyTo } : {}),
         ...(composeData?.references ? { references: composeData.references } : {}),
         ...(value.quotedBody ? { quotedBody: value.quotedBody } : {}),
-        ...(value.bodyIsHtml && value.quotedBodyHtml ? { quotedBodyHtml: value.quotedBodyHtml } : {}),
-        ...(value.editedSignature || fromSignature != null || composeData?.signature !== undefined ? { editedSignature: value.editedSignature } : {}),
+        ...(value.bodyIsHtml && value.quotedBodyHtml ? { quotedBodyHtml: unproxyImages(value.quotedBodyHtml) } : {}),
+        ...(value.editedSignature || fromSignature != null || composeData?.signature !== undefined
+          ? { editedSignature: value.bodyIsHtml ? unproxyImages(value.editedSignature) : value.editedSignature } : {}),
         ...(pointer.uid != null && pointer.folder != null ? { existingUid: pointer.uid, existingFolder: pointer.folder, existingAccountId: pointer.accountId } : {}),
       });
       if (useStore.getState().user?.id !== composeOwner) return false;

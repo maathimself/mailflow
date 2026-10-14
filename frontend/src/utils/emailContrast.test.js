@@ -2,7 +2,7 @@
 // a real browser by the dark-mode audit harness's self-test (scripts/dark-audit), as it needs layout.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseColor, composite, contrastRatio, summarize, paintsImage } from './emailContrast.js';
+import { parseColor, composite, contrastRatio, summarize, paintsImage, brightShare } from './emailContrast.js';
 
 describe('parseColor', () => {
   test('reads computed rgb() and rgba(), in both syntaxes', () => {
@@ -66,5 +66,37 @@ describe('paintsImage', () => {
     assert.equal(paintsImage('url(data:,)'), false, 'blocked, as the HTML writes it');
     assert.equal(paintsImage('url("data:,"), url("data:,")'), false);
     assert.equal(paintsImage('url("data:,"), url("https://example.invalid/b.png")'), true);
+  });
+});
+
+// brightShare's counting, over a stub document: where each point lands is given, not laid out.
+describe('brightShare', () => {
+  const el = (tagName, style, parentElement = null) => ({ tagName, style, parentElement, closest: () => null });
+  const stubDoc = (at, { width = 400, height = 400 } = {}) => ({
+    documentElement: { scrollWidth: width, scrollHeight: height },
+    defaultView: { innerWidth: width, innerHeight: height, getComputedStyle: (e) => e.style },
+    elementFromPoint: at,
+  });
+  const style = (backgroundColor, backgroundImage = 'none') => ({ backgroundColor, backgroundImage, opacity: '1' });
+
+  test('the share of sampled background that is light', () => {
+    const page = el('BODY', style('rgb(218, 218, 219)'));
+    const card = el('DIV', style('rgb(39, 42, 45)'), page);
+    // A gray frame on the left half, a dark card on the right.
+    assert.equal(brightShare(stubDoc((x) => (x < 200 ? page : card))), 0.5);
+  });
+
+  test('leaves images and what sits over a background image out', () => {
+    const page = el('BODY', style('rgb(255, 255, 255)'));
+    const dark = el('DIV', style('rgb(17, 17, 17)'), page);
+    const hero = el('DIV', style('rgb(255, 255, 255)', 'url("https://example.invalid/hero.png")'), page);
+    const at = (x, y) => (y < 100 ? el('IMG', style('rgba(0, 0, 0, 0)'), page) : y < 200 ? hero : dark);
+    assert.equal(brightShare(stubDoc(at)), 0);
+  });
+
+  test('is null without layout to sample', () => {
+    assert.equal(brightShare(stubDoc(() => null)), null);
+    assert.equal(brightShare(stubDoc(() => null, { width: 0, height: 0 })), null);
+    assert.equal(brightShare({ ...stubDoc(() => null), elementFromPoint: undefined }), null);
   });
 });

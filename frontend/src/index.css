@@ -35,6 +35,20 @@
   --highlight-top: inset 0 1px 0 rgba(255,255,255,0.06);
   --overlay-scrim: rgba(0,0,0,0.5);
 }
+/* iOS 27 blurs the top of a home-screen app's screen: the status bar and about 18px below it,
+   whatever the status-bar style. Top bars pad themselves by --sat, so on iOS (only its WebKit has
+   -webkit-touch-callout) it reaches 8px further below the status bar, and their icons and text
+   start at the blur's edge instead of in it; the bar's own color fills the blurred strip. They
+   take --sat-trim off their bottom padding, so they grow by 4px, not 8. min() keeps both at 0
+   where nothing is drawn under a status bar (a Safari tab, landscape on iPhone). */
+:root { --sat-trim: 0px; }
+@supports (-webkit-touch-callout: none) {
+  :root {
+    --sat: calc(env(safe-area-inset-top, 0px) + min(8px, env(safe-area-inset-top, 0px)));
+    --sat-trim: min(4px, env(safe-area-inset-top, 0px));
+  }
+}
+
 
 * {
   box-sizing: border-box;
@@ -726,3 +740,8 @@ body, #root {
   -webkit-user-select: none; user-select: none;
 }
 .mf-pdf-page .textLayer.selecting .endOfContent { top: 0; }
+
+/* Swiping between messages (components/SwipePager.jsx) is horizontal scrolling: no scrollbar or
+   iOS scroll indicator for it. */
+.swipe-pager { scrollbar-width: none; }
+.swipe-pager::-webkit-scrollbar { display: none; }

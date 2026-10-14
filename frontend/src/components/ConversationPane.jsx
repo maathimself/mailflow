@@ -10,7 +10,9 @@ import {
   newestConversationMessage,
 } from '../utils/conversation.js';
 import { archiveThread, deleteThread, spamThread, moveThread, snoozeThread } from '../utils/threadActions.js';
-import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
+import { advanceSelectionAfterRemoval, adjacentRow, openAdjacentRow } from '../utils/listSelection.js';
+import { useSwipeBack } from '../hooks/useSwipeBack.js';
+import SwipePager from './SwipePager.jsx';
 import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/printMessage.js';
 import ConversationMessageCard from './ConversationMessageCard.jsx';
 import { aiReplyAvailable } from '../utils/aiReply.js';
@@ -96,6 +98,15 @@ export default function ConversationPane({ threadId, folder, unified = false, se
     card?.scrollIntoView?.({ block: 'nearest' });
   }, [selectedMessageId, messages]);
 
+  // Swiping on a phone (#229), as in the single-message pane: from the left edge back to the list,
+  // and left and right for the next and previous row of the list, which may be a conversation or a
+  // single message (the SwipePager around the stack below).
+  const paneRef = useRef(null);
+  useSwipeBack({ enabled: isMobile, rootRef: paneRef, navKey: threadId, onBack: () => history.back() });
+  // Read so a new row in the list (or a search) refreshes the peeks either side.
+  useStore(s => s.messages);
+  useStore(s => s.searchResults);
+
   const toggle = (id) => setExpanded(prev => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -164,7 +175,7 @@ export default function ConversationPane({ threadId, folder, unified = false, se
   const mobileBackBar = isMobile && (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 8,
-      paddingTop: 'calc(var(--sat) + 10px)', paddingBottom: 10, paddingLeft: 14, paddingRight: 14,
+      paddingTop: 'calc(var(--sat) + 10px)', paddingBottom: 'calc(10px - var(--sat-trim))', paddingLeft: 14, paddingRight: 14,
       borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', flexShrink: 0,
     }}>
       <button
@@ -191,14 +202,14 @@ export default function ConversationPane({ threadId, folder, unified = false, se
   );
 
   if (error) return (
-    <div style={fill}>
+    <div ref={paneRef} style={fill}>
       {mobileBackBar}
       <div style={{ padding: 16, color: 'var(--red, #e03131)' }}>{error}</div>
     </div>
   );
   if (loading && !messages.length) {
     return (
-      <div style={fill}>
+      <div ref={paneRef} style={fill}>
         {mobileBackBar}
         <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div className="skeleton-line" style={{ height: 13, width: '48%', borderRadius: 4 }} />
@@ -210,8 +221,17 @@ export default function ConversationPane({ threadId, folder, unified = false, se
   if (!messages.length) return null;
 
   return (
-    <div style={{ ...fill, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div ref={paneRef} style={{ ...fill, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {mobileBackBar}
+      <SwipePager
+        enabled={isMobile}
+        prev={isMobile ? adjacentRow('prev', threadId) : null}
+        next={isMobile ? adjacentRow('next', threadId) : null}
+        navKey={threadId}
+        onNavigate={(dir) => openAdjacentRow(dir, threadId)}
+        // Warms the server's copy of a neighbor's body ahead of the swipe.
+        onPrefetch={(row) => { api.getMessageBody(row.id).catch(() => {}); }}
+      >
       <div
         // Remounts the stack when the thread's membership changes, so expansion state from a
         // previous conversation can never be applied to this one's message ids.
@@ -288,6 +308,7 @@ export default function ConversationPane({ threadId, folder, unified = false, se
           />
         ))}
       </div>
+      </SwipePager>
     </div>
   );
 }

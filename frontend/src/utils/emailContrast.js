@@ -64,20 +64,9 @@ const SKIP_PARENTS = new Set(['STYLE', 'SCRIPT', 'TEMPLATE', 'TITLE', 'HEAD']);
 const CLIPPING = new Set(['hidden', 'clip', 'auto', 'scroll']);
 const WHITE = { r: 255, g: 255, b: 255, a: 1 };
 
-// Every piece of visible text in `doc`, with its contrast. Each entry carries `i`, the text's
-// position among the document's non-blank text, so two renders of the same email (light and dark)
-// can be compared piece by piece. `canvas` is what is painted under the page itself.
-export function measureTextContrast(doc, { canvas = WHITE, samples = false } = {}) {
-  const win = doc.defaultView;
-  const styles = new Map();
-  const style = (el) => {
-    let s = styles.get(el);
-    if (!s) { s = win.getComputedStyle(el); styles.set(el, s); }
-    return s;
-  };
-
-  // What is painted behind an element's content: a single color, or `overImage` when a background
-  // image or gradient sits on top of it.
+// What is painted behind an element's content: a single color, or `overImage` when a background
+// image or gradient sits on top of it. `style` is a (cached) getComputedStyle.
+function backgroundResolver(style, canvas) {
   const backgrounds = new Map();
   const backgroundOf = (el) => {
     if (!el) return { color: canvas, overImage: false, opacity: 1 };
@@ -100,6 +89,22 @@ export function measureTextContrast(doc, { canvas = WHITE, samples = false } = {
     backgrounds.set(el, b);
     return b;
   };
+  return backgroundOf;
+}
+
+// Every piece of visible text in `doc`, with its contrast. Each entry carries `i`, the text's
+// position among the document's non-blank text, so two renders of the same email (light and dark)
+// can be compared piece by piece. `canvas` is what is painted under the page itself.
+export function measureTextContrast(doc, { canvas = WHITE, samples = false } = {}) {
+  const win = doc.defaultView;
+  const styles = new Map();
+  const style = (el) => {
+    let s = styles.get(el);
+    if (!s) { s = win.getComputedStyle(el); styles.set(el, s); }
+    return s;
+  };
+
+  const backgroundOf = backgroundResolver(style, canvas);
 
   // Whether an ancestor that clips its overflow leaves none of `rect` showing.
   const clippedAway = (el, rect) => {
@@ -159,6 +164,44 @@ export function measureTextContrast(doc, { canvas = WHITE, samples = false } = {
   }
   range.detach?.();
   return results;
+}
+
+// Relative luminance above which a background reads as light; the dark-mode audit's brightShare
+// counts screenshot pixels against the same line.
+export const BRIGHT = 0.6;
+const CONTENT = new Set(['IMG', 'SVG', 'svg', 'VIDEO', 'CANVAS', 'PICTURE', 'OBJECT', 'EMBED']);
+
+// The share of `doc`'s visible area whose background is light, from a grid of points: what each
+// point shows is the topmost element there, and what is painted behind it is worked out as for
+// text. Images, and anything over a background image or gradient, are left out, as content rather
+// than background. Null when nothing could be sampled (no layout).
+export function brightShare(doc, { canvas = WHITE, columns = 24, maxPoints = 1200 } = {}) {
+  const win = doc.defaultView;
+  const root = doc.documentElement;
+  const width = Math.min(root.scrollWidth, win.innerWidth);
+  const height = Math.min(root.scrollHeight, win.innerHeight);
+  if (!(width > 0 && height > 0) || typeof doc.elementFromPoint !== 'function') return null;
+  const styles = new Map();
+  const style = (el) => {
+    let st = styles.get(el);
+    if (!st) { st = win.getComputedStyle(el); styles.set(el, st); }
+    return st;
+  };
+  const backgroundOf = backgroundResolver(style, canvas);
+  const step = Math.max(width / columns, Math.sqrt((width * height) / maxPoints));
+  let bright = 0;
+  let counted = 0;
+  for (let y = step / 2; y < height; y += step) {
+    for (let x = step / 2; x < width; x += step) {
+      const el = doc.elementFromPoint(x, y);
+      if (!el || CONTENT.has(el.tagName) || el.closest?.('svg')) continue;
+      const bg = backgroundOf(el);
+      if (bg.overImage) continue;
+      counted += 1;
+      if (luminance(bg.color) > BRIGHT) bright += 1;
+    }
+  }
+  return counted ? Math.round((bright / counted) * 1000) / 1000 : null;
 }
 
 // Below this, text is hard to read whatever its size; below the weak line it is below WCAG AA.

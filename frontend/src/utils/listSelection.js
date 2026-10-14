@@ -44,3 +44,30 @@ export function advanceSelectionAfterRemoval(removedId, selectedWithinRemovedRow
   if (next && openRow) openRow(next);
   else setSelectedMessage(next?.id ?? null);
 }
+
+// Swiping between messages on a phone (#229): the row before or after the open one in the list on
+// screen. The open message is a row itself, or a message inside a row's thread (a conversation's
+// message, an expanded thread's child), whose row is found by its thread. `threadId` names the
+// conversation the reader is in when the selected message may not be in the store at all.
+export function adjacentRow(direction, threadId = null) {
+  const { messages, searchResults, searchQuery, selectedMessageId, threadMessages } = useStore.getState();
+  const rows = searchQuery.trim() ? searchResults : messages;
+  let idx = rows.findIndex(m => m.id === selectedMessageId);
+  if (idx === -1) {
+    const open = Object.values(threadMessages || {}).flat().find(m => m.id === selectedMessageId);
+    const tid = open?.thread_id || threadId;
+    if (tid) idx = rows.findIndex(m => (m.thread_id || m.id) === tid);
+  }
+  if (idx === -1) return null;
+  return rows[idx + (direction === 'next' ? 1 : -1)] ?? null;
+}
+
+// Opens that row exactly as a click does (registerRowOpener above): marked read by the reader's
+// setting, its body warmed, a conversation opened as one. False when there is none that way.
+export function openAdjacentRow(direction, threadId = null) {
+  const row = adjacentRow(direction, threadId);
+  if (!row) return false;
+  if (openRow) openRow(row);
+  else useStore.getState().setSelectedMessage(row.id);
+  return true;
+}

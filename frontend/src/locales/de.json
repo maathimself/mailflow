@@ -226,6 +226,9 @@
     "noContent": "Kein Nachrichteninhalt gefunden.",
     "remoteImagesBlocked": "Externe Bilder wurden blockiert.",
     "loadImages": "Bilder laden",
+    "trackersBlocked_one": "{{count}} Tracker blockiert",
+    "trackersBlocked_other": "{{count}} Tracker blockiert",
+    "trackersBlockedHint": "Bilder, die dem Absender das Öffnen dieser E-Mail melden, wurden nicht geladen.",
     "allowSender": "Immer erlauben von {{email}}",
     "allowDomain": "Immer erlauben von @{{domain}}",
     "downloading": "Wird heruntergeladen…",
@@ -321,6 +324,16 @@
       "passwordLabel": "PDF-Passwort",
       "passwordSubmit": "Öffnen",
       "passwordIncorrect": "Falsches Passwort. Versuchen Sie es erneut."
+    },
+    "unsnoozed": {
+      "title": "Zurückgeholt",
+      "failTitle": "Zurückholen fehlgeschlagen",
+      "failBody": "Die E-Mail bleibt zurückgestellt. Bitte erneut versuchen."
+    },
+    "snoozeChanged": {
+      "title": "Zurückgestellt bis {{when}}",
+      "failTitle": "Zeitpunkt konnte nicht geändert werden",
+      "failBody": "Der bisherige Zeitpunkt bleibt. Bitte erneut versuchen."
     }
   },
   "messageList": {
@@ -404,6 +417,7 @@
     "pullToSync": "Zum Synchronisieren ziehen",
     "releaseToSync": "Loslassen zum Synchronisieren",
     "noSearchResults": "Keine Ergebnisse gefunden",
+    "searching": "Suche läuft…",
     "noSearchResultsDesc": "Keine Treffer für {{query}}",
     "searchFailed": "Suche fehlgeschlagen",
     "clearSearch": "Suche löschen",
@@ -461,7 +475,10 @@
         "label": "Vertikale Teilung",
         "description": "Nachrichtenliste über dem Lesebereich"
       }
-    }
+    },
+    "snoozedUntil": "Zurückgestellt bis {{when}}",
+    "snoozedEmpty": "Nichts zurückgestellt",
+    "snoozedEmptyDesc": "Zurückgestellte E-Mails warten hier, bis sie wiederkommen."
   },
   "lockScreen": {
     "subtitle": "Gib deine PIN zum Entsperren ein",
@@ -519,7 +536,8 @@
     "emptying": "„{{name}}” wird geleert…",
     "emptied": "Ordner geleert",
     "backToAccounts": "Zurück zu Konten",
-    "updateAvailable": "Update verfügbar: v{{version}}"
+    "updateAvailable": "Update verfügbar: v{{version}}",
+    "snoozed": "Zurückgestellt"
   },
   "contextMenu": {
     "find": "Suchen",
@@ -541,7 +559,9 @@
       "threeHours": "In 3 Stunden",
       "tomorrowMorning": "Morgen früh",
       "nextWeek": "Nächste Woche",
-      "custom": "Benutzerdefiniert..."
+      "custom": "Benutzerdefiniert...",
+      "change": "Zeitpunkt ändern",
+      "unsnooze": "Zurückholen"
     },
     "copySubject": "Betreff kopieren",
     "copySender": "Absenderadresse kopieren",
@@ -784,6 +804,11 @@
     },
     "title": "Einstellungen",
     "close": "Schließen",
+    "behavior": {
+      "reading": "Lesen",
+      "writing": "Schreiben",
+      "sync": "Synchronisierung"
+    },
     "tabs": {
       "cleanup": "Aufräumen",
       "accounts": "Konten",
@@ -803,10 +828,11 @@
       "antispam": "Antispam",
       "categories": "Kategorien",
       "rules": "Regeln",
-      "groupAccountMail": "Konto und Mail",
-      "groupDisplay": "Anzeige",
-      "groupSecurityIntegrations": "Sicherheit und Integrationen",
+      "groupMail": "Mail",
+      "groupPreferences": "Präferenzen",
+      "groupAiExtensions": "KI und Erweiterungen",
       "groupAdmin": "Administration",
+      "behavior": "Verhalten",
       "plugins": "Plugins",
       "backup": "Sicherung"
     },
@@ -821,6 +847,10 @@
       "editTitle": "Konto bearbeiten",
       "addTitle": "Konto hinzufügen",
       "color": "Kontofarbe",
+      "icon": "Symbol",
+      "iconNone": "Keins (Farbpunkt)",
+      "iconCustom": "Oder ein Emoji eingeben",
+      "iconHint": "Wird anstelle des Farbpunkts angezeigt.",
       "displayName": "Anzeigename",
       "displayNamePh": "z. B. Privates Gmail",
       "senderName": "Absendername",
@@ -1611,6 +1641,8 @@
       "actionForward": "Weiterleiten an",
       "actionForwardPlaceholder": "empfaenger@example.com",
       "actionSetCategory": "Kategorie festlegen",
+      "actionNotify": "Benachrichtigen",
+      "actionNotifyHint": "Auch benachrichtigen, wenn die Regel die E-Mail verschiebt oder als gelesen markiert.",
       "actionSetCategorySelect": "Kategorie auswählen…",
       "nameLabel": "Regelname",
       "editButton": "Bearbeiten",

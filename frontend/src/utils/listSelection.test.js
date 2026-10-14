@@ -29,7 +29,7 @@ Object.assign(globalThis, {
 globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({}) });
 
 const { useStore } = await import('../store/index.js');
-const { rowAfterRemoval, advanceSelectionAfterRemoval, registerRowOpener } = await import('./listSelection.js');
+const { rowAfterRemoval, advanceSelectionAfterRemoval, registerRowOpener, adjacentRow, openAdjacentRow } = await import('./listSelection.js');
 
 const ROWS = ['r1', 'r2', 'r3'].map(id => ({ id, account_id: 'acct', folder: 'INBOX', is_read: false }));
 let opened;
@@ -126,5 +126,46 @@ describe('the afterRemove setting', () => {
     assert.equal(localStorage.getItem('mailflow_after_remove'), 'previous');
     useStore.getState().setAfterRemove('sideways');
     assert.equal(useStore.getState().afterRemove, 'previous');
+  });
+});
+
+// Swiping between messages on a phone (#229).
+describe('adjacentRow and openAdjacentRow', () => {
+  test('the row below and above the open one, none past either end', () => {
+    assert.equal(adjacentRow('next').id, 'r3');
+    assert.equal(adjacentRow('prev').id, 'r1');
+    useStore.setState({ selectedMessageId: 'r3' });
+    assert.equal(adjacentRow('next'), null);
+    useStore.setState({ selectedMessageId: 'r1' });
+    assert.equal(adjacentRow('prev'), null);
+  });
+
+  test('a message inside a thread moves from its row', () => {
+    useStore.setState({
+      messages: [{ ...ROWS[0], thread_id: 't1' }, { ...ROWS[1], thread_id: 't2' }, ROWS[2]],
+      threadMessages: { t2: [{ id: 'child', thread_id: 't2' }] },
+      selectedMessageId: 'child',
+    });
+    assert.equal(adjacentRow('next').id, 'r3');
+    assert.equal(adjacentRow('prev').id, 'r1');
+  });
+
+  test('a conversation names its thread when the selected message is not in the store', () => {
+    useStore.setState({ messages: [ROWS[0], { ...ROWS[1], thread_id: 't2' }, ROWS[2]], threadMessages: {}, selectedMessageId: 'elsewhere' });
+    assert.equal(adjacentRow('next'), null);
+    assert.equal(adjacentRow('next', 't2').id, 'r3');
+  });
+
+  test('follows the search results while searching', () => {
+    useStore.setState({ searchQuery: 'x', searchResults: [{ id: 's1' }, { id: 'r2' }, { id: 's3' }] });
+    assert.equal(adjacentRow('next').id, 's3');
+  });
+
+  test('opens the row as a click does, and says when there is none', () => {
+    assert.equal(openAdjacentRow('next'), true);
+    assert.deepEqual(opened, ['r3']);
+    assert.equal(useStore.getState().selectedMessageId, 'r3');
+    assert.equal(openAdjacentRow('next'), false);
+    assert.deepEqual(opened, ['r3']);
   });
 });

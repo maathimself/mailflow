@@ -226,6 +226,9 @@
     "noContent": "未找到邮件内容。",
     "remoteImagesBlocked": "已阻止加载远程图片。",
     "loadImages": "加载图片",
+    "trackersBlocked_one": "已拦截 {{count}} 个跟踪器",
+    "trackersBlocked_other": "已拦截 {{count}} 个跟踪器",
+    "trackersBlockedHint": "未加载会向发件人报告你已打开此邮件的图片。",
     "allowSender": "始终允许来自 {{email}} 的图片",
     "allowDomain": "始终允许来自 @{{domain}} 的图片",
     "downloading": "下载中…",
@@ -321,6 +324,16 @@
       "passwordLabel": "PDF 密码",
       "passwordSubmit": "打开",
       "passwordIncorrect": "密码错误，请重试。"
+    },
+    "unsnoozed": {
+      "title": "已恢复",
+      "failTitle": "无法恢复",
+      "failBody": "邮件仍处于暂停状态。请重试。"
+    },
+    "snoozeChanged": {
+      "title": "暂停至 {{when}}",
+      "failTitle": "无法更改提醒时间",
+      "failBody": "保留原来的时间。请重试。"
     }
   },
   "messageList": {
@@ -404,6 +417,7 @@
     "pullToSync": "下拉以同步",
     "releaseToSync": "松开以同步",
     "noSearchResults": "未找到结果",
+    "searching": "正在搜索…",
     "noSearchResultsDesc": "未找到与 {{query}} 相关的结果",
     "searchFailed": "搜索失败",
     "clearSearch": "清除搜索",
@@ -461,7 +475,10 @@
         "label": "上下分栏",
         "description": "邮件列表位于阅读窗格上方"
       }
-    }
+    },
+    "snoozedUntil": "暂停至 {{when}}",
+    "snoozedEmpty": "没有暂停的邮件",
+    "snoozedEmptyDesc": "暂停的邮件会在这里等待，直到恢复。"
   },
   "lockScreen": {
     "subtitle": "输入 PIN 码以解锁",
@@ -519,7 +536,8 @@
     "emptying": "正在清空「{{name}}」…",
     "emptied": "文件夹已清空",
     "backToAccounts": "返回账户列表",
-    "updateAvailable": "有可用更新：v{{version}}"
+    "updateAvailable": "有可用更新：v{{version}}",
+    "snoozed": "已暂停"
   },
   "contextMenu": {
     "find": "查找",
@@ -541,7 +559,9 @@
       "threeHours": "3 小时后",
       "tomorrowMorning": "明天上午",
       "nextWeek": "下周",
-      "custom": "自定义……"
+      "custom": "自定义……",
+      "change": "更改提醒时间",
+      "unsnooze": "立即恢复"
     },
     "categorize": "分类为…",
     "categoryAlwaysSender": "始终用于此发件人",
@@ -784,6 +804,11 @@
     },
     "title": "设置",
     "close": "关闭",
+    "behavior": {
+      "reading": "阅读",
+      "writing": "撰写",
+      "sync": "同步"
+    },
     "tabs": {
       "cleanup": "清理",
       "accounts": "账户",
@@ -803,10 +828,11 @@
       "aiActions": "AI 操作",
       "antispam": "反垃圾邮件",
       "categories": "分类",
-      "groupAccountMail": "账户与邮件",
-      "groupDisplay": "显示",
-      "groupSecurityIntegrations": "安全与集成",
+      "groupMail": "邮件",
+      "groupPreferences": "偏好设置",
+      "groupAiExtensions": "AI 与扩展",
       "groupAdmin": "管理",
+      "behavior": "行为",
       "plugins": "插件",
       "backup": "备份"
     },
@@ -850,6 +876,8 @@
       "actionForward": "转发至",
       "actionForwardPlaceholder": "shoujianren@example.com",
       "actionSetCategory": "设置分类",
+      "actionNotify": "通知我",
+      "actionNotifyHint": "即使规则移动此邮件或将其标为已读，也通知我。",
       "actionSetCategorySelect": "选择分类…",
       "actionMovePlaceholder": "文件夹名称",
       "actionMoveSelectFolder": "选择文件夹…",
@@ -894,6 +922,10 @@
       "editTitle": "编辑账户",
       "addTitle": "添加账户",
       "color": "账户颜色",
+      "icon": "图标",
+      "iconNone": "无（颜色圆点）",
+      "iconCustom": "或输入一个表情符号",
+      "iconHint": "显示在颜色圆点的位置。",
       "displayName": "显示名称",
       "displayNamePh": "例如：工作 Gmail",
       "senderName": "发件人姓名",

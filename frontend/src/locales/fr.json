@@ -226,6 +226,9 @@
     "noContent": "Aucun contenu trouvé dans ce message.",
     "remoteImagesBlocked": "Les images distantes ont été bloquées.",
     "loadImages": "Charger les images",
+    "trackersBlocked_one": "{{count}} traceur bloqué",
+    "trackersBlocked_other": "{{count}} traceurs bloqués",
+    "trackersBlockedHint": "Les images qui signalent à l'expéditeur que vous avez ouvert cet e-mail n'ont pas été chargées.",
     "allowSender": "Toujours autoriser depuis {{email}}",
     "allowDomain": "Toujours autoriser depuis @{{domain}}",
     "downloading": "Téléchargement…",
@@ -321,6 +324,16 @@
       "passwordLabel": "Mot de passe du PDF",
       "passwordSubmit": "Ouvrir",
       "passwordIncorrect": "Mot de passe incorrect. Réessayez."
+    },
+    "unsnoozed": {
+      "title": "Plus en attente",
+      "failTitle": "Impossible d'annuler la mise en attente",
+      "failBody": "Le message reste en attente. Réessayez."
+    },
+    "snoozeChanged": {
+      "title": "En attente jusqu'à {{when}}",
+      "failTitle": "Impossible de modifier l'heure de retour",
+      "failBody": "L'heure précédente est conservée. Réessayez."
     }
   },
   "messageList": {
@@ -404,6 +417,7 @@
     "pullToSync": "Tirer pour synchroniser",
     "releaseToSync": "Relâcher pour synchroniser",
     "noSearchResults": "Aucun résultat trouvé",
+    "searching": "Recherche en cours…",
     "noSearchResultsDesc": "Aucun résultat pour {{query}}",
     "searchFailed": "Échec de la recherche",
     "clearSearch": "Effacer la recherche",
@@ -461,7 +475,10 @@
         "label": "Division verticale",
         "description": "Liste des messages au-dessus du volet de lecture"
       }
-    }
+    },
+    "snoozedUntil": "En attente jusqu'à {{when}}",
+    "snoozedEmpty": "Rien en attente",
+    "snoozedEmptyDesc": "Les messages mis en attente patientent ici jusqu'à leur retour."
   },
   "lockScreen": {
     "subtitle": "Saisissez votre PIN pour déverrouiller",
@@ -519,7 +536,8 @@
     "emptying": "Vidage de « {{name}} »…",
     "emptied": "Dossier vidé",
     "backToAccounts": "Retour aux comptes",
-    "updateAvailable": "Mise à jour disponible : v{{version}}"
+    "updateAvailable": "Mise à jour disponible : v{{version}}",
+    "snoozed": "En attente"
   },
   "contextMenu": {
     "find": "Rechercher",
@@ -541,7 +559,9 @@
       "threeHours": "Dans 3 heures",
       "tomorrowMorning": "Demain matin",
       "nextWeek": "La semaine prochaine",
-      "custom": "Personnalisé..."
+      "custom": "Personnalisé...",
+      "change": "Modifier l'heure de retour",
+      "unsnooze": "Ne plus mettre en attente"
     },
     "categorize": "Catégoriser comme…",
     "categoryAlwaysSender": "Toujours pour cet expéditeur",
@@ -784,6 +804,11 @@
     },
     "title": "Paramètres",
     "close": "Fermer",
+    "behavior": {
+      "reading": "Lecture",
+      "writing": "Rédaction",
+      "sync": "Synchronisation"
+    },
     "tabs": {
       "cleanup": "Nettoyage",
       "accounts": "Comptes",
@@ -803,10 +828,11 @@
       "aiActions": "Actions IA",
       "antispam": "Antispam",
       "categories": "Catégories",
-      "groupAccountMail": "Compte et courrier",
-      "groupDisplay": "Affichage",
-      "groupSecurityIntegrations": "Sécurité et intégrations",
+      "groupMail": "Courrier",
+      "groupPreferences": "Préférences",
+      "groupAiExtensions": "IA et extensions",
       "groupAdmin": "Administration",
+      "behavior": "Comportement",
       "plugins": "Extensions",
       "backup": "Sauvegarde"
     },
@@ -850,6 +876,8 @@
       "actionForward": "Transférer à",
       "actionForwardPlaceholder": "destinataire@example.com",
       "actionSetCategory": "Définir la catégorie",
+      "actionNotify": "Me notifier",
+      "actionNotifyHint": "Me prévenir même si la règle déplace ce message ou le marque comme lu.",
       "actionSetCategorySelect": "Choisir une catégorie…",
       "actionMovePlaceholder": "Nom du dossier",
       "stopProcessing": "Arrêter le traitement des règles suivantes si celle-ci correspond",
@@ -894,6 +922,10 @@
       "editTitle": "Modifier le compte",
       "addTitle": "Ajouter un compte",
       "color": "Couleur du compte",
+      "icon": "Icône",
+      "iconNone": "Aucune (point de couleur)",
+      "iconCustom": "Ou saisissez un emoji",
+      "iconHint": "Affichée à la place du point de couleur.",
       "displayName": "Nom affiché",
       "displayNamePh": "ex. Gmail professionnel",
       "email": "Adresse e-mail",

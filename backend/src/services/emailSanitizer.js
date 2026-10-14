@@ -1046,20 +1046,98 @@ function rewriteRemoteImageRefs(html, replace) {
   return out;
 }
 
+// Open-tracking images. The image proxy hides the reader's address, but fetching a tracking pixel
+// still tells the sender the email was opened, so MailFlow does not fetch these at all: an <img>
+// the email itself sizes at 2x2 px or less (width and height, as attributes or inline style), and
+// the open-tracking addresses of the common sending platforms. Images hidden with display:none are
+// not counted: senders hide a dark-mode logo that way.
+const TINY = 2;
+const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp|avif|bmp|svg)$/i;
+const OPEN_SEGMENT = /^open(?:ed)?(?:\.(?:gif|png|jpe?g|php|aspx?))?$/i;
+const TRACKER_FILE = /^(?:pixel|beacon|track(?:ing)?|open)\.(?:gif|png)$/i;
+const TOKEN = /^[\w.=~-]{16,}$/;
+
+// Whether `url` is a known open-tracking address. Only the path is read.
+export function isTrackingUrl(url) {
+  let path;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    return false;
+  }
+  const segs = path.split('/').filter(Boolean);
+  if (!segs.length) return false;
+  const last = segs[segs.length - 1];
+  if (TRACKER_FILE.test(last)) return true;
+  // .../open, .../open.php, .../open/<token> (SendGrid /wf/open, Mailchimp /track/open.php,
+  // Salesforce /open.aspx, /api/notifications/v1/open/<token>), but not /open/images/logo.png.
+  for (let i = Math.max(0, segs.length - 2); i < segs.length; i += 1) {
+    if (OPEN_SEGMENT.test(segs[i]) && (i === segs.length - 1 || !IMAGE_FILE.test(last))) return true;
+  }
+  // Mailgun /o/<token>, Customer.io /e/o/<token>, Amazon SES /I0/<token> and /CI0/<token>.
+  if (segs.length >= 2 && ['o', 'I0', 'CI0'].includes(segs[segs.length - 2]) && TOKEN.test(last) && !IMAGE_FILE.test(last)) return true;
+  return false;
+}
+
+const dimension = (tag, name) => {
+  // One whitespace run before the value, another only after a quote: a long run of spaces cannot
+  // be split between two quantifiers (linear on hostile input; emailSanitizer.trackers.test.js times it).
+  const attr = tag.match(new RegExp(`\\s${name}\\s*=\\s*(?:["']\\s*)?(\\d+(?:\\.\\d+)?)(?:px)?[\\s"'/>]`, 'i'));
+  if (attr) return Number(attr[1]);
+  const style = tag.match(/\sstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/i);
+  if (!style) return null;
+  const css = decodeAttr(style[1] ?? style[2]);
+  const decl = css.match(new RegExp(`(?:^|[;\\s])${name}\\s*:\\s*(\\d+(?:\\.\\d+)?)px`, 'i'));
+  return decl ? Number(decl[1]) : null;
+};
+
+// The src of every <img> in `html` sized at TINY px or less both ways, as written.
+function tinyImageSrcs(html) {
+  const out = new Set();
+  for (const [tag] of html.matchAll(/<img\b[^>]*>/gi)) {
+    const w = dimension(tag, 'width');
+    const h = dimension(tag, 'height');
+    if (w === null || h === null || w > TINY || h > TINY) continue;
+    const src = tag.match(/\ssrc=(?:"([^"]*)"|'([^']*)')/i);
+    if (src) out.add(src[1] ?? src[2]);
+  }
+  return out;
+}
+
+const trackerTest = (html) => {
+  const tiny = tinyImageSrcs(html);
+  return (raw, url) => tiny.has(raw) || isTrackingUrl(url);
+};
+
+// What a blocked tracker becomes: an image that draws nothing, so the layout stays as sent.
+export const TRACKER_REPLACEMENT = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
 // Remote images loaded through MailFlow's image proxy: every remote image reference in sanitized
 // HTML becomes `toProxy(raw)` (routes/mail.js imageProxyPath), which carries the reference as it
 // was written, so the original can be restored exactly (the frontend's utils/imageProxy.js does,
-// for replies and forwards).
-export function proxyRemoteImages(html, toProxy) {
-  return rewriteRemoteImageRefs(html, (raw) => toProxy(raw));
+// for replies and forwards). Open-tracking images are not loaded: they become
+// TRACKER_REPLACEMENT, and `stats.trackers` counts the distinct ones.
+export function proxyRemoteImages(html, toProxy, stats = {}) {
+  if (!html) return html;
+  const isTracker = trackerTest(html);
+  const trackers = new Set();
+  const out = rewriteRemoteImageRefs(html, (raw, url) => {
+    if (!isTracker(raw, url)) return toProxy(raw);
+    trackers.add(url);
+    return TRACKER_REPLACEMENT;
+  });
+  stats.trackers = trackers.size;
+  return out;
 }
 
 // The remote image references in sanitized HTML, as written, with what each loads: the only URLs
-// the image proxy will fetch for this message.
+// the image proxy will fetch for this message. Open-tracking images are left out.
 export function remoteImageRefs(html) {
   const refs = new Map();
+  if (!html) return refs;
+  const isTracker = trackerTest(html);
   rewriteRemoteImageRefs(html, (raw, url) => {
-    if (!refs.has(raw)) refs.set(raw, url);
+    if (!refs.has(raw) && !isTracker(raw, url)) refs.set(raw, url);
     return raw;
   });
   return refs;

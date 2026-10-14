@@ -91,7 +91,9 @@ export function validateHostLiteral(host, { allowPrivate = false } = {}) {
     if (!h) return 'Host is not a valid hostname';
   }
   h = h.toLowerCase();
-  if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.localhost') || h.endsWith('.internal')) {
+  // A trailing dot makes a name fully qualified, not a different one: localhost. is localhost.
+  const name = h.replace(/\.+$/, '');
+  if (name === 'localhost' || name.endsWith('.local') || name.endsWith('.localhost') || name.endsWith('.internal')) {
     return 'Host cannot be a local address';
   }
   const bare = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h;

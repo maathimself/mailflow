@@ -226,6 +226,9 @@
     "noContent": "Nessun contenuto trovato nel messaggio.",
     "remoteImagesBlocked": "Le immagini remote sono state bloccate.",
     "loadImages": "Carica immagini",
+    "trackersBlocked_one": "{{count}} tracker bloccato",
+    "trackersBlocked_other": "{{count}} tracker bloccati",
+    "trackersBlockedHint": "Le immagini che segnalano al mittente l'apertura di questa email non sono state caricate.",
     "allowSender": "Consenti sempre da {{email}}",
     "allowDomain": "Consenti sempre da @{{domain}}",
     "downloading": "Download in corso…",
@@ -321,6 +324,16 @@
       "passwordLabel": "Password del PDF",
       "passwordSubmit": "Apri",
       "passwordIncorrect": "Password errata. Riprova."
+    },
+    "unsnoozed": {
+      "title": "Posticipo annullato",
+      "failTitle": "Impossibile annullare il posticipo",
+      "failBody": "Resta posticipato. Riprova."
+    },
+    "snoozeChanged": {
+      "title": "Posticipato fino a {{when}}",
+      "failTitle": "Impossibile cambiare l'orario",
+      "failBody": "Resta l'orario precedente. Riprova."
     }
   },
   "messageList": {
@@ -404,6 +417,7 @@
     "pullToSync": "Trascina per sincronizzare",
     "releaseToSync": "Rilascia per sincronizzare",
     "noSearchResults": "Nessun risultato trovato",
+    "searching": "Ricerca in corso…",
     "noSearchResultsDesc": "Nessun risultato per {{query}}",
     "searchFailed": "Ricerca non riuscita",
     "clearSearch": "Cancella ricerca",
@@ -461,7 +475,10 @@
         "label": "Divisione verticale",
         "description": "Elenco messaggi sopra il riquadro di lettura"
       }
-    }
+    },
+    "snoozedUntil": "Posticipato fino a {{when}}",
+    "snoozedEmpty": "Niente posticipato",
+    "snoozedEmptyDesc": "Le email posticipate aspettano qui finché non tornano."
   },
   "lockScreen": {
     "subtitle": "Inserisci il PIN per sbloccare",
@@ -519,7 +536,8 @@
     "emptying": "Svuotamento di \"{{name}}\"…",
     "emptied": "Cartella svuotata",
     "backToAccounts": "Torna agli account",
-    "updateAvailable": "Aggiornamento disponibile: v{{version}}"
+    "updateAvailable": "Aggiornamento disponibile: v{{version}}",
+    "snoozed": "Posticipati"
   },
   "contextMenu": {
     "find": "Trova",
@@ -541,7 +559,9 @@
       "threeHours": "Tra 3 ore",
       "tomorrowMorning": "Domani mattina",
       "nextWeek": "La settimana prossima",
-      "custom": "Personalizzato..."
+      "custom": "Personalizzato...",
+      "change": "Cambia l'orario",
+      "unsnooze": "Annulla posticipo"
     },
     "categorize": "Categorizza come…",
     "categoryAlwaysSender": "Sempre per questo mittente",
@@ -784,6 +804,11 @@
     },
     "title": "Impostazioni",
     "close": "Chiudi",
+    "behavior": {
+      "reading": "Lettura",
+      "writing": "Scrittura",
+      "sync": "Sincronizzazione"
+    },
     "tabs": {
       "cleanup": "Pulizia",
       "accounts": "Account",
@@ -803,10 +828,11 @@
       "aiActions": "Azioni IA",
       "antispam": "Antispam",
       "categories": "Categorie",
-      "groupAccountMail": "Account e posta",
-      "groupDisplay": "Schermo",
-      "groupSecurityIntegrations": "Sicurezza e integrazioni",
+      "groupMail": "Posta",
+      "groupPreferences": "Preferenze",
+      "groupAiExtensions": "IA ed estensioni",
       "groupAdmin": "Amministrazione",
+      "behavior": "Comportamento",
       "plugins": "Plugin",
       "backup": "Backup"
     },
@@ -850,6 +876,8 @@
       "actionForward": "Inoltra a",
       "actionForwardPlaceholder": "destinatario@example.com",
       "actionSetCategory": "Imposta categoria",
+      "actionNotify": "Avvisami",
+      "actionNotifyHint": "Avvisami anche se la regola sposta l'email o la segna come letta.",
       "actionSetCategorySelect": "Seleziona una categoria…",
       "actionMovePlaceholder": "Nome cartella",
       "stopProcessing": "Interrompi l'elaborazione delle regole successive se questa corrisponde",
@@ -894,6 +922,10 @@
       "editTitle": "Modifica account",
       "addTitle": "Aggiungi account",
       "color": "Colore account",
+      "icon": "Icona",
+      "iconNone": "Nessuna (punto colorato)",
+      "iconCustom": "Oppure digita un'emoji",
+      "iconHint": "Mostrata al posto del punto colorato.",
       "displayName": "Nome visualizzato",
       "displayNamePh": "es. Gmail Lavoro",
       "email": "Indirizzo email",

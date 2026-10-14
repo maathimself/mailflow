@@ -312,22 +312,23 @@ describe('quoted body templates', () => {
 
   // Proxied images (MailFlow's image proxy) go out as the email's own references: recipients cannot
   // load MailFlow's proxy.
-  it('quotes the email\'s own image URLs in a reply and a forward, not proxy URLs', async () => {
+  it('quotes images as shown, through the proxy, so the composer never loads them from the sender', async () => {
+    // ComposeModal puts the email's own references back when it saves or sends
+    // (ComposeModal.imageProxy.render.test.js).
     const proxied = '<img src="/api/mail/messages/4d479e4f-9b21-4013-9c07-3fbc35f275b1/image?u=https%3A%2F%2Fimg.example%2Fa.png%3Fx%3D1%26amp%3By%3D2">';
-    const original = '<img src="https://img.example/a.png?x=1&amp;y=2">';
     const reply = harness({ html: proxied });
     await openReplyFromMessage(
       { account_id: 'a', date, from_email: 'f@example.com' },
       { accounts: [], openCompose: reply.openCompose, getMessageBody: reply.getMessageBody },
     );
-    assert.ok(reply.payload().quotedBodyHtml.endsWith(`${original}</div>`), reply.payload().quotedBodyHtml);
+    assert.ok(reply.payload().quotedBodyHtml.endsWith(`${proxied}</div>`), reply.payload().quotedBodyHtml);
     const forward = harness({ html: proxied });
     await openForwardFromMessage(
       { id: 'm1', date, from_email: 'ann@example.com', subject: 'Hello' },
       { openCompose: forward.openCompose, getMessageBody: forward.getMessageBody },
     );
-    assert.ok(forward.payload().quotedBodyHtml.endsWith(`${original}</div>`));
-    assert.doesNotMatch(forward.payload().quotedBodyHtml, /\/api\/mail/);
+    assert.ok(forward.payload().quotedBodyHtml.endsWith(`${proxied}</div>`));
+    assert.doesNotMatch(forward.payload().quotedBodyHtml, /src="https?:/, 'no image points at the sender');
   });
 
   it('forward without html keeps the text scaffold', async () => {

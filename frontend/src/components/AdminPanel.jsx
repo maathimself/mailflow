@@ -36,6 +36,7 @@ import { isValidForwardAddress } from '../utils/ruleActions.js';
 import { folderParentLabel } from '../utils/folderDisplay.js';
 import AdminUserEditor from './AdminUserEditor.jsx';
 import { formatRelativeTime, daysSince } from '../utils/relativeTime.js';
+import { formatDateTime, formatDay, formatTime } from '../utils/formatDate.js';
 import { htmlLang } from '../utils/browserLanguage.js';
 import SpamSettings from './SpamSettings.jsx';
 import BackupSettings from './BackupSettings.jsx';
@@ -62,6 +63,8 @@ const inputStyle = {
 const TOGGLE_OFF_BACKGROUND = 'var(--border)';
 
 // ─── Color picker ─────────────────────────────────────────────────────────────
+// Common mailbox icons (#376); any other emoji can be typed.
+const ACCOUNT_ICON_CHOICES = ['🏠', '💼', '🏢', '🎓', '🛒', '💰', '👨‍👩‍👧', '❤️', '🎮', '✈️', '📦', '🔒'];
 const COLORS = [
   '#6366f1','#8b5cf6','#ec4899','#ef4444',
   '#f97316','#eab308','#22c55e','#06b6d4','#3b82f6','#14b8a6',
@@ -192,6 +195,37 @@ function AccountForm({ initial, onSave, onCancel }) {
             }} />
           ))}
         </div>
+      </Field>
+
+      {/* Icon (#376): an emoji shown in place of the color dot, or none. */}
+      <Field label={t('admin.accounts.icon')}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          {[null, ...ACCOUNT_ICON_CHOICES].map(choice => {
+            const active = (form.icon || null) === choice;
+            return (
+              <button key={choice ?? 'none'} type="button" onClick={() => set('icon', choice)}
+                aria-pressed={active} title={choice ? undefined : t('admin.accounts.iconNone')}
+                aria-label={choice ? undefined : t('admin.accounts.iconNone')}
+                style={{
+                  width: 30, height: 30, borderRadius: 7, padding: 0, fontSize: 16, lineHeight: 1,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                  border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                  background: active ? 'var(--accent-dim)' : 'transparent',
+                }}>
+                {choice ?? <span style={{ width: 10, height: 10, borderRadius: '50%', background: form.color, display: 'inline-block' }} />}
+              </button>
+            );
+          })}
+          <input
+            aria-label={t('admin.accounts.iconCustom')}
+            placeholder={t('admin.accounts.iconCustom')}
+            value={form.icon && !ACCOUNT_ICON_CHOICES.includes(form.icon) ? form.icon : ''}
+            onChange={e => set('icon', e.target.value.trim() || null)}
+            maxLength={16}
+            style={{ ...inputStyle, width: 150, padding: '6px 10px' }}
+          />
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>{t('admin.accounts.iconHint')}</div>
       </Field>
 
       <Field label={t('admin.accounts.displayName')} required>
@@ -1185,7 +1219,7 @@ function AccountsTab() {
             {[
               ['IMAP', `${account.imap_host}:${account.imap_port}`],
               ['SMTP', `${account.smtp_host}:${account.smtp_port}`],
-              [t('admin.accounts.lastSync'), account.last_sync ? new Date(account.last_sync).toLocaleTimeString() : t('common.never')],
+              [t('admin.accounts.lastSync'), account.last_sync ? formatTime(account.last_sync) : t('common.never')],
             ].map(([label, val]) => (
               <div key={label} style={{ fontSize: 11 }}>
                 <span style={{ color: 'var(--text-tertiary)' }}>{label} </span>
@@ -1269,19 +1303,14 @@ function ThemesTab() {
       </div>
 
       {/* Dark email bodies (#228): what is shown dark, and why the rest is not, is in utils/darkScheme.js. */}
-      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 20, cursor: 'pointer' }}>
-        <input
-          id="dark-email-bodies"
-          type="checkbox"
+      <div style={{ marginBottom: 20 }}>
+        <ToggleRow
+          label={t('admin.appearance.darkEmailBodies')}
+          desc={t('admin.appearance.darkEmailBodiesDesc')}
           checked={darkEmailBodies}
-          onChange={event => setDarkEmailBodies(event.target.checked)}
-          style={{ marginTop: 2 }}
+          onChange={setDarkEmailBodies}
         />
-        <span>
-          <span style={{ display: 'block', fontSize: 13, color: 'var(--text-primary)' }}>{t('admin.appearance.darkEmailBodies')}</span>
-          <span style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.appearance.darkEmailBodiesDesc')}</span>
-        </span>
-      </label>
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
         {Object.entries(THEMES).map(([key, themeObj]) => (
@@ -1664,11 +1693,315 @@ function SwipeActionIcon({ action, size = 17 }) {
   return <svg {...common}><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>;
 }
 
+// ─── Shared setting controls ─────────────────────────────────────────────────
+// Layout and Behavior build every setting from these, so an option has one size and one look
+// wherever it appears.
+
+const choiceStyle = (active) => ({
+  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
+  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
+  cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
+});
+const hoverBorder = (active) => ({
+  onMouseEnter: e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; },
+  onMouseLeave: e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; },
+});
+const CHIP_HEIGHT = 34;
+const selectStyle = {
+  height: CHIP_HEIGHT, padding: '0 10px', borderRadius: 8,
+  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+  color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', outline: 'none',
+};
+
+// A group of settings under a heading, set off from the group above it.
+function SettingGroup({ title, desc, first, children }) {
+  return (
+    <section style={first ? undefined : { marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: desc ? 4 : 16 }}>{title}</div>
+      {desc && <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 16 }}>{desc}</div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>{children}</div>
+    </section>
+  );
+}
+
+// One setting in a group: its name, an optional line under it, then its control.
+function SettingRow({ label, desc, children }) {
+  return (
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: desc ? 2 : 8 }}>{label}</div>
+      {desc && <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 8 }}>{desc}</div>}
+      {children}
+    </div>
+  );
+}
+
+// Pick one of a few options, each with a line on what it does. Cards in a row share one height;
+// three or more stack on a phone, where side by side they would be too narrow to read.
+function ChoiceCards({ options, value, onChange }) {
+  const isMobile = useMobile();
+  const columns = isMobile && options.length > 2 ? 1 : options.length;
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gap: 8 }}>
+      {options.map(({ id, label, desc }) => {
+        const active = value === id;
+        return (
+          <button
+            key={String(id)}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(id)}
+            style={{
+              ...choiceStyle(active), padding: '10px 12px', textAlign: 'left', borderRadius: 8,
+              display: 'flex', flexDirection: 'column', justifyContent: 'flex-start',
+            }}
+            {...hoverBorder(active)}
+          >
+            <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.4 }}>{desc}</div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Short options (a number, an interval): one row of equal chips. With `wrap`, chips size to their
+// labels and wrap, for longer sets such as the hover actions.
+function ChoiceChips({ options, isActive, onSelect, wrap = false }) {
+  return (
+    <div style={wrap
+      ? { display: 'flex', flexWrap: 'wrap', gap: 6 }
+      : { display: 'grid', gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))`, gap: 6 }}>
+      {options.map(({ value, label }) => {
+        const active = isActive(value);
+        return (
+          <button
+            key={String(value)}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onSelect(value)}
+            style={{
+              ...choiceStyle(active), height: CHIP_HEIGHT, padding: '0 12px', borderRadius: 8,
+              fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap',
+              color: active ? 'var(--accent)' : 'var(--text-secondary)',
+            }}
+            {...hoverBorder(active)}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// An on/off setting: its name and what it does, with a switch on the right.
+function ToggleRow({ label, desc, checked, onChange, disabled = false }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+      padding: '10px 12px', borderRadius: 8,
+      background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
+    }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)' }}>{label}</div>
+        {desc && <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2, lineHeight: 1.4 }}>{desc}</div>}
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        style={{
+          width: 44, height: 24, borderRadius: 12,
+          background: checked ? 'var(--accent)' : 'var(--bg-elevated)',
+          border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          position: 'relative', transition: 'all 0.2s', flexShrink: 0,
+          opacity: disabled ? 0.6 : 1,
+        }}
+      >
+        <span style={{
+          position: 'absolute', top: 3, left: checked ? 22 : 3,
+          width: 16, height: 16, borderRadius: '50%', background: 'white',
+          transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+        }} />
+      </button>
+    </div>
+  );
+}
+
+// ─── Appearance › Layout ─────────────────────────────────────────────────────
+// How things look: the pane arrangement and what the message list shows. How MailFlow acts
+// (reading, writing, sync) is under Behavior.
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, conversationMode, setConversationMode, autoOpenReplyDrafts, setAutoOpenReplyDrafts, plaintextEmail, setPlaintextEmail, hoverQuickActions, setHoverQuickActions, hoverActionSet, setHoverActionSet, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, replyDefault, setReplyDefault, afterRemove, setAfterRemove, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews, accounts, defaultSender, setDefaultSender } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, conversationMode, setConversationMode, hoverQuickActions, setHoverQuickActions, hoverActionSet, setHoverActionSet, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
+
+  const handleSelect = (key) => {
+    setLayout(key);
+    applyLayout(key);
+  };
+
+  return (
+    <div>
+      <SettingGroup first title={t('admin.appearance.layout')} desc={t('admin.appearance.layoutDescription')}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+          {Object.entries(LAYOUTS).map(([key, l]) => {
+            const isActive = layout === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => handleSelect(key)}
+                style={{
+                  ...choiceStyle(isActive), borderRadius: 10, padding: '14px',
+                  textAlign: 'left', display: 'flex', alignItems: 'center', gap: 14,
+                }}
+                {...hoverBorder(isActive)}
+              >
+                <div style={{ flexShrink: 0 }}>
+                  <LayoutDiagram layoutKey={key} layoutConfig={l} active={isActive} />
+                </div>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                  }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                      {t(l.labelKey, l.label)}
+                    </div>
+                    {isActive && (
+                      <div style={{
+                        width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                        background: 'var(--accent)', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                          <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, lineHeight: 1.4 }}>
+                    {t(l.descriptionKey, l.description)}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </SettingGroup>
+
+      <SettingGroup title={t('admin.messageList.title')}>
+        <SettingRow label={t('admin.messageList.threadingMode')}>
+          <ChoiceCards value={conversationMode} onChange={setConversationMode} options={[
+            { id: 'off',  label: t('admin.messageList.threadingOff'),  desc: t('admin.messageList.threadingOffDesc') },
+            { id: 'list', label: t('admin.messageList.threadingOn'),   desc: t('admin.messageList.threadingOnDesc') },
+            { id: 'pane', label: t('admin.messageList.threadingPane'), desc: t('admin.messageList.threadingPaneDesc') },
+          ]} />
+        </SettingRow>
+
+        <SettingRow label={t('admin.messageList.showMessagePreviews')}>
+          <ChoiceCards value={showMessagePreviews} onChange={setShowMessagePreviews} options={[
+            { id: false, label: t('admin.messageList.previewOff'), desc: t('admin.messageList.previewOffDesc') },
+            { id: true,  label: t('admin.messageList.previewOn'),  desc: t('admin.messageList.previewOnDesc') },
+          ]} />
+        </SettingRow>
+
+        <SettingRow label={t('admin.messageList.gravatarMode')}>
+          <ChoiceCards value={gravatarAvatars} onChange={setGravatarAvatars} options={[
+            { id: false, label: t('admin.messageList.gravatarOff'), desc: t('admin.messageList.gravatarOffDesc') },
+            { id: true,  label: t('admin.messageList.gravatarOn'),  desc: t('admin.messageList.gravatarOnDesc') },
+          ]} />
+        </SettingRow>
+
+        {isMobile && (
+          <SettingRow label={t('admin.messageList.mobileAvatarsMode')}>
+            <ChoiceCards value={showMobileAvatars} onChange={setShowMobileAvatars} options={[
+              { id: false, label: t('admin.messageList.mobileAvatarsOff'), desc: t('admin.messageList.mobileAvatarsOffDesc') },
+              { id: true,  label: t('admin.messageList.mobileAvatarsOn'),  desc: t('admin.messageList.mobileAvatarsOnDesc') },
+            ]} />
+          </SettingRow>
+        )}
+
+        <div>
+          <ToggleRow
+            label={t('admin.messageList.senderFavicons')}
+            desc={t('admin.messageList.senderFaviconsDesc')}
+            checked={senderFavicons}
+            disabled={senderFaviconsSaving}
+            onChange={async (next) => {
+              setSenderFaviconsError('');
+              try { await setSenderFavicons(next); }
+              catch { setSenderFaviconsError(t('admin.messageList.senderFaviconsSaveError')); }
+            }}
+          />
+          {senderFaviconsError && (
+            <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 8 }}>
+              {senderFaviconsError}
+            </div>
+          )}
+        </div>
+
+        {/* A phone has no pointer to hover with. */}
+        {!isMobile && (
+          <SettingRow label={t('admin.messageList.hoverQuickActionsMode')}>
+            <ChoiceCards value={hoverQuickActions} onChange={setHoverQuickActions} options={[
+              { id: false, label: t('admin.messageList.hoverQuickActionsOff'), desc: t('admin.messageList.hoverQuickActionsOffDesc') },
+              { id: true,  label: t('admin.messageList.hoverQuickActionsOn'),  desc: t('admin.messageList.hoverQuickActionsOnDesc') },
+            ]} />
+            {/* #440: which actions the cluster shows. Membership only — order stays canonical. */}
+            {hoverQuickActions && (
+              <div style={{ marginTop: 10 }}>
+                <ChoiceChips
+                  wrap
+                  isActive={id => hoverActionSet.includes(id)}
+                  onSelect={id => setHoverActionSet(hoverActionSet.includes(id) ? hoverActionSet.filter(k => k !== id) : [...hoverActionSet, id])}
+                  options={[
+                    { value: 'markRead', label: t('admin.messageList.swipeMarkRead') },
+                    { value: 'star', label: t('admin.messageList.swipeStar') },
+                    { value: 'archive', label: t('admin.messageList.swipeArchive') },
+                    { value: 'snooze', label: t('contextMenu.snooze.label') },
+                    { value: 'delete', label: t('admin.messageList.swipeDelete') },
+                    { value: 'move', label: t('contextMenu.moveToFolder') },
+                  ]}
+                />
+              </div>
+            )}
+          </SettingRow>
+        )}
+
+        <SettingRow label={t('admin.messageList.scrollingMode')}>
+          <ChoiceCards value={scrollMode} onChange={setScrollMode} options={[
+            { id: 'infinite',  label: t('admin.messageList.infiniteScroll'), desc: t('admin.messageList.infiniteScrollDesc') },
+            { id: 'paginated', label: t('admin.messageList.paginated'),      desc: t('admin.messageList.paginatedDesc') },
+          ]} />
+        </SettingRow>
+
+        <SettingRow label={scrollMode === 'paginated' ? t('admin.messageList.perPagePaginated') : t('admin.messageList.perPageInfinite')}>
+          <ChoiceChips
+            isActive={n => pageSize === n}
+            onSelect={setPageSize}
+            options={[25, 50, 100, 200].map(n => ({ value: n, label: String(n) }))}
+          />
+        </SettingRow>
+      </SettingGroup>
+    </div>
+  );
+}
+
+// ─── Behavior ────────────────────────────────────────────────────────────────
+// How MailFlow acts: reading, writing, syncing, and opening mailto: links.
+function BehaviorTab() {
+  const { t } = useTranslation();
+  const isMobile = useMobile();
+  const { swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, autoOpenReplyDrafts, setAutoOpenReplyDrafts, plaintextEmail, setPlaintextEmail, replyDefault, setReplyDefault, afterRemove, setAfterRemove, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, accounts, defaultSender, setDefaultSender } = useStore();
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
   // cross-browser path (works in Firefox and non-installed Chromium) and must be
@@ -1685,11 +2018,6 @@ function LayoutsTab() {
     }
   };
 
-  const handleSelect = (key) => {
-    setLayout(key);
-    applyLayout(key);
-  };
-
   const swipeOptions = [
     { id: 'star', label: t('admin.messageList.swipeStar'), desc: t('admin.messageList.swipeStarDesc') },
     { id: 'archive', label: t('admin.messageList.swipeArchive'), desc: t('admin.messageList.swipeArchiveDesc') },
@@ -1702,13 +2030,15 @@ function LayoutsTab() {
 
   const renderSwipePicker = (direction, title) => (
     <div>
-      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>{title}</div>
+      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6 }}>{title}</div>
       <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, overflow: 'hidden' }}>
         {swipeOptions.map((option, i) => {
           const active = (swipeActions?.[direction] || (direction === 'left' ? 'archive' : 'markRead')) === option.id;
           return (
             <button
               key={option.id}
+              type="button"
+              aria-pressed={active}
               onClick={() => setSwipeAction(direction, option.id)}
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', gap: 12,
@@ -1739,666 +2069,148 @@ function LayoutsTab() {
 
   return (
     <div>
-      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-        {t('admin.appearance.layout')}
-      </div>
-      <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
-        {t('admin.appearance.layoutDescription')}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
-        {Object.entries(LAYOUTS).map(([key, l]) => {
-          const isActive = layout === key;
-          return (
-            <button
-              key={key}
-              onClick={() => handleSelect(key)}
-              style={{
-                background: isActive ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                border: `2px solid ${isActive ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                borderRadius: 10, padding: '14px', cursor: 'pointer',
-                textAlign: 'left', transition: 'all 0.15s', outline: 'none',
-                display: 'flex', alignItems: 'center', gap: 14,
-              }}
-              onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = 'var(--border)'; }}
-              onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-            >
-              <div style={{ flexShrink: 0 }}>
-                <LayoutDiagram layoutKey={key} layoutConfig={l} active={isActive} />
-              </div>
-
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-                    {t(l.labelKey, l.label)}
-                  </div>
-                  {isActive && (
-                    <div style={{
-                      width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
-                      background: 'var(--accent)', display: 'flex',
-                      alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
-                        <polyline points="20 6 9 17 4 12"/>
-                      </svg>
-                    </div>
-                  )}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, lineHeight: 1.4 }}>
-                  {t(l.descriptionKey, l.description)}
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Message list behaviour */}
-      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
-          {t('admin.messageList.title')}
-        </div>
-
-        <div style={{ marginBottom: 18 }}>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>{t('admin.messageList.scrollingMode')}</div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {[
-              { id: 'infinite',   label: t('admin.messageList.infiniteScroll'), desc: t('admin.messageList.infiniteScrollDesc') },
-              { id: 'paginated',  label: t('admin.messageList.paginated'),       desc: t('admin.messageList.paginatedDesc') },
-            ].map(({ id, label, desc }) => {
-              const active = scrollMode === id;
-              return (
-                <button
-                  key={id}
-                  onClick={() => setScrollMode(id)}
-                  style={{
-                    flex: 1, padding: '10px 12px', textAlign: 'left',
-                    background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                    border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                    borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                  }}
-                  onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                  onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-                >
-                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 18 }}>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-            {scrollMode === 'paginated' ? t('admin.messageList.perPagePaginated') : t('admin.messageList.perPageInfinite')}
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {[25, 50, 100, 200].map(n => {
-              const active = pageSize === n;
-              return (
-                <button
-                  key={n}
-                  onClick={() => setPageSize(n)}
-                  style={{
-                    flex: 1, padding: '7px 4px', fontSize: 13, fontWeight: 500,
-                    background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                    border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                    borderRadius: 7, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                    color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                  }}
-                  onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                  onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-                >
-                  {n}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Hover quick actions */}
-        <div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-            {t('admin.messageList.hoverQuickActionsMode')}
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {[
-              { id: false, label: t('admin.messageList.hoverQuickActionsOff'), desc: t('admin.messageList.hoverQuickActionsOffDesc') },
-              { id: true, label: t('admin.messageList.hoverQuickActionsOn'), desc: t('admin.messageList.hoverQuickActionsOnDesc') },
-            ].map(({ id, label, desc }) => {
-              const active = hoverQuickActions === id;
-              return (
-                <button
-                  key={String(id)}
-                  onClick={() => setHoverQuickActions(id)}
-                  style={{
-                    flex: 1, padding: '10px 12px', textAlign: 'left',
-                    background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                    border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                    borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                  }}
-                  onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                  onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-                >
-                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
-                </button>
-              );
-            })}
-          </div>
-          {/* #440: which actions the cluster shows. Membership only — order stays canonical. */}
-          {hoverQuickActions && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-              {[
-                { id: 'markRead', label: t('admin.messageList.swipeMarkRead') },
-                { id: 'star', label: t('admin.messageList.swipeStar') },
-                { id: 'archive', label: t('admin.messageList.swipeArchive') },
-                { id: 'snooze', label: t('contextMenu.snooze.label') },
-                { id: 'delete', label: t('admin.messageList.swipeDelete') },
-                { id: 'move', label: t('contextMenu.moveToFolder') },
-              ].map(({ id, label }) => {
-                const active = hoverActionSet.includes(id);
-                return (
-                  <button
-                    key={id}
-                    onClick={() => setHoverActionSet(active ? hoverActionSet.filter(k => k !== id) : [...hoverActionSet, id])}
-                    style={{
-                      padding: '6px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
-                      background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                      border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                      color: 'var(--text-primary)', transition: 'all 0.15s', outline: 'none',
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
+      <SettingGroup first title={t('admin.behavior.reading')}>
+        <SettingRow label={t('admin.messageList.markReadBehavior')}>
+          <ChoiceCards value={markReadBehavior} onChange={setMarkReadBehavior} options={[
+            { id: 'immediate', label: t('admin.messageList.markReadImmediate'), desc: t('admin.messageList.markReadImmediateDesc') },
+            { id: 'delay',     label: t('admin.messageList.markReadDelay'),     desc: t('admin.messageList.markReadDelayDesc') },
+            { id: 'manual',    label: t('admin.messageList.markReadManual'),    desc: t('admin.messageList.markReadManualDesc') },
+          ]} />
+          {markReadBehavior === 'delay' && (
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('admin.messageList.markReadDelayLabel')}</span>
+              <select
+                value={markReadDelay}
+                onChange={e => setMarkReadDelay(parseInt(e.target.value))}
+                style={selectStyle}
+              >
+                {[1,2,3,5,10].map(s => (
+                  <option key={s} value={s}>{t('admin.messageList.markReadDelaySeconds', { count: s })}</option>
+                ))}
+              </select>
             </div>
           )}
-        </div>
+        </SettingRow>
 
-        <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-            {t('admin.messageList.showMessagePreviews')}
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {[
-              { id: false, label: t('admin.messageList.previewOff'), desc: t('admin.messageList.previewOffDesc') },
-              { id: true, label: t('admin.messageList.previewOn'), desc: t('admin.messageList.previewOnDesc') },
-            ].map(({ id, label, desc }) => {
-              const active = showMessagePreviews === id;
-              return (
-                <button
-                  key={String(id)}
-                  onClick={() => setShowMessagePreviews(id)}
-                  style={{
-                    flex: 1, padding: '10px 12px', textAlign: 'left',
-                    background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                    border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                    borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                  }}
-                  onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                  onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-                >
-                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-            {t('admin.messageList.gravatarMode')}
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {[
-              { id: false, label: t('admin.messageList.gravatarOff'), desc: t('admin.messageList.gravatarOffDesc') },
-              { id: true, label: t('admin.messageList.gravatarOn'), desc: t('admin.messageList.gravatarOnDesc') },
-            ].map(({ id, label, desc }) => {
-              const active = gravatarAvatars === id;
-              return (
-                <button
-                  key={String(id)}
-                  onClick={() => setGravatarAvatars(id)}
-                  style={{
-                    flex: 1, padding: '10px 12px', textAlign: 'left',
-                    background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                    border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                    borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                  }}
-                  onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                  onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-                >
-                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        {/* What opens after the open message is deleted, archived or moved (#572) */}
+        <SettingRow label={t('admin.messageList.afterRemove')}>
+          <ChoiceCards value={afterRemove} onChange={setAfterRemove} options={[
+            { id: 'next',     label: t('admin.messageList.afterRemoveNext'),     desc: t('admin.messageList.afterRemoveNextDesc') },
+            { id: 'previous', label: t('admin.messageList.afterRemovePrevious'), desc: t('admin.messageList.afterRemovePreviousDesc') },
+            { id: 'list',     label: t('admin.messageList.afterRemoveList'),     desc: t('admin.messageList.afterRemoveListDesc') },
+          ]} />
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-tertiary)' }}>{t('admin.messageList.afterRemoveMobile')}</div>
+        </SettingRow>
 
         {isMobile && (
-          <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-              {t('admin.messageList.mobileAvatarsMode')}
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {[
-                { id: false, label: t('admin.messageList.mobileAvatarsOff'), desc: t('admin.messageList.mobileAvatarsOffDesc') },
-                { id: true, label: t('admin.messageList.mobileAvatarsOn'), desc: t('admin.messageList.mobileAvatarsOnDesc') },
-              ].map(({ id, label, desc }) => {
-                const active = showMobileAvatars === id;
-                return (
-                  <button
-                    key={String(id)}
-                    onClick={() => setShowMobileAvatars(id)}
-                    style={{
-                      flex: 1, padding: '10px 12px', textAlign: 'left',
-                      background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                      border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                      borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                    }}
-                    onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                    onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-                  >
-                    <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        <div style={{ marginTop: 18, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
-            padding: '12px 14px', borderRadius: 8,
-            background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
-          }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-                {t('admin.messageList.senderFavicons')}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                {t('admin.messageList.senderFaviconsDesc')}
-              </div>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={senderFavicons}
-              aria-label={t('admin.messageList.senderFavicons')}
-              disabled={senderFaviconsSaving}
-              onClick={async () => {
-                setSenderFaviconsError('');
-                try { await setSenderFavicons(!senderFavicons); }
-                catch { setSenderFaviconsError(t('admin.messageList.senderFaviconsSaveError')); }
-              }}
-              style={{
-                width: 44, height: 24, borderRadius: 12,
-                background: senderFavicons ? 'var(--accent)' : 'var(--bg-elevated)',
-                border: `1px solid ${senderFavicons ? 'var(--accent)' : 'var(--border)'}`,
-                cursor: senderFaviconsSaving ? 'not-allowed' : 'pointer',
-                position: 'relative', transition: 'all 0.2s', flexShrink: 0,
-                opacity: senderFaviconsSaving ? 0.6 : 1,
-              }}
-            >
-              <span style={{
-                position: 'absolute', top: 3, left: senderFavicons ? 22 : 3,
-                width: 16, height: 16, borderRadius: '50%', background: 'white',
-                transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-              }} />
-            </button>
-          </div>
-          {senderFaviconsError && (
-            <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 8 }}>
-              {senderFaviconsError}
-            </div>
-          )}
-        </div>
-
-        {isMobile && (
-          <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-              {t('admin.messageList.swipeActions')}
-            </div>
+          <SettingRow label={t('admin.messageList.swipeActions')}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14 }}>
               {renderSwipePicker('left', t('admin.messageList.swipeLeft'))}
               {renderSwipePicker('right', t('admin.messageList.swipeRight'))}
             </div>
-          </div>
+          </SettingRow>
         )}
-      </div>
+      </SettingGroup>
 
-      {/* Sync interval */}
-      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('admin.messageList.syncFrequency')}
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
-          {t('admin.messageList.syncFrequencyDesc')}
-        </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {[
-            { value: 15,  label: '15s' },
-            { value: 30,  label: '30s' },
-            { value: 60,  label: '60s' },
-            { value: 120, label: '2 min' },
-          ].map(({ value, label }) => {
-            const active = syncInterval === value;
-            return (
-              <button
-                key={value}
-                onClick={() => setSyncInterval(value)}
-                style={{
-                  flex: 1, padding: '7px 4px', fontSize: 13, fontWeight: 500,
-                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                  borderRadius: 7, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                  color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Folder-structure sync interval */}
-      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('admin.messageList.folderSyncFrequency')}
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
-          {t('admin.messageList.folderSyncFrequencyDesc')}
-        </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {[
-            { value: 900,  label: '15 min' },
-            { value: 1800, label: '30 min' },
-            { value: 3600, label: '1 hour' },
-            { value: 0,    label: t('common.never') },
-          ].map(({ value, label }) => {
-            const active = folderSyncInterval === value;
-            return (
-              <button
-                key={value}
-                onClick={() => setFolderSyncInterval(value)}
-                style={{
-                  flex: 1, padding: '7px 4px', fontSize: 13, fontWeight: 500,
-                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                  borderRadius: 7, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                  color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Threading mode */}
-      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('admin.messageList.threadingMode')}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[
-            { id: 'off',  label: t('admin.messageList.threadingOff'),  desc: t('admin.messageList.threadingOffDesc') },
-            { id: 'list', label: t('admin.messageList.threadingOn'),   desc: t('admin.messageList.threadingOnDesc') },
-            { id: 'pane', label: t('admin.messageList.threadingPane'), desc: t('admin.messageList.threadingPaneDesc') },
-          ].map(({ id, label, desc }) => {
-            const active = conversationMode === id;
-            return (
-              <button
-                key={id}
-                onClick={() => setConversationMode(id)}
-                style={{
-                  flex: 1, padding: '10px 12px', textAlign: 'left',
-                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                  borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <label style={{ display: 'flex', gap: 10, marginTop: 22, alignItems: 'center', fontSize: 13 }}>
-        <input type="checkbox" checked={autoOpenReplyDrafts} onChange={event => setAutoOpenReplyDrafts(event.target.checked)} />
-        <span>{t('admin.messageList.autoOpenReplyDrafts', 'Automatically open saved replies when selecting inbox messages')}</span>
-      </label>
-
-      {/* Compose format */}
-      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('admin.messageList.composeFormat')}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[
-            { id: false, label: t('admin.messageList.composeRichText'),  desc: t('admin.messageList.composeRichTextDesc') },
-            { id: true,  label: t('admin.messageList.composePlainText'), desc: t('admin.messageList.composePlainTextDesc') },
-          ].map(({ id, label, desc }) => {
-            const active = plaintextEmail === id;
-            return (
-              <button
-                key={String(id)}
-                onClick={() => setPlaintextEmail(id)}
-                style={{
-                  flex: 1, padding: '10px 12px', textAlign: 'left',
-                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                  borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Default sender (#417) */}
-      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('admin.messageList.defaultSender')}
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 10 }}>
-          {t('admin.messageList.defaultSenderDesc')}
-        </div>
-        <select
-          // A default can outlive the account or alias it names. Showing '' rather than an
-          // unmatched value keeps the control honest: it reflects what the composer will
-          // actually do, which is fall back to last-used.
-          value={isValidFromValue(defaultSender, accounts) ? defaultSender : ''}
-          onChange={e => setDefaultSender(e.target.value)}
-          style={{
-            width: '100%', maxWidth: 420, padding: '8px 10px', borderRadius: 8,
-            background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-            color: 'var(--text-primary)', fontSize: 12, cursor: 'pointer', outline: 'none',
-          }}
-        >
-          <option value="">{t('admin.messageList.defaultSenderLastUsed')}</option>
-          {accounts.map(acc => [
-            <option key={acc.id} value={`account:${acc.id}`}>
-              {acc.sender_name ? `${acc.sender_name} <${acc.email_address}>` : acc.email_address}
-            </option>,
-            ...(acc.aliases || []).map(al => (
-              <option key={al.id} value={`alias:${al.id}:${acc.id}`}>
-                {`\u00a0\u00a0${al.name ? `${al.name} <${al.email}>` : al.email}`}
-              </option>
-            )),
-          ])}
-        </select>
-      </div>
-
-      {/* Default reply action */}
-      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('admin.messageList.defaultReplyAction')}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[
+      <SettingGroup title={t('admin.behavior.writing')}>
+        <SettingRow label={t('admin.messageList.defaultReplyAction')}>
+          <ChoiceCards value={replyDefault} onChange={setReplyDefault} options={[
             { id: 'reply',    label: t('admin.messageList.defaultReply'),    desc: t('admin.messageList.defaultReplyDesc') },
             { id: 'replyAll', label: t('admin.messageList.defaultReplyAll'), desc: t('admin.messageList.defaultReplyAllDesc') },
-          ].map(({ id, label, desc }) => {
-            const active = replyDefault === id;
-            return (
-              <button
-                key={id}
-                onClick={() => setReplyDefault(id)}
-                style={{
-                  flex: 1, padding: '10px 12px', textAlign: 'left',
-                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                  borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+          ]} />
+        </SettingRow>
 
-      {/* What opens after the open message is deleted, archived or moved (#572) */}
-      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('admin.messageList.afterRemove')}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[
-            { id: 'next',     label: t('admin.messageList.afterRemoveNext'),     desc: t('admin.messageList.afterRemoveNextDesc') },
-            { id: 'previous', label: t('admin.messageList.afterRemovePrevious'), desc: t('admin.messageList.afterRemovePreviousDesc') },
-            { id: 'list',     label: t('admin.messageList.afterRemoveList'),     desc: t('admin.messageList.afterRemoveListDesc') },
-          ].map(({ id, label, desc }) => {
-            const active = afterRemove === id;
-            return (
-              <button
-                key={id}
-                onClick={() => setAfterRemove(id)}
-                aria-pressed={active}
-                style={{
-                  flex: 1, padding: '10px 12px', textAlign: 'left',
-                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                  borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
-              </button>
-            );
-          })}
-        </div>
-        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-tertiary)' }}>{t('admin.messageList.afterRemoveMobile')}</div>
-      </div>
+        <SettingRow label={t('admin.messageList.composeFormat')}>
+          <ChoiceCards value={plaintextEmail} onChange={setPlaintextEmail} options={[
+            { id: false, label: t('admin.messageList.composeRichText'),  desc: t('admin.messageList.composeRichTextDesc') },
+            { id: true,  label: t('admin.messageList.composePlainText'), desc: t('admin.messageList.composePlainTextDesc') },
+          ]} />
+        </SettingRow>
 
-      {/* Mark as read behaviour */}
-      <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {t('admin.messageList.markReadBehavior')}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[
-            { id: 'immediate', label: t('admin.messageList.markReadImmediate'), desc: t('admin.messageList.markReadImmediateDesc') },
-            { id: 'delay',     label: t('admin.messageList.markReadDelay'),     desc: t('admin.messageList.markReadDelayDesc') },
-            { id: 'manual',    label: t('admin.messageList.markReadManual'),    desc: t('admin.messageList.markReadManualDesc') },
-          ].map(({ id, label, desc }) => {
-            const active = markReadBehavior === id;
-            return (
-              <button
-                key={id}
-                onClick={() => setMarkReadBehavior(id)}
-                style={{
-                  flex: 1, padding: '10px 12px', textAlign: 'left',
-                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                  borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{desc}</div>
-              </button>
-            );
-          })}
-        </div>
-        {markReadBehavior === 'delay' && (
-          <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('admin.messageList.markReadDelayLabel')}</span>
-            <select
-              value={markReadDelay}
-              onChange={e => setMarkReadDelay(parseInt(e.target.value))}
-              style={{
-                background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-                borderRadius: 6, padding: '4px 8px', color: 'var(--text-primary)',
-                fontSize: 12, outline: 'none', cursor: 'pointer',
-              }}
-            >
-              {[1,2,3,5,10].map(s => (
-                <option key={s} value={s}>{t('admin.messageList.markReadDelaySeconds', { count: s })}</option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
+        {/* Default sender (#417) */}
+        <SettingRow label={t('admin.messageList.defaultSender')} desc={t('admin.messageList.defaultSenderDesc')}>
+          <select
+            // A default can outlive the account or alias it names. Showing '' rather than an
+            // unmatched value keeps the control honest: it reflects what the composer will
+            // actually do, which is fall back to last-used.
+            value={isValidFromValue(defaultSender, accounts) ? defaultSender : ''}
+            onChange={e => setDefaultSender(e.target.value)}
+            style={{ ...selectStyle, width: '100%', maxWidth: 420 }}
+          >
+            <option value="">{t('admin.messageList.defaultSenderLastUsed')}</option>
+            {accounts.map(acc => [
+              <option key={acc.id} value={`account:${acc.id}`}>
+                {acc.sender_name ? `${acc.sender_name} <${acc.email_address}>` : acc.email_address}
+              </option>,
+              ...(acc.aliases || []).map(al => (
+                <option key={al.id} value={`alias:${al.id}:${acc.id}`}>
+                  {`\u00a0\u00a0${al.name ? `${al.name} <${al.email}>` : al.email}`}
+                </option>
+              )),
+            ])}
+          </select>
+        </SettingRow>
+
+        <ToggleRow
+          label={t('admin.messageList.autoOpenReplyDrafts', 'Automatically open saved replies when selecting inbox messages')}
+          checked={autoOpenReplyDrafts}
+          onChange={setAutoOpenReplyDrafts}
+        />
+      </SettingGroup>
+
+      <SettingGroup title={t('admin.behavior.sync')}>
+        <SettingRow label={t('admin.messageList.syncFrequency')} desc={t('admin.messageList.syncFrequencyDesc')}>
+          <ChoiceChips
+            isActive={v => syncInterval === v}
+            onSelect={setSyncInterval}
+            options={[
+              { value: 15,  label: '15s' },
+              { value: 30,  label: '30s' },
+              { value: 60,  label: '60s' },
+              { value: 120, label: '2 min' },
+            ]}
+          />
+        </SettingRow>
+
+        <SettingRow label={t('admin.messageList.folderSyncFrequency')} desc={t('admin.messageList.folderSyncFrequencyDesc')}>
+          <ChoiceChips
+            isActive={v => folderSyncInterval === v}
+            onSelect={setFolderSyncInterval}
+            options={[
+              { value: 900,  label: '15 min' },
+              { value: 1800, label: '30 min' },
+              { value: 3600, label: '1 hour' },
+              { value: 0,    label: t('common.never') },
+            ]}
+          />
+        </SettingRow>
+      </SettingGroup>
 
       {typeof navigator !== 'undefined' && 'registerProtocolHandler' in navigator && (
-        <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-            {t('admin.messageList.defaultMailApp')}
+        <SettingGroup title={t('admin.messageList.defaultMailApp')} desc={t('admin.messageList.defaultMailAppDesc')}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            <button
+              type="button"
+              onClick={registerMailtoHandler}
+              style={{
+                height: CHIP_HEIGHT, padding: '0 14px', background: 'var(--accent)', color: 'var(--accent-text)',
+                border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500,
+              }}
+            >
+              {t('admin.messageList.defaultMailAppBtn')}
+            </button>
+            {mailtoStatus === 'ok' && (
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                {t('admin.messageList.defaultMailAppOk')}
+              </span>
+            )}
+            {mailtoStatus === 'error' && (
+              <span style={{ fontSize: 12, color: 'var(--red)' }}>
+                {t('admin.messageList.defaultMailAppError')}
+              </span>
+            )}
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 12 }}>
-            {t('admin.messageList.defaultMailAppDesc')}
-          </div>
-          <button
-            onClick={registerMailtoHandler}
-            style={{
-              padding: '8px 14px', background: 'var(--accent)', color: 'var(--accent-text)',
-              border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500,
-            }}
-          >
-            {t('admin.messageList.defaultMailAppBtn')}
-          </button>
-          {mailtoStatus === 'ok' && (
-            <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--text-secondary)' }}>
-              {t('admin.messageList.defaultMailAppOk')}
-            </span>
-          )}
-          {mailtoStatus === 'error' && (
-            <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--red)' }}>
-              {t('admin.messageList.defaultMailAppError')}
-            </span>
-          )}
-        </div>
+        </SettingGroup>
       )}
     </div>
   );
@@ -2489,7 +2301,7 @@ function CardDavCard() {
                 <div style={{ marginTop: 4 }}>
                   {t('admin.integrations.carddav.summary', { contacts: status.contactCount ?? 0, books: status.bookCount ?? 0 })}
                   {' · '}
-                  {t('admin.integrations.carddav.lastSync', { when: status.lastSyncAt ? new Date(status.lastSyncAt).toLocaleString() : t('common.never') })}
+                  {t('admin.integrations.carddav.lastSync', { when: status.lastSyncAt ? formatDateTime(status.lastSyncAt) : t('common.never') })}
                 </div>
                 {status.lastError && (
                   <div style={{ marginTop: 4, color: 'var(--red, #f87171)' }}>{t('admin.integrations.carddav.syncFailed', { error: status.lastError })}</div>
@@ -4499,7 +4311,7 @@ function AISection() {
                       {cancelling ? t('admin.ai.cancelling') : t('common.cancel')}
                     </button>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>{t('admin.ai.deviceExpires', { time: new Date(pendingDevice.expiresAt).toLocaleTimeString() })}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>{t('admin.ai.deviceExpires', { time: formatTime(pendingDevice.expiresAt) })}</div>
                 </div>
               )}
             </div>
@@ -5305,11 +5117,11 @@ function UsersAndInvitesPanel() {
                 )}
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
-                {t('admin.users.joined', { date: new Date(u.created_at).toLocaleDateString() })}
+                {t('admin.users.joined', { date: formatDay(u.created_at) })}
               </div>
               {/* Last request, not last login: sessions roll, so a daily user rarely logs in. */}
               <div
-                title={u.lastSeenAt ? new Date(u.lastSeenAt).toLocaleString() : undefined}
+                title={u.lastSeenAt ? formatDateTime(u.lastSeenAt) : undefined}
                 style={{
                   fontSize: 11, marginTop: 1,
                   color: u.lastSeenAt && daysSince(u.lastSeenAt) > 90 ? 'var(--amber)' : 'var(--text-tertiary)',
@@ -5510,7 +5322,7 @@ function UsersAndInvitesPanel() {
                       {inv.email}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
-                      {t('admin.users.inviteExpires', { date: new Date(inv.expires_at).toLocaleDateString() })}
+                      {t('admin.users.inviteExpires', { date: formatDay(inv.expires_at) })}
                     </div>
                   </div>
                   <button
@@ -5560,8 +5372,8 @@ function UsersAndInvitesPanel() {
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
                     {inv.used_at
-                      ? t('admin.users.inviteUsedBy', { username: inv.used_by_username || 'unknown', date: new Date(inv.used_at).toLocaleDateString() })
-                      : t('admin.users.inviteExpired', { date: new Date(inv.expires_at).toLocaleDateString() })}
+                      ? t('admin.users.inviteUsedBy', { username: inv.used_by_username || 'unknown', date: formatDay(inv.used_at) })
+                      : t('admin.users.inviteExpired', { date: formatDay(inv.expires_at) })}
                   </div>
                 </div>
                 <IconBtn onClick={() => handleRevokeInvite(inv.id)} title={t('admin.users.inviteDelete')} danger>
@@ -6527,7 +6339,7 @@ function RulesTab() {
   function actionSummary(rule) {
     const acts = Array.isArray(rule.actions) ? rule.actions : [];
     if (!acts.length) return '—';
-    const labels = { mark_read: t('admin.rules.actionMarkRead'), star: t('admin.rules.actionStar'), forward: t('admin.rules.actionForward'), archive: t('admin.rules.actionArchive'), delete: t('admin.rules.actionDelete'), move: t('admin.rules.actionMove'), set_category: t('admin.rules.actionSetCategory') };
+    const labels = { mark_read: t('admin.rules.actionMarkRead'), star: t('admin.rules.actionStar'), forward: t('admin.rules.actionForward'), archive: t('admin.rules.actionArchive'), delete: t('admin.rules.actionDelete'), move: t('admin.rules.actionMove'), set_category: t('admin.rules.actionSetCategory'), notify: t('admin.rules.actionNotify') };
     // Show the move destination and the category so same-named rules are tellable apart at a glance.
     return acts.map(a => {
       if (a.type === 'move' && a.value) return `${labels.move} → ${a.value}`;
@@ -6562,6 +6374,7 @@ function RulesTab() {
     { type: 'delete',    label: t('admin.rules.actionDelete') },
     { type: 'move',      label: t('admin.rules.actionMove') },
     { type: 'set_category', label: t('admin.rules.actionSetCategory') },
+    { type: 'notify',    label: t('admin.rules.actionNotify') },
   ];
 
   if (formMode) {
@@ -6770,6 +6583,11 @@ function RulesTab() {
                     />
                   );
                 })()}
+                {type === 'notify' && (
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginLeft: 22, marginTop: 2 }}>
+                    {t('admin.rules.actionNotifyHint')}
+                  </div>
+                )}
                 {type === 'set_category' && checked && (
                   <select
                     aria-label={t('admin.rules.actionSetCategory')}
@@ -7102,21 +6920,44 @@ function MailboxCleanupTab() {
 
   useEffect(() => { if (accountId) load(accountId); }, [accountId, load]);
 
-  const cleanupSender = async (s) => {
+  // Senders ticked for a batch run; keyed by fromEmail. Only ever read through
+  // `selectedSenders`, so senders that vanish after a refresh drop out on their own.
+  const [selected, setSelected] = useState(() => new Set());
+  const senders = data?.tier1Senders || [];
+  const selectedSenders = senders.filter(s => selected.has(s.fromEmail));
+  const allSelected = senders.length > 0 && selectedSenders.length === senders.length;
+  // The row-button busy marker for a batch run; not a valid fromEmail, so no row matches it.
+  const BATCH = '*';
+  useEffect(() => { setSelected(new Set()); }, [accountId]);
+
+  const toggleSender = (email) => setSelected(prev => {
+    const next = new Set(prev);
+    if (!next.delete(email)) next.add(email);
+    return next;
+  });
+
+  // One confirm and one progress bar for the whole list; each sender is still resolved server-side
+  // (own account, INBOX, exact sender) and moved in <=500-id batches, in sequence.
+  const cleanupSenders = async (list) => {
     const isArchive = action === 'archive';
-    const label = s.fromName ? `${s.fromName} <${s.fromEmail}>` : s.fromEmail;
+    const labelOf = (s) => (s.fromName ? `${s.fromName} <${s.fromEmail}>` : s.fromEmail);
+    const shown = list.slice(0, 3).map(labelOf).join(', ');
+    const label = list.length > 3 ? `${shown} +${list.length - 3}` : shown;
+    const grandTotal = list.reduce((n, s) => n + s.count, 0);
     const confirmKey = isArchive ? 'admin.cleanup.confirmArchive' : 'admin.cleanup.confirm';
-    if (!window.confirm(t(confirmKey, { count: s.count, sender: label }))) return;
-    setBusySender(s.fromEmail); setError(''); setProgress({ done: 0, total: s.count });
+    if (!window.confirm(t(confirmKey, { count: grandTotal, sender: label }))) return;
+    setBusySender(list.length === 1 ? list[0].fromEmail : BATCH); setError(''); setProgress({ done: 0, total: grandTotal });
     try {
-      const { ids } = await api.cleanupPreview(accountId, s.fromEmail);
       const runBatch = isArchive ? api.bulkArchive : api.bulkDelete;
       let done = 0;
-      for (let i = 0; i < ids.length; i += 500) {
-        const batch = ids.slice(i, i + 500);
-        await runBatch(batch);
-        done += batch.length;
-        setProgress({ done, total: ids.length });
+      for (const s of list) {
+        const { ids } = await api.cleanupPreview(accountId, s.fromEmail);
+        for (let i = 0; i < ids.length; i += 500) {
+          const batch = ids.slice(i, i + 500);
+          await runBatch(batch);
+          done += batch.length;
+          setProgress({ done, total: grandTotal });
+        }
       }
     } catch (e) { setError(e.message); }
     finally {
@@ -7138,7 +6979,7 @@ function MailboxCleanupTab() {
 
       {accounts.length > 1 && (
         <Field label={t('admin.cleanup.account')}>
-          <select value={accountId} onChange={e => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
+          <select value={accountId} disabled={!!busySender} onChange={e => setAccountId(e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
             {accounts.map(a => <option key={a.id} value={a.id}>{a.email_address}</option>)}
           </select>
         </Field>
@@ -7193,8 +7034,44 @@ function MailboxCleanupTab() {
             <div style={muted}>{t('admin.cleanup.noneFound')}</div>
           ) : (
             <div style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 4px', borderBottom: '1px solid var(--border-subtle)' }}>
+                <input
+                  type="checkbox"
+                  id="cleanup-select-all"
+                  checked={allSelected}
+                  disabled={!!busySender}
+                  onChange={() => setSelected(allSelected ? new Set() : new Set(senders.map(s => s.fromEmail)))}
+                />
+                <label htmlFor="cleanup-select-all" style={{ ...muted, flex: 1, cursor: 'pointer' }}>
+                  {t(allSelected ? 'messageList.deselectAll' : 'messageList.selectAll')}
+                </label>
+                <button
+                  type="button"
+                  disabled={!!busySender || selectedSenders.length === 0}
+                  onClick={() => cleanupSenders(selectedSenders)}
+                  style={{
+                    flexShrink: 0, padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 500,
+                    border: '1px solid var(--border)',
+                    cursor: (busySender || selectedSenders.length === 0) ? 'not-allowed' : 'pointer',
+                    background: action === 'archive' ? 'var(--accent)' : 'var(--amber, #d97706)',
+                    color: action === 'archive' ? 'var(--accent-text, white)' : 'white',
+                    opacity: selectedSenders.length === 0 || (busySender && busySender !== BATCH) ? 0.5 : 1,
+                  }}
+                >
+                  {busySender === BATCH && progress
+                    ? `${progress.done.toLocaleString()}/${progress.total.toLocaleString()}`
+                    : `${t(action === 'archive' ? 'admin.cleanup.archive' : 'admin.cleanup.moveToTrash')} (${selectedSenders.length})`}
+                </button>
+              </div>
               {data.tier1Senders.map(s => (
                 <div key={s.fromEmail} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 4px', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <input
+                    type="checkbox"
+                    checked={selected.has(s.fromEmail)}
+                    disabled={!!busySender}
+                    onChange={() => toggleSender(s.fromEmail)}
+                    aria-label={s.fromName || s.fromEmail}
+                  />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.fromName || s.fromEmail}</div>
                     {s.fromName && <div style={{ ...muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.fromEmail}</div>}
@@ -7203,7 +7080,7 @@ function MailboxCleanupTab() {
                   <button
                     type="button"
                     disabled={!!busySender}
-                    onClick={() => cleanupSender(s)}
+                    onClick={() => cleanupSenders([s])}
                     style={{
                       flexShrink: 0, padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 500,
                       border: '1px solid var(--border)', cursor: busySender ? 'not-allowed' : 'pointer',
@@ -7244,21 +7121,17 @@ function MailboxCleanupTab() {
 }
 
 const TAB_GROUPS = [
-  { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup', 'antispam'] },
-  { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
-  { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'integrations', 'ai', 'ai-actions', 'plugins'] },
+  { id: 'mail', labelKey: 'admin.tabs.groupMail', tabIds: ['accounts', 'rules', 'categories', 'antispam', 'cleanup'] },
+  { id: 'preferences', labelKey: 'admin.tabs.groupPreferences', tabIds: ['appearance', 'behavior', 'notifications', 'shortcuts', 'security'] },
+  { id: 'ai-extensions', labelKey: 'admin.tabs.groupAiExtensions', tabIds: ['ai-actions', 'ai', 'integrations', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso', 'backup'] },
 ];
 
 const TABS = [
-  // Account & Mail
+  // Mail
   {
     id: 'accounts', labelKey: 'admin.tabs.accounts',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>,
-  },
-  {
-    id: 'notifications', labelKey: 'admin.tabs.notifications',
-    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg>,
   },
   {
     id: 'rules', labelKey: 'admin.tabs.rules',
@@ -7269,31 +7142,39 @@ const TABS = [
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
   },
   {
-    id: 'cleanup', labelKey: 'admin.tabs.cleanup', beta: true,
-    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M19 3l-6 6"/><path d="M14 4l6 6"/><path d="M11 8l-7 7c-1 1-1 3 0 4s3 1 4 0l7-7"/><path d="M6 20l-3-3"/></svg>,
-  },
-  {
     id: 'antispam', labelKey: 'admin.tabs.antispam',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14z"/><path d="M5 15l.6 1.8L7.5 17l-1.9.7L5 19.5l-.6-1.8L2.5 17l1.9-.7L5 15z"/></svg>,
   },
-  // Display
+  {
+    id: 'cleanup', labelKey: 'admin.tabs.cleanup', beta: true,
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M19 3l-6 6"/><path d="M14 4l6 6"/><path d="M11 8l-7 7c-1 1-1 3 0 4s3 1 4 0l7-7"/><path d="M6 20l-3-3"/></svg>,
+  },
+  // Preferences
   {
     id: 'appearance', labelKey: 'admin.tabs.appearance',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
+  },
+  {
+    id: 'behavior', labelKey: 'admin.tabs.behavior',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>,
+  },
+  {
+    id: 'notifications', labelKey: 'admin.tabs.notifications',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg>,
   },
   {
     id: 'shortcuts', labelKey: 'admin.tabs.shortcuts',
     mobileHidden: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="2" y="7" width="6" height="4" rx="1"/><rect x="9" y="7" width="6" height="4" rx="1"/><rect x="16" y="7" width="6" height="4" rx="1"/><rect x="2" y="13" width="9" height="4" rx="1"/><rect x="13" y="13" width="9" height="4" rx="1"/></svg>,
   },
-  // Security & Integrations
   {
     id: 'security', labelKey: 'admin.tabs.security',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
   },
+  // AI & Extensions
   {
-    id: 'integrations', labelKey: 'admin.tabs.integrations',
-    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="3"/><path d="M6.343 6.343a8 8 0 000 11.314M17.657 6.343a8 8 0 010 11.314M3 12h1m16 0h1M12 3v1m0 16v1"/></svg>,
+    id: 'ai-actions', labelKey: 'admin.tabs.aiActions',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M15 9h.01M17.8 6.2 19 5M3 21l9-9M12.2 6.2 11 5"/></svg>,
   },
   {
     id: 'ai', labelKey: 'admin.tabs.ai',
@@ -7301,14 +7182,14 @@ const TABS = [
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4M19 17v4M3 5h4M17 19h4"/></svg>,
   },
   {
-    id: 'ai-actions', labelKey: 'admin.tabs.aiActions',
-    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M15 9h.01M17.8 6.2 19 5M3 21l9-9M12.2 6.2 11 5"/></svg>,
+    id: 'integrations', labelKey: 'admin.tabs.integrations',
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="3"/><path d="M6.343 6.343a8 8 0 000 11.314M17.657 6.343a8 8 0 010 11.314M3 12h1m16 0h1M12 3v1m0 16v1"/></svg>,
   },
   {
     id: 'plugins', labelKey: 'admin.tabs.plugins', beta: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3v6M18 3v6M6 21v-6M18 21v-6M4 9h16v3a6 6 0 01-6 6h-4a6 6 0 01-6-6V9z"/></svg>,
   },
-  // Admin
+  // Administration
   {
     id: 'users', labelKey: 'admin.tabs.users',
     adminOnly: true,
@@ -8597,7 +8478,7 @@ function SecurityTab() {
                   {authEvents.map(ev => (
                     <tr key={ev.id} style={{ borderBottom: '1px solid var(--border-subtle, var(--border))' }}>
                       <td style={{ padding: '6px 8px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                        {new Date(ev.created_at).toLocaleString()}
+                        {formatDateTime(ev.created_at)}
                       </td>
                       <td style={{ padding: '6px 8px', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
                         {eventLabel(ev.event_type)}
@@ -8751,6 +8632,7 @@ function LinkedIdentitiesSection() {
 function makeSearchIndex(t) {
   const tabLabel = (id) => t(`admin.tabs.${id}`);
   const layoutCrumb = `${tabLabel('appearance')} › ${t('admin.appearance.layout')}`;
+  const behaviorCrumb = tabLabel('behavior');
   const fontsCrumb = `${tabLabel('appearance')} › ${tabLabel('fontsAndLanguage')}`;
   const secCrumb = `${tabLabel('security')} › ${tabLabel('security')}`;
   const privCrumb = `${tabLabel('security')} › ${tabLabel('privacy')}`;
@@ -8769,20 +8651,23 @@ function makeSearchIndex(t) {
     { label: t('admin.appearance.layout'), keywords: ['layout', 'pane', 'split', 'preview', 'reading pane', 'side by side', 'stacked'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.scrollingMode'), keywords: ['scroll', 'infinite', 'paginated', 'pagination', 'pages'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.perPagePaginated'), keywords: ['per page', 'batch', 'messages per page', 'count', '25', '50', '100', '200', 'page size'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
-    { label: t('admin.messageList.hoverQuickActionsMode'), keywords: ['hover', 'quick actions', 'hover buttons', 'row actions'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
+    { label: t('admin.messageList.hoverQuickActionsMode'), keywords: ['hover', 'quick actions', 'hover buttons', 'row actions'], tab: 'appearance', subtab: 'layout', mobileHidden: true, breadcrumb: layoutCrumb },
     {
       label: t('admin.messageList.senderFavicons'),
       keywords: ['sender', 'favicon', 'avatar', 'contact photo', 'website icon', 'logo'],
       tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb,
     },
-    { label: t('admin.messageList.swipeActions'), keywords: ['swipe', 'gesture', 'mobile', 'swipe left', 'swipe right', 'touch'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
-    { label: t('admin.messageList.syncFrequency'), keywords: ['sync', 'interval', 'frequency', 'refresh', 'poll', 'check mail', '15s', '30s', '60s'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
-    { label: t('admin.messageList.folderSyncFrequency'), keywords: ['folder', 'sync', 'structure', 'list', 'refresh', 'mailbox', '15 min', '30 min', '1 hour', 'never'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     { label: t('admin.messageList.threadingMode'), keywords: ['thread', 'conversation', 'grouping', 'threading', 'group'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
-    { label: t('admin.messageList.composeFormat'), keywords: ['compose', 'format', 'rich text', 'plain text', 'html', 'editor'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
-    { label: t('admin.messageList.defaultReplyAction'), keywords: ['reply', 'reply all', 'default reply'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
-    { label: t('admin.messageList.afterRemove'), keywords: ['next message', 'auto advance', 'after delete', 'after archive', 'open next', 'previous message'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
-    { label: t('admin.messageList.markReadBehavior'), keywords: ['mark read', 'mark as read', 'read delay', 'auto read', 'manual read', 'unread'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
+    // Behavior
+    { label: t('admin.messageList.swipeActions'), keywords: ['swipe', 'gesture', 'mobile', 'swipe left', 'swipe right', 'touch'], tab: 'behavior', breadcrumb: behaviorCrumb },
+    { label: t('admin.messageList.syncFrequency'), keywords: ['sync', 'interval', 'frequency', 'refresh', 'poll', 'check mail', '15s', '30s', '60s'], tab: 'behavior', breadcrumb: behaviorCrumb },
+    { label: t('admin.messageList.folderSyncFrequency'), keywords: ['folder', 'sync', 'structure', 'list', 'refresh', 'mailbox', '15 min', '30 min', '1 hour', 'never'], tab: 'behavior', breadcrumb: behaviorCrumb },
+    { label: t('admin.messageList.composeFormat'), keywords: ['compose', 'format', 'rich text', 'plain text', 'html', 'editor'], tab: 'behavior', breadcrumb: behaviorCrumb },
+    { label: t('admin.messageList.defaultReplyAction'), keywords: ['reply', 'reply all', 'default reply'], tab: 'behavior', breadcrumb: behaviorCrumb },
+    { label: t('admin.messageList.afterRemove'), keywords: ['next message', 'auto advance', 'after delete', 'after archive', 'open next', 'previous message'], tab: 'behavior', breadcrumb: behaviorCrumb },
+    { label: t('admin.messageList.markReadBehavior'), keywords: ['mark read', 'mark as read', 'read delay', 'auto read', 'manual read', 'unread'], tab: 'behavior', breadcrumb: behaviorCrumb },
+    { label: t('admin.messageList.defaultSender'), keywords: ['from', 'sender', 'default sender', 'send from', 'alias', 'identity'], tab: 'behavior', breadcrumb: behaviorCrumb },
+    { label: t('admin.messageList.defaultMailApp'), keywords: ['mailto', 'default app', 'default email', 'protocol handler', 'links'], tab: 'behavior', breadcrumb: behaviorCrumb },
     // Appearance > Fonts & Language
     { label: t('admin.appearance.language'), keywords: ['language', 'locale', 'french', 'english', 'spanish', 'german', 'deutsch', 'russian', 'chinese', 'italian', 'czech', 'čeština', 'portuguese', 'português', 'brasil', 'korean', '한국어', 'français', 'español'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     { label: t('admin.appearance.fontSize'), keywords: ['font size', 'text size', 'zoom', 'scale', 'accessibility', 'larger text'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
@@ -8937,6 +8822,7 @@ export default function AdminPanel() {
       {adminTab === 'sso' && <SSOTab />}
       {adminTab === 'backup' && <BackupSettings />}
       {adminTab === 'security' && <SecurityPrivacyTab initialSubTab={pendingSubTab} />}
+      {adminTab === 'behavior' && <BehaviorTab />}
       {adminTab === 'notifications' && <NotificationsTab />}
       {adminTab === 'shortcuts' && !isMobile && <ShortcutsTab />}
       {adminTab === 'ai' && <AISection />}

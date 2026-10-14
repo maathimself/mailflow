@@ -84,12 +84,16 @@ test('nor the settings held only in memory', () => {
     blockRemoteImages: false, imageWhitelist: { addresses: ['sender@example.invalid'], domains: [] },
     hiddenFolders: { 'acct-a': ['HR'] }, shortcuts: { archive: 'z' }, autoLockMinutes: 5,
     categorizationEnabled: true, gtdPetSlug: 'cat',
-    autoOpenReplyDrafts: true, afterRemove: 'list', darkEmailBodies: true,
+    autoOpenReplyDrafts: true, afterRemove: 'list', darkEmailBodies: false,
   };
   useStore.setState(settings);
   sessionExpires();
   s().setUser({ id: 'bob' });
   assertDefaults(settings);
+});
+
+test('dark email bodies start on, for whoever has not chosen', () => {
+  assert.equal(useStore.getInitialState().darkEmailBodies, true);
 });
 
 test('updating the signed-in user keeps their compose and mailbox', () => {

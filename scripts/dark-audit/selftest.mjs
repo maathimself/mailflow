@@ -63,6 +63,12 @@ export const FIXTURES = {
   // must not show it, and recolors instead.
   brokenSenderDark: '<style>@media (prefers-color-scheme: dark) { .card { background: #111111 !important; } }</style>'
     + `<div class="card" style="background:#ffffff;${CARD}"><p style="color:#222222 !important">This line keeps its dark inline color in the sender design.</p></div>`,
+  // A sender dark design that darkens its card and leaves the gray frame around it as sent
+  // (Travelers): readable, but half the email stays light, so MailFlow recolors instead.
+  halfDarkSender: '<style>@media (prefers-color-scheme: dark) { .card { background: #272a2d !important; color: #ffffff !important; } }</style>'
+    + '<table width="100%" bgcolor="#dadadb" cellpadding="0" cellspacing="0"><tr><td style="padding:60px 140px">'
+    + `<div class="card" style="background:#ffffff;color:#222222;${CARD}">A card the sender darkens inside a gray frame it leaves light.</div>`
+    + '</td></tr></table>',
   // Colored text and a pale colored callout keep their hues.
   colors: '<p style="color:#d32f2f">Red warning text that should stay red.</p>'
     + '<p style="color:#1565c0">Blue informational text that should stay blue.</p>'
@@ -162,6 +168,11 @@ export async function runSelftest() {
 
     assert.equal(auto('senderDark').outcome, 'sender', "the sender's design is preferred");
     assert.ok(auto('senderDark').bright < 0.05);
+
+    assert.equal(m('halfDarkSender', 'sender').verdict, 'clean', 'the half-dark design reads');
+    assert.ok(m('halfDarkSender', 'sender').bright > 0.25, `it leaves the frame light: ${m('halfDarkSender', 'sender').bright}`);
+    assert.equal(auto('halfDarkSender').outcome, 'recolor', 'a sender design that leaves much light gives way to recoloring');
+    assert.ok(auto('halfDarkSender').bright < 0.05, `recolored, the frame is dark too: ${auto('halfDarkSender').bright}`);
 
     assert.equal(m('brokenSenderDark', 'sender').verdict, 'broken', 'the broken design is caught');
     assert.deepEqual(auto('brokenSenderDark').attempts.map(a => [a.kind, a.verdict]), [['sender', 'broken'], ['recolor', 'clean']]);

@@ -18,6 +18,8 @@ import { safeFetch } from '../services/safeFetch.js';
 
 const MSG_ID = '4d479e4f-9b21-4013-9c07-3fbc35f275b1';
 const PIXEL = '<p>Hi</p><img src="//tracker.example/p.gif" width="1" height="1">';
+// An ordinary image beside the pixel: allowed, the image loads through the proxy, the pixel never.
+const PHOTO = '<p>Hi</p><img src="//img.example/photo.jpg" width="600" height="300"><img src="//tracker.example/p.gif" width="1" height="1">';
 // Nothing cached (no HTML and no text) sends the route to the mail server.
 const row = (body_html, preferences = {}) => ({
   id: MSG_ID, account_id: 'acct-1', uid: 42, folder: 'INBOX', body_html,
@@ -60,27 +62,38 @@ describe('GET /messages/:id/body and blocked remote images', () => {
 
   // Allowed images load through the image proxy: the sender's server never sees the reader.
   it('proxies images that were asked for, allowed, or from an allowed sender', async () => {
-    const proxied = `/api/mail/messages/${MSG_ID}/image?u=%2F%2Ftracker.example%2Fp.gif`;
-    query.mockResolvedValue({ rows: [row(PIXEL)] });
+    const proxied = `/api/mail/messages/${MSG_ID}/image?u=%2F%2Fimg.example%2Fphoto.jpg`;
+    query.mockResolvedValue({ rows: [row(PHOTO)] });
     const asked = await get('?remoteImages=1');
     expect(asked.remoteImagesBlocked).toBe(false);
     expect(asked.remoteImagesProxied).toBe(true);
     expect(asked.html).toContain(`src="${proxied}"`);
-    query.mockResolvedValue({ rows: [row(PIXEL, { blockRemoteImages: false })] });
+    query.mockResolvedValue({ rows: [row(PHOTO, { blockRemoteImages: false })] });
     expect((await get()).html).toContain(proxied);
-    query.mockResolvedValue({ rows: [row(PIXEL, { imageWhitelist: { domains: ['sender.example'] } })] });
+    query.mockResolvedValue({ rows: [row(PHOTO, { imageWhitelist: { domains: ['sender.example'] } })] });
     const allowed = await get();
     expect(allowed.remoteImagesProxied).toBe(true);
-    expect(allowed.html).not.toMatch(/src="\/\/tracker/);
+    expect(allowed.html).not.toMatch(/src="\/\/img/);
+  });
+
+  it('never loads a tracking pixel, even with images allowed, and counts it', async () => {
+    query.mockResolvedValue({ rows: [row(PHOTO, { blockRemoteImages: false })] });
+    const body = await get();
+    expect(body.html).not.toContain('tracker.example');
+    expect(body.html).toContain('src="data:image/gif;base64,');
+    expect(body.trackersBlocked).toBe(1);
+    query.mockResolvedValue({ rows: [row(PHOTO)] });
+    expect((await get()).trackersBlocked).toBe(0); // blocked anyway, with every other image
   });
 
   it('proxies a body fetched from the server too, and never a blocked one', async () => {
     query.mockResolvedValue({ rows: [row(null, { blockRemoteImages: false })] });
-    imapManager.fetchMessageBody.mockResolvedValue({ html: PIXEL, text: 'Hi', attachments: [] });
+    imapManager.fetchMessageBody.mockResolvedValue({ html: PHOTO, text: 'Hi', attachments: [] });
     const fetched = await get();
     expect(fetched.remoteImagesProxied).toBe(true);
     expect(fetched.html).toContain(`/api/mail/messages/${MSG_ID}/image?u=`);
-    query.mockResolvedValue({ rows: [row(PIXEL)] });
+    expect(fetched.trackersBlocked).toBe(1);
+    query.mockResolvedValue({ rows: [row(PHOTO)] });
     const blocked = await get();
     expect(blocked.remoteImagesProxied).toBe(false);
     expect(blocked.html).not.toContain('/image?u=');
@@ -130,6 +143,27 @@ describe('GET /messages/:id/image, the image proxy', () => {
     query.mockResolvedValue({ rows: [] });
     expect((await image('https://img.example/a.png?x=1&amp;y=2')).status).toBe(404, 'not the user\'s message');
     expect(safeFetch).not.toHaveBeenCalled();
+  });
+
+  it('never fetches a tracking pixel the message holds', async () => {
+    query.mockResolvedValue({ rows: [{ body_html: '<img src="https://img.example/p.gif" width="1" height="1"><img src="https://u1.ct.sendgrid.net/wf/open?upn=abc">' }] });
+    expect((await image('https://img.example/p.gif')).status).toBe(404);
+    expect((await image('https://u1.ct.sendgrid.net/wf/open?upn=abc')).status).toBe(404);
+    expect(safeFetch).not.toHaveBeenCalled();
+  });
+
+  it('serves an oversized photo scaled down as WebP', async () => {
+    const { randomBytes } = await import('node:crypto');
+    const sharp = (await import('sharp')).default;
+    const photo = await sharp(randomBytes(3000 * 2000 * 3), { raw: { width: 3000, height: 2000, channels: 3 } }).jpeg({ quality: 90 }).toBuffer();
+    query.mockResolvedValue({ rows: [{ body_html: BODY }] });
+    safeFetch.mockResolvedValue(upstream(photo, 'image/jpeg'));
+    const res = await image('https://img.example/a.png?x=1&amp;y=2');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/webp');
+    const sent = Buffer.from(await res.arrayBuffer());
+    expect(sent.length).toBeLessThan(photo.length / 2);
+    expect((await sharp(sent).metadata()).width).toBe(1600);
   });
 
   it('refuses a bad message id or a missing reference', async () => {

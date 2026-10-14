@@ -226,6 +226,9 @@
     "noContent": "No message content found.",
     "remoteImagesBlocked": "Remote images were blocked.",
     "loadImages": "Load images",
+    "trackersBlocked_one": "{{count}} tracker blocked",
+    "trackersBlocked_other": "{{count}} trackers blocked",
+    "trackersBlockedHint": "Images that tell the sender you opened this email were not loaded.",
     "allowSender": "Always allow from {{email}}",
     "allowDomain": "Always allow from @{{domain}}",
     "downloading": "Downloading…",
@@ -321,6 +324,16 @@
       "passwordLabel": "PDF password",
       "passwordSubmit": "Open",
       "passwordIncorrect": "Incorrect password. Try again."
+    },
+    "unsnoozed": {
+      "title": "Unsnoozed",
+      "failTitle": "Could not unsnooze",
+      "failBody": "It is still snoozed. Try again."
+    },
+    "snoozeChanged": {
+      "title": "Snoozed until {{when}}",
+      "failTitle": "Could not change the snooze time",
+      "failBody": "It keeps its earlier time. Try again."
     }
   },
   "messageList": {
@@ -404,6 +417,7 @@
     "pullToSync": "Pull to sync",
     "releaseToSync": "Release to sync",
     "noSearchResults": "No results found",
+    "searching": "Searching…",
     "noSearchResultsDesc": "No results for {{query}}",
     "searchFailed": "Search failed",
     "clearSearch": "Clear search",
@@ -461,7 +475,10 @@
         "label": "Vertical Split",
         "description": "Message list stacked above the reading pane"
       }
-    }
+    },
+    "snoozedUntil": "Snoozed until {{when}}",
+    "snoozedEmpty": "Nothing snoozed",
+    "snoozedEmptyDesc": "Snoozed mail waits here until it comes back."
   },
   "lockScreen": {
     "subtitle": "Enter your PIN to unlock",
@@ -519,7 +536,8 @@
     "emptying": "Emptying \"{{name}}\"…",
     "emptied": "Folder emptied",
     "backToAccounts": "Back to accounts",
-    "updateAvailable": "Update available: v{{version}}"
+    "updateAvailable": "Update available: v{{version}}",
+    "snoozed": "Snoozed"
   },
   "contextMenu": {
     "find": "Find",
@@ -541,7 +559,9 @@
       "threeHours": "In 3 hours",
       "tomorrowMorning": "Tomorrow morning",
       "nextWeek": "Next week",
-      "custom": "Custom..."
+      "custom": "Custom...",
+      "change": "Change snooze time",
+      "unsnooze": "Unsnooze"
     },
     "categorize": "Categorize as…",
     "categoryAlwaysSender": "Always for this sender",
@@ -784,6 +804,11 @@
     },
     "title": "Settings",
     "close": "Close",
+    "behavior": {
+      "reading": "Reading",
+      "writing": "Writing",
+      "sync": "Sync"
+    },
     "tabs": {
       "cleanup": "Cleanup",
       "accounts": "Accounts",
@@ -803,10 +828,11 @@
       "aiActions": "AI Actions",
       "antispam": "Antispam",
       "categories": "Categories",
-      "groupAccountMail": "Account & Mail",
-      "groupDisplay": "Display",
-      "groupSecurityIntegrations": "Security & Integrations",
+      "groupMail": "Mail",
+      "groupPreferences": "Preferences",
+      "groupAiExtensions": "AI & Extensions",
       "groupAdmin": "Administration",
+      "behavior": "Behavior",
       "plugins": "Plugins",
       "backup": "Backup"
     },
@@ -857,6 +883,8 @@
       "actionForward": "Forward to",
       "actionForwardPlaceholder": "recipient@example.com",
       "actionSetCategory": "Set category",
+      "actionNotify": "Notify me",
+      "actionNotifyHint": "Alert me even when the rule moves this mail or marks it read.",
       "actionSetCategorySelect": "Select a category…",
       "actionMovePlaceholder": "Exact IMAP folder path (e.g. Work or INBOX/Work)",
       "actionMoveSelectFolder": "Select a folder…",
@@ -894,6 +922,10 @@
       "editTitle": "Edit account",
       "addTitle": "Add account",
       "color": "Account color",
+      "icon": "Icon",
+      "iconNone": "None (color dot)",
+      "iconCustom": "Or type an emoji",
+      "iconHint": "Shown in place of the color dot.",
       "displayName": "Display name",
       "displayNamePh": "e.g. Work Gmail",
       "senderName": "Sender name",

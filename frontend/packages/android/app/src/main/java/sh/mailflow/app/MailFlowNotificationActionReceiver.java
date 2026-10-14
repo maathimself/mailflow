@@ -30,10 +30,7 @@ public class MailFlowNotificationActionReceiver extends BroadcastReceiver {
         Constraints constraints = new Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build();
-        Data input = new Data.Builder()
-            .putString(MailFlowNotificationActionWorker.KEY_ACTION, action)
-            .putString(MailFlowNotificationActionWorker.KEY_MESSAGE_ID, messageId)
-            .build();
+        Data input = MailFlowNotificationActionWorker.tapInput(action, messageId, System.currentTimeMillis());
         OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(MailFlowNotificationActionWorker.class)
             .setInputData(input)
             .setConstraints(constraints)

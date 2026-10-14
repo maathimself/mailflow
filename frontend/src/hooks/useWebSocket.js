@@ -133,32 +133,34 @@ export function useWebSocket() {
         // and the scrub net only catches emails/IPs/tokens. isInbox is the safe signal.
         recordDiagEvent({ category: 'event', type: 'new_messages', accountId, isInbox, count, alertCount });
 
-        if (messages && messages.length > 0) {
-          // In-app notifications and sounds are inbox-only — non-inbox folder syncs
-          // (Archive, Spam, on-demand syncs) should not trigger alerts for old mail.
-          // Also skipped when all messages were silenced by a mark_read rule (alertCount === 0).
-          if (isInbox && alertCount > 0) {
-            const latest = alertMessages[0];
-            const notification = {
-              type: 'new_mail',
-              accountId,
-              folder: folder || 'INBOX',
-              messageId: latest.id,
-              message: latest,
-              title: latest.fromName || latest.fromEmail || t('notifications.newMessage'),
-              body: latest.subject || t('common.noSubject'),
-              count: alertCount,
-            };
+        // In-app notifications and sounds are inbox-only — non-inbox folder syncs
+        // (Archive, Spam, on-demand syncs) should not trigger alerts for old mail.
+        // Also skipped when all messages were silenced by a mark_read rule (alertCount === 0).
+        // An alert can come with no new Inbox mail at all: mail a "Notify me" rule filed
+        // elsewhere (#588), which is opened in the folder it went to.
+        if (isInbox && alertCount > 0 && alertMessages?.length) {
+          const latest = alertMessages[0];
+          const notification = {
+            type: 'new_mail',
+            accountId,
+            folder: latest.folder || folder || 'INBOX',
+            messageId: latest.id,
+            message: latest,
+            title: latest.fromName || latest.fromEmail || t('notifications.newMessage'),
+            body: latest.subject || t('common.noSubject'),
+            count: alertCount,
+          };
 
-            if (document.visibilityState === 'visible') {
-              addNotification(notification);
-              const { notificationSound, customSoundDataUrl } = useStore.getState();
-              playNotificationSound(notificationSound, customSoundDataUrl);
-            }
-
-            _forwardNativeNewMailNotification(notification);
+          if (document.visibilityState === 'visible') {
+            addNotification(notification);
+            const { notificationSound, customSoundDataUrl } = useStore.getState();
+            playNotificationSound(notificationSound, customSoundDataUrl);
           }
 
+          _forwardNativeNewMailNotification(notification);
+        }
+
+        if (messages && messages.length > 0) {
           // Refresh the message list when the affected folder is visible
           const store = useStore.getState();
           const isRelevant =

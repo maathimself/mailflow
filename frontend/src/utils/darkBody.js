@@ -9,10 +9,15 @@
 // (utils/emailContrast.js compareWithLight). If neither does, the email is put back as sent and
 // the outcome is 'light': a wrong guess costs a light email, never unreadable text.
 //
+// A sender's design can also be readable and still leave much of the email light: Travelers darkens
+// its message card and leaves the gray frame around it as sent. When more than SENDER_MAX_BRIGHT of
+// the email's background stays light (emailContrast.js brightShare), recoloring is tried as well and
+// kept if it is readable and darker; otherwise the sender's design stays.
+//
 // The document is the frame's own; this runs in the reader's page, which can reach into the
 // sandboxed frame because it is same-origin (the frame's CSP forbids scripts inside it).
 import { FRAME_STYLE, DARK_DEFAULTS } from './emailFrameDoc.js';
-import { measureTextContrast, compareWithLight } from './emailContrast.js';
+import { measureTextContrast, compareWithLight, brightShare } from './emailContrast.js';
 import { planRecolor, applyPlan, themeAnchors } from './darkRecolor.js';
 import { darkenImages } from './darkImages.js';
 
@@ -79,6 +84,10 @@ function finishTransitions(doc) {
   }
 }
 
+// The share of an email's background a sender's dark design may leave light before recoloring is
+// tried instead.
+export const SENDER_MAX_BRIGHT = 0.25;
+
 const hasSenderDesign = (doc) => Boolean(doc.getElementById(FRAME_STYLE.sender)?.textContent.trim());
 
 // Each way of showing it dark: makes its changes and returns how to undo them, and what it did to
@@ -110,6 +119,8 @@ function showDark(doc, { palette = DARK_DEFAULTS, mode = 'auto', samples = false
   const attempts = [];
   let dark = null;
   let images = null;
+  // A readable sender design that left too much light, to fall back on: its brightness and text.
+  let readableSender = null;
   for (const kind of order) {
     const shown = KINDS[kind](doc, palette);
     const { undo } = shown;
@@ -117,14 +128,40 @@ function showDark(doc, { palette = DARK_DEFAULTS, mode = 'auto', samples = false
     finishTransitions(doc);
     dark = measureTextContrast(doc, { canvas, samples });
     const comparison = compareWithLight(state.light, dark);
-    attempts.push({ kind, ...comparison });
-    if (mode !== 'auto' || comparison.verdict === 'clean') {
+    const attempt = { kind, ...comparison };
+    attempts.push(attempt);
+    const clean = comparison.verdict === 'clean';
+    if (mode === 'auto' && clean && (kind === 'sender' || readableSender)) {
+      attempt.bright = brightShare(doc, { canvas });
+      if (kind === 'sender' && attempt.bright !== null && attempt.bright > SENDER_MAX_BRIGHT) {
+        readableSender = { bright: attempt.bright, dark };
+        undo();
+        finishTransitions(doc);
+        continue;
+      }
+      if (readableSender && !(attempt.bright !== null && attempt.bright < readableSender.bright)) {
+        undo();
+        finishTransitions(doc);
+        break;
+      }
+    }
+    if (mode !== 'auto' || clean) {
       state.undo = undo;
       state.outcome = kind;
       return finish(kind);
     }
     undo();
     finishTransitions(doc);
+  }
+  if (readableSender) {
+    // Recoloring was no better: back to the sender's design, which read as well as sent.
+    const shown = KINDS.sender(doc, palette);
+    images = shown.images;
+    finishTransitions(doc);
+    dark = readableSender.dark;
+    state.undo = shown.undo;
+    state.outcome = 'sender';
+    return finish('sender');
   }
   state.outcome = 'light';
   images = null;

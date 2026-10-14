@@ -228,6 +228,9 @@
     "loadingError": "메시지 본문을 로드할 수 없습니다.",
     "allowSender": "항상 {{email}}에서 허용",
     "loadImages": "이미지 로드",
+    "trackersBlocked_one": "추적기 {{count}}개 차단됨",
+    "trackersBlocked_other": "추적기 {{count}}개 차단됨",
+    "trackersBlockedHint": "보낸 사람에게 이 이메일을 열었음을 알리는 이미지를 불러오지 않았습니다.",
     "attachmentRisk": {
       "warn": "주의가 필요한 파일 형식 (.{{ext}}) — 매크로나 가짜 로그인 페이지가 포함되어 있을 수 있습니다",
       "block": "위험한 파일 형식 (.{{ext}}) — 컴퓨터에서 코드를 실행할 위험이 있습니다",
@@ -321,6 +324,16 @@
       "passwordLabel": "PDF 비밀번호",
       "passwordSubmit": "열기",
       "passwordIncorrect": "비밀번호가 올바르지 않습니다. 다시 시도하세요."
+    },
+    "unsnoozed": {
+      "title": "되돌렸습니다",
+      "failTitle": "되돌리지 못했습니다",
+      "failBody": "아직 다시 알림 대기 중입니다. 다시 시도하세요."
+    },
+    "snoozeChanged": {
+      "title": "{{when}}까지 다시 알림 대기",
+      "failTitle": "다시 알림 시간을 변경하지 못했습니다",
+      "failBody": "이전 시간이 유지됩니다. 다시 시도하세요."
     }
   },
   "messageList": {
@@ -404,6 +417,7 @@
     "pullToSync": "당겨서 동기화",
     "releaseToSync": "동기화하려면 손을 떼세요",
     "noSearchResults": "검색결과가 없습니다",
+    "searching": "검색 중…",
     "clearSearch": "검색 지우기",
     "noSearchResultsDesc": "{{query}}에 대한 결과가 없습니다.",
     "searchHelp": {
@@ -461,7 +475,10 @@
       }
     },
     "noAccountsDesc": "시작하려면 이메일 계정을 추가하세요",
-    "changeLayout": "레이아웃 변경"
+    "changeLayout": "레이아웃 변경",
+    "snoozedUntil": "{{when}}까지 다시 알림 대기",
+    "snoozedEmpty": "다시 알림 대기 중인 메일 없음",
+    "snoozedEmptyDesc": "다시 알림으로 미룬 메일은 돌아올 때까지 여기에서 기다립니다."
   },
   "lockScreen": {
     "unlockButton": "잠금 해제",
@@ -519,7 +536,8 @@
     "confirmEmpty": "\"{{name}}\" 폴더를 비우시겠습니까? 이 폴더의 모든 메시지가 영구적으로 삭제됩니다.",
     "emptied": "폴더가 비었습니다",
     "updateAvailable": "사용 가능한 업데이트: v{{version}}",
-    "backToAccounts": "계정으로 돌아가기"
+    "backToAccounts": "계정으로 돌아가기",
+    "snoozed": "다시 알림"
   },
   "contextMenu": {
     "openInNewWindow": "새 창에서 열기",
@@ -539,7 +557,9 @@
       "nextWeek": "다음 주",
       "custom": "사용자 지정...",
       "tomorrowMorning": "내일 아침",
-      "threeHours": "3시간 후"
+      "threeHours": "3시간 후",
+      "change": "다시 알림 시간 변경",
+      "unsnooze": "지금 되돌리기"
     },
     "star": "별표 표시",
     "replyAll": "전체 답장",
@@ -783,6 +803,11 @@
       "tier1Title": "대량 메일 발신자 상위 목록"
     },
     "title": "설정",
+    "behavior": {
+      "reading": "읽기",
+      "writing": "작성",
+      "sync": "동기화"
+    },
     "tabs": {
       "cleanup": "정리",
       "accounts": "계정",
@@ -799,15 +824,16 @@
       "ai": "AI 어시스턴트",
       "theme": "테마",
       "categories": "카테고리",
-      "groupDisplay": "화면",
+      "groupPreferences": "환경설정",
       "antispam": "스팸방지",
       "aiActions": "AI 액션",
       "fontsAndLanguage": "언어 및 글꼴",
-      "groupAccountMail": "계정 및 메일",
+      "groupMail": "메일",
       "groupAdmin": "관리",
+      "behavior": "동작",
       "plugins": "플러그인",
       "backup": "백업",
-      "groupSecurityIntegrations": "보안 및 연동"
+      "groupAiExtensions": "AI 및 확장"
     },
     "close": "닫기",
     "rules": {
@@ -856,6 +882,8 @@
       "opEndsWith": "다음으로 끝남",
       "actionForwardPlaceholder": "수신자@example.com",
       "actionSetCategory": "카테고리 지정",
+      "actionNotify": "알림 받기",
+      "actionNotifyHint": "규칙이 메일을 이동하거나 읽음으로 표시해도 알림을 받습니다.",
       "actionSetCategorySelect": "카테고리 선택…",
       "saving": "저장 중…",
       "actionMovePlaceholder": "정확한 IMAP 폴더 경로(예: 직장 또는 INBOX/직장)",
@@ -898,6 +926,10 @@
       "lastSync": "마지막 동기화",
       "displayNamePh": "예를 들어 직장 Gmail",
       "color": "계정 색상",
+      "icon": "아이콘",
+      "iconNone": "없음 (색상 점)",
+      "iconCustom": "또는 이모지 입력",
+      "iconHint": "색상 점 대신 표시됩니다.",
       "passwordPhEdit": "현재 값을 유지하려면 비워 두세요.",
       "password": "비밀번호/앱 비밀번호",
       "senderName": "보낸 사람 이름",

@@ -226,6 +226,9 @@
     "noContent": "No se encontró contenido en el mensaje.",
     "remoteImagesBlocked": "Las imágenes remotas fueron bloqueadas.",
     "loadImages": "Cargar imágenes",
+    "trackersBlocked_one": "{{count}} rastreador bloqueado",
+    "trackersBlocked_other": "{{count}} rastreadores bloqueados",
+    "trackersBlockedHint": "No se cargaron las imágenes que avisan al remitente de que abriste este correo.",
     "allowSender": "Permitir siempre desde {{email}}",
     "allowDomain": "Permitir siempre desde @{{domain}}",
     "downloading": "Descargando…",
@@ -321,6 +324,16 @@
       "passwordLabel": "Contraseña del PDF",
       "passwordSubmit": "Abrir",
       "passwordIncorrect": "Contraseña incorrecta. Inténtalo de nuevo."
+    },
+    "unsnoozed": {
+      "title": "Ya no está pospuesto",
+      "failTitle": "No se pudo dejar de posponer",
+      "failBody": "Sigue pospuesto. Inténtalo de nuevo."
+    },
+    "snoozeChanged": {
+      "title": "Pospuesto hasta {{when}}",
+      "failTitle": "No se pudo cambiar la hora",
+      "failBody": "Mantiene la hora anterior. Inténtalo de nuevo."
     }
   },
   "messageList": {
@@ -404,6 +417,7 @@
     "pullToSync": "Deslizar para sincronizar",
     "releaseToSync": "Soltar para sincronizar",
     "noSearchResults": "No se encontraron resultados",
+    "searching": "Buscando…",
     "noSearchResultsDesc": "Sin resultados para {{query}}",
     "searchFailed": "Error en la búsqueda",
     "clearSearch": "Limpiar búsqueda",
@@ -461,7 +475,10 @@
         "label": "División vertical",
         "description": "Lista de mensajes sobre el panel de lectura"
       }
-    }
+    },
+    "snoozedUntil": "Pospuesto hasta {{when}}",
+    "snoozedEmpty": "Nada pospuesto",
+    "snoozedEmptyDesc": "El correo pospuesto espera aquí hasta que vuelve."
   },
   "lockScreen": {
     "subtitle": "Introduce tu PIN para desbloquear",
@@ -519,7 +536,8 @@
     "emptying": "Vaciando «{{name}}»…",
     "emptied": "Carpeta vaciada",
     "backToAccounts": "Volver a cuentas",
-    "updateAvailable": "Actualización disponible: v{{version}}"
+    "updateAvailable": "Actualización disponible: v{{version}}",
+    "snoozed": "Pospuestos"
   },
   "contextMenu": {
     "find": "Buscar",
@@ -541,7 +559,9 @@
       "threeHours": "En 3 horas",
       "tomorrowMorning": "Mañana por la mañana",
       "nextWeek": "La próxima semana",
-      "custom": "Personalizado..."
+      "custom": "Personalizado...",
+      "change": "Cambiar la hora",
+      "unsnooze": "Dejar de posponer"
     },
     "categorize": "Categorizar como…",
     "categoryAlwaysSender": "Siempre para este remitente",
@@ -784,6 +804,11 @@
     },
     "title": "Ajustes",
     "close": "Cerrar",
+    "behavior": {
+      "reading": "Lectura",
+      "writing": "Redacción",
+      "sync": "Sincronización"
+    },
     "tabs": {
       "cleanup": "Limpieza",
       "accounts": "Cuentas",
@@ -803,10 +828,11 @@
       "aiActions": "Acciones de IA",
       "antispam": "Antispam",
       "categories": "Categorías",
-      "groupAccountMail": "Cuenta y correo",
-      "groupDisplay": "Visualización",
-      "groupSecurityIntegrations": "Seguridad e integraciones",
+      "groupMail": "Correo",
+      "groupPreferences": "Preferencias",
+      "groupAiExtensions": "IA y extensiones",
       "groupAdmin": "Administración",
+      "behavior": "Comportamiento",
       "plugins": "Complementos",
       "backup": "Copia de seguridad"
     },
@@ -850,6 +876,8 @@
       "actionForward": "Reenviar a",
       "actionForwardPlaceholder": "destinatario@example.com",
       "actionSetCategory": "Establecer categoría",
+      "actionNotify": "Notificarme",
+      "actionNotifyHint": "Avisarme aunque la regla mueva este correo o lo marque como leído.",
       "actionSetCategorySelect": "Selecciona una categoría…",
       "actionMovePlaceholder": "Nombre de la carpeta",
       "stopProcessing": "Detener el procesamiento de reglas posteriores si esta coincide",
@@ -894,6 +922,10 @@
       "editTitle": "Editar cuenta",
       "addTitle": "Añadir cuenta",
       "color": "Color de cuenta",
+      "icon": "Icono",
+      "iconNone": "Ninguno (punto de color)",
+      "iconCustom": "O escribe un emoji",
+      "iconHint": "Se muestra en lugar del punto de color.",
       "displayName": "Nombre visible",
       "displayNamePh": "ej. Gmail del trabajo",
       "email": "Dirección de correo",

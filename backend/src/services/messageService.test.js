@@ -50,8 +50,44 @@ describe('listMessages — account scope', () => {
 
     await listMessages({ userId: 'user-1' });
 
-    expect(query.mock.calls[1][1]).toEqual([['acc-included']]);
+    expect(query.mock.calls[1][1]).toEqual([['acc-included'], 'INBOX']);
     expect(query.mock.calls[2][1][0]).toEqual(['acc-included']);
+  });
+
+  // The Snoozed view (#269).
+  it('the Snoozed view without an account covers every enabled account, soonest wake-up first', async () => {
+    query
+      .mockResolvedValueOnce({
+        rows: [
+          { id: 'acc-included', include_in_unified_inbox: true },
+          { id: 'acc-excluded', include_in_unified_inbox: false },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ n: 2 }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await listMessages({ userId: 'user-1', folder: 'Snoozed', threaded: 'true' });
+
+    expect(query.mock.calls[1][1]).toEqual([['acc-included', 'acc-excluded'], 'Snoozed']);
+    const [sql, params] = query.mock.calls[2];
+    expect(params[0]).toEqual(['acc-included', 'acc-excluded']);
+    expect(sql).toContain("m.folder = 'Snoozed'");
+    expect(sql).toContain('sz.snooze_until');
+    expect(sql).toMatch(/ORDER BY sz\.snooze_until ASC NULLS LAST, m\.date DESC, m\.id/);
+    expect(sql).not.toContain('paged_threads');
+  });
+
+  it('other folders read no snooze times and keep their order', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-included', include_in_unified_inbox: true }] })
+      .mockResolvedValueOnce({ rows: [{ n: 1 }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await listMessages({ userId: 'user-1' });
+
+    const [sql] = query.mock.calls[2];
+    expect(sql).not.toContain('snooze_until');
+    expect(sql).toMatch(/ORDER BY m\.date DESC, m\.id/);
   });
 
   it('keeps an opted-out account available in its direct account view', async () => {

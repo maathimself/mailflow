@@ -48,6 +48,10 @@ describe('validateHostLiteral', () => {
     ['server.internal'],
     ['host.localhost'],
     ['ｌｏｃａｌｈｏｓｔ'],  // fullwidth, which dns.lookup converts to localhost
+    ['localhost.'],     // fully qualified, the same name
+    ['foo.localhost.'],
+    ['mail.local.'],
+    ['metadata.google.internal.'],
   ])('blocks reserved hostname %s', host => {
     expect(validateHostLiteral(host)).toMatch(/local/i);
   });
@@ -140,6 +144,7 @@ describe('validateHostLiteral', () => {
     ['2001:db8::1%a:b:c:d:e:f:1'],  // a zone ID with colons
     ['８.８.８.８'],                // fullwidth digits
     ['mail.münchen.de'],            // an internationalised name
+    ['mail.example.com.'],          // a fully qualified public name
   ])('passes public address %s', host => {
     expect(validateHostLiteral(host)).toBeNull();
   });

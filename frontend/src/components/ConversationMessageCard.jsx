@@ -15,6 +15,7 @@ import { isDarkTheme, canShowDark, showDark } from '../utils/darkScheme.js';
 import AiResultBox from './AiResultBox.jsx';
 import { useAiActions } from '../hooks/useAiActions.js';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
+import { formatDateTime } from '../utils/formatDate.js';
 
 // One message inside a conversation.
 //
@@ -135,12 +136,14 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
   const [showAiMenu, setShowAiMenu] = useState(false);
   const runAi = (action) => { setShowAiMenu(false); ai.run(action); };
 
+  // Fills at once, as in the list and the reading pane; put back if the server refuses it.
   const handleStar = async () => {
     const starred = !message.is_starred;
+    onUpdate?.(message.id, { is_starred: starred });
     try {
       await api.markStarred(message.id, starred);
-      onUpdate?.(message.id, { is_starred: starred });
     } catch (err) {
+      onUpdate?.(message.id, { is_starred: !starred });
       addNotification({ type: 'error', title: t('common.error', { message: err.message }) });
     }
   };
@@ -212,7 +215,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
       shortcutBus.off('printMessage', onPrint);
     };
   }, [selected, expanded, body, message, addNotification, t]);
-  const when = message.date ? new Date(message.date).toLocaleString() : '';
+  const when = formatDateTime(message.date);
   const who = message.from_name || message.from_email || '';
 
   return (

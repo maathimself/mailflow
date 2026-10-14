@@ -210,16 +210,18 @@ export default function FloatingWindow({
         {children}
       </div>
 
-      {/* Bottom-right resize handle */}
+      {/* Bottom-right resize handle. The window clips to its rounded corner, which leaves the
+          outermost pixels of the handle unclickable, so the handle reaches further in and its
+          lines are drawn clear of the curve, where a grab always lands. */}
       <div
         onPointerDown={beginResize}
         title=""
         style={{
-          position: 'absolute', right: 0, bottom: 0, width: 18, height: 18,
+          position: 'absolute', right: 0, bottom: 0, width: 24, height: 24,
           cursor: 'nwse-resize', touchAction: 'none', zIndex: 2,
         }}
       >
-        <svg width="18" height="18" viewBox="0 0 18 18" style={{ position: 'absolute', right: 1, bottom: 1, opacity: 0.5 }}>
+        <svg width="18" height="18" viewBox="0 0 18 18" style={{ position: 'absolute', right: 4, bottom: 4, opacity: 0.5 }}>
           <path d="M16 8 L8 16 M16 13 L13 16" stroke="var(--text-tertiary)" strokeWidth="1.5" fill="none" strokeLinecap="round" />
         </svg>
       </div>

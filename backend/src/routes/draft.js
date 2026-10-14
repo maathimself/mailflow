@@ -3,7 +3,9 @@ import { randomBytes } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { sanitizeSignature, sanitizeComposeBody, sanitizeEmail, composeHtmlToText } from '../services/emailSanitizer.js';
+import { sanitizeSignature, sanitizeComposeBody, sanitizeEmail, composeHtmlToText, proxyRemoteImages } from '../services/emailSanitizer.js';
+import { imageProxyPath } from '../services/imageProxy.js';
+import { storeFetchedBody } from '../services/messageBodyStore.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
 import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
@@ -182,8 +184,15 @@ router.get('/messages/:id/reply-draft', async (req, res) => {
       .some(id => search.ids.includes(id));
     if (!confirmed || confirmed.folder !== draft.folder || Number(confirmed.uid) !== Number(draft.uid)
       || confirmed.message_id !== draft.message_id || confirmed.uid_validity !== draft.uid_validity || !stillReplies) return res.status(409).json({ error: 'This reply draft changed on the mail server. Try again.' });
+    // Stored as the body route stores it, so the image proxy can serve the draft's remote images
+    // (a reply's quoted logos) and the composer never loads them from their senders directly.
+    // ComposeModal turns the proxy URLs back into the draft's own references when it saves or
+    // sends. Not storing it only leaves those images unshown in the composer, so it does not
+    // stop the draft opening.
+    await storeFetchedBody(confirmed.id, body).catch(err => console.error('Reply draft body cache failed:', err.message));
+    const html = body.html == null ? null : sanitizeEmail(body.html, { preserveDraftSignature: true });
     res.json({ draft: confirmed, body: { ...body,
-      html: body.html == null ? null : sanitizeEmail(body.html, { preserveDraftSignature: true }) } });
+      html: html && proxyRemoteImages(html, (raw) => imageProxyPath(confirmed.id, raw)) } });
   } catch (err) {
     console.error('Reply draft lookup failed:', err.message);
     res.status(err.status || 503).json({ error: 'Could not check reply drafts' });

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { frameListenersRun, returnFocusFromFrame } from '../utils/frameFocus.js';
 import { measureContentHeight, createHeightController, forceEagerImages, pinFrameRoot, createScrollExpander } from '../utils/emailFrameHeight.js';
 import { forwardIframeKeydown } from '../utils/iframeKeys.js';
 import { buildFrameDoc, DARK_DEFAULTS, SCALE_WRAPPER } from '../utils/emailFrameDoc.js';
@@ -101,6 +102,7 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
     let iframeClickHandler = null;
     let keyDoc = null;
     let iframeKeyHandler = null;
+    let focusReturn = null;
 
     const setHeight = () => {
       const doc = iframe.contentDocument;
@@ -268,6 +270,11 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
       iframeKeyHandler = (ev) => { forwardIframeKeydown(ev, document); };
       keyDoc = doc;
       doc.addEventListener('keydown', iframeKeyHandler);
+      // WebKit (Safari, every browser on iOS) runs none of these listeners inside a sandboxed frame
+      // without scripts. There the page hands focus back to itself after a click on the email, so
+      // the shortcuts still work (utils/frameFocus.js); the right-click menu on the email is
+      // Safari's own, which no page can change from outside the frame.
+      if (!focusReturn && !frameListenersRun(doc)) focusReturn = returnFocusFromFrame(iframe);
 
       // Re-measure after each lazy-loaded image settles; also re-expand any
       // scroll containers whose content has grown due to the newly loaded image.
@@ -336,6 +343,7 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
       if (keyDoc && iframeKeyHandler) {
         keyDoc.removeEventListener('keydown', iframeKeyHandler);
       }
+      focusReturn?.();
       iframe.removeEventListener('load', onLoaded);
       emailScaleRef.current = 1;
     };

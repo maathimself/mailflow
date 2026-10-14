@@ -161,7 +161,8 @@
     "emptying": "Vyprazdňování složky „{{name}}“…",
     "emptied": "Složka vyprázdněna",
     "backToAccounts": "Zpět k účtům",
-    "updateAvailable": "Je dostupná aktualizace: v{{version}}"
+    "updateAvailable": "Je dostupná aktualizace: v{{version}}",
+    "snoozed": "Odložené"
   },
   "messageList": {
     "replyDraftChanged": "Koncept odpovědi se změnil. Zkuste jej znovu otevřít.",
@@ -256,6 +257,7 @@
     "pullToSync": "Tažením synchronizujete",
     "releaseToSync": "Uvolněním synchronizujete",
     "noSearchResults": "Nebyly nalezeny žádné výsledky",
+    "searching": "Hledání…",
     "noSearchResultsDesc": "Žádné výsledky pro {{query}}",
     "searchFailed": "Hledání se nezdařilo",
     "clearSearch": "Vymazat hledání",
@@ -313,7 +315,10 @@
         "label": "Svislé rozdělení",
         "description": "Seznam zpráv nad čtecím podoknem"
       }
-    }
+    },
+    "snoozedUntil": "Odloženo do {{when}}",
+    "snoozedEmpty": "Nic není odloženo",
+    "snoozedEmptyDesc": "Odložené zprávy tu čekají, dokud se nevrátí."
   },
   "message": {
     "find": {
@@ -338,6 +343,9 @@
     "noContent": "Nebyl nalezen žádný obsah zprávy.",
     "remoteImagesBlocked": "Vzdálené obrázky byly zablokovány.",
     "loadImages": "Načíst obrázky",
+    "trackersBlocked_one": "Zablokované sledovací prvky: {{count}}",
+    "trackersBlocked_other": "Zablokované sledovací prvky: {{count}}",
+    "trackersBlockedHint": "Obrázky, které odesílateli hlásí otevření tohoto e-mailu, nebyly načteny.",
     "allowSender": "Vždy povolit od {{email}}",
     "allowDomain": "Vždy povolit z @{{domain}}",
     "downloading": "Stahování…",
@@ -433,6 +441,16 @@
       "passwordLabel": "Heslo k PDF",
       "passwordSubmit": "Otevřít",
       "passwordIncorrect": "Nesprávné heslo. Zkuste to znovu."
+    },
+    "unsnoozed": {
+      "title": "Vráceno",
+      "failTitle": "Zprávu se nepodařilo vrátit",
+      "failBody": "Zpráva zůstává odložená. Zkuste to znovu."
+    },
+    "snoozeChanged": {
+      "title": "Odloženo do {{when}}",
+      "failTitle": "Čas návratu se nepodařilo změnit",
+      "failBody": "Zůstává původní čas. Zkuste to znovu."
     }
   },
   "compose": {
@@ -609,7 +627,9 @@
       "threeHours": "Za 3 hodiny",
       "tomorrowMorning": "Zítra ráno",
       "nextWeek": "Příští týden",
-      "custom": "Vlastní…"
+      "custom": "Vlastní…",
+      "change": "Změnit čas návratu",
+      "unsnooze": "Vrátit hned"
     },
     "categorize": "Zařadit jako…",
     "categoryAlwaysSender": "Vždy pro tohoto odesílatele",
@@ -974,6 +994,11 @@
     },
     "title": "Nastavení",
     "close": "Zavřít",
+    "behavior": {
+      "reading": "Čtení",
+      "writing": "Psaní",
+      "sync": "Synchronizace"
+    },
     "tabs": {
       "cleanup": "Úklid",
       "accounts": "Účty",
@@ -993,10 +1018,11 @@
       "aiActions": "Akce AI",
       "antispam": "Antispam",
       "categories": "Kategorie",
-      "groupAccountMail": "Účet a pošta",
-      "groupDisplay": "Zobrazení",
-      "groupSecurityIntegrations": "Zabezpečení a integrace",
+      "groupMail": "Pošta",
+      "groupPreferences": "Předvolby",
+      "groupAiExtensions": "AI a rozšíření",
       "groupAdmin": "Správa",
+      "behavior": "Chování",
       "plugins": "Pluginy",
       "backup": "Záloha"
     },
@@ -1075,6 +1101,10 @@
       "editTitle": "Upravit účet",
       "addTitle": "Přidat účet",
       "color": "Barva účtu",
+      "icon": "Ikona",
+      "iconNone": "Žádná (barevná tečka)",
+      "iconCustom": "Nebo napište emoji",
+      "iconHint": "Zobrazí se místo barevné tečky.",
       "displayName": "Zobrazovaný název",
       "displayNamePh": "např. Pracovní Gmail",
       "senderName": "Jméno odesílatele",
@@ -1230,6 +1260,8 @@
       "actionForward": "Přeposlat na",
       "actionForwardPlaceholder": "prijemce@example.com",
       "actionSetCategory": "Nastavit kategorii",
+      "actionNotify": "Upozornit mě",
+      "actionNotifyHint": "Upozornit, i když pravidlo e-mail přesune nebo označí jako přečtený.",
       "actionSetCategorySelect": "Vyberte kategorii…",
       "actionMovePlaceholder": "Přesná cesta ke složce IMAP (např. Práce nebo INBOX/Práce)",
       "actionMoveSelectFolder": "Vyberte složku…",

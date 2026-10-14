@@ -228,6 +228,9 @@
     "noContent": "Nie znaleziono treści wiadomości.",
     "remoteImagesBlocked": "Zablokowano zdalne obrazy.",
     "loadImages": "Wczytaj obrazy",
+    "trackersBlocked_one": "Zablokowane elementy śledzące: {{count}}",
+    "trackersBlocked_other": "Zablokowane elementy śledzące: {{count}}",
+    "trackersBlockedHint": "Nie wczytano obrazów, które informują nadawcę o otwarciu tej wiadomości.",
     "allowSender": "Zawsze zezwalaj nadawcy {{email}}",
     "allowDomain": "Zawsze zezwalaj domenie @{{domain}}",
     "downloading": "Pobieranie…",
@@ -323,6 +326,16 @@
       "passwordLabel": "Hasło do PDF",
       "passwordSubmit": "Otwórz",
       "passwordIncorrect": "Nieprawidłowe hasło. Spróbuj ponownie."
+    },
+    "unsnoozed": {
+      "title": "Przywrócono",
+      "failTitle": "Nie udało się przywrócić",
+      "failBody": "Wiadomość nadal jest odłożona. Spróbuj ponownie."
+    },
+    "snoozeChanged": {
+      "title": "Odłożone do {{when}}",
+      "failTitle": "Nie udało się zmienić czasu powrotu",
+      "failBody": "Pozostaje poprzedni czas. Spróbuj ponownie."
     }
   },
   "messageList": {
@@ -418,6 +431,7 @@
     "pullToSync": "Pociągnij, aby zsynchronizować",
     "releaseToSync": "Puść, aby zsynchronizować",
     "noSearchResults": "Nie znaleziono wyników",
+    "searching": "Wyszukiwanie…",
     "noSearchResultsDesc": "Brak wyników dla {{query}}",
     "searchFailed": "Wyszukiwanie nie powiodło się",
     "clearSearch": "Wyczyść wyszukiwanie",
@@ -475,7 +489,10 @@
         "label": "Podział pionowy",
         "description": "Lista wiadomości nad panelem czytania"
       }
-    }
+    },
+    "snoozedUntil": "Odłożone do {{when}}",
+    "snoozedEmpty": "Nic nie jest odłożone",
+    "snoozedEmptyDesc": "Odłożone wiadomości czekają tutaj, aż wrócą."
   },
   "lockScreen": {
     "subtitle": "Wpisz swój PIN aby odblokować",
@@ -535,7 +552,8 @@
     "emptying": "Opróżnianie „{{name}}”…",
     "emptied": "Folder opróżniony",
     "backToAccounts": "Powrót do kont",
-    "updateAvailable": "Dostępna aktualizacja: v{{version}}"
+    "updateAvailable": "Dostępna aktualizacja: v{{version}}",
+    "snoozed": "Odłożone"
   },
   "contextMenu": {
     "find": "Znajdź",
@@ -557,7 +575,9 @@
       "threeHours": "Za 3 godziny",
       "tomorrowMorning": "Jutro rano",
       "nextWeek": "W przyszłym tygodniu",
-      "custom": "Niestandardowe..."
+      "custom": "Niestandardowe...",
+      "change": "Zmień czas powrotu",
+      "unsnooze": "Przywróć teraz"
     },
     "categorize": "Kategoryzuj jako…",
     "categoryAlwaysSender": "Zawsze dla tego nadawcy",
@@ -800,6 +820,11 @@
     },
     "title": "Ustawienia",
     "close": "Zamknij",
+    "behavior": {
+      "reading": "Czytanie",
+      "writing": "Pisanie",
+      "sync": "Synchronizacja"
+    },
     "tabs": {
       "cleanup": "Porządki",
       "accounts": "Konta",
@@ -819,10 +844,11 @@
       "aiActions": "Działania AI",
       "antispam": "Antyspam",
       "categories": "Kategorie",
-      "groupAccountMail": "Konto i poczta",
-      "groupDisplay": "Wyświetlanie",
-      "groupSecurityIntegrations": "Bezpieczeństwo i integracje",
+      "groupMail": "Poczta",
+      "groupPreferences": "Preferencje",
+      "groupAiExtensions": "AI i rozszerzenia",
       "groupAdmin": "Administracja",
+      "behavior": "Zachowanie",
       "plugins": "Wtyczki",
       "backup": "Kopia zapasowa"
     },
@@ -873,6 +899,8 @@
       "actionForward": "Przekaż dalej do",
       "actionForwardPlaceholder": "odbiorca@example.com",
       "actionSetCategory": "Ustaw kategorię",
+      "actionNotify": "Powiadom mnie",
+      "actionNotifyHint": "Powiadamiaj, nawet gdy reguła przenosi wiadomość lub oznacza ją jako przeczytaną.",
       "actionSetCategorySelect": "Wybierz kategorię…",
       "actionMovePlaceholder": "Dokładna ścieżka folderu IMAP (np. Praca lub Odebrane/Praca)",
       "actionMoveSelectFolder": "Wybierz folder…",
@@ -910,6 +938,10 @@
       "editTitle": "Edytuj konto",
       "addTitle": "Dodaj konto",
       "color": "Kolor konta",
+      "icon": "Ikona",
+      "iconNone": "Brak (kolorowa kropka)",
+      "iconCustom": "Lub wpisz emoji",
+      "iconHint": "Wyświetlana zamiast kolorowej kropki.",
       "displayName": "Nazwa wyświetlana",
       "displayNamePh": "np. Konto służbowe",
       "senderName": "Nazwa nadawcy",

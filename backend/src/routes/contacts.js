@@ -108,6 +108,15 @@ router.get('/', async (req, res) => {
 // GET /api/contacts/photo?email=:email
 // Returns the contact photo for the given sender email as image bytes.
 // This route must remain ABOVE /:id to prevent Express matching "photo" as an id.
+// Contact photos and Gravatar images are served from MailFlow's own origin: never as anything but
+// an image, whatever proxy sits in front (nginx adds nosniff too, a custom one may not), and never
+// run as a page if opened on their own. The image proxy sends the same.
+const IMAGE_SAFETY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'Content-Security-Policy': "default-src 'none'; sandbox",
+  'Cross-Origin-Resource-Policy': 'same-origin',
+};
+
 router.get('/photo', async (req, res) => {
   const { email } = req.query;
   const userId = req.session.userId;
@@ -126,6 +135,7 @@ router.get('/photo', async (req, res) => {
 
     const photoData = result.rows[0].photo_data;
     res.set('Cache-Control', 'private, max-age=86400');
+    res.set(IMAGE_SAFETY_HEADERS);
 
     if (photoData.startsWith('data:')) {
       const commaIdx = photoData.indexOf(',');
@@ -171,6 +181,7 @@ router.get('/gravatar', async (req, res) => {
   if (cached && cached.expires > now) {
     if (cached.miss) return res.status(404).end();
     res.set('Cache-Control', 'private, max-age=86400');
+    res.set(IMAGE_SAFETY_HEADERS);
     res.set('Content-Type', cached.type);
     return res.send(cached.buf);
   }
@@ -194,6 +205,7 @@ router.get('/gravatar', async (req, res) => {
     if (buf.length === 0 || buf.length > 512 * 1024) return res.status(502).end();
     gravatarCacheSet(hash, { buf, type, expires: now + GRAVATAR_TTL_MS });
     res.set('Cache-Control', 'private, max-age=86400');
+    res.set(IMAGE_SAFETY_HEADERS);
     res.set('Content-Type', type);
     return res.send(buf);
   } catch {

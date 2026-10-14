@@ -128,6 +128,7 @@ export const useStore = create((set, get) => ({
       ...(state.user?.id !== user?.id ? {
         serverUnreadCounts: { total: 0, byAccount: {}, snapshots: {} }, pendingCounts: {},
         unreadCounts: { total: 0, byAccount: {}, snapshots: {}, complete: false },
+        snoozedCount: 0,
         senderFaviconsLoaded: false,
         senderFavicons: false,
         senderFaviconsSaving: false,
@@ -151,7 +152,7 @@ export const useStore = create((set, get) => ({
         enabledPlugins: [], autoLockMinutes: 0, blockRemoteImages: true,
         imageWhitelist: { addresses: [], domains: [] }, shortcuts: {}, aiActions: null,
         hiddenFolders: {}, categorizationEnabled: false, gtdPetSlug: null,
-        autoOpenReplyDrafts: false, afterRemove: 'next', darkEmailBodies: false,
+        autoOpenReplyDrafts: false, afterRemove: 'next', darkEmailBodies: true,
       } : {}),
     }));
   },
@@ -198,6 +199,7 @@ export const useStore = create((set, get) => ({
         accounts: [], accountsReady: false,
         folders: {}, selectedMessageId: null,
         unreadCounts: { total: 0, byAccount: {} },
+        snoozedCount: 0,
         notifications: [], threadMessages: {}, expandedThreadId: null,
         backfillProgress: {},
         gtdSections: null, categoryCounts: {}, activeGtdTab: null,
@@ -372,6 +374,8 @@ export const useStore = create((set, get) => ({
   serverUnreadCounts: { total: 0, byAccount: {}, snapshots: {} },
   pendingCounts: {},
   unreadCounts: { total: 0, byAccount: {}, snapshots: {}, complete: false },
+  // How many messages are snoozed (#269), from the same server count as the badges.
+  snoozedCount: 0,
   setUnreadCounts: (counts) => set(state => {
     if (state.isLocked) return {};
     const server = mergeCountSnapshots(state.serverUnreadCounts, counts);
@@ -381,7 +385,8 @@ export const useStore = create((set, get) => ({
     const pending = settleCountPending(state.pendingCounts, server);
     if (!Object.keys(pending).length) { clearTimeout(pendingCountTimer); pendingCountTimer = null; }
     return { serverUnreadCounts: server, pendingCounts: pending,
-      unreadCounts: displayCountSnapshot(server, pending, state.accounts) };
+      unreadCounts: displayCountSnapshot(server, pending, state.accounts),
+      ...(typeof counts?.snoozed === 'number' ? { snoozedCount: counts.snoozed } : {}) };
   }),
   adjustUnread: (accountId, delta) => {
     set(state => {
@@ -768,9 +773,9 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ afterRemove: val });
   },
 
-  // Show email bodies dark in a dark theme where that is safe (#228, utils/darkScheme.js). Off by
-  // default: a message can always be switched to dark, or back, on its own.
-  darkEmailBodies: localStorage.getItem('mailflow_dark_email_bodies') === 'true',
+  // Show email bodies dark in a dark theme where that is safe (#228, utils/darkScheme.js). On by
+  // default; a light theme never darkens an email, and any message can be switched back on its own.
+  darkEmailBodies: localStorage.getItem('mailflow_dark_email_bodies') !== 'false',
   setDarkEmailBodies: (value) => {
     localStorage.setItem('mailflow_dark_email_bodies', String(Boolean(value)));
     set({ darkEmailBodies: Boolean(value) });

@@ -2,6 +2,7 @@ import express from 'express';
 import 'express-async-errors'; // route a rejected async handler to the error middleware (Express 4 doesn't)
 import session from 'express-session';
 import cors from 'cors';
+import { corsExceptDav } from './middleware/corsExceptDav.js';
 import { createServer } from 'http';
 import { readFileSync } from 'fs';
 import RedisStore from 'connect-redis';
@@ -102,10 +103,11 @@ const sessionMiddleware = session(
   buildSessionOptions(new RedisStore({ client: redisClient }), process.env.SESSION_SECRET)
 );
 
-app.use(cors({
+// Not for /carddav, whose own OPTIONS answer tells contact apps it serves address books.
+app.use(corsExceptDav(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true
-}));
+})));
 
 // Performance baseline: time the full request lifecycle and record it under the
 // matched route *pattern* (never the concrete URL, so no ids/PII and bounded
