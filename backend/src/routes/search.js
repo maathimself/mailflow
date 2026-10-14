@@ -104,23 +104,23 @@ export function trashFolderExclusionCondition() {
       )`;
 }
 
-// Postgres refuses to build a tsvector larger than ~1MB of packed lexemes
-// (SQLSTATE 54000), so an oversized body would 500 the whole search. Cap the
-// text fed to to_tsvector at 600k chars — matching msgvault's maxFTSBodyChars
-// (internal/store/dialect_pg.go) — so one huge email can't crash the query.
-// Exported because slice 02's search_fts trigger caps the same way.
+// Kept in sync with the indexed vector and overflow matcher in migration 0067.
 export const FTS_BODY_CHAR_CAP = 600000;
 
 // Builds the per-term free-text OR-condition: a term matches if it appears in
 // the sender, the subject, the stored search_vector, or the length-capped body.
-// Extracted so the body cap is a single, testable source of truth.
+// Oversized packed vectors use the same capped English tokens via a separately
+// indexed fallback, so indexing cannot turn a search error into a write error.
 export function freeTextTermCondition(likeIdx, ftsIdx) {
   return `(
         m.from_name ILIKE $${likeIdx}
         OR m.from_email ILIKE $${likeIdx}
         OR m.subject ILIKE $${likeIdx}
         OR m.search_vector @@ plainto_tsquery('english', $${ftsIdx})
-        OR to_tsvector('english', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('english', $${ftsIdx})
+        OR (numnode(plainto_tsquery('english', $${ftsIdx})) > 0
+            AND (mailflow_body_search_vector(m.body_text) @@ plainto_tsquery('english', $${ftsIdx})
+                 OR (mailflow_body_search_vector(m.body_text) IS NULL
+                     AND mailflow_body_overflow_matches(m.body_text, $${ftsIdx}))))
       )`;
 }
 

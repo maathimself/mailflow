@@ -131,16 +131,12 @@ describe('parseSearchQuery', () => {
   });
 });
 
-describe('freeTextTermCondition (oversized-body crash hotfix)', () => {
-  it('caps the body tsvector so a multi-megabyte email cannot exceed the 1MB tsvector limit', () => {
+describe('freeTextTermCondition', () => {
+  it('uses the indexed capped vector and retains an overflow matching arm', () => {
     const cond = freeTextTermCondition(3, 4);
-    // The body text is fed to to_tsvector through LEFT(..., FTS_BODY_CHAR_CAP).
-    // Without this cap a single oversized body raises SQLSTATE 54000 and 500s search.
-    expect(cond).toContain(
-      `to_tsvector('english', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP}))`
-    );
-    // Guard against a regression back to the uncapped expression.
-    expect(cond).not.toContain("to_tsvector('english', coalesce(m.body_text,'')) @@");
+    expect(cond).toContain("mailflow_body_search_vector(m.body_text) @@ plainto_tsquery('english', $4)");
+    expect(cond).toContain('mailflow_body_search_vector(m.body_text) IS NULL');
+    expect(cond).toContain('mailflow_body_overflow_matches(m.body_text, $4)');
   });
 
   it('pins the cap at 600000 chars (msgvault maxFTSBodyChars parity)', () => {
