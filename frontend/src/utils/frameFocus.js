@@ -61,6 +61,11 @@ function focusSink(doc) {
 // to what had it before (the message list, whose arrow keys then keep working), or else to an
 // invisible spot in the page. Blurring the frame is not enough: WebKit keeps focus in it.
 // Returns the cleanup.
+// The email frames being watched, each with the call that starts its return. Focus that moves from
+// one email straight into another (two open cards in a conversation) blurs the page's window only
+// once, for the first, so the frame it lands in hears nothing; the first one's watcher hands over.
+const watchers = new Map();
+
 export function returnFocusFromFrame(iframe) {
   const doc = iframe.ownerDocument;
   const win = doc.defaultView;
@@ -68,13 +73,24 @@ export function returnFocusFromFrame(iframe) {
   let lastTab = 0;
   // What had focus in the page before the email took it: what has it now, then whatever focus
   // moves to or leaves (a click on the email takes it from the list, as a focusout says).
-  const inPage = (el) => el && el !== iframe && el !== doc.body && el.tagName !== 'IFRAME';
+  // Never a text field: given back to the search box or the composer, the next shortcut key would be
+  // typed there instead, the very thing this is for. The list, or the invisible spot, takes it.
+  const editable = (el) => el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
+  const inPage = (el) => el && el !== iframe && el !== doc.body && el.tagName !== 'IFRAME' && !editable(el);
   let lastFocused = inPage(doc.activeElement) ? doc.activeElement : null;
   const onFocusIn = (e) => { if (inPage(e.target)) lastFocused = e.target; };
   const onKeyDown = (e) => { if (e.key === 'Tab') lastTab = Date.now(); };
+  const arm = () => {
+    clearTimeout(timer);
+    timer = setTimeout(check, RETURN_AFTER_MS);
+  };
   const check = () => {
     timer = null;
-    if (doc.activeElement !== iframe) return; // focus has already left the email
+    if (doc.activeElement !== iframe) {
+      // Focus has left the email: for the page, or for another email, whose watcher takes over.
+      watchers.get(doc.activeElement)?.();
+      return;
+    }
     if (hasSelection(iframe)) { timer = setTimeout(check, RECHECK_MS); return; }
     if (lastFocused?.isConnected) lastFocused.focus({ preventScroll: true });
     if (doc.activeElement === iframe) focusSink(doc).focus({ preventScroll: true });
@@ -83,16 +99,17 @@ export function returnFocusFromFrame(iframe) {
     // The page's window lost focus. Into this email? activeElement says so once the move is done.
     setTimeout(() => {
       if (doc.activeElement !== iframe || Date.now() - lastTab < TAB_GRACE_MS) return;
-      clearTimeout(timer);
-      timer = setTimeout(check, RETURN_AFTER_MS);
+      arm();
     }, 0);
   };
+  watchers.set(iframe, arm);
   win.addEventListener('blur', onBlur);
   doc.addEventListener('keydown', onKeyDown, true);
   doc.addEventListener('focusin', onFocusIn, true);
   doc.addEventListener('focusout', onFocusIn, true);
   return () => {
     clearTimeout(timer);
+    if (watchers.get(iframe) === arm) watchers.delete(iframe);
     win.removeEventListener('blur', onBlur);
     doc.removeEventListener('keydown', onKeyDown, true);
     doc.removeEventListener('focusin', onFocusIn, true);

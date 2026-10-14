@@ -52,11 +52,30 @@ describe('PATCH /messages/:id/snooze and POST /messages/:id/unsnooze', () => {
     const res = await call('PATCH', 'snooze', { until });
     expect(res.status).toBe(200);
     const [where, params] = imapManager.snoozedRows.mock.calls[0];
-    expect(where).toContain('m.thread_id = $5');
-    expect(params).toEqual(['user-1', 'acct-1', 'Snoozed', '<a@x>', '<t@x>']);
+    expect(where).toContain('m.message_id = ANY($5::text[])');
+    expect(params).toEqual(['user-1', 'acct-1', 'Snoozed', '<a@x>', ['<a@x>']]);
     const update = query.mock.calls.find(([sql]) => sql.startsWith('UPDATE snoozed_messages'));
     expect(update[1]).toEqual([new Date(until).toISOString(), ['sz-1', 'sz-2']]);
     expect(imapManager.broadcast).toHaveBeenCalledWith({ type: 'folder_updated', folder: 'Snoozed', accountId: 'acct-1' }, 'user-1');
+  });
+
+  // thread_id groups by subject too. Snoozing takes the reply chain only, and so does changing or
+  // ending the snooze: a separately snoozed notification with the same subject stays as it is.
+  it('acts on the reply chain the snooze took, not on everything sharing its subject', async () => {
+    query.mockImplementation(async (sql) => {
+      if (sql.includes('thread_references')) {
+        return { rows: [
+          { ...MSG, in_reply_to: null, thread_references: null },
+          { id: 'b', account_id: 'acct-1', folder: 'Snoozed', message_id: '<b@x>', in_reply_to: '<a@x>', thread_references: '<a@x>' },
+          { id: 'c', account_id: 'acct-1', folder: 'Snoozed', message_id: '<c@x>', in_reply_to: null, thread_references: null },
+        ] };
+      }
+      return sql.includes('FROM messages m') ? { rows: [MSG] } : { rows: [] };
+    });
+    imapManager.snoozedRows.mockResolvedValue([rowOf(1)]);
+    expect((await call('PATCH', 'snooze', { until: inDays(2) })).status).toBe(200);
+    const [, params] = imapManager.snoozedRows.mock.calls[0];
+    expect([...params[4]].sort()).toEqual(['<a@x>', '<b@x>']);
   });
 
   it("refuses a bad time, another user's message, or one that is not snoozed", async () => {

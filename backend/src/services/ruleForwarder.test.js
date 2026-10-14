@@ -10,6 +10,7 @@ import nodemailer from 'nodemailer';
 import { query } from './db.js';
 import { createAccountSmtpTransport } from './smtpTransport.js';
 import { parseRawHeaders } from './messageParser.js';
+import { sanitizeEmail } from './emailSanitizer.js';
 import {
   buildForwardMessage,
   forwardRuleMessage,
@@ -741,5 +742,33 @@ describe('forwardRuleMessage', () => {
     await expect(forward(input)).rejects.toThrow(/ENCRYPTION_KEY/);
     expect(freshQuery).not.toHaveBeenCalled();
     expect(freshSmtp).not.toHaveBeenCalled();
+  });
+});
+
+// The stored body is already sanitized and ends with the sender's dark CSS switched off
+// (media="not all"). Sanitized again on the way out, the switch was dropped, so a forward of an
+// email with a dark design went out with its dark rules on: white text for the recipient.
+describe('forwarding a stored body', () => {
+  it("leaves the sender's dark design off", async () => {
+    vi.clearAllMocks();
+    query.mockReset();
+    const transport = { sendMail: vi.fn().mockResolvedValue({ accepted: true }) };
+    createAccountSmtpTransport.mockResolvedValue({ account, transport });
+    const stored = sanitizeEmail('<style>.x{color:#333} @media (prefers-color-scheme: dark){ .x{color:#fff !important} body{background:#000 !important} }</style><p class="x">Hello</p>');
+    expect(stored).toContain('media="not all"'); // as sync stores it
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'delivery-1' }] })
+      .mockResolvedValueOnce({ rows: [{ ...messageRow, body_html: stored }] })
+      .mockResolvedValueOnce({ rows: [] });
+    await expect(forwardRuleMessage({
+      ruleId: 'rule-1', message: { id: messageRow.id }, account,
+      imapManager: { fetchMessageBody: vi.fn(), fetchMultipleAttachments: vi.fn().mockResolvedValue(new Map()) },
+      recipient: 'recipient@example.com',
+    })).resolves.toBe('sent');
+    const { html } = transport.sendMail.mock.calls[0][0];
+    expect(html).toContain('Hello');
+    expect(html).toContain('.x{color:#333}');
+    expect(html).not.toContain('#fff');
+    expect(html).not.toContain('background:#000');
   });
 });

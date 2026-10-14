@@ -107,6 +107,10 @@ export const FIXTURES = {
   // srcdoc frame), and the page can read its pixels, so a dark one on a transparent background gets
   // its backing like an inline image.
   proxiedLogo: { proxied: true, html: `<p>Logo:</p><img width="160" height="50" src="${PROXY_URL}">` },
+  // A cell with a small background image that does not cover its text, and no background color of
+  // its own: left as sent, it must keep the white it was drawn on, or the recolored table shows
+  // through behind its dark text (unreadable, and the readability check skips text over an image).
+  islandText: `<table width="100%" bgcolor="#ffffff"><tr><td style="background-image:url('${svg('<rect width="20" height="20" fill="#cc0000"/>')}');background-repeat:no-repeat;color:#333333;${CARD}">Text beside a small background image</td></tr></table>`,
   // A sender that asks to stay light.
   lightOnly: '<html><head><meta name="color-scheme" content="only light"></head><body><p style="color:#333">Keep me light please.</p><img src="https://example.invalid/pixel.gif" width="1" height="1"></body></html>',
 };
@@ -209,6 +213,7 @@ export async function runSelftest() {
 
     assert.deepEqual(Object.keys(results.lightOnly.modes), ['light'], 'a sender that asks to stay light is never shown dark');
 
+    assert.ok(m('islandText', 'recolor').bright > 0.5, `a cell left as sent keeps its white under a small background image: ${m('islandText', 'recolor').bright}`);
     const t = totals(list);
     assert.equal(t.restoreMismatches, 0);
     assert.equal(t.auto.broken, 0, 'what the reader shows never has broken text');

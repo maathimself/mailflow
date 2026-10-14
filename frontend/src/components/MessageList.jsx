@@ -128,7 +128,7 @@ export default function MessageList() {
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
     messagesRefreshToken, layout, setLayout, pageSize, setPageSize, scrollMode,
     setMobileSidebarOpen, unreadCounts, showContacts, setShowContacts,
-    threadedView, expandedThreadId, setExpandedThreadId,
+    threadedView: threadedSetting, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, clearThreadMessages, loadingThread, setLoadingThread,
     hoverQuickActions, hoverActionSet, showMobileAvatars, showMessagePreviews,
     swipeActions,
@@ -154,6 +154,9 @@ export default function MessageList() {
   // The Snoozed view (#269): an account's Snoozed folder, or with no account every account's.
   const isSnoozedView = selectedFolder === SNOOZED_FOLDER;
   const isAllInboxes = isUnified && !isSnoozedView;
+  // The Snoozed view lists single messages, each with when it comes back, and the server never
+  // groups it; drawn as conversation rows it showed unread mail as read and repeated row keys.
+  const threadedView = threadedSetting && !isSnoozedView;
   const selectedAccount = accounts.find(a => a.id === selectedAccountId);
   const unifiedInboxAccountKey = accounts
     .filter(isAccountInUnifiedInbox)

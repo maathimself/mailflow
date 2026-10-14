@@ -139,6 +139,26 @@ describe('MessageList — drag source (#130)', () => {
   });
 });
 
+// The server never groups the Snoozed view (#269): each snoozed message is its own row with when it
+// comes back. Drawn as conversation rows, with conversations on, unread mail showed as read and the
+// rows of one snoozed conversation shared a key.
+describe('MessageList — the Snoozed view with conversations on', () => {
+  test('lists each snoozed message on its own, with when it comes back', async () => {
+    const until = new Date(Date.now() + 86_400_000).toISOString();
+    const a = { ...MESSAGE, id: 'sz-a', folder: 'Snoozed', thread_id: 'thr-s', snooze_until: until };
+    const b = { ...MESSAGE, id: 'sz-b', folder: 'Snoozed', thread_id: 'thr-s', snooze_until: until, message_id: '<m2@example.com>' };
+    await mount({ rows: [a, b], threadedView: true, folder: 'Snoozed' });
+    assert.ok(container.querySelector('[data-msgid="sz-a"]') && container.querySelector('[data-msgid="sz-b"]'), 'both rows');
+    const shown = container.querySelectorAll('[title^="messageList.snoozedUntil"]').length;
+    assert.equal(shown, 2, 'each row says when it comes back');
+    // Unread, so the sender is bold; a conversation row read that from a count this view lacks.
+    const sender = [...container.querySelector('[data-msgid="sz-a"]').querySelectorAll('*')]
+      .find(el => el.children.length === 0 && el.textContent === 'Sender');
+    assert.ok(sender, 'the sender is shown');
+    assert.equal(sender.style.fontWeight, '600', 'and shown unread');
+  });
+});
+
 describe('MessageList — selected-row shortcuts', () => {
   test('mark unread updates a selected GTD rail copy and its section row', async () => {
     await mount({ rows: [MESSAGE], threadedView: false });

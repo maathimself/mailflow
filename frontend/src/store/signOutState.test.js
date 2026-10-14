@@ -85,6 +85,8 @@ test('nor the settings held only in memory', () => {
     hiddenFolders: { 'acct-a': ['HR'] }, shortcuts: { archive: 'z' }, autoLockMinutes: 5,
     categorizationEnabled: true, gtdPetSlug: 'cat',
     autoOpenReplyDrafts: true, afterRemove: 'list', darkEmailBodies: false,
+    favoriteFolders: [{ accountId: 'acct-a', path: 'HR' }], recentFolders: [{ accountId: 'acct-a', path: 'HR' }],
+    defaultSender: 'account:acct-a', collapsedFolders: ['acct-a:HR'], expandedAccounts: { 'acct-a': true },
   };
   useStore.setState(settings);
   sessionExpires();

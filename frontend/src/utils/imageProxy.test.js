@@ -24,3 +24,13 @@ test('leaves everything else alone', () => {
   assert.equal(unproxyImages(null), null);
   assert.equal(unproxyImages(`<img src="/api/mail/messages/${ID}/image?u=%E0%A4%A">`), `<img src="/api/mail/messages/${ID}/image?u=%E0%A4%A">`, 'a broken escape stays as it is');
 });
+
+test('restores a proxy URL written out absolute, as a pasted quote has it', () => {
+  const html = `<img src="https://mail.example.com${proxy('https://img.example/a.png')}">`;
+  assert.equal(unproxyImages(html), '<img src="https://img.example/a.png">');
+});
+
+test('restores a proxy URL that carries the shown width, as written or as a browser serializes it', () => {
+  assert.equal(unproxyImages(`<img src="${proxy('https://img.example/a.png')}&w=180">`), '<img src="https://img.example/a.png">');
+  assert.equal(unproxyImages(`<img src="${proxy('https://img.example/a.png')}&amp;w=180" width="180">`), '<img src="https://img.example/a.png" width="180">');
+});

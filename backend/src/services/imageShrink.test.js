@@ -3,27 +3,27 @@
 import { describe, expect, it } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
-import { shrinkImage, SHRINK_ABOVE_BYTES, MAX_WIDTH, MAX_INPUT_PIXELS, MAX_SHRINK_ON_LOAD_PIXELS } from './imageShrink.js';
+import { shrinkImage, targetWidth, SHRINK_ABOVE_BYTES, MAX_WIDTH, DEFAULT_WIDTH, MAX_INPUT_PIXELS, MAX_SHRINK_ON_LOAD_PIXELS } from './imageShrink.js';
 
 // Random pixels compress badly, so a photo-sized image is well over the threshold.
 const noise = (width, height, channels = 3) => sharp(randomBytes(width * height * channels), { raw: { width, height, channels } });
 
 describe('shrinkImage', () => {
-  it('scales a large photo to MAX_WIDTH as WebP, much smaller', async () => {
+  it('scales a large photo with no width given to DEFAULT_WIDTH as WebP, much smaller', async () => {
     const bytes = await noise(3000, 2000).jpeg({ quality: 95 }).toBuffer();
     expect(bytes.length).toBeGreaterThan(SHRINK_ABOVE_BYTES);
     const out = await shrinkImage({ bytes, type: 'image/jpeg' });
     expect(out.type).toBe('image/webp');
     expect(out.bytes.length).toBeLessThan(bytes.length / 2);
     const meta = await sharp(out.bytes).metadata();
-    expect([meta.format, meta.width, meta.height]).toEqual(['webp', MAX_WIDTH, Math.round((2000 * MAX_WIDTH) / 3000)]);
+    expect([meta.format, meta.width, meta.height]).toEqual(['webp', DEFAULT_WIDTH, Math.round((2000 * DEFAULT_WIDTH) / 3000)]);
   });
 
   it('applies the EXIF orientation and drops the metadata', async () => {
     const bytes = await noise(3000, 2000).jpeg({ quality: 95 }).withMetadata({ orientation: 6 }).toBuffer();
     const out = await shrinkImage({ bytes, type: 'image/jpeg' });
     const meta = await sharp(out.bytes).metadata();
-    expect([meta.width, meta.height]).toEqual([MAX_WIDTH, 2400]); // turned upright, then scaled
+    expect([meta.width, meta.height]).toEqual([DEFAULT_WIDTH, 1920]); // turned upright, then scaled
     expect(meta.exif).toBeUndefined();
     expect(meta.orientation).toBeUndefined();
   });
@@ -78,6 +78,31 @@ describe('shrinkImage', () => {
     const bytes = await noise(10200, 4760).jpeg({ quality: 80 }).toBuffer();
     const out = await shrinkImage({ bytes, type: 'image/jpeg' });
     expect(out.type).toBe('image/webp');
-    expect((await sharp(out.bytes).metadata()).width).toBe(MAX_WIDTH);
+    expect((await sharp(out.bytes).metadata()).width).toBe(DEFAULT_WIDTH);
+  });
+});
+
+// Fitted to how the email shows it: a product shot 600 px wide shown at 180 needs 360 (twice, for
+// high-density screens), not 600.
+describe('fitting to the width the email shows an image at', () => {
+  it('targets twice the shown width, within bounds', () => {
+    expect(targetWidth(180)).toBe(360);
+    expect(targetWidth(null)).toBe(DEFAULT_WIDTH);
+    expect(targetWidth(5000)).toBe(MAX_WIDTH);
+    expect(targetWidth(8)).toBe(64);
+  });
+
+  it('scales an image well wider than it is shown, even a light one', async () => {
+    const bytes = await noise(600, 400).jpeg({ quality: 70 }).toBuffer();
+    const out = await shrinkImage({ bytes, type: 'image/jpeg' }, { width: 180 });
+    expect(out.type).toBe('image/webp');
+    expect((await sharp(out.bytes).metadata()).width).toBe(360);
+    expect(out.bytes.length).toBeLessThan(bytes.length);
+  });
+
+  it('leaves a light image already about its shown size alone', async () => {
+    const image = { bytes: await noise(300, 200).png().toBuffer(), type: 'image/png' };
+    expect(image.bytes.length).toBeLessThan(SHRINK_ABOVE_BYTES);
+    expect(await shrinkImage(image, { width: 200 })).toBe(image);
   });
 });

@@ -153,6 +153,10 @@ export const useStore = create((set, get) => ({
         imageWhitelist: { addresses: [], domains: [] }, shortcuts: {}, aiActions: null,
         hiddenFolders: {}, categorizationEnabled: false, gtdPetSlug: null,
         autoOpenReplyDrafts: false, afterRemove: 'next', darkEmailBodies: true,
+        // Folder shortcuts name the previous user's accounts and folders. Left in place, the
+        // next user's first favorite saved them into that user's own preferences.
+        favoriteFolders: [], recentFolders: [], defaultSender: '',
+        collapsedFolders: [], expandedAccounts: {},
       } : {}),
     }));
   },

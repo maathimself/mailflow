@@ -13,6 +13,8 @@ export const SIGN_OUT_CLEARED_KEYS = [
   'mailflow_expanded_accounts', 'mailflow_collapsed_folders',
   // Reading preferences the store seeds from localStorage before loadPreferences runs.
   'mailflow_auto_open_reply_drafts', 'mailflow_after_remove', 'mailflow_dark_email_bodies',
+  // Folder shortcuts and the sender to use: they name the previous user's accounts and folders.
+  'mailflow_favorite_folders', 'mailflow_recent_folders', 'mailflow_default_sender', 'mailflow_last_from_account',
 ];
 
 // Signing out from the sidebar and from the lock screen (#523). When the session signed in

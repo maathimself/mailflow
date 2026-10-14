@@ -5,6 +5,7 @@ import { measureContentHeight, createHeightController, forceEagerImages, pinFram
 import { forwardIframeKeydown } from '../utils/iframeKeys.js';
 import { buildFrameDoc, DARK_DEFAULTS, SCALE_WRAPPER } from '../utils/emailFrameDoc.js';
 import { applyDarkBody, restoreBody } from '../utils/darkBody.js';
+import { loadImagesNearView } from '../utils/frameLazyImages.js';
 
 // The theme's colors for a body shown dark (#228). They come from CSS variables that an admin's
 // custom CSS can redefine, and they are written into the frame's stylesheet, so only a plain
@@ -64,11 +65,19 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
   const darkRef = useRef(dark);
   const paletteRef = useRef(palette);
   const onDarkResultRef = useRef(onDarkResult);
+  // The context-menu callbacks are read through refs too. The pane makes a new onContextMenu
+  // whenever the message object changes, and marking the message read, which every open does,
+  // changes it: as a dependency it tore the frame's whole setup down and ran it again (scaling,
+  // the dark pass, height) a moment after the email first showed.
+  const onContextMenuRef = useRef(onContextMenu);
+  const nativeTargetRef = useRef(hasNativeContextTarget);
   // A layout effect declared before the others, so it has run first on every commit.
   useLayoutEffect(() => {
     darkRef.current = dark;
     paletteRef.current = palette;
     onDarkResultRef.current = onDarkResult;
+    onContextMenuRef.current = onContextMenu;
+    nativeTargetRef.current = hasNativeContextTarget;
   });
   const shownDocRef = useRef(null);
 
@@ -93,6 +102,7 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
     if (!iframe || !body?.html) return;
 
     let rafId;
+    let scheduleMeasure = () => { rafId = requestAnimationFrame(setHeight); };
     let pollId = null;
     const heights = createHeightController();
     let initialisedDoc = null;
@@ -103,6 +113,7 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
     let keyDoc = null;
     let iframeKeyHandler = null;
     let focusReturn = null;
+    let stopLazyImages = null;
 
     const setHeight = () => {
       const doc = iframe.contentDocument;
@@ -206,6 +217,24 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
 
       const expandScrollContainers = createScrollExpander(doc);
       expandScrollContainers();
+      // One measurement per frame, however many images load in it: each load and the
+      // ResizeObserver each asked for their own, and every change of the frame's height lays
+      // the pane out again.
+      let measureQueued = false;
+      let expandQueued = false;
+      scheduleMeasure = ({ expand = false } = {}) => {
+        expandQueued = expandQueued || expand;
+        if (measureQueued) return;
+        measureQueued = true;
+        rafId = requestAnimationFrame(() => {
+          measureQueued = false;
+          if (expandQueued) {
+            expandQueued = false;
+            expandScrollContainers();
+          }
+          setHeight();
+        });
+      };
 
       // Show it dark now, before the frame first paints: this runs in the animation frame after
       // the document is parsed, ahead of rendering, so the light version is never seen. After
@@ -251,10 +280,10 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
         contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);
       }
       iframeContextMenuHandler = (ev) => {
-        if (hasNativeContextTarget(ev, doc)) return;
+        if (nativeTargetRef.current?.(ev, doc)) return;
         ev.preventDefault();
         const rect = iframe.getBoundingClientRect();
-        onContextMenu(rect.left + ev.clientX, rect.top + ev.clientY, {
+        onContextMenuRef.current?.(rect.left + ev.clientX, rect.top + ev.clientY, {
           source: 'iframe',
           selectedText: doc.getSelection?.().toString() || '',
         });
@@ -280,8 +309,8 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
       // scroll containers whose content has grown due to the newly loaded image.
       doc.querySelectorAll('img').forEach(img => {
         if (!img.complete) {
-          img.addEventListener('load', () => { expandScrollContainers(); requestAnimationFrame(setHeight); }, { once: true });
-          img.addEventListener('error', () => requestAnimationFrame(setHeight), { once: true });
+          img.addEventListener('load', () => scheduleMeasure({ expand: true }), { once: true });
+          img.addEventListener('error', () => scheduleMeasure(), { once: true });
         }
       });
 
@@ -296,9 +325,13 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
         // (stale document, then the real one), and overwriting the ref without this
         // leaves the previous observer running against the old document forever.
         if (roRef.current) roRef.current.disconnect();
-        roRef.current = new ResizeObserver(() => requestAnimationFrame(setHeight));
+        roRef.current = new ResizeObserver(() => scheduleMeasure());
         roRef.current.observe(root);
       }
+
+      // Images held back further down the email load as the reader nears them.
+      stopLazyImages?.();
+      stopLazyImages = loadImagesNearView(doc);
     };
 
     // 'load' is kept, but it CANNOT be the only trigger. It waits for every subresource,
@@ -344,10 +377,11 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
         keyDoc.removeEventListener('keydown', iframeKeyHandler);
       }
       focusReturn?.();
+      stopLazyImages?.();
       iframe.removeEventListener('load', onLoaded);
       emailScaleRef.current = 1;
     };
-  }, [body?.html, messageId, hasNativeContextTarget, onContextMenu, emailScaleRef, iframeRef]);
+  }, [body?.html, messageId, emailScaleRef, iframeRef]);
 
   // The toggle: switch the document already shown, without reloading it, before the browser
   // paints. Its layout can change with a sender's dark design; the ResizeObserver on its body

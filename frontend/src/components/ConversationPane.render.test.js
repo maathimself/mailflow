@@ -8,7 +8,7 @@
 // Same loader hooks as MessagePane.render.test.js: node --test cannot parse JSX, and
 // react-i18next is stubbed because a real i18n instance would test i18next.
 
-import { test, describe, before, after } from 'node:test';
+import { test, describe, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
@@ -88,6 +88,9 @@ globalThis.fetch = async (url, opts = {}) => {
 const React = await import('react');
 const { createRoot } = await import('react-dom/client');
 const ConversationPane = (await import('./ConversationPane.jsx')).default;
+const { bodyCache } = await import('../utils/bodyCache.js');
+// Each test serves its own body for the same message ids: start each without the last one's.
+beforeEach(() => bodyCache.clear());
 const { shortcutBus } = await import('../utils/shortcutBus.js');
 const { api } = await import('../utils/api.js');
 const { useStore } = await import('../store/index.js');

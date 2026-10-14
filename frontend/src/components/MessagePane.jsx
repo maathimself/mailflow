@@ -14,6 +14,7 @@ import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDel
 import { pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
 import { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } from '../utils/markRead.js';
 import { advanceSelectionAfterRemoval, adjacentRow, openAdjacentRow } from '../utils/listSelection.js';
+import { bodyCache, prefetchBody as prefetchCachedBody } from '../utils/bodyCache.js';
 import { unsnooze, changeSnooze, refreshCounts } from '../utils/snoozeActions.js';
 import { isDarkTheme, canShowDark, showDark } from '../utils/darkScheme.js';
 import { markMessageUnread } from '../utils/messageHotkeys.js';
@@ -304,8 +305,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const outerRef = useRef(null);
   const scaleRef = useRef(null);
   const innerRef = useRef(null);
-  const bodyCache = useRef({}); // messageId -> body, so revisiting is instant (capped at 50)
-  const bodyCacheOrder = useRef([]); // insertion-order keys for LRU eviction
   // Session-scoped set of message IDs where the user has clicked "Load images once"
   const imagesRequestedRef = useRef(new Set());
   // Ref holding the latest pane action handlers so shortcut subscriptions ([] deps) never go stale
@@ -397,26 +396,16 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
     let evicted = false;
     if (tightened) {
-      for (const id of Object.keys(bodyCache.current)) {
-        if (!bodyCache.current[id]?.hasBlockedRemoteImages) {
-          delete bodyCache.current[id];
-          imagesRequestedRef.current.delete(id); // clear "load once" so policy is respected
-          evicted = true;
-        }
-      }
+      evicted = bodyCache.evict((cached, id) => {
+        if (cached.hasBlockedRemoteImages) return false;
+        imagesRequestedRef.current.delete(id); // clear "load once" so policy is respected
+        return true;
+      }) || evicted;
     }
     if (loosenedGlobally || loosenedViaWhitelist) {
-      for (const id of Object.keys(bodyCache.current)) {
-        if (bodyCache.current[id]?.hasBlockedRemoteImages) {
-          delete bodyCache.current[id];
-          evicted = true;
-        }
-      }
+      evicted = bodyCache.evict(cached => cached.hasBlockedRemoteImages) || evicted;
     }
-    if (evicted) {
-      bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
-      setRetryKey(k => k + 1);
-    }
+    if (evicted) setRetryKey(k => k + 1);
   }, [blockRemoteImages, imageWhitelist]);
 
   useLayoutEffect(() => {
@@ -431,7 +420,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     // Skip the cache (or clear a stale blocked entry) when the user has explicitly
     // requested images for this message so we re-fetch with ?remoteImages=1.
     const wantsImages = imagesRequestedRef.current.has(selectedMessageId);
-    const cached = bodyCache.current[selectedMessageId];
+    const cached = bodyCache.get(selectedMessageId);
     if (cached && (cached.html || cached.text)) {
       if (!wantsImages || !cached.hasBlockedRemoteImages) {
         setBody(cached);
@@ -440,7 +429,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         return;
       }
       // Cache has the blocked version but user wants images — evict and re-fetch
-      delete bodyCache.current[selectedMessageId];
+      bodyCache.delete(selectedMessageId);
     }
 
     // Clear previous content immediately so stale body never shows for a new message
@@ -472,16 +461,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     fetchWithRetry(selectedMessageId)
       .then(data => {
         if (cancelled) return;
-        // Only cache if there's real content — empty results can be retried
-        if (data.html || data.text) {
-          bodyCache.current[selectedMessageId] = data;
-          bodyCacheOrder.current.push(selectedMessageId);
-          // Evict oldest entry when cache exceeds 50 messages
-          if (bodyCacheOrder.current.length > 50) {
-            const evicted = bodyCacheOrder.current.shift();
-            delete bodyCache.current[evicted];
-          }
-        }
+        // Only real content is cached (bodyCache.set): empty results can be retried
+        bodyCache.set(selectedMessageId, data);
         setBody(data);
       })
       .catch(err => {
@@ -619,8 +600,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     };
   }, [prepared]);
 
-  // Fade in pane content when switching messages on desktop
-  useEffect(() => {
+  // Fade in pane content when switching messages on desktop. Before the paint: started after it,
+  // the new message showed at full opacity for a frame, then blinked out and faded back in.
+  useLayoutEffect(() => {
     if (isMobile || !selectedMessageId || !paneRef.current) return;
     const el = paneRef.current;
     el.style.animation = 'none';
@@ -631,14 +613,21 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // A neighbor's body, loaded ahead into the cache this pane reads first, so a swipe opens a
   // message that is ready to show (#229).
   const prefetchBody = useCallback((row) => {
-    if (!row || bodyCache.current[row.id]) return;
-    api.getMessageBody(row.id, imagesRequestedRef.current.has(row.id)).then((data) => {
-      if (!(data?.html || data?.text) || bodyCache.current[row.id]) return;
-      bodyCache.current[row.id] = data;
-      bodyCacheOrder.current.push(row.id);
-      while (bodyCacheOrder.current.length > 50) delete bodyCache.current[bodyCacheOrder.current.shift()];
-    }).catch(() => {});
+    if (row) prefetchCachedBody(row.id, imagesRequestedRef.current.has(row.id));
   }, []);
+
+  // On a desktop too, the next and previous messages are loaded once this one has shown, so j/k
+  // and opening the next after a delete show a message at once instead of waiting on the server
+  // (on a phone the swipe pager does this). Briefly deferred, so a run of j presses does not
+  // fetch every message it passes.
+  useEffect(() => {
+    if (isMobile || !body || !selectedMessageId) return undefined;
+    const timer = setTimeout(() => {
+      prefetchBody(adjacentRow('next'));
+      prefetchBody(adjacentRow('prev'));
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [body, selectedMessageId, isMobile, prefetchBody]);
 
   // Swiping on a phone (#229): from the left edge back to the list (hooks/useSwipeBack.js); left and
   // right for the next and previous message is the SwipePager around the content below.
@@ -1259,7 +1248,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handleLoadImages = () => {
     imagesRequestedRef.current.add(selectedMessageId);
-    delete bodyCache.current[selectedMessageId];
+    bodyCache.delete(selectedMessageId);
     setRetryKey(k => k + 1);
   };
 
@@ -1270,10 +1259,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     try {
       await addToImageWhitelist({ type: 'address', value: senderEmail });
       // Evict all blocked cache entries so they re-fetch with images unblocked
-      for (const id of Object.keys(bodyCache.current)) {
-        if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
-      }
-      bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
+      bodyCache.evict(cached => cached.hasBlockedRemoteImages);
       setRetryKey(k => k + 1);
     } catch {
       addNotification({ title: t('message.whitelistFail.title'), body: t('message.whitelistFail.body') });
@@ -1343,10 +1329,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     try {
       await addToImageWhitelist({ type: 'domain', value: senderDomain });
       // Evict all blocked cache entries so they re-fetch with images unblocked
-      for (const id of Object.keys(bodyCache.current)) {
-        if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
-      }
-      bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
+      bodyCache.evict(cached => cached.hasBlockedRemoteImages);
       setRetryKey(k => k + 1);
     } catch {
       addNotification({ title: t('message.whitelistFail.title'), body: t('message.whitelistFail.body') });
@@ -2376,7 +2359,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
               </div>
             </div>
             <button
-              onClick={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
+              onClick={() => { bodyCache.delete(selectedMessageId); setRetryKey(k => k + 1); }}
               style={{
                 background: 'var(--bg-secondary)', border: '1px solid var(--border)',
                 borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
@@ -2397,7 +2380,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
               {t('message.noContent')}
             </div>
             <button
-              onClick={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
+              onClick={() => { bodyCache.delete(selectedMessageId); setRetryKey(k => k + 1); }}
               style={{
                 background: 'var(--bg-secondary)', border: '1px solid var(--border)',
                 borderRadius: 6, padding: '6px 14px', cursor: 'pointer',

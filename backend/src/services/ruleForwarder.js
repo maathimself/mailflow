@@ -156,7 +156,7 @@ export function buildForwardMessage({
       `<strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}<br>`),
     '</div><br>',
   ].join('');
-  const safeHtml = html ? withoutDarkScheme(sanitizeEmail(html)) : html;
+  const safeHtml = forwardableHtml(html);
   const plainBody = text || htmlToPlainText(safeHtml);
 
   return {
@@ -187,6 +187,14 @@ function ensureAttachmentLimit(attachments) {
   if (totalBytes > MAX_ATTACHMENT_BYTES) {
     throw new Error('Total attachment size exceeds 25 MB');
   }
+}
+
+// The email as it leaves MailFlow. `html` is either raw from the server or the stored body, which is
+// already sanitized and ends with the sender's dark CSS switched off (media="not all"). Sanitizing
+// that again drops the switch, since <style> keeps no attributes, and the dark rules would go out
+// active; so a stored dark block is taken off first, and the one sanitizing makes is taken off after.
+function forwardableHtml(html) {
+  return html ? withoutDarkScheme(sanitizeEmail(withoutDarkScheme(html))) : html;
 }
 
 async function loadForwardContent({ row, account, imapManager }) {
@@ -255,7 +263,7 @@ async function loadForwardContent({ row, account, imapManager }) {
     });
   }
 
-  const safeHtml = html ? withoutDarkScheme(sanitizeEmail(html)) : html;
+  const safeHtml = forwardableHtml(html);
   const embedded = embedInlineDataImages(safeHtml);
   const attachments = [
     ...embedded.attachments,

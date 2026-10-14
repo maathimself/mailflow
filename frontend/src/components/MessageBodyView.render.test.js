@@ -107,6 +107,17 @@ describe('the email frame (#228)', () => {
     assert.equal(on, off);
   });
 
+  // Marking the message read gives it a new identity, and the pane a new onContextMenu. That
+  // must not tear the frame's setup down and run it again (its cleanup resets the scale).
+  test('a new context-menu callback does not set the frame up again', async () => {
+    const emailScaleRef = { current: 1 };
+    const iframeRef = React.createRef();
+    await frameDoc({ emailScaleRef, iframeRef, onContextMenu: () => {} });
+    emailScaleRef.current = 0.6; // as scaling a wide email would leave it
+    await frameDoc({ emailScaleRef, iframeRef, onContextMenu: () => {}, hasNativeContextTarget: () => false });
+    assert.equal(emailScaleRef.current, 0.6);
+  });
+
   test('a theme color that is not a plain color is not written into the frame', async () => {
     setVar('--bg-primary', 'red;}</style><p>injected');
     const doc = await frameDoc({ dark: true });

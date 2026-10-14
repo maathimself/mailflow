@@ -14,6 +14,7 @@
 // and position are unchanged: after the email's HTML, so they win the source-order tiebreak.
 
 import { remoteLoadsCsp } from './remoteImagePolicy.js';
+import { deferProxiedImages } from './frameLazyImages.js';
 
 // The default dark theme's colors, for a palette value that is not a plain color.
 export const DARK_DEFAULTS = { background: '#0f0f11', text: '#e8e8f0', link: '#8b7cf8', muted: '#9a9ab0', border: '#2a2a35' };
@@ -38,7 +39,8 @@ export function buildFrameDoc({ html, palette = DARK_DEFAULTS, darkCss = '', rem
       <meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; style-src 'unsafe-inline';${remoteLoadsCsp(remoteImagesBlocked, remoteImagesProxied)}">
       <base target="_blank">
     </head><body><div id="${SCALE_WRAPPER}">${
-      html.replace(/<a(\s)/gi, '<a rel="noopener noreferrer"$1')
+      // Images through the proxy load as the reader nears them (utils/frameLazyImages.js).
+      (remoteImagesProxied ? deferProxiedImages(html) : html).replace(/<a(\s)/gi, '<a rel="noopener noreferrer"$1')
     }</div><style>
         /* Injected AFTER email HTML so our rules win the source-order tiebreak
            for same-specificity !important declarations inside the email's own

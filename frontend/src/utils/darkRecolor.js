@@ -137,6 +137,14 @@ export function planRecolor(doc, palette) {
       // Over a background image (or a background color this cannot read): left as sent, and
       // everything inside it too.
       if (own && own.a > 0) lightBg = composite(own, lightBg);
+      // Left as sent means on what it was drawn on as sent. Where the image does not cover the
+      // element (a small no-repeat picture, an image that failed to load) its own background is
+      // what shows, and with no color of its own that was the recolored background behind it:
+      // the region's dark text on dark. Its own background now keeps the light color it had, under
+      // the image. The readability check skips text over an image, so it could not catch this.
+      if (!island && own && own.a < 1 && !same(parent.newBg, parent.lightBg)) {
+        plan.push([el, 'background-color', formatRgb(lightBg)]);
+      }
       island = true;
       newBg = lightBg;
     } else if (own.a > 0) {

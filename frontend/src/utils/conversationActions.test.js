@@ -1,12 +1,29 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import {
+import { readFileSync } from 'node:fs';
+import { registerHooks } from 'node:module';
+import { JSDOM } from 'jsdom';
+
+// keepDraftsApart reads the account's folders from the store, which loads the locales.
+registerHooks({
+  load(url, context, nextLoad) {
+    if (url.endsWith('.json')) {
+      return { format: 'module', shortCircuit: true, source: `export default ${readFileSync(new URL(url), 'utf8')}` };
+    }
+    return nextLoad(url, context);
+  },
+});
+const dom = new JSDOM('<div id="root"></div>', { url: 'https://mail.example.invalid' });
+Object.assign(globalThis, { window: dom.window, document: dom.window.document, localStorage: dom.window.localStorage, CustomEvent: dom.window.CustomEvent });
+
+const { useStore } = await import('../store/index.js');
+const {
   conversationActionIds,
   conversationSpamTargets,
   groupConversationMessagesByAccount,
   newestSnoozeTarget,
   keepDraftsApart,
-} from './conversationActions.js';
+} = await import('./conversationActions.js');
 
 const message = (id, overrides = {}) => ({
   id,
@@ -100,5 +117,37 @@ describe('keepDraftsApart', () => {
   it('passes through messages with no draft marker and tolerates a missing list', () => {
     assert.deepEqual(keepDraftsApart([message('x')], 'x').map(m => m.id), ['x']);
     assert.deepEqual(keepDraftsApart(undefined, 'x'), []);
+  });
+});
+
+// A conversation comes back from every folder. Deleting it from the Inbox took its copies already in
+// Trash, where a delete expunges for good, and moving it pulled them back out.
+describe('keepDraftsApart leaves Trash and Spam alone', () => {
+  const thread = [
+    message('old', { folder: '[Gmail]/Trash' }),
+    message('junk', { folder: 'Spam-folder' }),
+    message('new'),
+    message('mine', { folder: 'Sent' }),
+  ];
+  const withFolders = (fn) => {
+    const { folders, accounts } = useStore.getState();
+    useStore.setState({
+      folders: { 'account-a': [{ path: '[Gmail]/Trash', special_use: '\\Trash' }, { path: 'Spam-folder' }] },
+      accounts: [{ id: 'account-a', folder_mappings: { spam: 'Spam-folder' } }],
+    });
+    try { fn(); } finally { useStore.setState({ folders, accounts }); }
+  };
+
+  it('acting from another folder leaves the Trash and Spam copies where they are', () => withFolders(() => {
+    assert.deepEqual(keepDraftsApart(thread, 'new').map(m => m.id), ['new', 'mine']);
+  }));
+
+  it('acting from Trash or Spam still takes the whole conversation', () => withFolders(() => {
+    assert.deepEqual(keepDraftsApart(thread, 'old').map(m => m.id), ['old', 'junk', 'new', 'mine']);
+  }));
+
+  it('knows Trash by name when the folder list has not loaded', () => {
+    const list = [message('old', { account_id: 'b', folder: 'Deleted Items' }), message('new', { account_id: 'b' })];
+    assert.deepEqual(keepDraftsApart(list, 'new').map(m => m.id), ['new']);
   });
 });

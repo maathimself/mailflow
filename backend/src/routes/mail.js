@@ -8,9 +8,11 @@ import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { extractImapError } from '../services/imapError.js';
 import { isConnectionRefusal } from '../services/imapManager.js';
-import { stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs, splitDarkScheme, proxyRemoteImages, remoteImageRefs } from '../services/emailSanitizer.js';
-import { imageProxyPath, fetchProxiedImage, createUserLimiter } from '../services/imageProxy.js';
+import { stripEmailHead, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs, splitDarkScheme, proxyRemoteImages, remoteImageRefs } from '../services/emailSanitizer.js';
+import { imageProxyPath, proxyWidth, fetchProxiedImage, createUserLimiter } from '../services/imageProxy.js';
+import { imageCache, imageCacheKey } from '../services/imageCache.js';
 import { shrinkImage } from '../services/imageShrink.js';
+import { fitInlineImages } from '../services/inlineImageFit.js';
 import { needsCidRefetch, withoutCidMarker } from '../utils/cidRefs.js';
 import { sanitizeDbText, storeFetchedBody } from '../services/messageBodyStore.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, parseMailboxList, buildHeadersFromMessage } from '../services/messageParser.js';
@@ -487,16 +489,20 @@ router.get('/messages/:id/body', async (req, res) => {
     // Whether remote images are blocked for this message at all, whatever was found: the email
     // frame then forbids remote loads outright, behind blockRemoteImages.
     const remoteImagesBlocked = !skipBlocking && shouldBlockImages(message.preferences, message);
-    if (remoteImagesBlocked && shown && hasRemoteImages(shown)) {
-      responseHtml = blockRemoteImages(shown);
-      hasBlockedRemoteImages = true;
+    if (remoteImagesBlocked && shown) {
+      const blocked = blockRemoteImages(shown); // once: hasRemoteImages is this same pass
+      if (blocked !== shown) {
+        responseHtml = blocked;
+        hasBlockedRemoteImages = true;
+      }
     }
     // Remote images allowed for this message load through the image proxy (services/imageProxy.js),
     // and the email frame then allows images from MailFlow alone.
     const remoteImagesProxied = !remoteImagesBlocked;
     const imageStats = {};
-    if (remoteImagesProxied && shown) responseHtml = proxyRemoteImages(shown, (raw) => imageProxyPath(id, raw), imageStats);
-    return res.json({ ...splitDarkScheme(responseHtml), text: message.body_text, attachments, hasBlockedRemoteImages, remoteImagesBlocked, remoteImagesProxied, trackersBlocked: imageStats.trackers ?? 0, senderEmail: message.sender_email, senderName: message.sender_name, forwardedFromEmail: message.forwarded_from_email, forwardedFromName: message.forwarded_from_name, forwardedVia: message.forwarded_via, bccAddresses: bccOf(message) });
+    if (remoteImagesProxied && shown) responseHtml = proxyRemoteImages(shown, (raw, width) => imageProxyPath(id, raw, width), imageStats);
+    const inline = req.query.original === '1' ? { html: responseHtml, count: 0 } : await fitInlineImages(responseHtml, req.session.userId);
+    return res.json({ ...splitDarkScheme(inline.html), inlineImagesFitted: inline.count > 0, text: message.body_text, attachments, hasBlockedRemoteImages, remoteImagesBlocked, remoteImagesProxied, trackersBlocked: imageStats.trackers ?? 0, senderEmail: message.sender_email, senderName: message.sender_name, forwardedFromEmail: message.forwarded_from_email, forwardedFromName: message.forwarded_from_name, forwardedVia: message.forwarded_via, bccAddresses: bccOf(message) });
   }
 
   // Fetch from IMAP — signal user activity so background jobs back off during this request.
@@ -519,14 +525,18 @@ router.get('/messages/:id/body', async (req, res) => {
     let responseHtml = sanitized;
     let hasBlockedRemoteImages = false;
     const remoteImagesBlocked = !skipBlocking && shouldBlockImages(message.preferences, message);
-    if (remoteImagesBlocked && sanitized && hasRemoteImages(sanitized)) {
-      responseHtml = blockRemoteImages(sanitized);
-      hasBlockedRemoteImages = true;
+    if (remoteImagesBlocked && sanitized) {
+      const blocked = blockRemoteImages(sanitized);
+      if (blocked !== sanitized) {
+        responseHtml = blocked;
+        hasBlockedRemoteImages = true;
+      }
     }
     const remoteImagesProxied = !remoteImagesBlocked;
     const imageStats = {};
-    if (remoteImagesProxied && sanitized) responseHtml = proxyRemoteImages(sanitized, (raw) => imageProxyPath(id, raw), imageStats);
-    res.json({ ...splitDarkScheme(responseHtml), text: safeText, attachments: attachments || [], hasBlockedRemoteImages, remoteImagesBlocked, remoteImagesProxied, trackersBlocked: imageStats.trackers ?? 0, senderEmail: message.sender_email, senderName: message.sender_name, forwardedFromEmail: message.forwarded_from_email, forwardedFromName: message.forwarded_from_name, forwardedVia: message.forwarded_via, bccAddresses: bccOf(message) });
+    if (remoteImagesProxied && sanitized) responseHtml = proxyRemoteImages(sanitized, (raw, width) => imageProxyPath(id, raw, width), imageStats);
+    const inline = req.query.original === '1' ? { html: responseHtml, count: 0 } : await fitInlineImages(responseHtml, req.session.userId);
+    res.json({ ...splitDarkScheme(inline.html), inlineImagesFitted: inline.count > 0, text: safeText, attachments: attachments || [], hasBlockedRemoteImages, remoteImagesBlocked, remoteImagesProxied, trackersBlocked: imageStats.trackers ?? 0, senderEmail: message.sender_email, senderName: message.sender_name, forwardedFromEmail: message.forwarded_from_email, forwardedFromName: message.forwarded_from_name, forwardedVia: message.forwarded_via, bccAddresses: bccOf(message) });
   } catch (err) {
     const msg = err.message || 'Unknown error';
     console.error('Body fetch error:', msg);
@@ -798,23 +808,36 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
 
 // The image proxy (services/imageProxy.js): one remote image of one of the user's messages,
 // fetched by MailFlow. `u` is the reference exactly as the message's HTML writes it, and only a
-// reference that HTML holds is fetched, so this cannot fetch anything else.
+// reference that HTML holds is fetched, so this cannot fetch anything else. `w` is the width the
+// email shows it at, which it is fitted to (services/imageShrink.js).
 //
 // The references are read from the stored body, and also from it as the body route serves it
 // (head stripped, eBay image links unwrapped): the route writes that version back without waiting,
 // so on a first view an image request can arrive before it is stored. Kept for a few minutes per
-// user and message, as an email's images arrive together.
+// user and message, as an email's images arrive together: within that time a reference already
+// found needs no query, where each image read the whole body from the database again (a
+// newsletter's 40 images, 40 reads of its body). A reference not found there is looked up afresh.
+// The list was made by this user's own query of their own message, so the shortcut serves no one
+// else; a message deleted in those minutes can still show its images until they pass.
+//
+// The image itself comes from the image cache (services/imageCache.js) when it is there. It never
+// changes for a given message, reference and width, so the browser may keep it a month without
+// asking, and asking with its ETag is answered at once.
 const imageProxyLimiter = createUserLimiter();
 const imageRefsCache = new Map();
 const IMAGE_REFS_TTL_MS = 5 * 60_000;
 const IMAGE_REFS_MAX = 200;
-function imageRefsFor(key, stored) {
+const IMAGE_CACHE_CONTROL = 'private, max-age=2592000, immutable';
+const IMAGE_FAILURE_CACHE_CONTROL = 'private, max-age=600';
+function cachedImageRefs(key) {
   const hit = imageRefsCache.get(key);
-  if (hit && hit.stored === stored && Date.now() - hit.at < IMAGE_REFS_TTL_MS) return hit.refs;
+  return hit && Date.now() - hit.at < IMAGE_REFS_TTL_MS ? hit.refs : null;
+}
+function imageRefsFor(key, stored) {
   const served = rewriteAnchorHrefs(rewriteEbayImageserUrls(stripEmailHead(stored)));
   const refs = new Map([...remoteImageRefs(served), ...remoteImageRefs(stored)]);
   imageRefsCache.delete(key);
-  imageRefsCache.set(key, { stored, refs, at: Date.now() });
+  imageRefsCache.set(key, { refs, at: Date.now() });
   if (imageRefsCache.size > IMAGE_REFS_MAX) imageRefsCache.delete(imageRefsCache.keys().next().value);
   return refs;
 }
@@ -823,32 +846,46 @@ router.get('/messages/:id/image', async (req, res) => {
   const { id } = req.params;
   const raw = typeof req.query.u === 'string' ? req.query.u : '';
   if (!UUID_RE.test(id) || !raw || raw.length > 8192) return res.status(400).end();
+  const width = proxyWidth(req.query.w);
+  const userId = req.session.userId;
 
-  const result = await query(`
-    SELECT m.body_html FROM messages m
-    JOIN email_accounts a ON m.account_id = a.id
-    WHERE m.id = $1 AND a.user_id = $2
-  `, [id, req.session.userId]);
-  const stored = result.rows[0]?.body_html;
-  if (!stored) return res.status(404).end();
-  const url = imageRefsFor(`${req.session.userId}:${id}`, stored).get(raw);
+  const refsKey = `${userId}:${id}`;
+  let url = cachedImageRefs(refsKey)?.get(raw);
+  if (!url) {
+    const result = await query(`
+      SELECT m.body_html FROM messages m
+      JOIN email_accounts a ON m.account_id = a.id
+      WHERE m.id = $1 AND a.user_id = $2
+    `, [id, userId]);
+    const stored = result.rows[0]?.body_html;
+    if (!stored) return res.status(404).end();
+    url = imageRefsFor(refsKey, stored).get(raw);
+  }
   if (!url) return res.status(404).end();
 
+  const key = imageCacheKey(userId, url, width);
+  const etag = `"${key.slice(0, 40)}"`;
+  const headers = {
+    'Cache-Control': IMAGE_CACHE_CONTROL,
+    ETag: etag,
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'; sandbox",
+    'Cross-Origin-Resource-Policy': 'same-origin',
+    'Referrer-Policy': 'no-referrer',
+  };
+  if (req.get('If-None-Match') === etag) return res.status(304).set(headers).end();
+  const failed = imageCache.failure(key);
+  if (failed) return res.status(failed).set('Cache-Control', IMAGE_FAILURE_CACHE_CONTROL).end();
+
   try {
-    // Oversized photos are scaled down on the way (services/imageShrink.js).
-    const { bytes, type } = await imageProxyLimiter(req.session.userId, () => fetchProxiedImage(url).then((image) => shrinkImage(image)));
-    res.set({
-      'Content-Type': type,
-      'Content-Length': String(bytes.length),
-      'Cache-Control': 'private, max-age=86400',
-      'X-Content-Type-Options': 'nosniff',
-      'Content-Security-Policy': "default-src 'none'; sandbox",
-      'Cross-Origin-Resource-Policy': 'same-origin',
-      'Referrer-Policy': 'no-referrer',
-    });
+    const { bytes, type } = await imageCache.load(key, () => imageProxyLimiter(userId,
+      () => fetchProxiedImage(url).then((image) => shrinkImage(image, { width }))));
+    res.set({ ...headers, 'Content-Type': type, 'Content-Length': String(bytes.length) });
     return res.send(bytes);
   } catch (err) {
-    return res.status(err?.status || 502).end();
+    const status = err?.status || 502;
+    imageCache.fail(key, status);
+    return res.status(status).set('Cache-Control', IMAGE_FAILURE_CACHE_CONTROL).end();
   }
 });
 
@@ -2156,15 +2193,21 @@ export function parseSnoozeUntil(until) {
 // messages waiting in the same Snoozed folder until the same time. Snoozing takes the whole reply
 // chain at once, so changing or ending the snooze does too; a later, separate snooze of another
 // message in the thread keeps its own time. As imapManager.snoozedRows returns them.
-function snoozedTogether(msg, userId) {
+//
+// Its conversation is the reply chain the snooze took (gatherSnoozeConversation), not every message
+// sharing its thread_id: that groups by subject too, so two separately snoozed "Build failed"
+// notifications set to the same morning came back, or moved, together.
+async function snoozedTogether(msg, userId) {
+  const chain = await gatherSnoozeConversation(msg);
+  const ids = [...new Set([msg.message_id, ...chain.map(r => r.message_id)].filter(Boolean))];
   return imapManager.snoozedRows(
     `sm.user_id = $1 AND sm.account_id = $2 AND sm.snoozed_folder = $3
      AND sm.snooze_until = (
        SELECT own.snooze_until FROM snoozed_messages own
        WHERE own.user_id = $1 AND own.account_id = $2 AND own.message_id_header = $4 AND own.snoozed_folder = $3
        ORDER BY own.snooze_until LIMIT 1)
-     AND (m.message_id = $4 OR ($5::text IS NOT NULL AND m.thread_id = $5))`,
-    [userId, msg.account_id, msg.folder, msg.message_id, msg.thread_id || null]
+     AND m.message_id = ANY($5::text[])`,
+    [userId, msg.account_id, msg.folder, msg.message_id, ids]
   );
 }
 

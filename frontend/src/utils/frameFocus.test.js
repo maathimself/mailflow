@@ -63,6 +63,37 @@ describe('returnFocusFromFrame', () => {
     assert.equal(doc.activeElement.tabIndex, -1, 'not in the tab order');
   });
 
+  test('after typing in a text field, focus goes to the list, not back into the field', async () => {
+    const search = doc.createElement('input');
+    doc.body.appendChild(search);
+    search.focus();
+    clickEmail();
+    await wait(RETURN_AFTER_MS + 50);
+    assert.equal(doc.activeElement, list, 'the shortcuts would type into the field');
+    search.remove();
+  });
+
+  test('focus that moves from one email straight into another still comes back', async () => {
+    // A second email, as in a conversation with two cards open. The page's window blurs only
+    // once, for the first: moving between frames is not a new blur.
+    const second = doc.createElement('iframe');
+    doc.body.appendChild(second);
+    Object.defineProperty(second, 'contentDocument', { value: { getSelection: () => ({ isCollapsed: true, toString: () => '' }) } });
+    const stopSecond = returnFocusFromFrame(second);
+    try {
+      clickEmail();
+      selection = 'kept for Copy';
+      await wait(RETURN_AFTER_MS + 50);
+      assert.equal(doc.activeElement, iframe, 'held while text is selected in the first');
+      second.focus(); // a click on the second email: no blur this time
+      await wait(RECHECK_MS + RETURN_AFTER_MS + 100);
+      assert.equal(doc.activeElement, list);
+    } finally {
+      stopSecond();
+      second.remove();
+    }
+  });
+
   test('stops when cleaned up', async () => {
     stop();
     clickEmail();

@@ -1,4 +1,5 @@
 import { pickReplyAlias } from './replyAlias.js';
+import { api } from './api.js';
 
 export function initialComposeFocus({ isReply = false, isForward = false } = {}) {
   return isReply && !isForward ? 'editor' : 'to';
@@ -106,7 +107,11 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
 }
 
 export async function openForwardFromMessage(message, { openCompose, getMessageBody }) {
-  const fwdBody = await getMessageBody(message.id).catch(() => null);
+  let fwdBody = await getMessageBody(message.id).catch(() => null);
+  // Large inline images are fitted for reading; a recipient gets them as they were sent.
+  if (fwdBody?.inlineImagesFitted) {
+    fwdBody = await api.getMessageBody(message.id, Boolean(fwdBody.remoteImagesProxied), { original: true }).catch(() => fwdBody);
+  }
   const fwdDate = message.date ? new Date(message.date).toLocaleString() : '';
   const fwdSafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
   const fwdFromStr = fwdSafeName

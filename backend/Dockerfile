@@ -24,7 +24,8 @@ RUN cp /repo/backend/package.json ./package.json && \
     APP_VERSION_VALUE="${APP_VERSION:-$(node -p "require('./package.json').version")}"; \
     APP_VERSION_VALUE="$(printf '%s' "$APP_VERSION_VALUE" | sed 's/^v[.]//' | sed 's/^v//')"; \
     printf '{"version":"%s"}\n' "$APP_VERSION_VALUE" > ./build-meta.json && \
-    chown -R node:node /app && \
+    mkdir -p /var/cache/mailflow/images && \
+    chown -R node:node /app /var/cache/mailflow && \
     rm -rf /repo
 
 USER node

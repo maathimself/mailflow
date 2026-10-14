@@ -1038,3 +1038,40 @@ describe('the star button', () => {
     assert.equal(useStore.getState().notifications?.length ?? 0, before + 1, 'and the failure is shown');
   });
 });
+
+// On a desktop the next and previous messages are loaded once the open one has shown, so j/k
+// show a message at once (on a phone the swipe pager does this).
+describe('loading the neighbors ahead', () => {
+  const ROW = (id) => ({ ...MSG_A, id, uid: id.length, subject: `Row ${id}` });
+  let originalFetch;
+  let asked;
+  before(() => {
+    originalFetch = globalThis.fetch;
+    asked = [];
+    globalThis.fetch = async (url) => {
+      const id = /\/messages\/([^/]+)\/body/.exec(String(url))?.[1];
+      if (id) asked.push(id);
+      return { ok: true, status: 200, json: async () => (id ? { html: `<p>${id}</p>`, attachments: [] } : {}), text: async () => '' };
+    };
+    useStore.getState().setMessages?.([ROW('n1'), ROW('n2'), ROW('n3')]);
+  });
+  after(() => { globalThis.fetch = originalFetch; });
+
+  test('fetches the next and previous bodies after a short pause', async () => {
+    await React.act(async () => {
+      useStore.getState().setSelectedMessage('n2');
+      root.render(React.createElement(MessagePane));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 60)); });
+    assert.deepEqual(asked, ['n2'], 'only the open one at first');
+    await React.act(async () => { await new Promise(r => setTimeout(r, 500)); });
+    assert.deepEqual([...asked].sort(), ['n1', 'n2', 'n3']);
+  });
+
+  test('opening a neighbor then needs no request', async () => {
+    const before = asked.length;
+    await React.act(async () => { useStore.getState().setSelectedMessage('n3'); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 60)); });
+    assert.equal(asked.slice(before).filter(id => id === 'n3').length, 0);
+  });
+});

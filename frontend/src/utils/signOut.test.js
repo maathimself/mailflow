@@ -43,4 +43,11 @@ describe('signOut (#523, #310)', () => {
     assert.equal(storage.getItem('mailflow_auto_open_reply_drafts'), null);
     assert.equal(storage.getItem('mailflow_theme'), 'light');
   });
+
+  it("clears folder shortcuts and the sender to use, which name the previous user's accounts", async () => {
+    const keys = ['mailflow_favorite_folders', 'mailflow_recent_folders', 'mailflow_default_sender', 'mailflow_last_from_account'];
+    const storage = memoryStorage(Object.fromEntries(keys.map(k => [k, 'x'])));
+    await signOut({ setUser: () => {}, storage, logout: async () => ({ ok: true }), navigate: () => {} });
+    for (const key of keys) assert.equal(storage.getItem(key), null, key);
+  });
 });

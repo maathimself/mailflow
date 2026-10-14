@@ -192,7 +192,7 @@ router.get('/messages/:id/reply-draft', async (req, res) => {
     await storeFetchedBody(confirmed.id, body).catch(err => console.error('Reply draft body cache failed:', err.message));
     const html = body.html == null ? null : sanitizeEmail(body.html, { preserveDraftSignature: true });
     res.json({ draft: confirmed, body: { ...body,
-      html: html && proxyRemoteImages(html, (raw) => imageProxyPath(confirmed.id, raw)) } });
+      html: html && proxyRemoteImages(html, (raw, width) => imageProxyPath(confirmed.id, raw, width)) } });
   } catch (err) {
     console.error('Reply draft lookup failed:', err.message);
     res.status(err.status || 503).json({ error: 'Could not check reply drafts' });

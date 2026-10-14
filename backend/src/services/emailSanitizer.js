@@ -56,6 +56,22 @@ function scanPaired(str, openNameRe, closeLiteral, transform) {
   return out + str.slice(pos);
 }
 
+// Rewrites the text of every <style> block, then seals it. The rewrites run on sanitized output and
+// delete parts of the CSS (a declaration, a url(), a whole @media block); a deletion joins the text
+// on either side of it, and `</` before one with `style` after it made a real end tag, closing the
+// block early so whatever followed it in the CSS (tags sanitize-html had only seen as style text:
+// <a href="javascript:…">, <form>, <base>) reached the body as markup. Sealing turns any `</style`
+// left in the text into `<\/style`, the same characters to CSS and no end tag to the HTML parser.
+// An opening `<style` is escaped the same way (`<\style`), so text in an email's own CSS can never
+// pass for the dark-scheme block MailFlow appends after it (DARK_STYLE_OPEN, splitDarkScheme).
+export function sealStyleText(css) {
+  return css.replace(/<(\/?)(style)/gi, '<\\$1$2');
+}
+
+function rewriteStyleBlocks(html, rewrite) {
+  return scanPaired(html, /<style\b/gi, '</style>', (open, content, close) => open + sealStyleText(rewrite(content)) + close);
+}
+
 // Strip MSO-positive conditional comments (<!--[if mso]>…<![endif]-->) linearly,
 // preserving <!--[if !mso]> blocks (browser-targeted CSS). Mirrors the old regex
 // /<!--\[if(?!\s*!)[^\]]*\]>[\s\S]*?<!\[endif\]-->/gi without its backtracking.
@@ -185,9 +201,7 @@ function upgradeStyleUrls(style) {
 // the user's remote image blocking preference.  data: and cid: URIs are left intact.
 function stripExternalStyleBlockUrls(html) {
   if (!html) return html;
-  return scanPaired(html, /<style\b/gi, '</style>', (open, content, close) =>
-    open + stripExternalCssUrls(content) + close
-  );
+  return rewriteStyleBlocks(html, stripExternalCssUrls);
 }
 
 // Mirrors /url\s*\(\s*(['"]?)https?:\/\/[^)]*\1\s*\)/gi without its backtracking: from every
@@ -224,9 +238,7 @@ function stripExternalCssUrls(css) {
 // block CSS must be handled separately after sanitization.
 function upgradeStyleBlocks(html) {
   if (!html) return html;
-  return scanPaired(html, /<style\b/gi, '</style>', (open, content, close) =>
-    open + content.replace(/url\(\s*(['"]?)http:\/\//gi, (_, q) => `url(${q}https://`) + close
-  );
+  return rewriteStyleBlocks(html, content => content.replace(/url\(\s*(['"]?)http:\/\//gi, (_, q) => `url(${q}https://`));
 }
 
 // The sender's dark design (#228). @media (prefers-color-scheme: dark) blocks used to be deleted,
@@ -396,15 +408,13 @@ function stripDarkModeStyleBlocks(html, { lightOnly = false } = {}) {
   if (!html) return html;
   const moved = [];
   const flags = { lightOnly };
-  const out = scanPaired(html, /<style\b/gi, '</style>', (open, content, close) =>
-    open + stripDarkModeCss(content, moved, flags) + close
-  );
+  const out = rewriteStyleBlocks(html, content => stripDarkModeCss(content, moved, flags));
   if (flags.lightOnly) return LIGHT_ONLY_MARKER + out;
   if (!moved.length) return out;
   // The moved blocks get the same clean-up as the rest, so an invert() in the sender's dark CSS
   // cannot flip the colors back once it is switched on.
   const darkCss = stripInvertFilters(stripOutlookDarkRules(moved.join('\n')).replace(/\bcolor-scheme\s*:[^;!}]+;?/gi, ''));
-  return `${out}<style ${DARK_SCHEME_STYLE_ATTR} media="not all">${darkCss}</style>`;
+  return `${out}<style ${DARK_SCHEME_STYLE_ATTR} media="not all">${sealStyleText(darkCss)}</style>`;
 }
 
 // Re-serialize through the HTML5 tree builder first so the markup sanitize-html sees
@@ -535,6 +545,15 @@ function toBrowserTree(html) {
 }
 
 // Sanitize HTML email body — permissive but safe.
+// A URL attribute as the browser reads it: the URL standard drops every tab and line break inside
+// a URL and trims control characters and spaces from its ends. Left in, `ht&#x0A;tps://…` hid an
+// image from remote-image blocking and the proxy, which match the URL as written, while the
+// browser still fetched it from the sender (in the composer, where the app's CSP allows it).
+function asBrowserUrl(value) {
+  // eslint-disable-next-line no-control-regex -- the C0 controls the URL standard trims
+  return String(value).replace(/[\t\n\r]/g, '').replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '');
+}
+
 export function sanitizeEmail(html, { preserveDraftSignature = false } = {}) {
   const sanitized = sanitizeHtml(stripEmailHead(toBrowserTree(html)), {
     allowVulnerableTags: true,
@@ -594,11 +613,11 @@ export function sanitizeEmail(html, { preserveDraftSignature = false } = {}) {
       // mixed content on an https host, causing images to silently fail.
       'img': (tagName, attribs) => {
         const out = { ...attribs };
-        if (out.src)    out.src    = unwrapEbayImgUrl(upgradeUrl(out.src));
+        if (out.src)    out.src    = unwrapEbayImgUrl(upgradeUrl(asBrowserUrl(out.src)));
         // Simple regex replacement avoids split(',') corrupting data: URIs that
         // contain commas (e.g. data:image/png;base64,abc 2x).
         if (out.srcset) out.srcset = out.srcset.replace(/\bhttp:\/\//g, 'https://');
-        if (out.background) out.background = upgradeUrl(out.background);
+        if (out.background) out.background = upgradeUrl(asBrowserUrl(out.background));
         if (out.style) out.style = upgradeStyleUrls(out.style);
         // Defer loading of remote images; skip cid:/data: which are already local.
         const isLocal = out.src && /^(cid:|data:)/i.test(out.src);
@@ -614,7 +633,7 @@ export function sanitizeEmail(html, { preserveDraftSignature = false } = {}) {
       // and CSS background-image declarations.
       '*': (tagName, attribs) => {
         const out = { ...attribs };
-        if (out.background) out.background = upgradeUrl(out.background);
+        if (out.background) out.background = upgradeUrl(asBrowserUrl(out.background));
         if (out.style) out.style = upgradeStyleUrls(out.style);
         return { tagName, attribs: out };
       },
@@ -990,7 +1009,7 @@ export function blockRemoteImages(html) {
 
   // Block remote CSS loads inside <style> blocks: remote @imports dropped, url(...) and
   // image-set() URLs made inert.
-  out = scanPaired(out, /<style\b/gi, '</style>', (open, content, close) => open + blockCssUrls(content) + close);
+  out = rewriteStyleBlocks(out, blockCssUrls);
 
   return out;
 }
@@ -1023,8 +1042,7 @@ function rewriteRemoteImageRefs(html, replace) {
     (_, pre, doubleQuoted, singleQuoted) => {
       const q = doubleQuoted === undefined ? "'" : '"';
       const value = doubleQuoted ?? singleQuoted;
-      return `${pre}${q}${value.replace(/(^|,)(\s*)([^\s,]+)/g, (m, sep, ws, raw) =>
-        (remote(raw) ? `${sep}${ws}${replace(raw, remoteUrlOf(decodeAttr(raw)))}` : m))}${q}`;
+      return `${pre}${q}${mapSrcsetUrls(value, raw => (remote(raw) ? replace(raw, remoteUrlOf(decodeAttr(raw))) : raw))}${q}`;
     },
   );
   out = out.replace(/(\sbackground=)(?:"(\s*(?:https?:)?\/\/[^"]*)"|'(\s*(?:https?:)?\/\/[^']*)')/gi, attrUrl);
@@ -1040,9 +1058,9 @@ function rewriteRemoteImageRefs(html, replace) {
       return rewritten === css ? match : `${attr}"${encodeAttr(rewritten)}"`;
     },
   );
-  out = scanPaired(out, /<style\b/gi, '</style>', (open, content, close) => open + rewriteCssUrls(content, (kind, url, token) => (kind === 'import'
+  out = rewriteStyleBlocks(out, content => rewriteCssUrls(content, (kind, url, token) => (kind === 'import'
     ? token.text
-    : `${token.before}${replace(token.value, remoteUrlOf(url))}${token.after}`)) + close);
+    : `${token.before}${replace(token.value, remoteUrlOf(url))}${token.after}`)));
   return out;
 }
 
@@ -1056,12 +1074,14 @@ const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp|avif|bmp|svg)$/i;
 const OPEN_SEGMENT = /^open(?:ed)?(?:\.(?:gif|png|jpe?g|php|aspx?))?$/i;
 const TRACKER_FILE = /^(?:pixel|beacon|track(?:ing)?|open)\.(?:gif|png)$/i;
 const TOKEN = /^[\w.=~-]{16,}$/;
+const SLUG = /^[a-z]+(?:[-_][a-z]+)+$/i; // hero-banner, spring_sale: a name, not a tracking token
 
 // Whether `url` is a known open-tracking address. Only the path is read.
 export function isTrackingUrl(url) {
   let path;
+  let host;
   try {
-    path = new URL(url).pathname;
+    ({ pathname: path, hostname: host } = new URL(url));
   } catch {
     return false;
   }
@@ -1070,11 +1090,14 @@ export function isTrackingUrl(url) {
   const last = segs[segs.length - 1];
   if (TRACKER_FILE.test(last)) return true;
   // .../open, .../open.php, .../open/<token> (SendGrid /wf/open, Mailchimp /track/open.php,
-  // Salesforce /open.aspx, /api/notifications/v1/open/<token>), but not /open/images/logo.png.
+  // Salesforce /open.aspx, /api/notifications/v1/open/<token>), but not /open/images/logo.png, nor
+  // a readable name after it (/products/open/hero-banner).
   for (let i = Math.max(0, segs.length - 2); i < segs.length; i += 1) {
-    if (OPEN_SEGMENT.test(segs[i]) && (i === segs.length - 1 || !IMAGE_FILE.test(last))) return true;
+    if (OPEN_SEGMENT.test(segs[i]) && (i === segs.length - 1 || (!IMAGE_FILE.test(last) && !SLUG.test(last)))) return true;
   }
-  // Mailgun /o/<token>, Customer.io /e/o/<token>, Amazon SES /I0/<token> and /CI0/<token>.
+  // Mailgun /o/<token>, Customer.io /e/o/<token>, Amazon SES /I0/<token> and /CI0/<token>. Firebase
+  // Storage serves every file under /o/<name>, newsletter images included.
+  if (/(?:^|\.)firebasestorage\.(?:googleapis\.com|app)$/i.test(host)) return false;
   if (segs.length >= 2 && ['o', 'I0', 'CI0'].includes(segs[segs.length - 2]) && TOKEN.test(last) && !IMAGE_FILE.test(last)) return true;
   return false;
 }
@@ -1090,6 +1113,21 @@ const dimension = (tag, name) => {
   const decl = css.match(new RegExp(`(?:^|[;\\s])${name}\\s*:\\s*(\\d+(?:\\.\\d+)?)px`, 'i'));
   return decl ? Number(decl[1]) : null;
 };
+
+// The width each <img> src (as written) is shown at, where the email gives one in pixels: the
+// widest, when one image is used more than once. What the image proxy fits the image to.
+function shownWidths(html) {
+  const out = new Map();
+  for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
+    const tag = m[0];
+    const src = tag.match(/\ssrc=(?:"([^"]*)"|'([^']*)')/i);
+    const width = dimension(tag, 'width');
+    if (!src || !(width > 0)) continue;
+    const raw = src[1] ?? src[2];
+    out.set(raw, Math.max(out.get(raw) ?? 0, width));
+  }
+  return out;
+}
 
 // The src of every <img> in `html` sized at TINY px or less both ways, as written.
 function tinyImageSrcs(html) {
@@ -1121,8 +1159,9 @@ export function proxyRemoteImages(html, toProxy, stats = {}) {
   if (!html) return html;
   const isTracker = trackerTest(html);
   const trackers = new Set();
+  const widths = shownWidths(html);
   const out = rewriteRemoteImageRefs(html, (raw, url) => {
-    if (!isTracker(raw, url)) return toProxy(raw);
+    if (!isTracker(raw, url)) return toProxy(raw, widths.get(raw) ?? null);
     trackers.add(url);
     return TRACKER_REPLACEMENT;
   });
@@ -1132,6 +1171,36 @@ export function proxyRemoteImages(html, toProxy, stats = {}) {
 
 // The remote image references in sanitized HTML, as written, with what each loads: the only URLs
 // the image proxy will fetch for this message. Open-tracking images are left out.
+// Each candidate URL in a srcset, as the browser splits it: a URL runs to the next whitespace, so a
+// comma inside it is part of it (Cloudinary's /w_100,h_50/, a data: URI), and one right after it
+// ends the candidate; otherwise the candidate's descriptors run to the next comma. Splitting on
+// every comma cut those URLs in two, and the image came back missing.
+function mapSrcsetUrls(value, map) {
+  let out = '';
+  let pos = 0;
+  const n = value.length;
+  const space = (c) => c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
+  while (pos < n) {
+    let start = pos;
+    while (pos < n && (space(value[pos]) || value[pos] === ',')) pos += 1;
+    out += value.slice(start, pos);
+    if (pos >= n) break;
+    start = pos;
+    while (pos < n && !space(value[pos])) pos += 1;
+    let url = value.slice(start, pos);
+    let end = url.length;
+    while (end > 0 && url[end - 1] === ',') end -= 1;
+    const commas = url.slice(end);
+    url = url.slice(0, end);
+    out += (url ? map(url) : '') + commas;
+    if (commas) continue;
+    start = pos;
+    while (pos < n && value[pos] !== ',') pos += 1;
+    out += value.slice(start, pos);
+  }
+  return out;
+}
+
 export function remoteImageRefs(html) {
   const refs = new Map();
   if (!html) return refs;

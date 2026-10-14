@@ -7,6 +7,7 @@ vi.mock('dns', () => ({
   promises: {
     resolve4: vi.fn().mockResolvedValue([]),
     resolve6: vi.fn().mockResolvedValue([]),
+    lookup: vi.fn().mockRejectedValue(Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' })),
   },
 }));
 
@@ -18,6 +19,29 @@ beforeEach(() => {
   dns.resolve6.mockClear();
   dns.resolve4.mockResolvedValue([]);
   dns.resolve6.mockResolvedValue([]);
+  dns.lookup.mockReset();
+  dns.lookup.mockRejectedValue(Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' }));
+});
+
+// A name only /etc/hosts knows: DNS has no answer, the system resolver (which the connection uses)
+// has loopback. It was let through unchecked.
+describe('names DNS does not know', () => {
+  it('are checked through the system resolver, as the connection would resolve them', async () => {
+    dns.lookup.mockResolvedValue([{ address: '::1', family: 6 }]);
+    expect(await validateHost('ip6-localhost')).toMatch(/private|reserved/i);
+    await expect(resolveForConnection('ip6-localhost')).rejects.toThrow(/private|reserved/i);
+  });
+
+  it('connect to the address the system resolver gave, pinned, when it is public', async () => {
+    dns.lookup.mockResolvedValue([{ address: '203.0.113.9', family: 4 }]);
+    const r = await resolveForConnection('mail.internal-alias');
+    expect(r).toMatchObject({ host: '203.0.113.9', servername: 'mail.internal-alias', addresses: ['203.0.113.9'] });
+  });
+
+  it('are left to fail at connect when no resolver knows them', async () => {
+    expect(await validateHost('nowhere.invalid')).toBeNull();
+    expect(await resolveForConnection('nowhere.invalid')).toEqual({ host: 'nowhere.invalid', servername: null });
+  });
 });
 
 // ── validateHostLiteral ────────────────────────────────────────────────────

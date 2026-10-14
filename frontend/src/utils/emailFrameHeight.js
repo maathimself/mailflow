@@ -184,12 +184,20 @@ export function pinFrameRoot(doc) {
 export function createScrollExpander(doc) {
   const expandedEls = new Set();
   const dv = doc.defaultView;
+  // The elements styled to scroll, found on the first pass, deepest first. Later passes (one per
+  // image that loads) look at these alone: reading every element's computed style again on each
+  // image load cost up to a millisecond or so, dozens of times over in an email full of images.
+  let candidates = null;
   return () => {
     if (!dv) return;
-    Array.from(doc.querySelectorAll('*')).reverse().forEach(el => {
-      const cs = dv.getComputedStyle(el);
-      const oy = cs.overflowY;
-      const isScrollContainer = (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2;
+    if (!candidates) {
+      candidates = Array.from(doc.querySelectorAll('*')).reverse().filter(el => {
+        const oy = dv.getComputedStyle(el).overflowY;
+        return oy === 'auto' || oy === 'scroll';
+      });
+    }
+    candidates.forEach(el => {
+      const isScrollContainer = !expandedEls.has(el) && el.scrollHeight > el.clientHeight + 2;
       const grewAfterExpansion = expandedEls.has(el) && el.scrollHeight > el.clientHeight + 2;
       if (isScrollContainer || grewAfterExpansion) {
         expandedEls.add(el);

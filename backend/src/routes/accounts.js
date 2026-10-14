@@ -48,7 +48,11 @@ router.use(requireAuth);
 // A mailbox's icon (#376): exactly one emoji (a flag, a keycap or a joined sequence such as a
 // family counts as one), or none. Returns { value } with null for none, or { error }.
 const GRAPHEMES = new Intl.Segmenter('en', { granularity: 'grapheme' });
-const EMOJI = /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20E3/u;
+// The whole of it must be one emoji sequence: a flag (two regional indicators), a keycap, a tag
+// flag (Scotland), or an emoji with an optional skin tone, joined (ZWJ) to more of the same. Only
+// a grapheme count let in an emoji under a pile of combining marks, a letter keycap, invisible tag
+// characters and plain text symbols such as ©.
+const EMOJI = /^(?:\p{Regional_Indicator}{2}|[0-9#*]\uFE0F?\u20E3|\u{1F3F4}[\u{E0020}-\u{E007E}]+\u{E007F}|(?!\p{Regional_Indicator})(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F)\p{Emoji_Modifier}?(?:\u200D\p{Extended_Pictographic}\uFE0F?\p{Emoji_Modifier}?)*)$/u;
 export function normalizeAccountIcon(icon) {
   if (icon === null || icon === undefined) return { value: null };
   if (typeof icon !== 'string') return { error: 'icon must be a string' };

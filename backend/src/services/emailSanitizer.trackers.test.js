@@ -31,6 +31,9 @@ describe('isTrackingUrl', () => {
     'https://cdn.example.com/e/o/short',
     'https://starlink.com/public-files/Starlink_V4_Canada_Aurora.webp',
     'https://storage.googleapis.com/contentgrid-active/images/HD_Youtube_Icon.png',
+    'https://cdn.shop.example/products/open/hero-banner',
+    'https://firebasestorage.googleapis.com/v0/b/app.appspot.com/o/newsletterHeader2024?alt=media',
+    'https://example.firebasestorage.app/v0/b/bucket/o/headerImageSpring2026?alt=media',
     'not a url',
   ])('leaves %s alone', (url) => {
     expect(isTrackingUrl(url)).toBe(false);

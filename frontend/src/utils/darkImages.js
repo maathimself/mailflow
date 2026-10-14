@@ -14,6 +14,8 @@
 // Every change is an inline !important style whose old value is kept, so it is undone exactly.
 
 // The exact placeholder blockRemoteImages writes.
+import { isDeferredImage } from './frameLazyImages.js';
+
 const PLACEHOLDER = /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="\d+" height="\d+"><rect width="100%" height="100%" fill="#e8e8e8"\/><\/svg>$/;
 const SVG_PREFIX = 'data:image/svg+xml,';
 
@@ -82,6 +84,12 @@ export function imageStats(img) {
 // A see-through image whose visible part is largely dark: it would vanish on a dark background.
 export const needsBacking = (stats) => Boolean(stats) && stats.transparent >= 0.1 && stats.dark >= 0.3;
 
+// Images that need a backing are logos and icons. Reading a big photo's pixels decodes the whole of
+// it on the main thread first (36 ms for 2400x3600 in Chromium), for an answer that is all but
+// always no, so images over a megapixel are not read.
+export const MAX_SAMPLED_PIXELS = 1_000_000;
+const worthSampling = (img) => img.naturalWidth * img.naturalHeight <= MAX_SAMPLED_PIXELS;
+
 export const BACKING = 'rgb(232, 232, 240)';
 
 // Makes the changes in `doc`; with `backings`, also backs images that need it, including any that
@@ -96,7 +104,7 @@ export function darkenImages(doc, { backings = false } = {}) {
   let active = true;
   const listeners = [];
   const back = (img) => {
-    if (!active || !needsBacking(imageStats(img))) return;
+    if (!active || !worthSampling(img) || !needsBacking(imageStats(img))) return;
     set(img, 'background-color', BACKING);
     counts.backed += 1;
   };
@@ -108,7 +116,8 @@ export function darkenImages(doc, { backings = false } = {}) {
       continue;
     }
     if (!backings || !readablePixels(img)) continue;
-    if (img.complete) {
+    // A held-back image (utils/frameLazyImages.js) counts as complete with nothing loaded: wait.
+    if (img.complete && !isDeferredImage(img)) {
       back(img);
     } else {
       const onLoad = () => back(img);

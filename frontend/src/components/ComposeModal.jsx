@@ -3,6 +3,7 @@ import { createComposeSwitch } from '../utils/composeSwitch.js';
 import { shouldAutosave, isAutosaveDue } from '../utils/draftAutosave.js';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
+import { sanitizeEmailForApp } from '../utils/appEmailHtml.js';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
@@ -757,7 +758,9 @@ export default function ComposeModal() {
     if (quotedHtmlRef.current && quotedBodyHtml) {
       // Strip <style> blocks — marketing emails use global rules like "div { margin: 0 !important }"
       // that leak out of contentEditable into the app UI. Inline style attributes are preserved.
-      quotedHtmlRef.current.innerHTML = DOMPurify.sanitize(quotedBodyHtml, { FORBID_TAGS: ['style'] });
+      // Images load only through MailFlow (utils/appEmailHtml.js): this is the app's page, not the
+      // email frame, and its CSP would let a sender's image through.
+      quotedHtmlRef.current.innerHTML = sanitizeEmailForApp(quotedBodyHtml, { FORBID_TAGS: ['style'] });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
