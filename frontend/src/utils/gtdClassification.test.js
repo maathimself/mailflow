@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyWithUndo } from './gtdClassification.js';
+import { clearGtdMetadata, getGtdMetadata, getGtdMetadataRefreshGeneration, patchGtdMetadata } from '../plugins/gtd/metadataStore.js';
 
 function createHarness(classifyResult = {}) {
   const notifications = [];
@@ -186,4 +187,59 @@ describe('GTD state switch safety', () => {
     await classifyWithUndo('message-2', 'todo', harness);
     assert.equal(typeof harness.notifications[0].onUndo, 'function');
   });
+});
+
+
+describe('classification metadata', () => {
+  it('updates indicators immediately and refreshes on classify and exact undo', async () => {
+    const message = { id: 'metadata-classify', account_id: 'account', date: '2026-08-01T00:00:00.000Z' };
+    const harness = createHarness({ applied: true, undoToken: { uid: 900 } });
+    harness.message = message;
+    const before = getGtdMetadataRefreshGeneration();
+    await classifyWithUndo(message.id, 'todo', harness);
+    assert.deepEqual(getGtdMetadata(message.id).states, ['todo']);
+    assert.equal(getGtdMetadataRefreshGeneration(), before + 1);
+    await harness.notifications[0].onUndo();
+    assert.equal(getGtdMetadata(message.id), null);
+    assert.equal(getGtdMetadataRefreshGeneration(), before + 2);
+  });
+
+  it('clears outdated labels after a state switch', async () => {
+    const message = { id: 'metadata-switch', account_id: 'account' };
+    patchGtdMetadata(message, 'todo', null);
+    const harness = createHarness({ applied: true, switched: true });
+    harness.message = message;
+    const before = getGtdMetadataRefreshGeneration();
+    await classifyWithUndo(message.id, 'watch', harness);
+    assert.equal(getGtdMetadata(message.id), null);
+    assert.equal(getGtdMetadataRefreshGeneration(), before + 1);
+  });
+
+  it('invalidates uncertain mutations without inventing successful classification', async () => {
+    const message = { id: 'metadata-failure', account_id: 'account' };
+    patchGtdMetadata(message, 'todo', null);
+    const harness = createHarness();
+    harness.message = message;
+    harness.api.gtdClassify = async () => { throw new Error('disconnected after mutation'); };
+    const before = getGtdMetadataRefreshGeneration();
+    await classifyWithUndo(message.id, 'watch', harness);
+    assert.equal(getGtdMetadata(message.id), null);
+    assert.equal(getGtdMetadataRefreshGeneration(), before + 1);
+  });
+});
+
+
+it('ignores metadata writes from classify that completes after session teardown', async () => {
+  const message = { id: 'old-session-classify', account_id: 'account' };
+  const harness = createHarness();
+  harness.message = message;
+  let finish;
+  harness.api.gtdClassify = () => new Promise(resolve => { finish = resolve; });
+  const pending = classifyWithUndo(message.id, 'todo', harness);
+  clearGtdMetadata();
+  const generation = getGtdMetadataRefreshGeneration();
+  finish({ applied: true });
+  await pending;
+  assert.equal(getGtdMetadata(message.id), null);
+  assert.equal(getGtdMetadataRefreshGeneration(), generation);
 });

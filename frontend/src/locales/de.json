@@ -1877,6 +1877,7 @@
     "show": "Rechte Seitenleiste einblenden"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: Alter der ältesten Nachricht mit diesem Label (Tage): {{count}}",
     "title": "GTD",
     "inbox": "Posteingang",
     "waiting": "Wartet",

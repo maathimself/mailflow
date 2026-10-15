@@ -1,3 +1,4 @@
+import { getGtdMetadataSessionGeneration, invalidateGtdMetadata, patchGtdMetadata, refreshGtdMetadata } from '../plugins/gtd/metadataStore.js';
 import { clearGtdRailSelection, beginGtdClassification, endGtdClassification } from './gtdHotkeys.js';
 
 export async function classifyWithUndo(messageId, state, {
@@ -7,6 +8,8 @@ export async function classifyWithUndo(messageId, state, {
   message,
 }) {
   if (!beginGtdClassification(messageId)) return null;
+  const metadataSession = getGtdMetadataSessionGeneration();
+  const metadataMessage = message || messageId;
   const currentStore = () => store.getState ? store.getState() : store;
   // List and rail payloads name the same server thread differently.
   const undoScope = {
@@ -30,6 +33,13 @@ export async function classifyWithUndo(messageId, state, {
   try {
     const result = await api.gtdClassify(messageId, state);
     const current = currentStore();
+    if (metadataSession === getGtdMetadataSessionGeneration()) {
+      if (result?.switched) refreshGtdMetadata(metadataMessage, metadataSession);
+      else {
+        patchGtdMetadata(metadataMessage, state, message?.date);
+        invalidateGtdMetadata();
+      }
+    }
     current.scheduleGtdSectionsFetch();
     if (result?.switched) dismissThreadUndo();
     if (result?.sourceRemoved) {
@@ -51,9 +61,11 @@ export async function classifyWithUndo(messageId, state, {
         consumed = true;
         try {
           await api.gtdUndoClassify(result.undoToken);
+          refreshGtdMetadata(metadataMessage, metadataSession);
           currentStore().scheduleGtdSectionsFetch();
           return true;
         } catch (err) {
+          refreshGtdMetadata(metadataMessage, metadataSession);
           console.error('GTD classification undo failed:', err);
           currentStore().addNotification({
             pluginId: 'gtd',
@@ -69,6 +81,7 @@ export async function classifyWithUndo(messageId, state, {
     currentStore().addNotification(notification);
     return result;
   } catch (err) {
+    refreshGtdMetadata(metadataMessage, metadataSession);
     console.error('GTD classify failed:', err);
     // API errors contain only a message, so even a clean rejection cannot be
     // distinguished from an uncertain mutation. End this thread's older GTD Undo.

@@ -147,6 +147,35 @@ export async function getMessageAnnotations(accountId, ids, pluginId) {
   return out;
 }
 
+// Label-folder membership for a bounded set of message rows. Targets are scoped to one account;
+// their live siblings are joined by thread key or RFC Message-ID so plugins can decorate existing rows
+// without adding feature-specific joins to the core message-list query.
+export async function getLabelMetadata(accountId, messageIds, labelFolders) {
+  if (!messageIds?.length || !labelFolders?.length) return [];
+  if (messageIds.length > 100) throw new RangeError('Label metadata accepts at most 100 message ids');
+  const { rows } = await query(
+    `SELECT target.id AS message_id, sibling.folder, MIN(sibling.date) AS date
+       FROM messages target
+       JOIN messages sibling
+         ON sibling.account_id = target.account_id
+        AND (sibling.thread_key = target.thread_key
+             OR (target.message_id IS NOT NULL AND sibling.message_id = target.message_id))
+        AND sibling.folder = ANY($3::text[])
+        AND sibling.is_deleted = false
+      WHERE target.account_id = $1
+        AND target.id = ANY($2::uuid[])
+        AND target.is_deleted = false
+      GROUP BY target.id, sibling.folder
+      ORDER BY target.id, sibling.folder`,
+    [accountId, messageIds, labelFolders]
+  );
+  return rows.map(row => ({
+    messageId: row.message_id,
+    folder: row.folder,
+    date: row.date == null ? null : new Date(row.date).toISOString(),
+  }));
+}
+
 // Merge `patch` into a plugin's namespace of a message's annotations (creating the namespace if
 // absent). Only ever touches plugin_annotations -> pluginId. Returns rows updated (0 if the
 // message isn't in the account). The annotation cache is cleaned with the message row on delete.
