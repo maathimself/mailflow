@@ -170,6 +170,7 @@ describe('MessageList replacement search feedback', () => {
   for (const mobile of [false, true]) {
     test(`keeps results and announces replacement search on ${mobile ? 'mobile' : 'desktop'}`, async () => {
       await seedResults({ mobile });
+      const idleElements = new Set(container().querySelectorAll('div'));
       const input = container().querySelector('input[placeholder="messageList.search"]');
       await React.act(async () => input.focus());
       await search('Replacement');
@@ -180,15 +181,22 @@ describe('MessageList replacement search feedback', () => {
       assert.match(status().textContent, /messageList\.searching/);
       assert.equal(container().querySelectorAll('[role="status"]').length, 1);
       assert.ok(status().querySelector('[aria-hidden="true"]'), 'spinner is decorative');
+      const progressSlot = status().parentElement;
+      assert.ok(idleElements.has(progressSlot), 'the slot exists before searching starts');
+      assert.equal(progressSlot.style.height, '34px', 'progress has reserved space');
       assert.doesNotMatch(text(), /messageList\.noMoreMessages/);
       assert.doesNotMatch(text(), /messageList\.loadMore/);
       await settle();
       assert.ok(status(), 'status survives the debounce');
       await respond({ messages: [hit('replacement')] });
       assert.equal(status(), null);
+      assert.ok(progressSlot.isConnected, 'the progress slot remains after completion');
+      assert.equal(progressSlot.textContent, '', 'idle space has no searching announcement');
       assert.doesNotMatch(text(), /Synthetic search example previous/);
       assert.match(text(), /Synthetic search example replacement/);
       assert.match(text(), /messageList\.noMoreMessages/);
+      await search('');
+      assert.equal(progressSlot.isConnected, false, 'folder browsing has no progress slot');
     });
   }
 

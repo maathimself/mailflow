@@ -3306,18 +3306,23 @@ export default function MessageList() {
         </div>
       )}
 
-      {searchQuery.trim() && isSearching && displayMessages.length > 0 && (
-        <div role="status" aria-live="polite" style={{
-          display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
-          padding: '8px 14px', color: 'var(--text-tertiary)', fontSize: 12,
+      {searchQuery.trim() && displayMessages.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', flexShrink: 0,
+          height: 34, boxSizing: 'border-box', padding: '0 14px',
+          color: 'var(--text-tertiary)', fontSize: 12,
           borderBottom: '1px solid var(--border-subtle)',
         }}>
-          <div aria-hidden="true" style={{
-            width: 14, height: 14, flexShrink: 0,
-            border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
-            borderRadius: '50%', animation: 'spin 0.8s linear infinite',
-          }} />
-          <span>{t('messageList.searching')}</span>
+          {isSearching && (
+            <div role="status" aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <div aria-hidden="true" style={{
+                width: 14, height: 14, flexShrink: 0,
+                border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
+                borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+              }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t('messageList.searching')}</span>
+            </div>
+          )}
         </div>
       )}
 
