@@ -5,6 +5,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { getContextMenuPolicy, resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
 import { downloadEml } from '../utils/downloadEml.js';
+import { isSnoozed } from '../utils/snoozeActions.js';
 import { usePluginCollected } from '../plugins/PluginSlot.jsx';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
@@ -45,7 +46,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   const [moveFoldersLoading, setMoveFoldersLoading] = useState(defaultMoveView);
   const [snoozeView, setSnoozeView] = useState(defaultSnoozeView);
   // The snooze picker snoozes, or for a message already snoozed changes when it comes back (#269).
-  const snoozeAction = message?.folder === 'Snoozed' ? 'changeSnooze' : 'snooze';
+  const snoozeAction = isSnoozed(message) ? 'changeSnooze' : 'snooze';
   const [customSnoozeView, setCustomSnoozeView] = useState(false);
   const [customDate, setCustomDate] = useState('');
   const [customTime, setCustomTime] = useState('09:00');
@@ -246,7 +247,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>,
           action: () => onAction('archive'),
         }]),
-        ...(message.folder !== 'Snoozed' && menuPolicy.snooze ? [{
+        ...(!isSnoozed(message) && menuPolicy.snooze ? [{
           label: t('contextMenu.snooze.label'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
           action: () => setSnoozeView(true),
@@ -254,7 +255,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           hasSubmenu: true,
         }] : []),
         // A snoozed message (#269): change when it comes back, with the same picker, or bring it back now.
-        ...(message.folder === 'Snoozed' && menuPolicy.snooze ? [{
+        ...(isSnoozed(message) && menuPolicy.snooze ? [{
           label: t('contextMenu.snooze.change'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
           action: () => setSnoozeView(true),

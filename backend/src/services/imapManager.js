@@ -1858,8 +1858,8 @@ async function withFreshLogin(account, fn) {
 // insertCopiedSibling) so the namespace / already-exists matrix is unit-testable with a
 // mock client and no live pool.
 // resolvePath (default off) makes the already-exists branches resolve the server's real
-// casing via a LIST. Only the /folders/ensure route sets it — it PERSISTS the returned path,
-// so wrong casing there is durable; classify/snooze discard the path and skip the extra LIST.
+// casing via a LIST. Callers that PERSIST the returned path set it (folder create/ensure,
+// snooze), since wrong casing there is durable; classify discards it and skips the LIST.
 export async function ensureMailbox(client, path, { resolvePath = false } = {}) {
   const requested = String(path);
   // A flat-namespace server (personal-namespace delimiter null/empty) cannot represent a
@@ -1899,14 +1899,18 @@ export async function ensureMailbox(client, path, { resolvePath = false } = {}) 
 // lookup against the folder LIST. On a case-insensitive server "TODO" can already exist when
 // "Todo" was requested; imapflow's already-exists result echoes the REQUESTED casing, which,
 // if persisted (planGtdFolderPersist), never case-matches the synced rows' folder value and
-// silently zeroes the state. Best-effort: any list failure (or a client without list) falls
-// back to the caller's known path — never throws.
+// silently zeroes the state. An exact match wins: a case-sensitive server can hold both
+// "Snoozed" and a user's own "snoozed", and the CREATE collided with the exact one.
+// Best-effort: any list failure (or a client without list) falls back to the caller's known
+// path — never throws.
 async function resolveServerFolderCasing(client, knownPath) {
   if (typeof client.list !== 'function') return knownPath;
   try {
     const wanted = knownPath.toLowerCase();
     const boxes = await client.list();
-    const match = (Array.isArray(boxes) ? boxes : []).find(b => (b?.path || '').toLowerCase() === wanted);
+    const list = Array.isArray(boxes) ? boxes : [];
+    const match = list.find(b => b?.path === knownPath)
+      || list.find(b => (b?.path || '').toLowerCase() === wanted);
     return match?.path || knownPath;
   } catch {
     return knownPath;

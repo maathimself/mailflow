@@ -894,12 +894,12 @@ describe('dark email bodies', () => {
     assert.equal(toggle().getAttribute('aria-label'), 'message.showOriginal');
   });
 
-  test('no toggle in a light theme, or for HTML that asks to stay light', async () => {
+  test('no toggle in a light theme; HTML that asks to stay light has one', async () => {
     await open('dark-text-3', { text: 'plain words' }, { theme: 'light', setting: true });
     assert.equal(toggle(), undefined);
     assert.equal(textCard().style.background, 'white');
     await open('dark-html-1', { html: '<p>plain html</p>', text: '', lightOnly: true }, { setting: true });
-    assert.equal(toggle(), undefined);
+    assert.equal(toggle().getAttribute('aria-label'), 'message.showOriginal', 'a sender asking to stay light is shown dark too, and can be switched back');
   });
 });
 

@@ -195,6 +195,16 @@ describe('admin authorization and configuration', () => {
       error: 'AI provider returned an empty completion (finish_reason: length)',
     });
   });
+
+  it('answers 409, not 401, when the ChatGPT authorization requires reconnection', async () => {
+    mocks.testAiProvider.mockRejectedValue(Object.assign(
+      new Error('ChatGPT authorization requires reconnection'),
+      { status: 401 },
+    ));
+    const response = await request('/api/admin/ai/test', { method: 'POST' });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'ChatGPT authorization requires reconnection' });
+  });
 });
 
 describe('admin ChatGPT device lifecycle', () => {

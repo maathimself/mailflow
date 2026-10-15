@@ -147,6 +147,21 @@ describe('ContextMenu — a snoozed message (#269)', () => {
     assert.ok(new Date(calls[0][1]) > new Date(), 'a time in the future');
   });
 
+  // A server with an INBOX. namespace prefix keeps it in INBOX.Snoozed, which the Snoozed view gives
+  // as the folder the row's snooze was filed into. The menu item is checked as a boolean: a failure
+  // that prints a jsdom node stalls the test run.
+  test('mail in the folder its snooze was filed into is offered the same', async () => {
+    const prefixed = { ...SNOOZED, folder: 'INBOX.Snoozed', snoozed_folder: 'INBOX.Snoozed' };
+    let calls = await openMenu(prefixed);
+    assert.equal(Boolean(byText('contextMenu.snooze.label')), false, 'not offered Snooze again');
+    await click('contextMenu.snooze.unsnooze');
+    assert.deepEqual(calls, [['unsnooze']]);
+    calls = await openMenu(prefixed);
+    await click('contextMenu.snooze.change');
+    await clickOwn('contextMenu.snooze.threeHours');
+    assert.equal(calls[0][0], 'changeSnooze');
+  });
+
   test('a message in any other folder is snoozed as before', async () => {
     const calls = await openMenu({ ...SNOOZED, folder: 'INBOX', snooze_until: undefined });
     assert.equal(byText('contextMenu.snooze.unsnooze'), undefined);

@@ -4,9 +4,11 @@ import { api } from './api.js';
 import { useStore } from '../store/index.js';
 import { formatDateTime } from './formatDate.js';
 
-// Where snoozed mail waits (the backend's SNOOZED_FOLDER).
+// Where snoozed mail waits (the backend's SNOOZED_FOLDER). On a server with an INBOX. namespace
+// prefix that is INBOX.Snoozed, which the Snoozed view gives each row as its snooze's folder.
 export const SNOOZED_FOLDER = 'Snoozed';
-export const isSnoozed = (message) => message?.folder === SNOOZED_FOLDER;
+export const isSnoozed = (message) => message?.folder === SNOOZED_FOLDER
+  || (message?.snoozed_folder != null && message.folder === message.snoozed_folder);
 
 // The counts again, the snoozed count with them: the sidebar shows Snoozed only while some are.
 export function refreshCounts() {

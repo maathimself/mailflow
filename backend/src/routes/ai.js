@@ -42,9 +42,12 @@ export function aiLanguageInstruction(language) {
 }
 
 function serviceError(res, error, fallback = 'Request failed') {
-  const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 600
+  let status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 600
     ? error.status
     : 500;
+  // A 401 from a service is the AI provider rejecting its stored credential, not the
+  // MailFlow session, and the frontend signs the user out on any 401 outside /auth/.
+  if (status === 401) status = 409;
   // Client errors (4xx) and provider errors explicitly marked safe to expose
   // carry their real message; other 5xx fall back to a generic message. Always
   // log server-side on 5xx so the reason is recoverable even when it's hidden.

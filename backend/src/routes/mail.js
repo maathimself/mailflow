@@ -1237,6 +1237,18 @@ router.post('/folders/rename', async (req, res) => {
       WHERE account_id = $1
         AND (folder = $2 OR substr(folder, 1, length($3)) = $3)`,
       [accountId, oldPath, childPrefix, newPath]);
+    // Snooze records hold both folders by path: the wakeup finds the message by
+    // snoozed_folder and moves it back to original_folder, so a stale path strands it.
+    await query(`
+      UPDATE snoozed_messages SET snoozed_folder = $4 || substr(snoozed_folder, length($2) + 1)
+      WHERE account_id = $1
+        AND (snoozed_folder = $2 OR substr(snoozed_folder, 1, length($3)) = $3)`,
+      [accountId, oldPath, childPrefix, newPath]);
+    await query(`
+      UPDATE snoozed_messages SET original_folder = $4 || substr(original_folder, length($2) + 1)
+      WHERE account_id = $1
+        AND (original_folder = $2 OR substr(original_folder, 1, length($3)) = $3)`,
+      [accountId, oldPath, childPrefix, newPath]);
     res.json({ ok: true, newPath });
   } catch (err) {
     console.error('Rename folder error:', err);
@@ -2242,12 +2254,6 @@ router.post('/messages/:id/snooze', async (req, res) => {
 
   if (!msg.message_id) return res.status(400).json({ error: 'Message has no Message-ID header — cannot snooze' });
 
-  const snoozedFolder = 'Snoozed';
-
-  if (msg.folder === snoozedFolder) {
-    return res.status(400).json({ error: 'Message is already in Snoozed folder' });
-  }
-
   // Check if already snoozed
   const existing = await query(
     `SELECT sm.id FROM snoozed_messages sm
@@ -2272,11 +2278,19 @@ router.post('/messages/:id/snooze', async (req, res) => {
     [msg.account_id, convo.map(m => m.message_id)]
   );
 
+  // Store the server's real path (INBOX.Snoozed under an INBOX. namespace prefix): folder
+  // sync files the moved mail under it, so rows written as bare 'Snoozed' belong to no
+  // folder and the sync adds each message a second time.
+  let snoozedFolder;
   try {
-    await imapManager.ensureFolder(account, snoozedFolder);
+    ({ path: snoozedFolder } = await imapManager.ensureFolder(account, 'Snoozed', { resolvePath: true }));
   } catch (err) {
     console.error(`Snooze ensureFolder failed for message ${id}:`, err.message);
     return res.status(500).json({ error: 'Failed to move message to Snoozed folder' });
+  }
+
+  if (msg.folder === snoozedFolder) {
+    return res.status(400).json({ error: 'Message is already in Snoozed folder' });
   }
 
   for (const tm of convo) {
