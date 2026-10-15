@@ -100,8 +100,9 @@ function providerRequestError(error, request, callerSignal) {
 }
 
 // Redirects are not followed. The base URL's host is checked against the private-host policy when
-// it is saved (saveConfig); a redirect would send the request, API key included in a 307, to a
-// host that was never checked, one the policy forbids among them.
+// it is saved (saveConfig); a redirect would send the request, with a 307 its body (the email text
+// being summarized or drafted) too, to a host that was never checked, one the policy forbids among
+// them. fetch drops the API key on a redirect to another origin.
 async function openProviderRequest(fetchFn, url, init, { signal, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const request = createRequestSignal(signal, timeoutMs, 'AI request timed out');
   let response;
