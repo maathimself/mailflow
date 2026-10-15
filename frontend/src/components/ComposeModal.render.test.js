@@ -823,6 +823,85 @@ describe('automatic Cc and Bcc (#491)', () => {
   });
 });
 
+describe('opening Cc and Bcc', () => {
+  const account = (id, extra = {}) => ({ id, enabled: true, email_address: `${id}@example.invalid`, name: id, color: '#fff', ...extra });
+
+  async function mountCompose(composeData, accounts) {
+    useStore.setState({ plaintextEmail: false, accounts, selectedAccountId: accounts[0]?.id ?? null, defaultSender: '', composing: false, composeData: null, prepareComposeSwitch: null });
+    useStore.getState().openCompose(composeData);
+    const root = createRoot(document.getElementById('root'));
+    await React.act(async () => { root.render(React.createElement(ComposeModal)); });
+    await React.act(async () => {});
+    return () => React.act(async () => root.unmount());
+  }
+  const rowOf = (label) => [...document.querySelectorAll('span')].find(s => s.textContent === label)?.parentElement ?? null;
+  const inputOf = (label) => rowOf(label)?.querySelector('input') ?? null;
+  // The row the cursor is in, by its label. A failed assert.equal on DOM elements prints them
+  // in full, which for a jsdom node is the whole document and React tree.
+  const cursorIn = () => ['compose.to', 'compose.cc', 'compose.bcc'].find(label => inputOf(label) === document.activeElement)
+    ?? document.activeElement?.tagName;
+  const button = (label) => [...document.querySelectorAll('button')].find(b => b.textContent === label);
+  // Returns where the cursor was when the click's handlers returned, before act runs the work
+  // React queued: iOS raises the keyboard only for focus given while it is handling the tap.
+  const click = async (el) => {
+    let cursorDuringClick;
+    await React.act(async () => {
+      el.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      cursorDuringClick = cursorIn();
+    });
+    return cursorDuringClick;
+  };
+
+  test('the Cc and Bcc buttons open their row with the cursor in it', async () => {
+    const close = await mountCompose({}, [account('A')]);
+    try {
+      assert.equal(cursorIn(), 'compose.to', 'a new message starts in To');
+      assert.equal(await click(button('compose.cc')), 'compose.cc', 'focused during the click');
+      assert.equal(cursorIn(), 'compose.cc');
+      assert.equal(await click(button('compose.bcc')), 'compose.bcc', 'focused during the click');
+      assert.equal(cursorIn(), 'compose.bcc');
+    } finally { await close(); }
+  });
+
+  test('on a phone, Cc and Bcc picked from the menu open with the cursor in them', async () => {
+    const width = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 375 });
+    const close = await mountCompose({}, [account('A')]);
+    // The phone layout puts Cc and Bcc in a menu behind the chevron at the end of the To row.
+    const chevron = () => [...rowOf('compose.to').children].find(el => el.tagName === 'BUTTON');
+    try {
+      assert.ok(chevron(), 'the phone layout is rendered');
+      await click(chevron());
+      assert.equal(await click(button('compose.cc')), 'compose.cc', 'focused during the tap');
+      assert.equal(cursorIn(), 'compose.cc');
+      await click(chevron());
+      assert.equal(await click(button('compose.bcc')), 'compose.bcc', 'focused during the tap');
+      assert.equal(cursorIn(), 'compose.bcc');
+    } finally {
+      await close();
+      Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width });
+    }
+  });
+
+  test('a row the account opens by itself leaves the cursor where it is', async () => {
+    // Opened before the accounts load: the account's automatic Bcc row appears when they
+    // arrive, which can be while the user is already typing.
+    const close = await mountCompose({ accountId: 'late', aliasId: 'al1' }, []);
+    try {
+      await click(button('compose.cc'));
+      assert.equal(cursorIn(), 'compose.cc');
+      await React.act(async () => {
+        useStore.setState({ accounts: [account('late', {
+          auto_bcc_addresses: ['me@example.invalid'],
+          aliases: [{ id: 'al1', email: 'alias@example.invalid', name: 'Alias' }],
+        })] });
+      });
+      assert.ok(inputOf('compose.bcc'), 'the automatic Bcc row opened');
+      assert.equal(cursorIn(), 'compose.cc', 'and the cursor stayed in Cc');
+    } finally { await close(); }
+  });
+});
+
 describe('undo send', () => {
   // Mounted the way MailApp mounts it, so closing the composer unmounts it and reopening it
   // mounts a fresh one from the store's composeData.
