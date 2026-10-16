@@ -81,12 +81,21 @@ export function folderRole(folder, folderMappings) {
 
 // Display name of a folder: the translated role label when it has one, else
 // its server name (or path). `t` is the i18next translate function.
-export function folderDisplayName(folder, t, folderMappings) {
+// `folders`, the account's folder list, keeps a role label to one row (#623):
+// a folder mapped to the role takes it from the folder the server flagged, and
+// a role folder whose label is another folder's own name ("Deleted Items",
+// flagged \Trash beside an unflagged "Trash") keeps its server name.
+export function folderDisplayName(folder, t, folderMappings, folders) {
   const role = folderRole(folder, folderMappings);
   if (role && typeof t === 'function') {
     const key = ROLE_LABEL_KEYS[role];
     const label = t(key);
-    if (label && label !== key) return label;
+    const others = Array.isArray(folders) ? folders.filter(f => f?.path !== folder.path) : [];
+    const mapped = folderMappings?.[role];
+    const ownedByMapping = mapped && mapped !== folder.path && others.some(f => f.path === mapped);
+    const repeatsAName = others.some(f => (f?.name || '').toLowerCase() === String(label).toLowerCase()
+      && folderRole(f, folderMappings) !== role);
+    if (label && label !== key && !ownedByMapping && !repeatsAName) return label;
   }
   return folder?.name || folder?.path || '';
 }

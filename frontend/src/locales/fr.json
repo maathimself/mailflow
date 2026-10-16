@@ -275,19 +275,26 @@
       "failBody": "Impossible d'archiver le message.",
       "noFolderTitle": "Aucun dossier d'archive",
       "noFolderBody": "Aucun dossier d'archive configuré pour ce compte. Définissez-en un dans Paramètres → Comptes → Mappage des dossiers.",
-      "conversationTitle": "Conversation archivée"
+      "conversationTitle": "Conversation archivée",
+      "nothingFromAccount": "Aucun message de ce compte à archiver dans cette conversation",
+      "otherAccountMessage": "Rien n'a été archivé : le message ouvert provient d'un autre compte",
+      "otherAccountDraft": "Rien n'a été archivé : le brouillon ouvert provient d'un autre compte"
     },
     "moved": {
       "title": "Message déplacé",
       "failTitle": "Échec du déplacement",
       "failBody": "Impossible de déplacer le message.",
-      "conversationTitle": "Conversation déplacée"
+      "conversationTitle": "Conversation déplacée",
+      "nothingFromAccount": "Aucun message de ce compte à déplacer dans cette conversation",
+      "otherAccountDraft": "Rien n'a été déplacé : le brouillon ouvert provient d'un autre compte"
     },
     "snoozed": {
       "title": "Message mis en attente",
       "failTitle": "Échec de la mise en attente",
       "failBody": "Impossible de mettre ce message en attente.",
-      "conversationTitle": "Conversation mise en attente"
+      "conversationTitle": "Conversation mise en attente",
+      "nothingFromAccount": "Aucun message de ce compte à mettre en attente dans cette conversation",
+      "nothingInConversation": "Aucun message à mettre en attente dans cette conversation"
     },
     "whitelistFail": {
       "title": "Impossible d'enregistrer la préférence",
@@ -379,7 +386,8 @@
       "body": "Déplacé vers la corbeille.",
       "failTitle": "Échec de la suppression",
       "failBody": "Impossible de supprimer le message.",
-      "conversationTitle": "Conversation supprimée"
+      "conversationTitle": "Conversation supprimée",
+      "nothingFromAccount": "Aucun message de ce compte à supprimer dans cette conversation"
     },
     "draftBcc": {
       "failTitle": "Brouillon ouvert en lecture seule",
@@ -1818,7 +1826,9 @@
     "noRulesFired": "Aucune règle déclenchée",
     "mlTokensTitle": "Principaux tokens",
     "noMlTokens": "Aucun token ML",
-    "conversationMovedToSpam": "Conversation déplacée dans le dossier Spam"
+    "conversationMovedToSpam": "Conversation déplacée dans le dossier Spam",
+    "nothingFromAccount": "Aucun message de ce compte à marquer comme spam dans cette conversation",
+    "nothingInConversation": "Aucun message à marquer comme spam dans cette conversation"
   },
   "contacts": {
     "title": "Contacts",

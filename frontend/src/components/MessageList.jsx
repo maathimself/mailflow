@@ -49,6 +49,7 @@ import {
   unreadCountsByAccount,
 } from '../utils/threadedArchive.js';
 import { createUndoableCommit, UNDO_COMMIT_DELAY_MS, UNDO_WINDOW_MS } from '../utils/undoableAction.js';
+import { resolveConversationSelection, selectListedMessage } from '../utils/conversation.js';
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -122,7 +123,7 @@ export default function MessageList() {
     appendMessages, messagesTotal, setMessagesTotal,
     setMessagesOffset, hasMoreMessages, setHasMoreMessages,
     loadingMessages, setLoadingMessages, selectedMessageId, lastViewedMessageId,
-    setSelectedMessage, updateMessage, removeMessage, removeMessages,
+    updateMessage, removeMessage, removeMessages,
     decrementUnread, incrementUnread, addNotification, notifications, removeNotification,
     searchQuery, setSearchQuery, setIsSearching,
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
@@ -807,6 +808,8 @@ export default function MessageList() {
   // than the expansion-time cache: a thread gains messages while you look at it, and acting on
   // the snapshot left newer ones unread (unreachable, since the row then rendered as read) or,
   // on the delete and move paths, silently untouched. See utils/threadActions.js.
+  // The thread holds every enabled account's copies, but outside the unified inbox the row
+  // stands for its own account's only, so that is all the action takes.
   const resolveMessagesForThreadAction = useCallback(async (message, { allowCache = false } = {}) => {
     const tid = message.thread_id || message.id;
     const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
@@ -816,6 +819,7 @@ export default function MessageList() {
       cached: threadMessages[tid],
       allowCache,
       fetchThread: () => api.getThread(tid, effectiveFolder, isUnified),
+      accountId: isUnified ? null : message.account_id,
     });
   }, [isThreadListRow, threadMessages, selectedAccountId, selectedFolder, isUnified]);
 
@@ -825,19 +829,25 @@ export default function MessageList() {
     if (useStore.getState().loadingThread === threadId) setLoadingThread(null);
   }, [clearThreadMessages, setLoadingThread]);
 
+  // In one account's view an expanded conversation also lists another account's copies (#476),
+  // which the action left alone; a unified-inbox row stands for every copy.
   const setCachedThreadRead = useCallback((message, read) => {
     const tid = message.thread_id || message.id;
     if (threadMessages[tid]) {
-      setThreadMessages(tid, threadMessages[tid].map(msg => ({ ...msg, is_read: read })));
+      setThreadMessages(tid, threadMessages[tid].map(msg => (
+        isUnified || msg.account_id === message.account_id ? { ...msg, is_read: read } : msg
+      )));
     }
-  }, [threadMessages, setThreadMessages]);
+  }, [threadMessages, setThreadMessages, isUnified]);
 
   const setCachedThreadStarred = useCallback((message, starred) => {
     const tid = message.thread_id || message.id;
     if (threadMessages[tid]) {
-      setThreadMessages(tid, threadMessages[tid].map(msg => ({ ...msg, is_starred: starred })));
+      setThreadMessages(tid, threadMessages[tid].map(msg => (
+        isUnified || msg.account_id === message.account_id ? { ...msg, is_starred: starred } : msg
+      )));
     }
-  }, [threadMessages, setThreadMessages]);
+  }, [threadMessages, setThreadMessages, isUnified]);
 
   const setMessagesReadState = useCallback(async (message, read) => {
     const isThreadRow = isThreadListRow(message);
@@ -1973,29 +1983,29 @@ export default function MessageList() {
     };
 
     const onNext = () => {
-      const { messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage } = getState();
+      const { messages, searchResults, searchQuery, selectedMessageId } = getState();
       const pool = searchQuery.trim() ? searchResults : messages;
       if (!pool.length) return;
       const idx = pool.findIndex(m => m.id === selectedMessageId);
       const next = pool[idx + 1] ?? pool[0];
-      setSelectedMessage(next.id);
+      selectListedMessage(useStore, next.id);
       markRead(next);
     };
 
     const onPrev = () => {
-      const { messages, searchResults, searchQuery, selectedMessageId, setSelectedMessage } = getState();
+      const { messages, searchResults, searchQuery, selectedMessageId } = getState();
       const pool = searchQuery.trim() ? searchResults : messages;
       if (!pool.length) return;
       const idx = pool.findIndex(m => m.id === selectedMessageId);
       const prev = idx <= 0 ? pool[pool.length - 1] : pool[idx - 1];
-      setSelectedMessage(prev.id);
+      selectListedMessage(useStore, prev.id);
       markRead(prev);
     };
 
     const onOpen = () => {
-      const { messages, selectedMessageId, setSelectedMessage } = getState();
+      const { messages, selectedMessageId } = getState();
       if (selectedMessageId || !messages.length) return;
-      setSelectedMessage(messages[0].id);
+      selectListedMessage(useStore, messages[0].id);
     };
 
     const onSelect = () => {
@@ -2010,7 +2020,7 @@ export default function MessageList() {
     };
 
     const onArchive = () => {
-      const { messages, searchResults, searchQuery, selectedMessageId, threadMessages } = getState();
+      const { messages, searchResults, searchQuery, selectedMessageId, threadMessages, selectedAccountId, addNotification } = getState();
       const pool = searchQuery.trim() ? searchResults : messages;
       const ids = [...scRef.current.selectedIds];
       if (ids.length > 0) {
@@ -2019,6 +2029,17 @@ export default function MessageList() {
       } else if (selectedMessageId) {
         const msg = findVisibleArchiveMessage(pool, selectedMessageId, threadMessages);
         if (!msg) return;
+        // In one account's view a message opened from a notification, a link or the GTD sidebar
+        // speaks for its own account (ReadingPane), even when a row's cached conversation also
+        // holds it (#476). Archiving a row of another account would take that account's copies,
+        // which the reading pane's own Archive leaves alone.
+        const { selectedMessage: opened, parked } = resolveConversationSelection({
+          selectedMessageId, pool: [...messages, ...searchResults], threadMessages,
+        });
+        if (selectedAccountId && parked && opened?.account_id !== msg.account_id) {
+          addNotification({ title: tRef.current('message.archived.otherAccountMessage') });
+          return;
+        }
         // #449: through the context-action path, whose undoable wrapper delays the real
         // archive and shows the undo toast — calling archiveVisibleMessage directly
         // committed instantly, which made the keyboard's own archive the one action
@@ -2535,7 +2556,7 @@ export default function MessageList() {
         // cannot be read the draft opens read-only instead.
         if (!Array.isArray(bcc)) {
           addNotification({ type: 'error', title: t('messageList.draftBcc.failTitle'), body: t('messageList.draftBcc.failBody') });
-          setSelectedMessage(message.id);
+          selectListedMessage(useStore, message.id);
           return;
         }
         // A saved draft is one document: body, signature, then any quoted text. Handing all of
@@ -2564,13 +2585,13 @@ export default function MessageList() {
         });
       } catch (err) {
         console.error('Failed to open draft:', err.message);
-        setSelectedMessage(message.id);
+        selectListedMessage(useStore, message.id);
       }
       return;
     }
     recentMessageOpenUntilRef.current = Date.now() + 1500;
     api.getMessageBody(message.id).catch(() => {});
-    setSelectedMessage(message.id);
+    selectListedMessage(useStore, message.id);
     listRef.current?.focus({ preventScroll: true });
     markMessageReadOnOpen(message);
   };
@@ -2580,7 +2601,7 @@ export default function MessageList() {
   // there the advance only moves the highlight, as it always has.
   const rowOpenerRef = useRef(null);
   rowOpenerRef.current = (row) => {
-    if (isDraftsFolder) { setSelectedMessage(row.id); return; }
+    if (isDraftsFolder) { selectListedMessage(useStore, row.id); return; }
     handleSelect(row);
   };
   useEffect(() => registerRowOpener(row => rowOpenerRef.current?.(row)), []);
@@ -3303,6 +3324,26 @@ export default function MessageList() {
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {searchQuery.trim() && displayMessages.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', flexShrink: 0,
+          height: 34, boxSizing: 'border-box', padding: '0 14px',
+          color: 'var(--text-tertiary)', fontSize: 12,
+          borderBottom: '1px solid var(--border-subtle)',
+        }}>
+          {isSearching && (
+            <div role="status" aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <div aria-hidden="true" style={{
+                width: 14, height: 14, flexShrink: 0,
+                border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
+                borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+              }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t('messageList.searching')}</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -4048,7 +4089,7 @@ export default function MessageList() {
         {/* Infinite scroll footer */}
         {scrollMode === 'infinite' && (<>
           {/* Search mode: load more search results */}
-          {searchQuery.trim() ? (<>
+          {searchQuery.trim() ? (!isSearching && <>
             {searchLoadingMore && (
               <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
                 <div style={{
@@ -4119,7 +4160,7 @@ export default function MessageList() {
         </>)}
 
         {/* Pagination footer */}
-        {scrollMode === 'paginated' && !loadingMessages && messagesTotal > 0 && (() => {
+        {scrollMode === 'paginated' && !searchQuery.trim() && !loadingMessages && messagesTotal > 0 && (() => {
           const totalPages = Math.ceil(messagesTotal / pageSize) || 1;
           const btnStyle = (disabled) => ({
             padding: '5px 14px', fontSize: 12, borderRadius: 6, cursor: disabled ? 'default' : 'pointer',
@@ -4732,7 +4773,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {message.subject || t('common.noSubject')}
             </span>
-            <ReplyDraftIndicator message={message} />
+            <ReplyDraftIndicator message={message} listRow />
             <SpamBadge message={message} onClick={onExplainSpam} />
           </div>
           {/* Row 3: snippet */}
@@ -5061,7 +5102,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {message.subject || t('message.noSubject')}
           </span>
-          <ReplyDraftIndicator message={message} />
+          <ReplyDraftIndicator message={message} listRow />
           <SpamBadge message={message} onClick={onExplainSpam} />
         </div>
 

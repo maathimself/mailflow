@@ -133,6 +133,78 @@ describe('the email frame (#228)', () => {
   });
 });
 
+// The browser paints the frame on its own schedule, which could be before the dark pass had run:
+// the email showed light, then turned dark a moment later.
+describe('no light flash before the dark pass', () => {
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  const show = async (props) => {
+    const iframeRef = React.createRef();
+    const seen = [];
+    await React.act(async () => root.render(null)); // a fresh frame, with no document of ours in it
+    await React.act(async () => {
+      root.render(React.createElement(MessageBodyView, {
+        body: { html: `<p>${props.messageId}</p>`, darkCss: '' }, emailScaleRef: { current: 1 },
+        hasNativeContextTarget: false, onContextMenu: null, iframeRef,
+        onDarkResult: () => seen.push(iframeRef.current.style.visibility), ...props,
+      }));
+    });
+    return { iframe: iframeRef.current, seen };
+  };
+  // What the frame's document looks like once the email has been parsed into it.
+  const parse = (iframe, key = /data-mf-doc="(\d+)"/.exec(iframe.getAttribute('srcdoc'))[1]) => {
+    const doc = iframe.contentDocument;
+    doc.getElementById('mf-scale-wrapper')?.remove();
+    const wrapper = doc.createElement('div');
+    wrapper.id = 'mf-scale-wrapper';
+    wrapper.setAttribute('data-mf-doc', key);
+    wrapper.innerHTML = '<p>Hi</p>';
+    doc.body.appendChild(wrapper);
+  };
+
+  test('a dark reader\'s frame stays hidden until the dark pass has run, then shows', async () => {
+    const { iframe, seen } = await show({ dark: true, messageId: 'flash-1' });
+    assert.equal(iframe.style.visibility, 'hidden', 'hidden before the document is ready');
+    parse(iframe);
+    for (let i = 0; i < 5 && iframe.style.visibility; i += 1) await tick();
+    assert.deepEqual(seen, ['hidden'], 'the dark pass ran while it was hidden');
+    assert.equal(iframe.style.visibility, '', 'shown once it had');
+  });
+
+  // Until the swap lands, the frame still holds the previous email's document. Taken for the new
+  // one, it was set up instead, and the new email showed light until its load event.
+  test("the previous email's document is not taken for the next one", async () => {
+    const { iframe, seen } = await show({ dark: true, messageId: 'flash-4' });
+    const first = /data-mf-doc="(\d+)"/.exec(iframe.getAttribute('srcdoc'))[1];
+    await React.act(async () => {
+      root.render(React.createElement(MessageBodyView, {
+        body: { html: '<p>next</p>', darkCss: '' }, emailScaleRef: { current: 1 }, messageId: 'flash-5',
+        hasNativeContextTarget: false, onContextMenu: null, iframeRef: { current: iframe }, dark: true,
+        onDarkResult: () => seen.push(iframe.style.visibility),
+      }));
+    });
+    parse(iframe, first); // the frame still shows the first email
+    for (let i = 0; i < 5; i += 1) await tick();
+    assert.deepEqual(seen, [], 'nothing set up against the old document');
+    assert.equal(iframe.style.visibility, 'hidden', 'still hidden, waiting for the new one');
+    parse(iframe); // the new email arrives
+    for (let i = 0; i < 5 && iframe.style.visibility; i += 1) await tick();
+    assert.deepEqual(seen, ['hidden']);
+    assert.equal(iframe.style.visibility, '');
+  });
+
+  test('a light reader\'s frame is never hidden', async () => {
+    const { iframe } = await show({ dark: false, messageId: 'flash-2' });
+    assert.equal(iframe.style.visibility, '');
+  });
+
+  test('a frame whose document never turns up is shown anyway', async () => {
+    const { iframe } = await show({ dark: true, messageId: 'flash-3' });
+    assert.equal(iframe.style.visibility, 'hidden');
+    for (let i = 0; i < 400 && iframe.style.visibility; i += 1) await tick();
+    assert.equal(iframe.style.visibility, '');
+  });
+});
+
 // The card around a dark body takes the background the body actually shows, so a sender's own
 // dark background does not sit in a strip of the theme's.
 describe('frameSurface', () => {

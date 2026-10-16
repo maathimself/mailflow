@@ -205,7 +205,8 @@
       "body": "Odstraněno.",
       "failTitle": "Smazání se nezdařilo",
       "failBody": "Zprávu se nepodařilo smazat.",
-      "conversationTitle": "Konverzace smazána"
+      "conversationTitle": "Konverzace smazána",
+      "nothingFromAccount": "V této konverzaci není z tohoto účtu nic ke smazání"
     },
     "draftBcc": {
       "failTitle": "Koncept otevřen jen pro čtení",
@@ -390,19 +391,26 @@
       "failBody": "Zprávu se nepodařilo archivovat.",
       "noFolderTitle": "Chybí složka archivu",
       "noFolderBody": "Pro tento účet není nastavena složka archivu. Nastavte ji v Nastavení → Účty → Mapování složek.",
-      "conversationTitle": "Konverzace archivována"
+      "conversationTitle": "Konverzace archivována",
+      "nothingFromAccount": "V této konverzaci není z tohoto účtu nic k archivaci",
+      "otherAccountMessage": "Nic nebylo archivováno: otevřená zpráva je z jiného účtu",
+      "otherAccountDraft": "Nic nebylo archivováno: otevřený koncept je z jiného účtu"
     },
     "moved": {
       "title": "Zpráva přesunuta",
       "failTitle": "Přesunutí se nezdařilo",
       "failBody": "Zprávu se nepodařilo přesunout.",
-      "conversationTitle": "Konverzace přesunuta"
+      "conversationTitle": "Konverzace přesunuta",
+      "nothingFromAccount": "V této konverzaci není z tohoto účtu nic k přesunutí",
+      "otherAccountDraft": "Nic nebylo přesunuto: otevřený koncept je z jiného účtu"
     },
     "snoozed": {
       "title": "Zpráva odložena",
       "failTitle": "Odložení se nezdařilo",
       "failBody": "Tuto zprávu se nepodařilo odložit.",
-      "conversationTitle": "Konverzace odložena"
+      "conversationTitle": "Konverzace odložena",
+      "nothingFromAccount": "V této konverzaci není z tohoto účtu nic k odložení",
+      "nothingInConversation": "V této konverzaci není nic k odložení"
     },
     "whitelistFail": {
       "title": "Předvolbu se nepodařilo uložit",
@@ -921,7 +929,9 @@
     "noRulesFired": "Neaktivovalo se žádné pravidlo",
     "mlTokensTitle": "Nejvýznamnější tokeny",
     "noMlTokens": "Žádné ML tokeny",
-    "conversationMovedToSpam": "Konverzace přesunuta do spamu"
+    "conversationMovedToSpam": "Konverzace přesunuta do spamu",
+    "nothingFromAccount": "V této konverzaci není z tohoto účtu nic k označení jako spam",
+    "nothingInConversation": "V této konverzaci není nic k označení jako spam"
   },
   "todoist": {
     "title": "Vytvořit úkol v Todoistu",

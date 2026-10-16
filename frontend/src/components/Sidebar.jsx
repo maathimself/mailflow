@@ -1116,7 +1116,7 @@ export default function Sidebar() {
                       />
                     ) : (
                       <span style={{ fontSize: 13, fontWeight: isActive ? 500 : 400, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {label || (folderObj ? folderDisplayName(folderObj, t, account.folder_mappings) : (path.split('/').pop() || path))}
+                        {label || (folderObj ? folderDisplayName(folderObj, t, account.folder_mappings, accountFolders) : (path.split('/').pop() || path))}
                       </span>
                     )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
@@ -1510,7 +1510,7 @@ export default function Sidebar() {
                             fontSize: 12, color: 'var(--text-secondary)',
                             flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}>
-                            {folderDisplayName(folder, t, account.folder_mappings)}
+                            {folderDisplayName(folder, t, account.folder_mappings, accountFolders)}
                           </span>
                         )}
 

@@ -275,19 +275,26 @@
       "failBody": "Impossibile archiviare il messaggio.",
       "noFolderTitle": "Nessuna cartella di archivio",
       "noFolderBody": "Nessuna cartella di archivio configurata per questo account. Impostane una in Impostazioni → Account → Mappatura cartelle.",
-      "conversationTitle": "Conversazione archiviata"
+      "conversationTitle": "Conversazione archiviata",
+      "nothingFromAccount": "Nessun messaggio di questo account da archiviare in questa conversazione",
+      "otherAccountMessage": "Non è stato archiviato nulla: il messaggio aperto appartiene a un altro account",
+      "otherAccountDraft": "Non è stato archiviato nulla: la bozza aperta appartiene a un altro account"
     },
     "moved": {
       "title": "Messaggio spostato",
       "failTitle": "Spostamento fallito",
       "failBody": "Impossibile spostare il messaggio.",
-      "conversationTitle": "Conversazione spostata"
+      "conversationTitle": "Conversazione spostata",
+      "nothingFromAccount": "Nessun messaggio di questo account da spostare in questa conversazione",
+      "otherAccountDraft": "Non è stato spostato nulla: la bozza aperta appartiene a un altro account"
     },
     "snoozed": {
       "title": "Messaggio posticipato",
       "failTitle": "Posticipa fallito",
       "failBody": "Impossibile posticipare questo messaggio.",
-      "conversationTitle": "Conversazione posticipata"
+      "conversationTitle": "Conversazione posticipata",
+      "nothingFromAccount": "Nessun messaggio di questo account da posticipare in questa conversazione",
+      "nothingInConversation": "Nessun messaggio da posticipare in questa conversazione"
     },
     "whitelistFail": {
       "title": "Impossibile salvare la preferenza",
@@ -379,7 +386,8 @@
       "body": "Spostato nel Cestino.",
       "failTitle": "Eliminazione fallita",
       "failBody": "Impossibile eliminare il messaggio.",
-      "conversationTitle": "Conversazione eliminata"
+      "conversationTitle": "Conversazione eliminata",
+      "nothingFromAccount": "Nessun messaggio di questo account da eliminare in questa conversazione"
     },
     "draftBcc": {
       "failTitle": "Bozza aperta in sola lettura",
@@ -1818,7 +1826,9 @@
     "noRulesFired": "Nessuna regola attivata",
     "mlTokensTitle": "Token principali",
     "noMlTokens": "Nessun token ML",
-    "conversationMovedToSpam": "Conversazione spostata in Spam"
+    "conversationMovedToSpam": "Conversazione spostata in Spam",
+    "nothingFromAccount": "Nessun messaggio di questo account da segnalare come spam in questa conversazione",
+    "nothingInConversation": "Nessun messaggio da segnalare come spam in questa conversazione"
   },
   "contacts": {
     "title": "Contatti",

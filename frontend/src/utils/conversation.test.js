@@ -162,6 +162,25 @@ describe('conversation pane selection', () => {
     assert.equal(result.refreshKey, 'thread-1:new-reply:3');
   });
 
+  it('tells a message parked from a notification or link apart from a row of the list', () => {
+    // In one account's view ReadingPane scopes the conversation's actions to a row's or a parked
+    // message's own account, and to the selected account for a message expanded under a row.
+    const opened = message('opened', '2026-07-26T12:00:00Z', { thread_id: 'thread-1', account_id: 'b' });
+    const where = (pool, threadMessages) => {
+      const { listed, parked } = conversationModule.resolveConversationSelection({
+        selectedMessageId: opened.id, pool, threadMessages,
+      });
+      return { listed, parked };
+    };
+
+    assert.deepEqual(where([], { [`__dl_${opened.id}`]: [opened] }), { listed: false, parked: true });
+    assert.deepEqual(where([opened], { [`__dl_${opened.id}`]: [opened] }), { listed: true, parked: false }, 'a listed message is a row however it was opened');
+    assert.deepEqual(where([], { 'thread-1': [opened] }), { listed: false, parked: false }, 'a message expanded under a row is neither');
+    // A notification tapped while the row's conversation is cached leaves both entries. The tap
+    // still speaks for the opened copy; a later pick from the list drops the entry (MessageList).
+    assert.deepEqual(where([], { [`__dl_${opened.id}`]: [opened], 'thread-1': [opened] }), { listed: false, parked: true }, 'a cached conversation does not unpark it');
+  });
+
   it('changes the refresh key when the grouped head changes', () => {
     assert.equal(typeof conversationModule.conversationRefreshKey, 'function');
     assert.notEqual(

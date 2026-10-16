@@ -275,19 +275,26 @@
       "failBody": "Could not archive message.",
       "noFolderTitle": "No archive folder",
       "noFolderBody": "No archive folder configured for this account. Set one in Settings → Accounts → Folder Mappings.",
-      "conversationTitle": "Conversation archived"
+      "conversationTitle": "Conversation archived",
+      "nothingFromAccount": "Nothing from this account to archive in this conversation",
+      "otherAccountMessage": "Nothing archived: the open message is from another account",
+      "otherAccountDraft": "Nothing archived: the open draft is from another account"
     },
     "moved": {
       "title": "Message moved",
       "failTitle": "Move failed",
       "failBody": "Could not move message.",
-      "conversationTitle": "Conversation moved"
+      "conversationTitle": "Conversation moved",
+      "nothingFromAccount": "Nothing from this account to move in this conversation",
+      "otherAccountDraft": "Nothing moved: the open draft is from another account"
     },
     "snoozed": {
       "title": "Message snoozed",
       "failTitle": "Snooze failed",
       "failBody": "Could not snooze this message.",
-      "conversationTitle": "Conversation snoozed"
+      "conversationTitle": "Conversation snoozed",
+      "nothingFromAccount": "Nothing from this account to snooze in this conversation",
+      "nothingInConversation": "Nothing to snooze in this conversation"
     },
     "whitelistFail": {
       "title": "Could not save preference",
@@ -379,7 +386,8 @@
       "body": "Removed.",
       "failTitle": "Delete failed",
       "failBody": "Could not delete message.",
-      "conversationTitle": "Conversation deleted"
+      "conversationTitle": "Conversation deleted",
+      "nothingFromAccount": "Nothing from this account to delete in this conversation"
     },
     "draftBcc": {
       "failTitle": "Draft opened read-only",
@@ -1818,7 +1826,9 @@
     "noRulesFired": "No rules fired",
     "mlTokensTitle": "Top contributing tokens",
     "noMlTokens": "No ML tokens",
-    "conversationMovedToSpam": "Conversation moved to Spam"
+    "conversationMovedToSpam": "Conversation moved to Spam",
+    "nothingFromAccount": "Nothing from this account to mark as spam in this conversation",
+    "nothingInConversation": "Nothing to mark as spam in this conversation"
   },
   "contacts": {
     "title": "Contacts",

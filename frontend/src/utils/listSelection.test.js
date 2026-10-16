@@ -117,6 +117,17 @@ describe('advanceSelectionAfterRemoval', () => {
     assert.deepEqual(opened, []);
     assert.equal(useStore.getState().selectedMessageId, 'r3');
   });
+
+  // A notification, a link or the GTD sidebar parks the message it opens under __dl_<id>, and the
+  // entry outlives that open; a pick from the list ends it (selectListedMessage).
+  test('without a list mounted the row is picked as the list picks one', () => {
+    unregister();
+    unregister = null;
+    useStore.setState({ threadMessages: { __dl_r3: [ROWS[2]] } });
+    advanceSelectionAfterRemoval('r2');
+    assert.equal(useStore.getState().selectedMessageId, 'r3');
+    assert.equal(useStore.getState().threadMessages.__dl_r3, undefined);
+  });
 });
 
 describe('the afterRemove setting', () => {
@@ -167,5 +178,14 @@ describe('adjacentRow and openAdjacentRow', () => {
     assert.equal(useStore.getState().selectedMessageId, 'r3');
     assert.equal(openAdjacentRow('next'), false);
     assert.deepEqual(opened, ['r3']);
+  });
+
+  test('without a list mounted the row is picked as the list picks one', () => {
+    unregister();
+    unregister = null;
+    useStore.setState({ threadMessages: { __dl_r3: [ROWS[2]] } });
+    assert.equal(openAdjacentRow('next'), true);
+    assert.equal(useStore.getState().selectedMessageId, 'r3');
+    assert.equal(useStore.getState().threadMessages.__dl_r3, undefined);
   });
 });

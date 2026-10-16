@@ -3,6 +3,8 @@
 // saves it on its own is only seen at the next sync), so the list is watched for a while. Moving
 // to another folder, or opening another message, ends the wait.
 
+import { selectListedMessage } from './conversation.js';
+
 export const SENT_COPY_WAIT_MS = 30_000;
 
 export function openSentMessage(store, { accountId, folder, messageId }, { wait = SENT_COPY_WAIT_MS, schedule = setTimeout, unschedule = clearTimeout } = {}) {
@@ -19,7 +21,7 @@ export function openSentMessage(store, { accountId, folder, messageId }, { wait 
     const row = state.messages.find(m => m.message_id === messageId);
     if (!row) return;
     stop();
-    state.setSelectedMessage(row.id);
+    selectListedMessage(store, row.id);
   };
   unsubscribe = store.subscribe(check);
   timer = schedule(stop, wait);

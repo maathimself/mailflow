@@ -2,8 +2,12 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { openReplyDraft } from '../utils/openReplyDraft.js';
+import { selectListedMessage } from '../utils/conversation.js';
 
-export default function ReplyDraftIndicator({ message }) {
+// listRow: on a row of the list, opening the draft picks the row as a click on it does. The reading
+// pane shows one on the message it has open, which a notification or a link may have parked there:
+// selecting that again must leave it parked, or a message that no row holds would leave the pane.
+export default function ReplyDraftIndicator({ message, listRow = false }) {
   const { t } = useTranslation();
   const status = useStore(state => state.replyDrafts[message?.id]);
   const [opening, setOpening] = useState(false);
@@ -14,7 +18,8 @@ export default function ReplyDraftIndicator({ message }) {
     <button type="button" aria-label={label} title={status.error || label} disabled={opening}
       onClick={async event => {
         event.stopPropagation();
-        useStore.getState().setSelectedMessage(message.id);
+        if (listRow) selectListedMessage(useStore, message.id);
+        else useStore.getState().setSelectedMessage(message.id);
         setOpening(true);
         try { await openReplyDraft(message.id); } finally { setOpening(false); }
       }}

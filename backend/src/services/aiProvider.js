@@ -99,15 +99,28 @@ function providerRequestError(error, request, callerSignal) {
   );
 }
 
+// Redirects are not followed. The base URL's host is checked against the private-host policy when
+// it is saved (saveConfig); a redirect would send the request, with a 307 its body (the email text
+// being summarized or drafted) too, to a host that was never checked, one the policy forbids among
+// them. fetch drops the API key on a redirect to another origin.
 async function openProviderRequest(fetchFn, url, init, { signal, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const request = createRequestSignal(signal, timeoutMs, 'AI request timed out');
+  let response;
   try {
-    const response = await fetchFn(url, { ...init, signal: request.signal });
-    return { ...request, response };
+    response = await fetchFn(url, { ...init, redirect: 'manual', signal: request.signal });
   } catch (error) {
     request.cleanup();
     throw providerRequestError(error, request, signal);
   }
+  if (response.status >= 300 && response.status < 400) {
+    request.cleanup();
+    response.body?.cancel().catch(() => {});
+    throw new AiProviderError(
+      `AI provider redirected the request (${response.status}); set the API base URL to the address it redirects to`,
+      { status: 502, expose: true },
+    );
+  }
+  return { ...request, response };
 }
 
 async function* parseChatCompletionsSse(response, { signal, secrets } = {}) {

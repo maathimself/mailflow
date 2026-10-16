@@ -1,4 +1,5 @@
 import { useStore } from '../store/index.js';
+import { selectListedMessage } from './conversation.js';
 
 // What the reading pane shows when the open message (or conversation) leaves the list: by delete,
 // archive, move, spam or snooze, from the list, the reading pane or the conversation pane alike
@@ -42,7 +43,8 @@ export function advanceSelectionAfterRemoval(removedId, selectedWithinRemovedRow
   const next = rowAfterRemoval(removedId);
   if (next === undefined) return;
   if (next && openRow) openRow(next);
-  else setSelectedMessage(next?.id ?? null);
+  else if (next) selectListedMessage(useStore, next.id);
+  else setSelectedMessage(null);
 }
 
 // Swiping between messages on a phone (#229): the row before or after the open one in the list on
@@ -68,6 +70,6 @@ export function openAdjacentRow(direction, threadId = null) {
   const row = adjacentRow(direction, threadId);
   if (!row) return false;
   if (openRow) openRow(row);
-  else useStore.getState().setSelectedMessage(row.id);
+  else selectListedMessage(useStore, row.id);
   return true;
 }

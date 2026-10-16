@@ -14,6 +14,7 @@ import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDel
 import { pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
 import { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } from '../utils/markRead.js';
 import { advanceSelectionAfterRemoval, adjacentRow, openAdjacentRow } from '../utils/listSelection.js';
+import { selectListedMessage } from '../utils/conversation.js';
 import { bodyCache, prefetchBody as prefetchCachedBody } from '../utils/bodyCache.js';
 import { unsnooze, changeSnooze, refreshCounts } from '../utils/snoozeActions.js';
 import { isDarkTheme, canShowDark, showDark } from '../utils/darkScheme.js';
@@ -141,15 +142,15 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     return mod ? `${modCompactLabel(mod.mod)}${mod.bare.toUpperCase()}` : k.toUpperCase();
   };
   // Navigate to a message and mark it as read in one shot.
-  // Arrow buttons and swipe gestures bypass handleSelect in MessageList, so they
-  // must duplicate the mark-as-read logic here to keep state consistent.
+  // The arrow buttons bypass handleSelect in MessageList, so they must pick the row as it
+  // does and duplicate the mark-as-read logic here to keep state consistent.
   const selectAndMarkRead = useCallback((msg) => {
     window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
     api.getMessageBody(msg.id).catch(() => {});
-    setSelectedMessage(msg.id);
+    selectListedMessage(useStore, msg.id);
     cancelScheduledMarkRead(autoMarkReadTimerRef.current);
     autoMarkReadTimerRef.current = scheduleMarkRead(msg);
-  }, [setSelectedMessage]);
+  }, []);
 
   const paneRef = useRef(null);
   const autoMarkReadTimerRef = useRef(null);

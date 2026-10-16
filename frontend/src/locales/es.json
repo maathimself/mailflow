@@ -275,19 +275,26 @@
       "failBody": "No se pudo archivar el mensaje.",
       "noFolderTitle": "Sin carpeta de archivo",
       "noFolderBody": "No hay carpeta de archivo configurada para esta cuenta. Configura una en Ajustes → Cuentas → Asignación de carpetas.",
-      "conversationTitle": "Conversación archivada"
+      "conversationTitle": "Conversación archivada",
+      "nothingFromAccount": "No hay nada de esta cuenta que archivar en esta conversación",
+      "otherAccountMessage": "No se archivó nada: el mensaje abierto es de otra cuenta",
+      "otherAccountDraft": "No se archivó nada: el borrador abierto es de otra cuenta"
     },
     "moved": {
       "title": "Mensaje movido",
       "failTitle": "Error al mover",
       "failBody": "No se pudo mover el mensaje.",
-      "conversationTitle": "Conversación movida"
+      "conversationTitle": "Conversación movida",
+      "nothingFromAccount": "No hay nada de esta cuenta que mover en esta conversación",
+      "otherAccountDraft": "No se movió nada: el borrador abierto es de otra cuenta"
     },
     "snoozed": {
       "title": "Mensaje pospuesto",
       "failTitle": "Error al posponer",
       "failBody": "No se pudo posponer este mensaje.",
-      "conversationTitle": "Conversación pospuesta"
+      "conversationTitle": "Conversación pospuesta",
+      "nothingFromAccount": "No hay nada de esta cuenta que posponer en esta conversación",
+      "nothingInConversation": "No hay nada que posponer en esta conversación"
     },
     "whitelistFail": {
       "title": "No se pudo guardar la preferencia",
@@ -379,7 +386,8 @@
       "body": "Movido a la papelera.",
       "failTitle": "Error al eliminar",
       "failBody": "No se pudo eliminar el mensaje.",
-      "conversationTitle": "Conversación eliminada"
+      "conversationTitle": "Conversación eliminada",
+      "nothingFromAccount": "No hay nada de esta cuenta que eliminar en esta conversación"
     },
     "draftBcc": {
       "failTitle": "Borrador abierto en solo lectura",
@@ -1818,7 +1826,9 @@
     "noRulesFired": "Ninguna regla activada",
     "mlTokensTitle": "Tokens principales",
     "noMlTokens": "Sin tokens ML",
-    "conversationMovedToSpam": "Conversación movida a Spam"
+    "conversationMovedToSpam": "Conversación movida a Spam",
+    "nothingFromAccount": "No hay nada de esta cuenta que marcar como spam en esta conversación",
+    "nothingInConversation": "No hay nada que marcar como spam en esta conversación"
   },
   "contacts": {
     "title": "Contactos",

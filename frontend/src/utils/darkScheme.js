@@ -7,8 +7,11 @@
 //
 // Plain text is drawn by MailFlow itself, in the theme's colors. HTML is shown dark in its frame
 // (utils/darkBody.js): with the sender's own dark design when it has one, otherwise recolored, and
-// left as sent whenever either would make text unreadable. Only a sender that asks to stay light
-// (color-scheme: only light) is never shown dark.
+// left as sent whenever either would make text unreadable. A sender that asks to stay light
+// (color-scheme: only light) is recolored like any other: senders mark every email that way to
+// stop Apple Mail's blunt inversion (Intercom's template does), which MailFlow's recoloring, with
+// its readability check, is not. Gmail and Outlook darken them too. The reader can still switch
+// one back to its original colors.
 import { THEMES, resolveEffectiveTheme } from '../themes.js';
 
 // A theme is dark when its background is: several themes besides "light" have light backgrounds
@@ -25,8 +28,7 @@ export function isDarkTheme(themeKey) {
 // Whether this body can be shown dark at all.
 export function canShowDark(body) {
   if (!body) return false;
-  if (!body.html) return Boolean(body.text);
-  return !body.lightOnly;
+  return Boolean(body.html || body.text);
 }
 
 // Whether to show it dark now, in a dark theme and for a body that can be. `override` is this

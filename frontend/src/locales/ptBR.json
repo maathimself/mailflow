@@ -275,19 +275,26 @@
       "failBody": "Não foi possível arquivar a mensagem.",
       "noFolderTitle": "Sem pasta de arquivo",
       "noFolderBody": "Nenhuma pasta de arquivo configurada para esta conta. Defina uma em Configurações → Contas → Mapeamento de pastas.",
-      "conversationTitle": "Conversa arquivada"
+      "conversationTitle": "Conversa arquivada",
+      "nothingFromAccount": "Nada desta conta para arquivar nesta conversa",
+      "otherAccountMessage": "Nada foi arquivado: a mensagem aberta é de outra conta",
+      "otherAccountDraft": "Nada foi arquivado: o rascunho aberto é de outra conta"
     },
     "moved": {
       "title": "Mensagem movida",
       "failTitle": "Falha ao mover",
       "failBody": "Não foi possível mover a mensagem.",
-      "conversationTitle": "Conversa movida"
+      "conversationTitle": "Conversa movida",
+      "nothingFromAccount": "Nada desta conta para mover nesta conversa",
+      "otherAccountDraft": "Nada foi movido: o rascunho aberto é de outra conta"
     },
     "snoozed": {
       "title": "Mensagem adiada",
       "failTitle": "Falha ao adiar",
       "failBody": "Não foi possível adiar esta mensagem.",
-      "conversationTitle": "Conversa adiada"
+      "conversationTitle": "Conversa adiada",
+      "nothingFromAccount": "Nada desta conta para adiar nesta conversa",
+      "nothingInConversation": "Nada para adiar nesta conversa"
     },
     "whitelistFail": {
       "title": "Não foi possível salvar a preferência",
@@ -379,7 +386,8 @@
       "body": "Removida.",
       "failTitle": "Falha ao excluir",
       "failBody": "Não foi possível excluir a mensagem.",
-      "conversationTitle": "Conversa excluída"
+      "conversationTitle": "Conversa excluída",
+      "nothingFromAccount": "Nada desta conta para excluir nesta conversa"
     },
     "draftBcc": {
       "failTitle": "Rascunho aberto somente para leitura",
@@ -1818,7 +1826,9 @@
     "noRulesFired": "Nenhuma regra acionada",
     "mlTokensTitle": "Principais tokens contribuintes",
     "noMlTokens": "Nenhum token de ML",
-    "conversationMovedToSpam": "Conversa movida para Spam"
+    "conversationMovedToSpam": "Conversa movida para Spam",
+    "nothingFromAccount": "Nada desta conta para marcar como spam nesta conversa",
+    "nothingInConversation": "Nada para marcar como spam nesta conversa"
   },
   "contacts": {
     "title": "Contatos",

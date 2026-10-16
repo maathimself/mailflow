@@ -644,7 +644,7 @@ function AccountsTab() {
   };
 
   const handleEdit = async (form) => {
-    const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, antispam_enabled: !!form.antispam_enabled, trusted_authserv_id: (form.trusted_authserv_id || '').trim() || null, include_in_unified_inbox: form.include_in_unified_inbox !== false };
+    const updates = { name: form.name, sender_name: form.sender_name || null, color: form.color, icon: form.icon || null, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, antispam_enabled: !!form.antispam_enabled, trusted_authserv_id: (form.trusted_authserv_id || '').trim() || null, include_in_unified_inbox: form.include_in_unified_inbox !== false };
     Object.assign(updates, autoRecipientFields(form), { signature_enabled: form.signature_enabled !== false });
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;

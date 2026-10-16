@@ -349,6 +349,45 @@ describe('API-key provider regression', () => {
     expect(cancelled).toBe(true);
   });
 
+  // The base URL's host is checked when it is saved; a redirect would reach one never checked.
+  it('does not follow a redirect from the provider', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 307, headers: { Location: 'http://10.0.0.5/v1/chat/completions' } }));
+    const { provider } = factory({ initial: legacy, fetchFn });
+    const err = await provider.completeText([{ role: 'user', content: 'Hi' }]).catch((e) => e);
+    expect(fetchFn.mock.calls[0][1].redirect).toBe('manual');
+    expect(err.status).toBe(502);
+    expect(err.expose).toBe(true);
+    expect(err.message).toMatch(/redirected the request \(307\)/);
+    const streamFn = vi.fn().mockResolvedValue(new Response(null, { status: 302, headers: { Location: 'http://10.0.0.5/' } }));
+    const streaming = factory({ initial: legacy, fetchFn: streamFn }).provider;
+    await expect(collect(streaming.streamChat([{ role: 'user', content: 'Hi' }]))).rejects.toThrow(/redirected the request \(302\)/);
+    expect(streamFn.mock.calls[0][1].redirect).toBe('manual');
+  });
+
+  it("never reaches a redirect's target with Node's own fetch", async () => {
+    const http = await import('node:http');
+    const hits = [];
+    const target = http.createServer((req, res) => { hits.push(req.headers.authorization); res.end('{}'); });
+    await new Promise(r => target.listen(0, '127.0.0.1', r));
+    const origin = http.createServer((req, res) => {
+      res.writeHead(307, { Location: `http://127.0.0.1:${target.address().port}/v1/chat/completions` });
+      res.end();
+    });
+    await new Promise(r => origin.listen(0, '127.0.0.1', r));
+    try {
+      const { provider } = factory({
+        initial: { ...legacy, baseUrl: `http://127.0.0.1:${origin.address().port}/v1` },
+        fetchFn: (...args) => fetch(...args),
+      });
+      const err = await provider.completeText([{ role: 'user', content: 'Hi' }]).catch((e) => e);
+      expect(err.message).toMatch(/redirected the request \(307\)/);
+      expect(hits).toEqual([]);
+    } finally {
+      origin.close();
+      target.close();
+    }
+  });
+
   it('bounds non-2xx provider errors without exposing the configured key', async () => {
     let cancelled = false;
     const fetchFn = vi.fn().mockResolvedValue(sseResponse(

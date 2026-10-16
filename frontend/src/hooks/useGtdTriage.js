@@ -127,6 +127,7 @@ export function useGtdTriage() {
         setSelectedMessage,
         thread,
         onMiss: scheduleGtdSectionsFetch,
+        singleAccountView: Boolean(useStore.getState().selectedAccountId),
       }),
       isCancelled: () => !mountedRef.current,
       getPreferences: () => useStore.getState(),

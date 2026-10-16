@@ -32,7 +32,7 @@ export default function ReadingPane() {
   // threadMessages is consulted too, because a message opened from a deep link or a
   // notification tap is parked there and never enters the list: looking only at the list
   // meant those always fell back to the single-message pane.
-  const { selectedMessage: selected } = resolveConversationSelection({
+  const { selectedMessage: selected, listed, parked } = resolveConversationSelection({
     selectedMessageId,
     pool: [...(messages || []), ...(searchResults || [])],
     threadMessages: threadMessages || {},
@@ -46,6 +46,16 @@ export default function ReadingPane() {
       threadId={selected.thread_id}
       folder={selectedFolder}
       unified={!selectedAccountId}
+      // The account whose copies the conversation's actions take. In a single-account view a list
+      // row speaks for its own account, as the list's actions on it do: the selected account,
+      // except for another account's message that an undone or failed action added to the list.
+      // A message expanded under a row speaks for the selected account, even when the reader
+      // clicked the other account's identical copy: #476 shows both, and neither the sub-rows nor
+      // the cards say which is which. A parked message is not a row, so it speaks for its own
+      // account. A unified-inbox row stands for every unified account's copies, so null there, for
+      // a parked message too: a refresh can list it at any moment, and what the same buttons act
+      // on must not change when it does.
+      accountId={selectedAccountId ? (listed || parked ? selected.account_id : selectedAccountId) : null}
       // Which message the reader picked. Selecting a different message inside the same
       // thread does not change threadId, so without this the pane had no way to know a
       // click had happened and nothing opened.

@@ -275,19 +275,26 @@
       "failBody": "无法归档此邮件。",
       "noFolderTitle": "未设置归档文件夹",
       "noFolderBody": "此账户未配置归档文件夹。请前往「设置 → 账户 → 文件夹映射」中设置。",
-      "conversationTitle": "会话已归档"
+      "conversationTitle": "会话已归档",
+      "nothingFromAccount": "此会话中没有此账户的邮件可归档",
+      "otherAccountMessage": "未归档任何邮件：打开的邮件属于其他账户",
+      "otherAccountDraft": "未归档任何邮件：打开的草稿属于其他账户"
     },
     "moved": {
       "title": "邮件已移动",
       "failTitle": "移动失败",
       "failBody": "无法移动此邮件。",
-      "conversationTitle": "会话已移动"
+      "conversationTitle": "会话已移动",
+      "nothingFromAccount": "此会话中没有此账户的邮件可移动",
+      "otherAccountDraft": "未移动任何邮件：打开的草稿属于其他账户"
     },
     "snoozed": {
       "title": "邮件已稍后提醒",
       "failTitle": "稍后提醒失败",
       "failBody": "无法对此邮件设置稍后提醒。",
-      "conversationTitle": "会话已稍后提醒"
+      "conversationTitle": "会话已稍后提醒",
+      "nothingFromAccount": "此会话中没有此账户的邮件可设置稍后提醒",
+      "nothingInConversation": "此会话中没有邮件可设置稍后提醒"
     },
     "whitelistFail": {
       "title": "无法保存偏好设置",
@@ -379,7 +386,8 @@
       "body": "已移至废件箱。",
       "failTitle": "删除失败",
       "failBody": "无法删除此邮件。",
-      "conversationTitle": "会话已删除"
+      "conversationTitle": "会话已删除",
+      "nothingFromAccount": "此会话中没有此账户的邮件可删除"
     },
     "draftBcc": {
       "failTitle": "草稿已以只读方式打开",
@@ -1818,7 +1826,9 @@
     "noRulesFired": "没有规则触发",
     "mlTokensTitle": "主要贡献词",
     "noMlTokens": "无 ML 词汇",
-    "conversationMovedToSpam": "会话已移至垃圾邮件"
+    "conversationMovedToSpam": "会话已移至垃圾邮件",
+    "nothingFromAccount": "此会话中没有此账户的邮件可标记为垃圾邮件",
+    "nothingInConversation": "此会话中没有邮件可标记为垃圾邮件"
   },
   "contacts": {
     "title": "联系人",

@@ -60,7 +60,7 @@ const pending = [];
 globalThis.fetch = async (url) => {
   const path = String(url);
   if (path.includes('/search?')) {
-    const body = await new Promise(resolve => pending.push({ path, resolve }));
+    const body = await new Promise((resolve, reject) => pending.push({ path, resolve, reject }));
     return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => body, text: async () => JSON.stringify(body) };
   }
   const body = path.includes('/mail/messages?') ? { messages: [], total: 0 } : {};
@@ -85,13 +85,15 @@ const text = () => container().textContent;
 const settle = () => React.act(async () => { await new Promise(r => setTimeout(r, 350)); });
 const respond = async (body) => { const next = pending.shift(); assert.ok(next, 'a search request was made'); await React.act(async () => { next.resolve(body); await new Promise(r => setTimeout(r, 0)); }); return next.path; };
 
-async function mount() {
+async function mount({ mobile = false, scrollMode = 'infinite' } = {}) {
   pending.length = 0;
   if (root) await React.act(async () => root.unmount());
+  dom.window.innerWidth = mobile ? 390 : 1024;
   useStore.setState({
     accounts: [ACCOUNT], accountsReady: true, selectedAccountId: 'acct-1', selectedFolder: 'INBOX',
     messages: [], messagesTotal: 0, hasMoreMessages: false, loadingMessages: false,
     searchQuery: '', searchResults: [], isSearching: false, threadedView: false,
+    scrollMode, pageSize: 50,
     folders: { 'acct-1': [{ path: 'INBOX', name: 'INBOX' }] },
   });
   await React.act(async () => { root = createRoot(container()); root.render(React.createElement(MessageList)); });
@@ -149,5 +151,157 @@ describe('MessageList search states (#592)', () => {
     // The page asked for in INBOX arrives last.
     await React.act(async () => { page.resolve({ messages: [hit('stale')] }); await new Promise(r => setTimeout(r, 0)); });
     assert.deepEqual(useStore.getState().searchResults.map(m => m.id), ['archived']);
+  });
+});
+
+describe('MessageList replacement search feedback', () => {
+  const status = () => container().querySelector('[role="status"]');
+  const release = (request, body) => React.act(async () => {
+    request.resolve(body);
+    await new Promise(r => setTimeout(r, 0));
+  });
+  const seedResults = async (options) => {
+    await mount(options);
+    await search('Synthetic');
+    await settle();
+    await respond({ messages: [hit('previous')] });
+  };
+
+  for (const mobile of [false, true]) {
+    test(`keeps results and announces replacement search on ${mobile ? 'mobile' : 'desktop'}`, async () => {
+      await seedResults({ mobile });
+      const idleElements = new Set(container().querySelectorAll('div'));
+      const input = container().querySelector('input[placeholder="messageList.search"]');
+      await React.act(async () => input.focus());
+      await search('Replacement');
+      assert.equal(document.activeElement, input, 'typing keeps focus');
+      assert.equal(input.disabled, false);
+      assert.match(text(), /Synthetic search example previous/);
+      assert.ok(status(), 'pending replacement has a status');
+      assert.match(status().textContent, /messageList\.searching/);
+      assert.equal(container().querySelectorAll('[role="status"]').length, 1);
+      assert.ok(status().querySelector('[aria-hidden="true"]'), 'spinner is decorative');
+      const progressSlot = status().parentElement;
+      assert.ok(idleElements.has(progressSlot), 'the slot exists before searching starts');
+      assert.equal(progressSlot.style.height, '34px', 'progress has reserved space');
+      assert.doesNotMatch(text(), /messageList\.noMoreMessages/);
+      assert.doesNotMatch(text(), /messageList\.loadMore/);
+      await settle();
+      assert.ok(status(), 'status survives the debounce');
+      await respond({ messages: [hit('replacement')] });
+      assert.equal(status(), null);
+      assert.ok(progressSlot.isConnected, 'the progress slot remains after completion');
+      assert.equal(progressSlot.textContent, '', 'idle space has no searching announcement');
+      assert.doesNotMatch(text(), /Synthetic search example previous/);
+      assert.match(text(), /Synthetic search example replacement/);
+      assert.match(text(), /messageList\.noMoreMessages/);
+      await search('');
+      assert.equal(progressSlot.isConnected, false, 'folder browsing has no progress slot');
+    });
+  }
+
+  test('shows no matches only after the replacement completes', async () => {
+    await seedResults();
+    await search('Missing');
+    await settle();
+    assert.match(text(), /Synthetic search example previous/);
+    assert.ok(status());
+    await respond({ messages: [] });
+    assert.equal(status(), null);
+    assert.match(text(), /messageList\.noSearchResults/);
+    assert.doesNotMatch(text(), /Synthetic search example previous/);
+  });
+
+  test('surfaces a failed replacement and stops the progress feedback', async () => {
+    await seedResults();
+    await search('Failure');
+    await settle();
+    const request = pending.shift();
+    const errors = [];
+    const originalError = console.error;
+    console.error = (...args) => errors.push(args);
+    try {
+      await React.act(async () => {
+        request.reject(new Error('Synthetic search failure'));
+        await new Promise(r => setTimeout(r, 0));
+      });
+    } finally {
+      console.error = originalError;
+    }
+    assert.equal(errors.length, 1);
+    assert.equal(status(), null);
+    assert.match(text(), /Synthetic search failure/);
+    assert.doesNotMatch(text(), /Synthetic search example previous/);
+  });
+
+  for (const staleFails of [false, true]) {
+    test(`a stale ${staleFails ? 'failure' : 'success'} cannot end the current progress feedback`, async () => {
+      await seedResults();
+      await search('Older');
+      await settle();
+      const older = pending.shift();
+      await search('Newer');
+      await settle();
+      await React.act(async () => {
+        if (staleFails) older.reject(new Error('Stale failure'));
+        else older.resolve({ messages: [hit('stale')] });
+        await new Promise(r => setTimeout(r, 0));
+      });
+      assert.ok(status(), 'old finalizer cannot stop current status');
+      assert.match(text(), /Synthetic search example previous/);
+      assert.doesNotMatch(text(), /Synthetic search example stale|Stale failure/);
+      await respond({ messages: [hit('newest')] });
+      assert.equal(status(), null);
+      assert.match(text(), /Synthetic search example newest/);
+    });
+  }
+
+  test('clearing remains usable during a replacement and drops its late response', async () => {
+    await seedResults({ mobile: true });
+    await search('Replacement');
+    await settle();
+    const input = container().querySelector('input[placeholder="messageList.search"]');
+    const clear = input.parentElement.querySelector('button');
+    assert.equal(clear.disabled, false);
+    await React.act(async () => clear.click());
+    assert.equal(input.value, '');
+    assert.equal(status(), null);
+    await respond({ messages: [hit('late')] });
+    assert.deepEqual(useStore.getState().searchResults, []);
+    assert.doesNotMatch(text(), /Synthetic search example late|messageList\.searching/);
+  });
+
+  for (const scope of ['selectedFolder', 'selectedAccountId']) {
+    test(`a ${scope} change keeps feedback until the new scope responds`, async () => {
+      await seedResults();
+      await search('Replacement');
+      await settle();
+      const older = pending.shift();
+      await React.act(async () => useStore.setState({
+        [scope]: scope === 'selectedFolder' ? 'Archive' : null,
+      }));
+      await settle();
+      await release(older, { messages: [hit('stale')] });
+      assert.ok(status());
+      assert.match(text(), /Synthetic search example previous/);
+      await respond({ messages: [hit('new-scope')] });
+      assert.equal(status(), null);
+      assert.match(text(), /Synthetic search example new-scope/);
+    });
+  }
+
+  test('does not display folder pagination under search results', async () => {
+    await mount({ scrollMode: 'paginated' });
+    await React.act(async () => useStore.setState({ messagesTotal: 100 }));
+    assert.match(text(), /messageList\.pageOf/);
+    await search('Synthetic');
+    await settle();
+    await respond({ messages: [hit('previous')] });
+    assert.doesNotMatch(text(), /messageList\.pageOf|messageList\.nextPage/);
+    await search('Replacement');
+    assert.ok(status());
+    assert.doesNotMatch(text(), /messageList\.pageOf|messageList\.nextPage/);
+    await settle();
+    await respond({ messages: [] });
   });
 });

@@ -275,19 +275,26 @@
       "failBody": "Nachricht konnte nicht archiviert werden.",
       "noFolderTitle": "Kein Archivordner",
       "noFolderBody": "Kein Archivordner für dieses Konto konfiguriert. In Einstellungen → Konten → Ordnerzuordnungen festlegen.",
-      "conversationTitle": "Konversation archiviert"
+      "conversationTitle": "Konversation archiviert",
+      "nothingFromAccount": "In dieser Konversation gibt es nichts von diesem Konto zu archivieren",
+      "otherAccountMessage": "Nichts archiviert: Die geöffnete Nachricht gehört zu einem anderen Konto",
+      "otherAccountDraft": "Nichts archiviert: Der geöffnete Entwurf gehört zu einem anderen Konto"
     },
     "moved": {
       "title": "Nachricht verschoben",
       "failTitle": "Verschieben fehlgeschlagen",
       "failBody": "Nachricht konnte nicht verschoben werden.",
-      "conversationTitle": "Konversation verschoben"
+      "conversationTitle": "Konversation verschoben",
+      "nothingFromAccount": "In dieser Konversation gibt es nichts von diesem Konto zu verschieben",
+      "otherAccountDraft": "Nichts verschoben: Der geöffnete Entwurf gehört zu einem anderen Konto"
     },
     "snoozed": {
       "title": "Nachricht zurückgestellt",
       "failTitle": "Zurückstellen fehlgeschlagen",
       "failBody": "Diese Nachricht konnte nicht zurückgestellt werden.",
-      "conversationTitle": "Konversation zurückgestellt"
+      "conversationTitle": "Konversation zurückgestellt",
+      "nothingFromAccount": "In dieser Konversation gibt es nichts von diesem Konto zurückzustellen",
+      "nothingInConversation": "In dieser Konversation gibt es nichts zurückzustellen"
     },
     "whitelistFail": {
       "title": "Einstellung konnte nicht gespeichert werden",
@@ -379,7 +386,8 @@
       "body": "In den Papierkorb verschoben.",
       "failTitle": "Löschen fehlgeschlagen",
       "failBody": "Nachricht konnte nicht gelöscht werden.",
-      "conversationTitle": "Konversation gelöscht"
+      "conversationTitle": "Konversation gelöscht",
+      "nothingFromAccount": "In dieser Konversation gibt es nichts von diesem Konto zu löschen"
     },
     "draftBcc": {
       "failTitle": "Entwurf schreibgeschützt geöffnet",
@@ -1818,7 +1826,9 @@
     "noRulesFired": "Keine Regeln ausgelöst",
     "mlTokensTitle": "Wichtigste Token",
     "noMlTokens": "Keine ML-Token",
-    "conversationMovedToSpam": "Konversation in Spam verschoben"
+    "conversationMovedToSpam": "Konversation in Spam verschoben",
+    "nothingFromAccount": "In dieser Konversation gibt es nichts von diesem Konto als Spam zu markieren",
+    "nothingInConversation": "In dieser Konversation gibt es nichts als Spam zu markieren"
   },
   "contacts": {
     "title": "Kontakte",

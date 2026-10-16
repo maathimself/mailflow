@@ -701,9 +701,9 @@ describe('ensureMailbox — namespace + already-exists matrix', () => {
 // ── ensureMailbox — case-insensitive casing resolution ────────────────────────
 // On a case-insensitive server an existing "TODO" satisfies a "Todo" CREATE, but imapflow's
 // already-exists result echoes the REQUESTED casing. Persisting that (planGtdFolderPersist)
-// never case-matches the synced rows' folder value. With resolvePath set (only /folders/ensure,
-// which persists), the already-exists branches resolve the real casing from the folder LIST;
-// classify/snooze leave it off so they skip the extra round-trip.
+// never case-matches the synced rows' folder value. With resolvePath set (by the callers that
+// persist the path), the already-exists branches resolve the real casing from the folder LIST;
+// classify leaves it off so it skips the extra round-trip.
 describe('ensureMailbox — case-insensitive casing resolution', () => {
   it('ALREADYEXISTS return + resolvePath: resolves the server casing from LIST', async () => {
     const client = {
@@ -734,6 +734,15 @@ describe('ensureMailbox — case-insensitive casing resolution', () => {
     const res = await ensureMailbox(client, 'Todo');
     expect(res).toEqual({ path: 'Todo', created: false });
     expect(client.list).not.toHaveBeenCalled();
+  });
+
+  it('prefers an exact match to a case variant listed before it (case-sensitive server)', async () => {
+    const client = {
+      mailboxCreate: vi.fn().mockResolvedValue({ path: 'INBOX.Snoozed', created: false }),
+      list: vi.fn().mockResolvedValue([{ path: 'INBOX' }, { path: 'INBOX.snoozed' }, { path: 'INBOX.Snoozed' }]),
+    };
+    const res = await ensureMailbox(client, 'Snoozed', { resolvePath: true });
+    expect(res).toEqual({ path: 'INBOX.Snoozed', created: false });
   });
 
   it('falls back to the known path when the LIST has no case-insensitive match', async () => {

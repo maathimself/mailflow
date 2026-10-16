@@ -275,12 +275,17 @@
       "noFolderBody": "이 계정에 대해 구성된 보관 폴더가 없습니다. 설정 → 계정 → 폴더 매핑에서 설정하세요.",
       "failBody": "메시지를 보관처리할 수 없습니다.",
       "conversationTitle": "대화가 보관되었습니다.",
+      "nothingFromAccount": "이 대화에는 보관할 이 계정의 메일이 없습니다.",
+      "otherAccountMessage": "아무것도 보관하지 않았습니다. 열린 메시지는 다른 계정의 메시지입니다.",
+      "otherAccountDraft": "아무것도 보관하지 않았습니다. 열린 초안은 다른 계정의 초안입니다.",
       "noFolderTitle": "보관 폴더 없음"
     },
     "moved": {
       "failTitle": "이동 실패",
       "title": "메시지가 이동되었습니다.",
       "conversationTitle": "대화가 이동되었습니다.",
+      "nothingFromAccount": "이 대화에는 이동할 이 계정의 메일이 없습니다.",
+      "otherAccountDraft": "아무것도 이동하지 않았습니다. 열린 초안은 다른 계정의 초안입니다.",
       "failBody": "메시지를 이동할 수 없습니다."
     },
     "whitelistFail": {
@@ -296,6 +301,8 @@
     },
     "snoozed": {
       "conversationTitle": "대화 다시 알림이 설정되었습니다.",
+      "nothingFromAccount": "이 대화에는 다시 알림을 설정할 이 계정의 메일이 없습니다.",
+      "nothingInConversation": "이 대화에는 다시 알림을 설정할 메일이 없습니다.",
       "failTitle": "다시 알림 실패",
       "title": "메시지 다시 알림이 설정되었습니다.",
       "failBody": "이 메시지의 다시 알림을 설정할 수 없습니다."
@@ -374,7 +381,8 @@
       "title": "메시지가 삭제되었습니다.",
       "failBody": "메시지를 삭제할 수 없습니다.",
       "failTitle": "삭제 실패",
-      "conversationTitle": "대화가 삭제되었습니다."
+      "conversationTitle": "대화가 삭제되었습니다.",
+      "nothingFromAccount": "이 대화에는 삭제할 이 계정의 메일이 없습니다."
     },
     "draftBcc": {
       "failTitle": "임시 보관 메일을 읽기 전용으로 열었습니다",
@@ -1818,6 +1826,8 @@
     "badgeTitle": "스팸으로 자동 분류됨 - 자세한 내용을 보려면 클릭하세요.",
     "explainTitle": "스팸으로 분류된 이유",
     "conversationMovedToSpam": "대화가 스팸함으로 이동되었습니다.",
+    "nothingFromAccount": "이 대화에는 스팸으로 표시할 이 계정의 메일이 없습니다.",
+    "nothingInConversation": "이 대화에는 스팸으로 표시할 메일이 없습니다.",
     "noMlTokens": "ML 토큰 없음"
   },
   "contacts": {

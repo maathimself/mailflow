@@ -322,7 +322,11 @@ export const useStore = create((set, get) => ({
       const tid = m.thread_id || m.id;
       const subs = threadMessages[tid];
       if (!subs) return updated;
-      const unread_count = subs.filter(s => !s.is_read).length;
+      // In one account's view the list counts that account's copies only, and the row's actions
+      // take only those, but the cached conversation also holds other accounts' (#476). Counting
+      // them would let the echo of the reader's own mark-read flip the row back to unread.
+      const counted = state.selectedAccountId ? subs.filter(s => s.account_id === m.account_id) : subs;
+      const unread_count = counted.filter(s => !s.is_read).length;
       return { ...updated, unread_count, is_read: unread_count === 0 };
     });
     return { messages, searchResults: state.searchResults.map(apply), threadMessages };

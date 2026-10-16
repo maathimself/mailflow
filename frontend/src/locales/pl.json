@@ -277,19 +277,26 @@
       "failBody": "Nie udało się zarchiwizować wiadomości.",
       "noFolderTitle": "Brak folderu archiwum",
       "noFolderBody": "Nie skonfigurowano folderu archiwum dla tego konta. Ustaw go w Ustawienia → Konta → Mapowanie folderów.",
-      "conversationTitle": "Konwersacja zarchiwizowana"
+      "conversationTitle": "Konwersacja zarchiwizowana",
+      "nothingFromAccount": "W tej konwersacji nie ma nic z tego konta do zarchiwizowania",
+      "otherAccountMessage": "Nic nie zarchiwizowano: otwarta wiadomość pochodzi z innego konta",
+      "otherAccountDraft": "Nic nie zarchiwizowano: otwarta wersja robocza pochodzi z innego konta"
     },
     "moved": {
       "title": "Wiadomość przeniesiona",
       "failTitle": "Przenoszenie nie powiodło się",
       "failBody": "Nie udało się przenieść wiadomości.",
-      "conversationTitle": "Konwersacja przeniesiona"
+      "conversationTitle": "Konwersacja przeniesiona",
+      "nothingFromAccount": "W tej konwersacji nie ma nic z tego konta do przeniesienia",
+      "otherAccountDraft": "Nic nie przeniesiono: otwarta wersja robocza pochodzi z innego konta"
     },
     "snoozed": {
       "title": "Wiadomość odłożona",
       "failTitle": "Odkładanie nie powiodło się",
       "failBody": "Nie udało się odłożyć tej wiadomości.",
-      "conversationTitle": "Konwersacja odłożona"
+      "conversationTitle": "Konwersacja odłożona",
+      "nothingFromAccount": "W tej konwersacji nie ma nic z tego konta do odłożenia",
+      "nothingInConversation": "W tej konwersacji nie ma nic do odłożenia"
     },
     "whitelistFail": {
       "title": "Nie udało się zapisać ustawienia",
@@ -381,7 +388,8 @@
       "body": "Usunięto.",
       "failTitle": "Usuwanie nie powiodło się",
       "failBody": "Nie udało się usunąć wiadomości.",
-      "conversationTitle": "Konwersacja usunięta"
+      "conversationTitle": "Konwersacja usunięta",
+      "nothingFromAccount": "W tej konwersacji nie ma nic z tego konta do usunięcia"
     },
     "draftBcc": {
       "failTitle": "Wersja robocza otwarta tylko do odczytu",
@@ -1837,7 +1845,9 @@
     "noRulesFired": "Nie aktywowano żadnej reguły",
     "mlTokensTitle": "Najważniejsze tokeny",
     "noMlTokens": "Brak tokenów ML",
-    "conversationMovedToSpam": "Konwersacja przeniesiona do spamu"
+    "conversationMovedToSpam": "Konwersacja przeniesiona do spamu",
+    "nothingFromAccount": "W tej konwersacji nie ma nic z tego konta do oznaczenia jako spam",
+    "nothingInConversation": "W tej konwersacji nie ma nic do oznaczenia jako spam"
   },
   "contacts": {
     "title": "Kontakty",

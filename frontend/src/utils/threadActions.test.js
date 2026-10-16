@@ -7,9 +7,10 @@
 //
 // Real store, real api layer, stubbed fetch and stubbed clock.
 
-import { test, describe, beforeEach } from 'node:test';
+import { test, describe, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { setImmediate } from 'node:timers';
 import { registerHooks } from 'node:module';
 import { JSDOM } from 'jsdom';
 
@@ -280,6 +281,213 @@ describe('spamThread', () => {
   });
 });
 
+// One email delivered to two of the reader's accounts is two mailbox items. The conversation
+// shows both (#476), but outside the unified inbox an action belongs to the row's account.
+describe('a conversation another account also received', () => {
+  // acct-b's copy of a3: the same email with the same Date, listed after a3 the way the
+  // thread route breaks the tie (date, account_id, id), so it is also the newest inbox copy.
+  // The thread route marks every message is_draft.
+  const B3 = { ...THREAD[2], id: 'b3', account_id: 'acct-b' };
+  const SPREAD = [...THREAD, B3].map(m => ({ ...m, is_draft: false }));
+  const fetchSpread = async () => ({ messages: [...SPREAD, { ...LATE_REPLY, is_draft: false }] });
+  // What the pane passes for acct's row: its account, and the selected message as the anchor
+  // that keeps drafts and the rest of the conversation apart.
+  const fromRow = { anchorId: 'a3', accountId: 'acct' };
+  // A reply saved in each account (folder Drafts, so the thread route marks it is_draft).
+  const AD = { id: 'ad', account_id: 'acct', folder: 'Drafts', subject: 'Re: Hello', from_email: 'me@x.z', date: '2026-01-05T00:00:00Z', is_read: true, is_draft: true };
+  const WITH_DRAFTS = [...SPREAD, AD, { ...AD, id: 'bd', account_id: 'acct-b' }];
+  const fetchWithDrafts = async () => ({ messages: WITH_DRAFTS });
+  // Every request to the endpoint, so ids sent in a second request are not missed.
+  const sentIds = pattern => requests.filter(r => pattern.test(r.url)).flatMap(r => r.body?.ids || []).sort();
+  // These tests are about which copies an action takes, not when, so the undo window runs on a
+  // mocked clock rather than the real 4.5 s in every test.
+  const commit = async () => { mock.timers.tick(UNDO_WINDOW + 50); await new Promise(r => setImmediate(r)); };
+  beforeEach(() => { mock.timers.enable({ apis: ['setTimeout'] }); });
+  // What a test left on the clock (the delete guards' expiry, a recent-folder save) runs before
+  // the reset: a module still holding a mocked timer would clear an unrelated one later. A minute
+  // rather than runAll(), which ticks only to the last timer in its queue, not the latest.
+  afterEach(() => { mock.timers.tick(60_000); mock.timers.reset(); });
+
+  test('archive takes the row account\'s copies, the late reply included', async () => {
+    archiveThread(SPREAD, { t, addNotification, fetchThread: fetchSpread, ...fromRow });
+    await commit();
+    assert.deepEqual(sentIds(/bulk-archive/), ['a1', 'a2', 'a3', 'a4']);
+  });
+
+  test('archive with nothing of the account\'s in the folder takes none of the other account\'s copies', async () => {
+    // A label folder's copy is deduplicated away in favour of the INBOX copy, so the thread holds
+    // neither the selected message nor anything in that folder. Archive falls back to the newest
+    // message, and the newest on screen is acct-b's copy. The fallback now keeps to acct's copies;
+    // that it still lands outside the folder is a folder question, not pinned here.
+    const onScreen = async () => ({ messages: SPREAD });
+    archiveThread(SPREAD, { t, addNotification, fetchThread: onScreen, anchorId: 'label-copy', folder: 'Work', accountId: 'acct' });
+    await commit();
+    const archived = sentIds(/bulk-archive/);
+    assert.ok(archived.length > 0, 'something is archived');
+    assert.ok(!archived.includes('b3'), 'and none of it is acct-b\'s');
+  });
+
+  test('delete never sends the other account\'s copy', async () => {
+    deleteThread(SPREAD, { t, addNotification, fetchThread: fetchSpread, ...fromRow });
+    await commit();
+    assert.deepEqual(sentIds(/bulk-delete/), ['a1', 'a2', 'a3', 'a4']);
+  });
+
+  test('move sends one account\'s copies and records the folder for that account only', async () => {
+    useStore.setState({ recentFolders: [] });
+    moveThread(SPREAD, 'Projects', { t, addNotification, fetchThread: fetchSpread, ...fromRow });
+    await commit();
+    assert.deepEqual(sentIds(/bulk-move/), ['a1', 'a2', 'a3', 'a4']);
+    assert.deepEqual(useStore.getState().recentFolders, [{ accountId: 'acct', path: 'Projects' }]);
+  });
+
+  test('spam reports only the row account\'s copies', async () => {
+    spamThread(SPREAD, { t, addNotification, accounts: ACCOUNTS, fetchThread: fetchSpread, ...fromRow });
+    await commit();
+    const spammed = requests.map(r => r.url.match(/messages\/([^/]+)\/spam/)?.[1]).filter(Boolean).sort();
+    assert.deepEqual(spammed, ['a1', 'a3', 'a4']);
+  });
+
+  test('snooze takes the row account\'s newest inbox copy, not the other account\'s', async () => {
+    snoozeThread(SPREAD, '2026-06-01T09:00:00.000Z', { t, addNotification, ...fromRow });
+    await commit();
+    const snoozes = requests.filter(r => /\/snooze$/.test(r.url));
+    assert.equal(snoozes.length, 1);
+    assert.match(snoozes[0].url, /messages\/a3\/snooze/);
+  });
+
+  // Drafts are told apart before the account is. The anchor can be the other account's copy
+  // picked under the row, and only among every copy does it say whether the drafts are acted on.
+  test('the other account\'s copy picked under the row takes the row account\'s mail and spares its draft', async () => {
+    deleteThread(WITH_DRAFTS, { t, addNotification, fetchThread: fetchWithDrafts, anchorId: 'b3', accountId: 'acct' });
+    moveThread(WITH_DRAFTS, 'Projects', { t, addNotification, fetchThread: fetchWithDrafts, anchorId: 'b3', accountId: 'acct' });
+    await commit();
+    assert.deepEqual(sentIds(/bulk-delete/), ['a1', 'a2', 'a3']);
+    assert.deepEqual(sentIds(/bulk-move/), ['a1', 'a2', 'a3']);
+  });
+
+  test('the other account\'s draft picked under the row: Delete takes that draft alone, Archive and Move nothing', async () => {
+    // Acting on a draft takes the conversation's drafts, never the rest of it (keepDraftsApart), and
+    // a deleted draft is expunged. A draft is not a copy of anything acct holds, so acct-b's stands
+    // for none of acct's mail: taking acct's drafts in its place would act on them and leave the
+    // draft picked, and narrowing to acct first would take acct's whole conversation. Delete is the
+    // reader discarding the draft they opened, so it takes that one, and none of acct-b's others.
+    const thread = [...WITH_DRAFTS, { ...AD, id: 'bd2', account_id: 'acct-b', date: '2026-01-06T00:00:00Z' }];
+    useStore.getState().setMessages(thread.map(m => ({ ...m })));
+    const opts = { t, addNotification, fetchThread: async () => ({ messages: thread }), accountId: 'acct', anchorId: 'bd' };
+    assert.equal(archiveThread(thread, { ...opts, folder: 'INBOX' }), false, 'archive takes nothing');
+    assert.equal(moveThread(thread, 'Projects', opts), false, 'move takes nothing');
+    assert.deepEqual(notifications, [], 'and neither shows a toast');
+    assert.equal(deleteThread(thread, opts), true, 'delete takes the draft');
+    assert.deepEqual(ids(), ['a1', 'a2', 'a3', 'ad', 'b3', 'bd2'], 'which alone leaves the list');
+    await commit();
+    assert.equal(requests.length, 1, 'one request in all');
+    assert.deepEqual(sentIds(/bulk-delete/), ['bd'], 'and alone is deleted');
+  });
+
+  test('the other account\'s draft gone by the commit has nothing taken in its place', async () => {
+    // Sent, discarded or saved again under a new id during the undo window. A re-read no longer holds
+    // it, and drafts told apart without it would take acct's conversation instead.
+    const gone = WITH_DRAFTS.filter(m => m.id !== 'bd');
+    deleteThread(WITH_DRAFTS, { t, addNotification, fetchThread: async () => ({ messages: gone }), anchorId: 'bd', accountId: 'acct' });
+    await commit();
+    assert.deepEqual(sentIds(/bulk-delete/), ['bd'], 'only the draft\'s own id is sent');
+  });
+
+  test('the row account\'s own draft picked under the row takes the row account\'s drafts', async () => {
+    // Only the other account's draft is set apart. acct's own is one of acct's drafts, and acting on
+    // it takes them all (keepDraftsApart), each action alike.
+    const thread = [...WITH_DRAFTS, { ...AD, id: 'ad2', date: '2026-01-06T00:00:00Z' }];
+    const opts = { t, addNotification, fetchThread: async () => ({ messages: thread }), anchorId: 'ad', accountId: 'acct' };
+    assert.equal(archiveThread(thread, opts), true, 'archive takes them');
+    assert.equal(moveThread(thread, 'Projects', opts), true, 'move takes them');
+    assert.equal(deleteThread(thread, opts), true, 'delete takes them');
+    await commit();
+    assert.deepEqual(sentIds(/bulk-archive/), ['ad', 'ad2']);
+    assert.deepEqual(sentIds(/bulk-move/), ['ad', 'ad2']);
+    assert.deepEqual(sentIds(/bulk-delete/), ['ad', 'ad2'], 'not acct-b\'s');
+  });
+
+  test('in the unified inbox a draft picked takes the conversation\'s drafts, whichever account\'s', async () => {
+    // There is no row account there to set acct-b's draft apart from.
+    const opts = { t, addNotification, fetchThread: fetchWithDrafts, anchorId: 'bd', accountId: null };
+    assert.equal(archiveThread(WITH_DRAFTS, opts), true, 'archive takes them');
+    assert.equal(moveThread(WITH_DRAFTS, 'Projects', opts), true, 'move takes them');
+    assert.equal(deleteThread(WITH_DRAFTS, opts), true, 'delete takes them');
+    await commit();
+    assert.deepEqual(sentIds(/bulk-archive/), ['ad', 'bd']);
+    assert.deepEqual(sentIds(/bulk-move/), ['ad', 'bd']);
+    assert.deepEqual(sentIds(/bulk-delete/), ['ad', 'bd']);
+  });
+
+  test('the other account\'s message picked under the row leaves the row account\'s drafts alone, even when they are all it holds', async () => {
+    // Drafts are told apart among every account's copies, where the picked message is found. Told
+    // apart among acct's alone, which hold only its draft here, the pick would not be found, and
+    // keepDraftsApart keeps everything rather than act on nothing: acct's draft would be expunged.
+    const thread = [SPREAD.find(m => m.id === 'b3'), AD];
+    assert.equal(deleteThread(thread, { t, addNotification, fetchThread: async () => ({ messages: thread }), anchorId: 'b3', accountId: 'acct' }), false);
+    await commit();
+    assert.deepEqual(requests, [], 'nothing is sent');
+  });
+
+  test('undo puts back only the row account\'s copies', () => {
+    // The optimistic removal and its undo use the messages on screen, so those are scoped too:
+    // otherwise undoing put the other account's copy into this account's list.
+    for (const run of [archiveThread, deleteThread, spamThread]) run(SPREAD, { t, addNotification, accounts: ACCOUNTS, ...fromRow });
+    moveThread(SPREAD, 'Projects', { t, addNotification, ...fromRow });
+    notifications.forEach(n => n.onUndo());
+    assert.deepEqual(ids(), ['a1', 'a2', 'a3']);
+  });
+
+  test('each runner says whether it took anything, which decides whether the pane moves on', () => {
+    // The account can have copies here and still none an action takes: Snooze takes only an
+    // inbox copy, and Spam spares the reader's own mail.
+    const until = '2026-06-01T09:00:00.000Z';
+    const filed = SPREAD.map(m => (m.account_id === 'acct' ? { ...m, folder: 'Archive' } : m));
+    const own = SPREAD.map(m => (m.account_id === 'acct' ? { ...m, folder: 'Sent' } : m));
+    assert.equal(snoozeThread(filed, until, { t, addNotification, ...fromRow }), false);
+    assert.equal(spamThread(own, { t, addNotification, accounts: ACCOUNTS, ...fromRow }), false);
+    assert.deepEqual(notifications, [], 'neither shows a toast');
+    const opts = { t, addNotification, accounts: ACCOUNTS, ...fromRow };
+    assert.equal(snoozeThread(SPREAD, until, opts), true);
+    for (const run of [archiveThread, deleteThread, spamThread]) assert.equal(run(SPREAD, opts), true, run.name);
+    assert.equal(moveThread(SPREAD, 'Projects', opts), true);
+    notifications.forEach(n => n.onUndo());
+  });
+
+  test('beforeRemove runs once an action has something to take, while its messages are still listed', () => {
+    // The pane opens what takes the conversation's place from there (#572): it looks the row up
+    // before the row leaves the list, and must not move on when the action takes nothing.
+    const until = '2026-06-01T09:00:00.000Z';
+    const runs = {
+      archiveThread: opts => archiveThread(SPREAD, opts),
+      deleteThread: opts => deleteThread(SPREAD, opts),
+      moveThread: opts => moveThread(SPREAD, 'Projects', opts),
+      spamThread: opts => spamThread(SPREAD, opts),
+      snoozeThread: opts => snoozeThread(SPREAD, until, opts),
+    };
+    for (const [name, run] of Object.entries(runs)) {
+      useStore.getState().setMessages(THREAD.map(m => ({ ...m })));
+      const listed = [];
+      run({ t, addNotification, accounts: ACCOUNTS, ...fromRow, beforeRemove: () => listed.push(ids()) });
+      assert.deepEqual(listed, [['a1', 'a2', 'a3']], `${name} calls it once, before anything leaves the list`);
+    }
+    const listed = [];
+    const opts = { t, addNotification, accounts: ACCOUNTS, ...fromRow, beforeRemove: () => listed.push(ids()) };
+    snoozeThread(SPREAD.map(m => ({ ...m, folder: 'Archive' })), until, opts);
+    spamThread(SPREAD.map(m => ({ ...m, folder: 'Sent' })), opts);
+    deleteThread(SPREAD, { ...opts, accountId: 'acct-c' });
+    assert.deepEqual(listed, [], 'and never when it takes nothing');
+    notifications.forEach(n => n.onUndo());
+  });
+
+  test('with no account, as in the unified inbox, every account\'s copies still go', async () => {
+    deleteThread(SPREAD, { t, addNotification, fetchThread: fetchSpread, anchorId: 'a3' });
+    await commit();
+    assert.deepEqual(sentIds(/bulk-delete/), ['a1', 'a2', 'a3', 'a4', 'b3']);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Resolving which messages an action operates on. These suites predate the action
 // runners above and guard the staleness bug documented in threadActions.js.
@@ -364,5 +572,29 @@ describe('resolveThreadMessages: degenerate responses', () => {
       }),
       /offline/,
     );
+  });
+});
+
+describe('resolveThreadMessages: one account', () => {
+  const mine = [{ id: 'a', account_id: 'acct' }, { id: 'c', account_id: 'acct' }];
+  const theirs = { id: 'b', account_id: 'acct-b' };
+  const fetchMixed = () => Promise.resolve({ messages: [mine[0], theirs, mine[1]] });
+
+  test('keeps the given account\'s copies and drops another account\'s', async () => {
+    const got = await resolveThreadMessages({ message: row, isThreadRow: true, fetchThread: fetchMixed, accountId: 'acct' });
+    assert.deepEqual(got.map(m => m.id), ['a', 'c']);
+  });
+
+  test('falls back to the row when the thread holds none of that account\'s copies', async () => {
+    const got = await resolveThreadMessages({
+      message: row, isThreadRow: true, accountId: 'acct',
+      fetchThread: () => Promise.resolve({ messages: [theirs] }),
+    });
+    assert.deepEqual(got, [row]);
+  });
+
+  test('with no account every copy comes back, which the unified inbox relies on', async () => {
+    const got = await resolveThreadMessages({ message: row, isThreadRow: true, fetchThread: fetchMixed });
+    assert.deepEqual(got.map(m => m.id), ['a', 'b', 'c']);
   });
 });

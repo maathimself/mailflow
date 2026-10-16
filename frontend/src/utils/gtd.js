@@ -670,13 +670,21 @@ export function missingByIdentity(existing, incoming) {
 // the head's RFC message_id. Prefers the row whose message_id matches — that identity is
 // stable across a purge+reinsert, whereas the row PK is not — then the newest row, then
 // the first. Rows without an id (nothing to open) are ignored. Pure and unit-testable.
-export function pickThreadMessage(messages, messageId) {
+//
+// Since #476 the thread also holds other accounts' copies of the same mail, under the same
+// message_ids, so with accountId the choice is made among that account's rows (its copy of the
+// head, then its newest row) and among every account's only when the thread holds none of its own.
+// The message opened is parked, and in one account's view the conversation pane acts for a parked
+// message's own account (ReadingPane), so the account opened decides whose mail the pane acts on.
+export function pickThreadMessage(messages, messageId, accountId = null) {
   const list = Array.isArray(messages) ? messages.filter(m => m && m.id) : [];
   if (list.length === 0) return null;
-  const byMid = messageId && list.find(m => m.message_id === messageId);
+  const own = accountId ? list.filter(m => m.account_id === accountId) : [];
+  const pool = own.length ? own : list;
+  const byMid = messageId && pool.find(m => m.message_id === messageId);
   if (byMid) return byMid;
-  return list.reduce((newest, m) =>
-    (new Date(m.date || 0) >= new Date(newest.date || 0) ? m : newest), list[0]);
+  return pool.reduce((newest, m) =>
+    (new Date(m.date || 0) >= new Date(newest.date || 0) ? m : newest), pool[0]);
 }
 
 export async function unclassifyThread(id, state, { gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t }) {
@@ -709,9 +717,12 @@ let _deepLinkSeq = 0;
 // warns, self-heals the snapshot via onMiss (a sections refetch), and retries once by
 // resolving the row's thread and matching the stable message_id. thread/getThread/onMiss
 // are optional so a bare (id, {getMessage,...}) call still degrades gracefully.
+//
+// singleAccountView: the row was clicked in one account's view, where a GTD row is that
+// account's (the sections are fetched for it). Recovery then opens only that account's mail.
 export async function openDeepLinkMessage(id, {
   getMessage, setThreadMessages, setSelectedMessage,
-  thread, getThread, onMiss,
+  thread, getThread, onMiss, singleAccountView = false,
 } = {}) {
   const seq = ++_deepLinkSeq;
   const open = (msg) => {
@@ -739,7 +750,14 @@ export async function openDeepLinkMessage(id, {
   if (getThread && thread?.thread_key) {
     try {
       const { messages } = await getThread(thread.thread_key);
-      const msg = pickThreadMessage(messages, thread.message_id);
+      const msg = pickThreadMessage(messages, thread.message_id, thread.account_id);
+      // Another account's copy is chosen only when the thread holds none of the row account's
+      // mail. Opened in one account's view, the pane would act for that other account from this
+      // account's GTD row (#476), so there is nothing here to open.
+      if (msg && singleAccountView && thread.account_id && msg.account_id !== thread.account_id) {
+        console.warn(`GTD deep-link: thread ${thread.thread_key} holds no message of account ${thread.account_id}; not opening another account's copy`);
+        return null;
+      }
       if (msg) return open(msg);
     } catch {
       // Best-effort; the onMiss refetch still refreshes the ids for the next click.

@@ -33,6 +33,17 @@ describe('snooze actions', () => {
     assert.equal(isSnoozed({ ...MSG, folder: 'INBOX' }), false);
   });
 
+  // A server with an INBOX. namespace prefix keeps it in INBOX.Snoozed, which the Snoozed view
+  // gives as the folder the row's snooze was filed into.
+  test('isSnoozed: mail waiting in the folder its snooze was filed into', () => {
+    const prefixed = { ...MSG, folder: 'INBOX.Snoozed', snoozed_folder: 'INBOX.Snoozed' };
+    assert.equal(isSnoozed(prefixed), true);
+    assert.equal(isSnoozed({ ...prefixed, folder: 'INBOX' }), false);
+    assert.equal(isSnoozed({ ...prefixed, snoozed_folder: undefined }), false);
+    assert.equal(isSnoozed({ id: 'x' }), false);
+    assert.equal(isSnoozed(undefined), false);
+  });
+
   test('unsnooze takes it out of the view at once', async () => {
     api.unsnoozeMessage = async () => ({ ok: true });
     await unsnooze(MSG, { t });

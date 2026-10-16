@@ -140,6 +140,29 @@ describe('folderDisplayName', () => {
     assert.equal(folderDisplayName({ path: 'Notes', name: 'Notes' }, t, mappings), 'Notes');
   });
 
+  // #623: imapflow flags one Trash per account and, between name matches, the alphabetically
+  // first, so a client-made "Deleted Items" takes the flag from "Trash". Both rows read "Trash".
+  it('keeps the server name when the role label would repeat another folder in the account', () => {
+    const en = key => ({ 'folders.trash': 'Trash', 'folders.sent': 'Sent' })[key] ?? key;
+    const folders = [
+      { path: 'Deleted Items', name: 'Deleted Items', special_use: '\\Trash' },
+      { path: 'Trash', name: 'Trash', special_use: null },
+      { path: 'Sent', name: 'Sent', special_use: '\\Sent' },
+    ];
+    const names = folders.map(f => folderDisplayName(f, en, {}, folders));
+    assert.deepEqual(names, ['Deleted Items', 'Trash', 'Sent']);
+  });
+
+  it('gives a role label to the mapped folder only, not also to the flagged one', () => {
+    const folders = [
+      { path: 'Trash', name: 'Trash', special_use: '\\Trash' },
+      { path: 'Deleted Items', name: 'Deleted Items', special_use: null },
+    ];
+    const mappings = { trash: 'Deleted Items' };
+    const names = folders.map(f => folderDisplayName(f, t, mappings, folders));
+    assert.deepEqual(names, ['Trash', 'Lixeira']);
+  });
+
   it('keeps the server name when no translation exists or t is missing', () => {
     assert.equal(folderDisplayName({ path: 'Sent', name: 'Sent', special_use: '\\Sent' }, key => key), 'Sent');
     assert.equal(folderDisplayName({ path: 'Sent', name: 'Sent', special_use: '\\Sent' }), 'Sent');

@@ -175,6 +175,12 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    // On the UI thread: the bridge for the host first, so the page loaded next has it.
+    void openConfiguredHost(String host) {
+        configureNativeMessageBridge(host);
+        if (bridge != null && bridge.getWebView() != null) bridge.getWebView().loadUrl(host);
+    }
+
     void configureNativeMessageBridge(String configuredHost) {
         if (bridge == null || bridge.getWebView() == null) return;
         MailFlowNativeMessageBridge.configure(bridge.getWebView(), this, configuredHost);

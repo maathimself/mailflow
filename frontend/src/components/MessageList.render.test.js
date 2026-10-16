@@ -68,8 +68,13 @@ globalThis.__VITE_ENV__ = { MODE: 'test', DEV: false, PROD: true };
 // through ROUTES as [status, body].
 let SERVED = [];
 let ROUTES = {};
-globalThis.fetch = async (url) => {
+// Every request, with its JSON body, for tests that assert what reached the server.
+let CALLS = [];
+globalThis.fetch = async (url, opts = {}) => {
   const path = String(url);
+  let sent = null;
+  try { sent = typeof opts.body === 'string' ? JSON.parse(opts.body) : null; } catch { /* not JSON */ }
+  CALLS.push({ path, method: opts.method || 'GET', body: sent });
   const [status, body] = Object.entries(ROUTES).find(([p]) => path.endsWith(p))?.[1]
     ?? [200, path.includes('/mail/messages?') ? { messages: SERVED, total: SERVED.length } : {}];
   return { ok: status < 400, status, headers: { get: () => 'application/json' }, json: async () => body, text: async () => JSON.stringify(body) };
@@ -79,6 +84,8 @@ const React = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { useStore } = await import('../store/index.js');
 const { shortcutBus } = await import('../utils/shortcutBus.js');
+const { resolveConversationSelection } = await import('../utils/conversation.js');
+const { openAdjacentRow } = await import('../utils/listSelection.js');
 const MessageList = (await import('./MessageList.jsx')).default;
 
 const ACCOUNT = { id: 'acct-1', email_address: 'a@example.com', name: 'A', color: '#6366f1', include_in_unified_inbox: true };
@@ -96,13 +103,13 @@ let container, root;
 
 // Mount fresh for each scenario. MessageList refetches on mount and overwrites anything seeded
 // in the store, so the fixture is served through fetch rather than set as state.
-async function mount({ rows, threadedView, folder = 'INBOX' }) {
+async function mount({ rows, threadedView, folder = 'INBOX', accountId = 'acct-1', accounts = [ACCOUNT] }) {
   SERVED = rows;
   if (root) await React.act(async () => root.unmount());
   container = dom.window.document.getElementById('root');
   useStore.setState({
-    accounts: [ACCOUNT], accountsReady: true,
-    selectedAccountId: 'acct-1', selectedFolder: folder,
+    accounts, accountsReady: true,
+    selectedAccountId: accountId, selectedFolder: folder,
     messages: rows, messagesTotal: rows.length, hasMoreMessages: false, loadingMessages: false,
     searchQuery: '', threadedView,
     folders: { 'acct-1': [{ path: 'INBOX', name: 'INBOX' }, { path: 'Archive', name: 'Archive' }, { path: 'Drafts', name: 'Drafts', special_use: '\\Drafts' }] },
@@ -452,5 +459,284 @@ describe('MessageList reply draft indicators', () => {
     useStore.setState({ replyDrafts: { [MESSAGE.id]: { exists: true } } });
     await mount({ rows: [{ ...MESSAGE, folder: 'Archive' }], threadedView: false, folder: 'Archive' });
     assert.equal(container.querySelector('[aria-label="Open reply draft"]'), null);
+  });
+});
+
+describe('MessageList — a conversation another account also received (#476)', () => {
+  // One email delivered to two of the reader's accounts is two mailbox items, and the thread
+  // route returns both so the conversation can show them. In acct-1's own view its row
+  // stands for acct-1's copies only, so that is all a conversation action may touch.
+  // Each test uses its own thread number: the read and delete guards are module state. The thread
+  // route marks every message is_draft.
+  const ACCOUNT_B = { ...ACCOUNT, id: 'acct-2', email_address: 'b@example.com', name: 'B' };
+  const conversation = (n, { unified = false } = {}) => {
+    const date = new Date(Date.now() - n * 60_000).toISOString();
+    const older = { ...MESSAGE, id: `a-old-${n}`, uid: 100 + n, message_id: `<old-${n}@example.com>`, thread_id: `thr-${n}`, date: new Date(Date.now() - n * 60_000 - 3_600_000).toISOString() };
+    const newest = { ...MESSAGE, id: `a-new-${n}`, uid: 200 + n, message_id: `<new-${n}@example.com>`, thread_id: `thr-${n}`, date };
+    const copy = { ...newest, id: `b-new-${n}`, account_id: 'acct-2' };
+    ROUTES[`/mail/thread?id=thr-${n}&folder=INBOX${unified ? '&unified=true' : ''}`] = [200, { messages: [older, newest, copy].map(m => ({ ...m, is_draft: false })) }];
+    return { ...newest, message_count: 2, unread_count: 2 };
+  };
+  const settle = () => React.act(async () => { await new Promise(r => setTimeout(r, 30)); });
+  // ThreadRow shows its hover cluster from the header's onMouseEnter, so the event starts there.
+  const hoverClick = async (msgid, title) => {
+    const header = container.querySelector(`[data-msgid="${msgid}"] [draggable]`);
+    await React.act(async () => { header.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true })); });
+    const button = container.querySelector(`[data-msgid="${msgid}"] button[title="${title}"]`);
+    assert.ok(button, `expected a ${title} button on ${msgid}`);
+    await React.act(async () => { button.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    await settle();
+  };
+  const idsSentTo = pattern => CALLS.filter(c => pattern.test(c.path)).flatMap(c => c.body?.ids || []).sort();
+  // Unmounting sends a pending delete at once instead of after the 4.5 s undo window. Its undo
+  // toast is dropped too, or the next mount renders it with a timer that outlives the file.
+  const flushDeletes = async () => {
+    await React.act(async () => root.unmount());
+    root = null;
+    useStore.setState({ notifications: [] });
+    await settle();
+    const single = CALLS.filter(c => c.method === 'DELETE').map(c => c.path.split('/').pop());
+    return [...idsSentTo(/bulk-delete/), ...single].sort();
+  };
+  const start = async (rows, opts = {}) => {
+    await mount({ rows, threadedView: true, accounts: [ACCOUNT, ACCOUNT_B], ...opts });
+    await React.act(async () => { useStore.setState({ hoverQuickActions: true, hoverActionSet: ['markRead', 'star', 'delete', 'move'] }); });
+    CALLS = [];
+  };
+
+  test('mark read sends only the row account\'s copies', async () => {
+    const row = conversation(1);
+    await start([row]);
+    await hoverClick(row.id, 'contextMenu.markRead');
+    assert.deepEqual(idsSentTo(/bulk-read/), ['a-new-1', 'a-old-1']);
+  });
+
+  test('star sends only the row account\'s copies', async () => {
+    const row = conversation(2);
+    await start([row]);
+    await hoverClick(row.id, 'contextMenu.star');
+    const starred = CALLS.map(c => c.path.match(/messages\/([^/]+)\/star$/)?.[1]).filter(Boolean).sort();
+    assert.deepEqual(starred, ['a-new-2', 'a-old-2']);
+  });
+
+  test('delete from the keyboard sends only the row account\'s copies', async () => {
+    const row = conversation(3);
+    await start([row]);
+    await React.act(async () => { useStore.getState().setSelectedMessage(row.id); });
+    await React.act(async () => { shortcutBus.emit('delete'); });
+    await settle();
+    assert.deepEqual(await flushDeletes(), ['a-new-3', 'a-old-3']);
+  });
+
+  test('deleting selected conversation rows sends only each row account\'s copies', async () => {
+    const one = conversation(4);
+    const two = conversation(5);
+    await start([one, two]);
+    await React.act(async () => { useStore.getState().setSelectedMessage(one.id); });
+    const header = container.querySelector(`[data-msgid="${two.id}"] [draggable]`);
+    await React.act(async () => {
+      header.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+    });
+    await React.act(async () => { shortcutBus.emit('delete'); });
+    await settle();
+    assert.deepEqual(await flushDeletes(), ['a-new-4', 'a-new-5', 'a-old-4', 'a-old-5']);
+  });
+
+  test('an expanded conversation shows the other account\'s copy as the server left it', async () => {
+    const row = conversation(6);
+    await start([row]);
+    const toggle = container.querySelector(`[data-msgid="${row.id}"] button[aria-expanded]`);
+    await React.act(async () => { toggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    await settle();
+    await hoverClick(row.id, 'contextMenu.markRead');
+    await hoverClick(row.id, 'contextMenu.star');
+    const cached = id => useStore.getState().threadMessages['thr-6'].find(m => m.id === id);
+    assert.equal(cached('a-old-6').is_read, true, 'the row account\'s copies show as read');
+    assert.equal(cached('a-old-6').is_starred, true, 'and as starred');
+    assert.equal(cached('b-new-6').is_read, false, 'the copy the server left unread is not shown as read');
+    assert.equal(cached('b-new-6').is_starred, false, 'nor as starred');
+  });
+
+  test('in the unified inbox a conversation row still marks every account\'s copy read', async () => {
+    const row = conversation(7, { unified: true });
+    await start([row], { accountId: null });
+    await hoverClick(row.id, 'contextMenu.markRead');
+    assert.deepEqual(idsSentTo(/bulk-read/), ['a-new-7', 'a-old-7', 'b-new-7']);
+  });
+
+  test('in the unified inbox marking a row read still shows every cached copy read', async () => {
+    // A sent reply refreshes the cached conversation across every enabled account (ComposeModal),
+    // so it can hold a copy from an account left out of the unified inbox, which the unified
+    // action never fetches. Left unread, that copy would turn the row unread again on the next echo.
+    const row = conversation(8, { unified: true });
+    await start([row], { accountId: null });
+    const served = ROUTES['/mail/thread?id=thr-8&folder=INBOX&unified=true'][1].messages;
+    const leftOut = { ...served[1], id: 'c-new-8', account_id: 'acct-3' };
+    await React.act(async () => { useStore.getState().setThreadMessages('thr-8', [...served, leftOut]); });
+    await hoverClick(row.id, 'contextMenu.markRead');
+    const unread = useStore.getState().threadMessages['thr-8'].filter(m => !m.is_read).map(m => m.id);
+    assert.deepEqual(unread, [], 'every cached copy shows as read');
+    // The WebSocket echo of the mark-read, for a copy that is not the row.
+    await React.act(async () => { useStore.getState().updateMessage('a-old-8', { is_read: true }); });
+    const after = useStore.getState().messages.find(m => m.id === row.id);
+    assert.equal(after.unread_count, 0, 'and the row stays read');
+  });
+
+  test('in the unified inbox starring a row still shows every cached copy starred', async () => {
+    // The unified row stars every unified account's copy on the server, so the cached conversation
+    // shows them all starred, the other account's included.
+    const row = conversation(12, { unified: true });
+    await start([row], { accountId: null });
+    const served = ROUTES['/mail/thread?id=thr-12&folder=INBOX&unified=true'][1].messages;
+    await React.act(async () => { useStore.getState().setThreadMessages('thr-12', served); });
+    await hoverClick(row.id, 'contextMenu.star');
+    const starred = CALLS.map(c => c.path.match(/messages\/([^/]+)\/star$/)?.[1]).filter(Boolean).sort();
+    assert.deepEqual(starred, ['a-new-12', 'a-old-12', 'b-new-12'], 'every copy is starred on the server');
+    const unstarred = useStore.getState().threadMessages['thr-12'].filter(m => !m.is_starred).map(m => m.id);
+    assert.deepEqual(unstarred, [], 'and every cached copy shows as starred');
+  });
+
+  test('picking the other account\'s copy under the row ends what an earlier notification parked', async () => {
+    // A notification tap parks the copy it opens under __dl_<id>, and the entry outlives the
+    // open. Left in place, picking the same copy under acct-1's row later still counted as parked,
+    // and the reading pane acted for acct-2's conversation from acct-1's row.
+    const row = conversation(9);
+    await start([row]);
+    const copy = ROUTES['/mail/thread?id=thr-9&folder=INBOX'][1].messages[2];
+    await React.act(async () => { useStore.getState().setThreadMessages(`__dl_${copy.id}`, [copy]); });
+    const toggle = container.querySelector(`[data-msgid="${row.id}"] button[aria-expanded]`);
+    await React.act(async () => { toggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    await settle();
+    // The expanded block lists the cached conversation in order: older, newest, then the copy.
+    const subRows = container.querySelector(`[data-msgid="${row.id}"]`).lastElementChild.children;
+    await React.act(async () => { subRows[2].dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    await settle();
+    const { selectedMessageId, messages, threadMessages } = useStore.getState();
+    assert.equal(selectedMessageId, copy.id, 'the copy is selected');
+    const { parked } = resolveConversationSelection({ selectedMessageId, pool: messages, threadMessages });
+    assert.equal(parked, false, 'it stands for the row it was picked under');
+  });
+
+  // Every other pick of a row ends a leftover park the same way. While the row is listed the entry
+  // does nothing, but once a refresh drops the row (another account's message an undo put in this
+  // list), the entry alone would still count the open message as parked.
+  const park = message => React.act(async () => { useStore.getState().setThreadMessages(`__dl_${message.id}`, [message]); });
+  const stillParked = id => {
+    const { selectedMessageId, threadMessages } = useStore.getState();
+    assert.equal(selectedMessageId, id, `${id} is picked`);
+    return resolveConversationSelection({ selectedMessageId, pool: [], threadMessages }).parked;
+  };
+
+  test('opening a row\'s reply draft picks the row as a click does', async (t) => {
+    // The server here has no draft to open, which the reader is told; later tests expect no notices.
+    t.after(() => React.act(async () => { useStore.setState({ notifications: [], replyDrafts: {} }); }));
+    for (const [row, threadedView] of [[{ ...MESSAGE, id: 'b-row', account_id: 'acct-2' }, false], [conversation(14), true]]) {
+      await start([row], { threadedView });
+      await React.act(async () => { useStore.setState({ replyDrafts: { [row.id]: { exists: true } } }); });
+      await park(row);
+      const draftButton = container.querySelector(`[data-msgid="${row.id}"] [aria-label="Open reply draft"]`);
+      await React.act(async () => { draftButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+      await settle();
+      assert.equal(stillParked(row.id), false, threadedView ? 'from a conversation row' : 'from a message row');
+    }
+  });
+
+  test('j, k and o pick a row as a click does', async () => {
+    const rows = [{ ...MESSAGE, id: 'b-j1', account_id: 'acct-2' }, { ...MESSAGE, id: 'b-j2', account_id: 'acct-2', uid: 2, message_id: '<j2@example.com>' }];
+    await start(rows, { threadedView: false });
+    await React.act(async () => { useStore.getState().setSelectedMessage(null); });
+    for (const [key, id] of [['openMessage', 'b-j1'], ['nextMessage', 'b-j2'], ['prevMessage', 'b-j1']]) {
+      await park(rows.find(r => r.id === id));
+      await React.act(async () => { shortcutBus.emit(key); });
+      assert.equal(stillParked(id), false, key);
+    }
+  });
+
+  test('in Drafts the move to the next row picks it from the list too', async () => {
+    // In Drafts a click opens the composer, so the list's row opener, behind the advance after a
+    // removal and a swipe, only selects the row.
+    const drafts = [{ ...MESSAGE, id: 'd-1', folder: 'Drafts' }, { ...MESSAGE, id: 'd-2', uid: 2, folder: 'Drafts', message_id: '<d2@example.com>' }];
+    await start(drafts, { threadedView: false, folder: 'Drafts' });
+    await React.act(async () => { useStore.getState().setSelectedMessage('d-1'); });
+    await park(drafts[1]);
+    await React.act(async () => { openAdjacentRow('next'); });
+    assert.equal(stillParked('d-2'), false);
+  });
+
+  test('in Drafts a draft that cannot open in the composer is picked from the list too', async (t) => {
+    // A click opens the composer. When the draft's Bcc cannot be read, or its body cannot be fetched
+    // at all, the draft is selected instead, and that is a pick from the list as much as the click.
+    t.mock.method(console, 'error', () => {});
+    const draft = { ...MESSAGE, id: 'd-9', folder: 'Drafts' };
+    const failures = {
+      'its Bcc cannot be read': { '/mail/messages/d-9/bcc': [502, { error: 'Bcc unreadable' }] },
+      'its body cannot be fetched': {
+        '/mail/messages/d-9/body?remoteImages=1': [500, { error: 'Body unavailable' }],
+        '/mail/messages/d-9/bcc': [200, { bcc: [] }],
+      },
+    };
+    t.after(() => React.act(async () => {
+      for (const routes of Object.values(failures)) for (const path of Object.keys(routes)) delete ROUTES[path];
+      useStore.setState({ notifications: [], selectedMessageId: null });
+    }));
+    for (const [when, routes] of Object.entries(failures)) {
+      Object.assign(ROUTES, routes);
+      await start([draft], { threadedView: false, folder: 'Drafts' });
+      await park(draft);
+      const row = container.querySelector('[data-msgid="d-9"]');
+      await React.act(async () => {
+        (row.querySelector('[draggable]') || row).dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await settle();
+      assert.equal(stillParked('d-9'), false, when);
+      for (const path of Object.keys(routes)) delete ROUTES[path];
+    }
+  });
+
+  // A notification tap parks the copy it opens, and the reading pane acts for that copy's account
+  // even when the row's cached conversation holds it too. 'e' must not archive the row instead.
+  const archiveParked = async (row, parked) => {
+    const toggle = container.querySelector(`[data-msgid="${row.id}"] button[aria-expanded]`);
+    await React.act(async () => { toggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    await settle();
+    await React.act(async () => {
+      useStore.getState().setThreadMessages(`__dl_${parked.id}`, [parked]);
+      useStore.getState().setSelectedMessage(parked.id);
+    });
+    await React.act(async () => { shortcutBus.emit('archive'); });
+    await settle();
+  };
+
+  test('archive from the keyboard leaves the row alone when the opened copy is another account\'s, and says so', async (t) => {
+    t.after(() => React.act(async () => { useStore.setState({ notifications: [] }); }));
+    const row = conversation(10);
+    await start([row]);
+    await archiveParked(row, ROUTES['/mail/thread?id=thr-10&folder=INBOX'][1].messages[2]);
+    assert.ok(useStore.getState().messages.some(m => m.id === row.id), 'acct-1\'s row is not archived');
+    // A notice and nothing else: no undo toast, so nothing is pending.
+    assert.deepEqual(useStore.getState().notifications.map(n => n.title), ['message.archived.otherAccountMessage']);
+  });
+
+  test('archive from the keyboard still archives the row when the opened copy is the row account\'s', async () => {
+    const row = conversation(11);
+    await start([row]);
+    await archiveParked(row, ROUTES['/mail/thread?id=thr-11&folder=INBOX'][1].messages[0]);
+    assert.ok(!useStore.getState().messages.some(m => m.id === row.id), 'the row is archived');
+    // Taken back, so the archive does not commit after the file has finished.
+    const toast = useStore.getState().notifications.find(n => n.onUndo);
+    await React.act(async () => { toast.onUndo(); useStore.setState({ notifications: [] }); });
+    await settle();
+  });
+
+  test('in the unified inbox archive from the keyboard archives the row whichever account\'s copy is opened', async () => {
+    // A unified row stands for every unified account's copies, as the reading pane's Archive does there.
+    const row = conversation(13, { unified: true });
+    await start([row], { accountId: null });
+    await archiveParked(row, ROUTES['/mail/thread?id=thr-13&folder=INBOX&unified=true'][1].messages[2]);
+    assert.ok(!useStore.getState().messages.some(m => m.id === row.id), 'the row is archived');
+    assert.ok(!useStore.getState().notifications.some(n => n.title === 'message.archived.otherAccountMessage'), 'and nothing is refused');
+    const toast = useStore.getState().notifications.find(n => n.onUndo);
+    await React.act(async () => { toast.onUndo(); useStore.setState({ notifications: [] }); });
+    await settle();
   });
 });

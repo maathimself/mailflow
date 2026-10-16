@@ -64,7 +64,8 @@ export default function AiResultBox({ result, canRegen, onRegen, onDismiss }) {
           {result.label}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-          {loading && (
+          {/* Only once text is streaming in: until then the body below says it (#618). */}
+          {loading && result.text && (
             <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', marginRight: 4 }}>
               {t('compose.toolbar.aiGenerating')}
             </span>
