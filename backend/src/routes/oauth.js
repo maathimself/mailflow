@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { query, withTransaction } from '../services/db.js';
 import { imapManager } from '../index.js';
+import { providerProfile, PROVIDERS } from '../services/imapManager.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { redactEmail } from '../utils/redact.js';
 
@@ -112,7 +113,7 @@ router.get('/microsoft/callback', async (req, res) => {
     res.redirect('/?oauth_success=microsoft');
   } catch (err) {
     console.error('Microsoft OAuth callback error:', err);
-    res.redirect('/?oauth_error=Authentication+failed');
+    res.redirect(`/?oauth_error=${err.publicMessage ? encodeURIComponent(err.publicMessage) : 'Authentication+failed'}`);
   }
 });
 
@@ -168,15 +169,24 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publ
       [`oauth-account:${userId}:${email.toLowerCase()}`]);
 
     const existing = await client.query(
-      'SELECT id FROM email_accounts WHERE user_id = $1 AND email_address = $2',
+      'SELECT id, imap_host, oauth_provider FROM email_accounts WHERE user_id = $1 AND email_address = $2',
       [userId, email]
     );
 
     let accountId;
     if (existing.rows.length) {
-      accountId = existing.rows[0].id;
+      const row = existing.rows[0];
+      // A Microsoft account can use any address as its sign-in name, a Gmail one included.
+      // Switching a mailbox hosted elsewhere to XOAUTH2 would break it, and oauth_provider
+      // cannot be changed back from the account settings. The user is told why.
+      if (providerProfile(row) !== PROVIDERS.microsoft) {
+        const reason = 'An account with this address is already set up on a non-Microsoft mail server';
+        throw Object.assign(new Error(reason), { publicMessage: reason });
+      }
+      accountId = row.id;
       await client.query(`
         UPDATE email_accounts SET
+          oauth_provider = 'microsoft',
           oauth_access_token = $1, oauth_refresh_token = $2, oauth_token_expiry = $3,
           name = $4, oauth_public_client = $5, sync_error = NULL
         WHERE id = $6
@@ -207,6 +217,10 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publ
     return accountResult.rows[0];
   });
 
+  // Signing in again is how a user fixes an account that stopped connecting, so drop any
+  // backoff first. Auth failures back off for up to six hours, and connectAccount would
+  // return early on it with sync_error already cleared: a silent no-op.
+  imapManager.clearConnectCooldown(account.id);
   imapManager.connectAccount(account).catch(err =>
     console.error(`OAuth connect failed for ${redactEmail(email)}:`, err.message)
   );
@@ -564,6 +578,8 @@ async function processGoogleTokens(userId, tokens, { clientId }) {
     return accountResult.rows[0];
   });
 
+  // Same as Microsoft: a re-link must not wait out an auth backoff.
+  imapManager.clearConnectCooldown(account.id);
   imapManager.connectAccount(account).catch(err =>
     console.error(`OAuth connect failed for ${redactEmail(email)}:`, err.message)
   );
