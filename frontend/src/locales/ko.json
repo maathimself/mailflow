@@ -182,6 +182,7 @@
       "aiReplyReading": "대화를 읽는 중…",
       "aiWritePlaceholder": "이메일에 무엇을 쓸까요? 예: 견적 요청",
       "aiWriteInstruction": "AI 초안 지시",
+      "aiTooLong": "이 초안은 {{count}}자로, AI가 받을 수 있는 {{max}}자를 넘습니다. 내용을 줄이거나 인용된 텍스트를 지운 뒤 다시 시도하세요.",
       "moreFormatting": "추가 서식 지정",
       "aiPanelTitle": "AI 제안"
     },
@@ -266,6 +267,7 @@
     "aiCopy": "복사",
     "previousMessage": "이전 메시지",
     "aiRegenerate": "재생성",
+    "aiTruncated": "이 이메일의 처음 {{percent}}%만 사용했습니다. 나머지는 너무 길어 AI에 보내지 않았습니다.",
     "manageAiActions": "작업 관리…",
     "nextMessage": "다음 메시지",
     "summaryDismiss": "요약 닫기",

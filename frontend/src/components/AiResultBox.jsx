@@ -114,6 +114,11 @@ export default function AiResultBox({ result, canRegen, onRegen, onDismiss }) {
           dangerouslySetInnerHTML={{ __html: html }}
         />
       )}
+      {!error && result.truncated && (
+        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
+          {t('message.aiTruncated', { percent: Math.max(1, Math.floor((100 * result.truncated.shown) / result.truncated.total)) })}
+        </div>
+      )}
     </div>
   );
 }

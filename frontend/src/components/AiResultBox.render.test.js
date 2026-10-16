@@ -72,3 +72,20 @@ describe('generating indicator (#618)', () => {
     assert.equal(count(el), 0);
   });
 });
+
+describe('truncation note (#633)', () => {
+  let root;
+  const render = async (result) => {
+    root ??= createRoot(document.getElementById('root'));
+    await React.act(async () => root.render(React.createElement(AiResultBox, { result, canRegen: true, onRegen() {}, onDismiss() {} })));
+    return document.getElementById('root');
+  };
+  test('shown when only part of the email was sent', async () => {
+    const el = await render({ status: 'done', text: 'Done', label: 'x', truncated: { shown: 29_900, total: 64_000 } });
+    assert.match(el.innerHTML, /message\.aiTruncated/);
+  });
+  test('absent for a whole email and for an error', async () => {
+    assert.doesNotMatch((await render({ status: 'done', text: 'Done', label: 'x', truncated: null })).innerHTML, /aiTruncated/);
+    assert.doesNotMatch((await render({ status: 'error', text: 'boom', label: 'x', truncated: { shown: 1, total: 2 } })).innerHTML, /aiTruncated/);
+  });
+});

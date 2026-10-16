@@ -196,7 +196,8 @@
       "aiReplyGenerate": "Generar",
       "aiReplyReading": "Leyendo la conversación…",
       "aiWritePlaceholder": "¿Qué debe decir el correo? P. ej.: pedir un presupuesto",
-      "aiWriteInstruction": "Instrucción para el borrador de la IA"
+      "aiWriteInstruction": "Instrucción para el borrador de la IA",
+      "aiTooLong": "este borrador tiene {{count}} caracteres, más de los {{max}} que admite la IA. Acórtalo o elimina el texto citado y vuelve a intentarlo."
     },
     "priority": "Prioridad",
     "priorityHigh": "Alta prioridad",
@@ -263,6 +264,7 @@
     "aiActions": "Acciones de IA",
     "manageAiActions": "Gestionar acciones…",
     "aiRegenerate": "Regenerar",
+    "aiTruncated": "Basado en el primer {{percent}} % de este correo. El resto era demasiado largo para enviarlo a la IA.",
     "aiExpand": "Expandir",
     "aiCollapse": "Contraer",
     "aiCopy": "Copiar",

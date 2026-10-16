@@ -379,6 +379,7 @@
     "aiActions": "Akce AI",
     "manageAiActions": "Spravovat akce…",
     "aiRegenerate": "Vygenerovat znovu",
+    "aiTruncated": "Vychází z prvních {{percent}} % tohoto e-mailu. Zbytek byl příliš dlouhý na odeslání AI.",
     "aiExpand": "Rozbalit",
     "aiCollapse": "Sbalit",
     "aiCopy": "Kopírovat",
@@ -564,7 +565,8 @@
       "aiReplyGenerate": "Vygenerovat",
       "aiReplyReading": "Čtení konverzace…",
       "aiWritePlaceholder": "Co má e-mail říct? Např. požádej o cenovou nabídku",
-      "aiWriteInstruction": "Pokyn pro koncept AI"
+      "aiWriteInstruction": "Pokyn pro koncept AI",
+      "aiTooLong": "tento koncept má {{count}} znaků, víc než {{max}}, které AI zpracuje. Zkraťte ho nebo odstraňte citovaný text a zkuste to znovu."
     },
     "priority": "Priorita",
     "priorityHigh": "Vysoká priorita",

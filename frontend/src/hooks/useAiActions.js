@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
-import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.js';
+import { BUILTIN_SUMMARIZE, buildAiActionContent, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { aiRuns } from '../utils/aiRunRegistry.js';
 
@@ -23,7 +23,7 @@ export function useAiActions(messageId, body) {
     const saved = getResults(messageId);
     const restored = {};
     for (const [key, r] of Object.entries(saved)) {
-      restored[key] = { status: 'done', text: r.text, label: r.label };
+      restored[key] = { status: 'done', text: r.text, label: r.label, truncated: r.truncated || null };
     }
     setResults(restored);
   }, [messageId]);
@@ -51,7 +51,7 @@ export function useAiActions(messageId, body) {
       if (results[key]?.status === 'done') return;
       const cached = getResults(messageId)[key];
       if (cached) {
-        setResults(r => ({ ...r, [key]: { status: 'done', text: cached.text, label: cached.label } }));
+        setResults(r => ({ ...r, [key]: { status: 'done', text: cached.text, label: cached.label, truncated: cached.truncated || null } }));
         return;
       }
     }
@@ -69,19 +69,18 @@ export function useAiActions(messageId, body) {
     // The built-in Summarize prompt is uneditable, so steer its output to the user's UI
     // language (#255). Custom actions keep their author's prompt as-is.
     const promptText = action.builtin ? summarizePromptForLocale(i18n.language) : action.prompt;
+    // A body too long for one request is cut, and the box says so (#633).
+    const { content, truncated } = buildAiActionContent(promptText, textContent);
     try {
-      const fullText = await api.ai.chat([{
-        role: 'user',
-        content: `${promptText}\n\n${textContent.slice(0, 6000)}`,
-      }], {
+      const fullText = await api.ai.chat([{ role: 'user', content }], {
         signal: ctrl.signal,
         onDelta: (text) => {
-          applyIfViewing(r => ({ ...r, [key]: { status: 'loading', text, label: actionLabel } }));
+          applyIfViewing(r => ({ ...r, [key]: { status: 'loading', text, label: actionLabel, truncated } }));
         },
       });
-      applyIfViewing(r => ({ ...r, [key]: { status: 'done', text: fullText, label: actionLabel } }));
+      applyIfViewing(r => ({ ...r, [key]: { status: 'done', text: fullText, label: actionLabel, truncated } }));
       // Persist unconditionally: this is the whole point when the user has navigated away.
-      if (fullText) saveResult(msgId, key, fullText, actionLabel);
+      if (fullText) saveResult(msgId, key, fullText, actionLabel, truncated);
     } catch (err) {
       if (err.name === 'AbortError') return;
       applyIfViewing(r => ({ ...r, [key]: { status: 'error', text: err.message, label: actionLabel } }));

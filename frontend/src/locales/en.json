@@ -196,7 +196,8 @@
       "aiReplyGenerate": "Generate",
       "aiReplyReading": "Reading the conversation…",
       "aiWritePlaceholder": "What should the email say? E.g. ask for a quote",
-      "aiWriteInstruction": "Instruction for the AI draft"
+      "aiWriteInstruction": "Instruction for the AI draft",
+      "aiTooLong": "this draft has {{count}} characters, more than the {{max}} the AI can take. Shorten it or remove the quoted text, then try again."
     },
     "priority": "Priority",
     "priorityHigh": "High priority",
@@ -263,6 +264,7 @@
     "aiActions": "AI actions",
     "manageAiActions": "Manage actions…",
     "aiRegenerate": "Regenerate",
+    "aiTruncated": "Based on the first {{percent}}% of this email. The rest was too long to send to the AI.",
     "aiExpand": "Expand",
     "aiCollapse": "Collapse",
     "aiCopy": "Copy",
