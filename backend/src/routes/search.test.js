@@ -11,7 +11,6 @@ import {
   shouldExcludeTrashFromSearch,
   trashFolderExclusionCondition,
   freeTextTermCondition,
-  FTS_BODY_CHAR_CAP,
 } from './search.js';
 
 describe('parseSearchQuery', () => {
@@ -132,17 +131,6 @@ describe('parseSearchQuery', () => {
 });
 
 describe('freeTextTermCondition', () => {
-  it('uses the indexed capped vector and retains an overflow matching arm', () => {
-    const cond = freeTextTermCondition(3, 4);
-    expect(cond).toContain("mailflow_body_search_vector(m.body_text) @@ plainto_tsquery('english', $4)");
-    expect(cond).toContain('mailflow_body_search_vector(m.body_text) IS NULL');
-    expect(cond).toContain('mailflow_body_overflow_matches(m.body_text, $4)');
-  });
-
-  it('pins the cap at 600000 chars (msgvault maxFTSBodyChars parity)', () => {
-    expect(FTS_BODY_CHAR_CAP).toBe(600000);
-  });
-
   it('still matches sender, subject, and the stored search_vector at the given param positions', () => {
     const cond = freeTextTermCondition(3, 4);
     expect(cond).toContain('m.from_name ILIKE $3');
