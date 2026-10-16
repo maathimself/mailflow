@@ -190,6 +190,13 @@
       "aiDismiss": "关闭",
       "aiGenerating": "生成中…",
       "aiError": "AI 错误：{{message}}",
+      "aiReply": "用 AI 回复",
+      "aiReplyPlaceholder": "回复要说什么？例如：批准设计稿",
+      "aiReplyInstruction": "AI 回复的指示",
+      "aiReplyGenerate": "生成",
+      "aiReplyReading": "正在阅读对话…",
+      "aiWritePlaceholder": "邮件要说什么？例如：请求报价",
+      "aiWriteInstruction": "AI 草稿的指示",
       "aiTooLong": "此草稿有 {{count}} 个字符，超过 AI 可接受的 {{max}} 个。请缩短内容或删除引用的文字后重试。"
     },
     "priority": "优先级",

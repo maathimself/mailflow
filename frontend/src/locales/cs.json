@@ -559,6 +559,13 @@
       "aiDismiss": "Zavřít",
       "aiGenerating": "Generování…",
       "aiError": "Chyba AI: {{message}}",
+      "aiReply": "Odpovědět pomocí AI",
+      "aiReplyPlaceholder": "Co má odpověď říct? Např. schval grafiku",
+      "aiReplyInstruction": "Pokyn pro odpověď AI",
+      "aiReplyGenerate": "Vygenerovat",
+      "aiReplyReading": "Čtení konverzace…",
+      "aiWritePlaceholder": "Co má e-mail říct? Např. požádej o cenovou nabídku",
+      "aiWriteInstruction": "Pokyn pro koncept AI",
       "aiTooLong": "tento koncept má {{count}} znaků, víc než {{max}}, které AI zpracuje. Zkraťte ho nebo odstraňte citovaný text a zkuste to znovu."
     },
     "priority": "Priorita",

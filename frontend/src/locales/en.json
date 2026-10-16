@@ -190,6 +190,13 @@
       "aiDismiss": "Dismiss",
       "aiGenerating": "Generating…",
       "aiError": "AI error: {{message}}",
+      "aiReply": "Reply with AI",
+      "aiReplyPlaceholder": "What should the reply say? E.g. approve the artwork",
+      "aiReplyInstruction": "Instruction for the AI reply",
+      "aiReplyGenerate": "Generate",
+      "aiReplyReading": "Reading the conversation…",
+      "aiWritePlaceholder": "What should the email say? E.g. ask for a quote",
+      "aiWriteInstruction": "Instruction for the AI draft",
       "aiTooLong": "this draft has {{count}} characters, more than the {{max}} the AI can take. Shorten it or remove the quoted text, then try again."
     },
     "priority": "Priority",

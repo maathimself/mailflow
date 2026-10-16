@@ -25,7 +25,8 @@ const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[c]));
 
-export async function openReplyFromMessage(message, { accounts, openCompose, getMessageBody, replyAll = false }) {
+// `aiReply` opens the composer with "Reply with AI" ready for the user's instruction.
+export async function openReplyFromMessage(message, { accounts, openCompose, getMessageBody, replyAll = false, aiReply = false }) {
   const replyToArr = Array.isArray(message.reply_to)
     ? message.reply_to
     : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch { return []; } })();
@@ -101,6 +102,7 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
     originalFrom: sender,
     allRecipients,
     threadId: message.thread_id,
+    ...(aiReply ? { aiReply: true } : {}),
   });
 }
 

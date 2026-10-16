@@ -190,6 +190,13 @@
       "aiDismiss": "Verwerfen",
       "aiGenerating": "Wird erstellt…",
       "aiError": "KI-Fehler: {{message}}",
+      "aiReply": "Mit KI antworten",
+      "aiReplyPlaceholder": "Was soll die Antwort sagen? Z. B. Entwurf freigeben",
+      "aiReplyInstruction": "Anweisung für die KI-Antwort",
+      "aiReplyGenerate": "Erstellen",
+      "aiReplyReading": "Unterhaltung wird gelesen…",
+      "aiWritePlaceholder": "Was soll die E-Mail sagen? Z. B. um ein Angebot bitten",
+      "aiWriteInstruction": "Anweisung für den KI-Entwurf",
       "aiTooLong": "Dieser Entwurf hat {{count}} Zeichen, mehr als die {{max}}, die die KI verarbeiten kann. Kürzen Sie ihn oder entfernen Sie den zitierten Text und versuchen Sie es erneut."
     },
     "priority": "Priorität",

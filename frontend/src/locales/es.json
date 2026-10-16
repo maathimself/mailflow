@@ -190,6 +190,13 @@
       "aiDismiss": "Descartar",
       "aiGenerating": "Generando…",
       "aiError": "Error de IA: {{message}}",
+      "aiReply": "Responder con IA",
+      "aiReplyPlaceholder": "¿Qué debe decir la respuesta? P. ej.: aprobar el diseño",
+      "aiReplyInstruction": "Instrucción para la respuesta de la IA",
+      "aiReplyGenerate": "Generar",
+      "aiReplyReading": "Leyendo la conversación…",
+      "aiWritePlaceholder": "¿Qué debe decir el correo? P. ej.: pedir un presupuesto",
+      "aiWriteInstruction": "Instrucción para el borrador de la IA",
       "aiTooLong": "este borrador tiene {{count}} caracteres, más de los {{max}} que admite la IA. Acórtalo o elimina el texto citado y vuelve a intentarlo."
     },
     "priority": "Prioridad",

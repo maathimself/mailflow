@@ -190,6 +190,13 @@
       "aiDismiss": "Ignorer",
       "aiGenerating": "Génération en cours…",
       "aiError": "Erreur IA : {{message}}",
+      "aiReply": "Répondre avec l'IA",
+      "aiReplyPlaceholder": "Que doit dire la réponse ? Ex. : approuver la maquette",
+      "aiReplyInstruction": "Instruction pour la réponse de l'IA",
+      "aiReplyGenerate": "Générer",
+      "aiReplyReading": "Lecture de la conversation…",
+      "aiWritePlaceholder": "Que doit dire l'e-mail ? Ex. : demander un devis",
+      "aiWriteInstruction": "Instruction pour le brouillon de l'IA",
       "aiTooLong": "ce brouillon contient {{count}} caractères, plus que les {{max}} que l'IA peut traiter. Raccourcissez-le ou supprimez le texte cité, puis réessayez."
     },
     "priority": "Priorité",
