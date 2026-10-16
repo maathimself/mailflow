@@ -20,6 +20,7 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { ComposerLink } from '../utils/editorLink.js';
+import { PasteWithoutSourceColors } from '../utils/editorPaste.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { resolveInitialFrom } from '../utils/defaultSender.js';
 import { initialComposeFocus, isComposeSendShortcut } from '../utils/composeFromMessage.js';
@@ -406,6 +407,7 @@ export default function ComposeModal() {
       FontFamily,
       BackgroundColor,
       FontSize,
+      PasteWithoutSourceColors,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       ResizableImage.configure({ inline: true, allowBase64: true }),
       Table.configure({ resizable: false }),
