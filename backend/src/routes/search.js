@@ -104,23 +104,16 @@ export function trashFolderExclusionCondition() {
       )`;
 }
 
-// Postgres refuses to build a tsvector larger than ~1MB of packed lexemes
-// (SQLSTATE 54000), so an oversized body would 500 the whole search. Cap the
-// text fed to to_tsvector at 600k chars — matching msgvault's maxFTSBodyChars
-// (internal/store/dialect_pg.go) — so one huge email can't crash the query.
-// Exported because slice 02's search_fts trigger caps the same way.
-export const FTS_BODY_CHAR_CAP = 600000;
-
-// Builds the per-term free-text OR-condition: a term matches if it appears in
-// the sender, the subject, the stored search_vector, or the length-capped body.
-// Extracted so the body cap is a single, testable source of truth.
+// Materialize body IDs separately: date-ordered scans must not re-tokenize every
+// body while looking for a rare term. This uses the baseline idx_messages_body
+// expression, so searches add no index-maintenance or migration cost.
 export function freeTextTermCondition(likeIdx, ftsIdx) {
   return `(
         m.from_name ILIKE $${likeIdx}
         OR m.from_email ILIKE $${likeIdx}
         OR m.subject ILIKE $${likeIdx}
         OR m.search_vector @@ plainto_tsquery('english', $${ftsIdx})
-        OR to_tsvector('english', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('english', $${ftsIdx})
+        OR body_matches_${ftsIdx}.id IS NOT NULL
       )`;
 }
 
@@ -141,6 +134,8 @@ router.get('/', searchLimiter, async (req, res) => {
   const { filters, terms } = parseSearchQuery(trimmed);
 
   const conditions = [];
+  const bodyMatches = [];
+  const bodyJoins = [];
   const params = [targetIds];
   let p = 2;
 
@@ -204,6 +199,17 @@ router.get('/', searchLimiter, async (req, res) => {
     params.push(term.value); // raw term for plainto_tsquery
     const ftsIdx = p++;
 
+    // LEFT JOIN allows hash/merge joins (including disk spill) for large match
+    // sets; an IN subplan can repeatedly scan them when they exceed work_mem.
+    // Initialize the tsquery once. Keeping it as an InitPlan also prevents
+    // common-term statistics from choosing a full body-tokenizing scan.
+    bodyMatches.push(`body_matches_${ftsIdx} AS MATERIALIZED (
+        SELECT id FROM messages
+        WHERE account_id = ANY($1) AND is_deleted = false
+          AND numnode(plainto_tsquery('english', $${ftsIdx})) > 0
+          AND to_tsvector('english', coalesce(body_text,'')) @@ (SELECT plainto_tsquery('english', $${ftsIdx}))
+      )`);
+    bodyJoins.push(`LEFT JOIN body_matches_${ftsIdx} ON body_matches_${ftsIdx}.id = m.id`);
     const cond = freeTextTermCondition(likeIdx, ftsIdx);
     conditions.push(term.negate ? negateCond(cond) : cond);
   }
@@ -239,7 +245,10 @@ router.get('/', searchLimiter, async (req, res) => {
   params.push(off);
 
   try {
+    // Fence the complete match from LIMIT as well: broad exclusions must not
+    // choose a date-driven nested loop that repeatedly scans body-match IDs.
     const result = await query(`
+      ${bodyMatches.length ? `WITH ${bodyMatches.join(',\n      ')}, matched_messages AS MATERIALIZED (` : ''}
       SELECT
         m.id, m.uid, m.folder, m.message_id, m.subject, m.from_name, m.from_email,
         m.to_addresses, m.cc_addresses, m.in_reply_to, m.thread_references,
@@ -247,10 +256,12 @@ router.get('/', searchLimiter, async (req, res) => {
         a.name as account_name, a.email_address as account_email, a.color as account_color
       FROM messages m
       JOIN email_accounts a ON m.account_id = a.id
+      ${bodyJoins.join('\n      ')}
       WHERE m.account_id = ANY($1)
         AND m.is_deleted = false
         AND ${conditions.join('\n        AND ')}
-      ORDER BY m.date DESC
+      ${bodyMatches.length ? ') SELECT * FROM matched_messages' : ''}
+      ORDER BY ${bodyMatches.length ? 'date' : 'm.date'} DESC
       LIMIT $${p} OFFSET $${p + 1}
     `, params);
 

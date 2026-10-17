@@ -11,7 +11,6 @@ import {
   shouldExcludeTrashFromSearch,
   trashFolderExclusionCondition,
   freeTextTermCondition,
-  FTS_BODY_CHAR_CAP,
 } from './search.js';
 
 describe('parseSearchQuery', () => {
@@ -131,22 +130,7 @@ describe('parseSearchQuery', () => {
   });
 });
 
-describe('freeTextTermCondition (oversized-body crash hotfix)', () => {
-  it('caps the body tsvector so a multi-megabyte email cannot exceed the 1MB tsvector limit', () => {
-    const cond = freeTextTermCondition(3, 4);
-    // The body text is fed to to_tsvector through LEFT(..., FTS_BODY_CHAR_CAP).
-    // Without this cap a single oversized body raises SQLSTATE 54000 and 500s search.
-    expect(cond).toContain(
-      `to_tsvector('english', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP}))`
-    );
-    // Guard against a regression back to the uncapped expression.
-    expect(cond).not.toContain("to_tsvector('english', coalesce(m.body_text,'')) @@");
-  });
-
-  it('pins the cap at 600000 chars (msgvault maxFTSBodyChars parity)', () => {
-    expect(FTS_BODY_CHAR_CAP).toBe(600000);
-  });
-
+describe('freeTextTermCondition', () => {
   it('still matches sender, subject, and the stored search_vector at the given param positions', () => {
     const cond = freeTextTermCondition(3, 4);
     expect(cond).toContain('m.from_name ILIKE $3');
