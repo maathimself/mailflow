@@ -1,7 +1,10 @@
 import { Router } from 'express';
-import { query } from '../services/db.js';
+import { query, withTransaction } from '../services/db.js';
+import { recordDb } from '../services/performanceMetrics.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
+
+const RECENT_PREFIX_ROWS = 256;
 
 const router = Router();
 router.use(requireAuth);
@@ -104,23 +107,20 @@ export function trashFolderExclusionCondition() {
       )`;
 }
 
-// Postgres refuses to build a tsvector larger than ~1MB of packed lexemes
-// (SQLSTATE 54000), so an oversized body would 500 the whole search. Cap the
-// text fed to to_tsvector at 600k chars — matching msgvault's maxFTSBodyChars
-// (internal/store/dialect_pg.go) — so one huge email can't crash the query.
-// Exported because slice 02's search_fts trigger caps the same way.
-export const FTS_BODY_CHAR_CAP = 600000;
-
-// Builds the per-term free-text OR-condition: a term matches if it appears in
-// the sender, the subject, the stored search_vector, or the length-capped body.
-// Extracted so the body cap is a single, testable source of truth.
-export function freeTextTermCondition(likeIdx, ftsIdx) {
+// Materialize body IDs separately: date-ordered scans must not re-tokenize every
+// body while looking for a rare term. This uses the baseline idx_messages_body
+// expression, so searches add no index-maintenance or migration cost.
+export function freeTextTermCondition(likeIdx, ftsIdx, directBody = false) {
   return `(
         m.from_name ILIKE $${likeIdx}
         OR m.from_email ILIKE $${likeIdx}
         OR m.subject ILIKE $${likeIdx}
         OR m.search_vector @@ plainto_tsquery('english', $${ftsIdx})
-        OR to_tsvector('english', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('english', $${ftsIdx})
+        OR ${directBody
+          ? `CASE WHEN numnode(plainto_tsquery('english', $${ftsIdx})) > 0
+              THEN to_tsvector('english', coalesce(m.body_text,'')) @@ plainto_tsquery('english', $${ftsIdx})
+              ELSE false END`
+          : `body_matches_${ftsIdx}.id IS NOT NULL`}
       )`;
 }
 
@@ -139,8 +139,14 @@ router.get('/', searchLimiter, async (req, res) => {
 
   const cap = Math.max(1, Math.min(parseInt(limit) || 50, 200));
   const { filters, terms } = parseSearchQuery(trimmed);
+  const off = Math.max(0, parseInt(offset) || 0);
+  const probe = off + cap <= RECENT_PREFIX_ROWS;
 
   const conditions = [];
+  const textConditions = [];
+  const directConditions = [];
+  const bodyMatches = [];
+  const bodyJoins = [];
   const params = [targetIds];
   let p = 2;
 
@@ -204,13 +210,27 @@ router.get('/', searchLimiter, async (req, res) => {
     params.push(term.value); // raw term for plainto_tsquery
     const ftsIdx = p++;
 
+    // LEFT JOIN allows hash/merge joins (including disk spill) for large match
+    // sets; an IN subplan can repeatedly scan them when they exceed work_mem.
+    // Initialize the tsquery once. Keeping it as an InitPlan also prevents
+    // common-term statistics from choosing a full body-tokenizing scan.
+    bodyMatches.push(`body_matches_${ftsIdx} AS MATERIALIZED (
+        SELECT id FROM messages
+        WHERE account_id = ANY($1) AND is_deleted = false
+          ${probe ? 'AND NOT (SELECT enough FROM recent_page)' : ''}
+          AND numnode(plainto_tsquery('english', $${ftsIdx})) > 0
+          AND to_tsvector('english', coalesce(body_text,'')) @@ (SELECT plainto_tsquery('english', $${ftsIdx}))
+      )`);
+    bodyJoins.push(`LEFT JOIN body_matches_${ftsIdx} ON body_matches_${ftsIdx}.id = m.id`);
     const cond = freeTextTermCondition(likeIdx, ftsIdx);
-    conditions.push(term.negate ? negateCond(cond) : cond);
+    textConditions.push(term.negate ? negateCond(cond) : cond);
+    const direct = freeTextTermCondition(likeIdx, ftsIdx, true);
+    directConditions.push(term.negate ? negateCond(direct) : direct);
   }
 
   // Require at least one real search condition before applying folder scope, so a
   // bare `in:inbox` (or a lone folder param) never dumps an entire folder.
-  if (!conditions.length) return res.json({ messages: [], query: q });
+  if (!conditions.length && !textConditions.length) return res.json({ messages: [], query: q });
 
   // Resolve folder scope: in: operator wins; otherwise use the param.
   const { folderScope, folderFuzzy } = resolveSearchFolderScope(filters, req.query.folder || '');
@@ -234,25 +254,54 @@ router.get('/', searchLimiter, async (req, res) => {
     conditions.push(trashFolderExclusionCondition());
   }
 
-  const off = Math.max(0, parseInt(offset) || 0);
   params.push(cap);
   params.push(off);
 
-  try {
-    const result = await query(`
-      SELECT
-        m.id, m.uid, m.folder, m.message_id, m.subject, m.from_name, m.from_email,
+  const messageColumns = `m.id, m.uid, m.folder, m.message_id, m.subject, m.from_name, m.from_email,
         m.to_addresses, m.cc_addresses, m.in_reply_to, m.thread_references,
-        m.date, m.snippet, m.is_read, m.is_starred, m.has_attachments, m.account_id,
-        a.name as account_name, a.email_address as account_email, a.color as account_color
+        m.date, m.snippet, m.is_read, m.is_starred, m.has_attachments, m.account_id`;
+  const columns = `${messageColumns},
+        a.name as account_name, a.email_address as account_email, a.color as account_color`;
+  const scope = `m.account_id = ANY($1) AND m.is_deleted = false
+        ${conditions.length ? `AND ${conditions.join('\n        AND ')}` : ''}`;
+  const useProbe = bodyMatches.length > 0 && probe;
+  // A complete page from a bounded newest prefix is also a complete page of
+  // the full result. Otherwise use the indexed fallback, in the same snapshot.
+  const recent = useProbe ? `recent_messages AS MATERIALIZED (
+        SELECT ${messageColumns}, m.body_text, m.search_vector FROM messages m WHERE ${scope}
+        ORDER BY m.date DESC LIMIT ${RECENT_PREFIX_ROWS}
+      ), fast_matches AS MATERIALIZED (
+        SELECT ${columns}
+        FROM recent_messages m
+        JOIN email_accounts a ON m.account_id = a.id
+        WHERE ${directConditions.join(' AND ')}
+      ), recent_page AS MATERIALIZED (
+        SELECT count(*) >= $${p}::bigint + $${p + 1}::bigint AS enough FROM fast_matches
+      ), ` : '';
+
+  try {
+    const sql = `
+      ${bodyMatches.length ? `WITH ${recent}${bodyMatches.join(',\n      ')}, matched_messages AS MATERIALIZED (` : ''}
+      SELECT
+        ${columns}
       FROM messages m
       JOIN email_accounts a ON m.account_id = a.id
-      WHERE m.account_id = ANY($1)
-        AND m.is_deleted = false
-        AND ${conditions.join('\n        AND ')}
-      ORDER BY m.date DESC
+      ${bodyJoins.join('\n      ')}
+      WHERE ${scope}
+        ${useProbe ? 'AND NOT (SELECT enough FROM recent_page)' : ''}
+        ${textConditions.length ? `AND ${textConditions.join('\n        AND ')}` : ''}
+      ${bodyMatches.length ? `) ${useProbe ? 'SELECT * FROM fast_matches WHERE (SELECT enough FROM recent_page) UNION ALL ' : ''}SELECT * FROM matched_messages${useProbe ? ' WHERE NOT (SELECT enough FROM recent_page)' : ''}` : ''}
+      ORDER BY ${bodyMatches.length ? 'date' : 'm.date'} DESC
       LIMIT $${p} OFFSET $${p + 1}
-    `, params);
+    `;
+    const result = bodyMatches.length ? await withTransaction(async client => {
+      // Keep the body bitmap exact for large match sets without changing the
+      // pooled session's defaults. work_mem is per operation, not per request.
+      await client.query("SET LOCAL work_mem='16MB'");
+      const start = process.hrtime.bigint();
+      try { return await client.query(sql, params); }
+      finally { recordDb(Number(process.hrtime.bigint() - start) / 1e6); }
+    }) : await query(sql, params);
 
     res.json({ messages: result.rows, query: q });
   } catch (err) {

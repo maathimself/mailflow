@@ -1,6 +1,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../services/db.js', () => ({ query: vi.fn() }));
+vi.mock('../services/db.js', () => {
+  const query = vi.fn();
+  return {
+    query,
+    withTransaction: fn => fn({
+      query: (sql, params) => sql.startsWith('SET LOCAL')
+        ? Promise.resolve({ rows: [] }) : query(sql, params),
+    }),
+  };
+});
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => {
     req.session = { userId: 'user-1' };
