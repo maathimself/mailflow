@@ -232,6 +232,29 @@ describe('openForwardFromMessage', () => {
   });
 });
 
+describe('forwarding a photo the message also shows (#640)', () => {
+  const photo = { part: '2', filename: 'photo.jpg', type: 'image/jpeg', size: 10, shownInline: true };
+  const pdf = { part: '3', filename: 'a.pdf', type: 'application/pdf', size: 10 };
+
+  it('leaves it to the quoted HTML instead of attaching it again', async () => {
+    const h = harness({ text: 'BODY', html: '<p>BODY<img src="data:image/jpeg;base64,AA"></p>', attachments: [photo, pdf] });
+    await openForwardFromMessage(
+      { id: 'm1', account_id: 'a', subject: 'S', from_email: 'f@example.com' },
+      { openCompose: h.openCompose, getMessageBody: h.getMessageBody },
+    );
+    assert.deepEqual(h.payload().forwardedAttachments.map(a => a.filename), ['a.pdf']);
+  });
+
+  it('attaches it when the forward has no HTML to carry it', async () => {
+    const h = harness({ text: 'BODY', html: null, attachments: [photo, pdf] });
+    await openForwardFromMessage(
+      { id: 'm1', account_id: 'a', subject: 'S', from_email: 'f@example.com' },
+      { openCompose: h.openCompose, getMessageBody: h.getMessageBody },
+    );
+    assert.deepEqual(h.payload().forwardedAttachments.map(a => a.filename), ['photo.jpg', 'a.pdf']);
+  });
+});
+
 describe('malformed address fields fall back cleanly', () => {
   it('reply parses nothing and still emits a payload', async () => {
     const account = { id: 'a', email_address: 'me@example.com', aliases: [{ id: 'al1', email: 'alias@example.com' }] };

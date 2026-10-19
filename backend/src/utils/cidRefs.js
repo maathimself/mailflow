@@ -8,7 +8,11 @@
 // references remain, and is not fetched again for them. A body whose image bytes did not arrive
 // is stored without it and retried on the next view.
 
-export const CIDS_SETTLED = '<!--mf-cids-settled-->';
+export const CIDS_SETTLED = '<!--mf-cids-settled:2-->';
+
+// The marker before images marked as attachments could be shown inline (#640). A body settled
+// under it may hold references that resolve now, so it is fetched once more.
+const LEGACY_CIDS_SETTLED = '<!--mf-cids-settled-->';
 
 // A cid: reference where a URL goes (src="cid:...", url(cid:...)), not the text "CID: 4521" in a
 // support email, which used to send every view of it to the mail server too.
@@ -27,4 +31,6 @@ export function settleCids(html, complete) {
 }
 
 // The body as it leaves MailFlow: the marker is for the cache only.
-export const withoutCidMarker = (html) => (typeof html === 'string' ? html.split(CIDS_SETTLED).join('') : html);
+export const withoutCidMarker = (html) => (typeof html === 'string'
+  ? html.split(CIDS_SETTLED).join('').split(LEGACY_CIDS_SETTLED).join('')
+  : html);

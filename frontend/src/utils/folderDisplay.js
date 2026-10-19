@@ -100,6 +100,19 @@ export function folderDisplayName(folder, t, folderMappings, folders) {
   return folder?.name || folder?.path || '';
 }
 
+// The name the sidebar shows for the folder at `path`, for text that names a folder outside the
+// tree: the empty and delete confirmations, the "Emptying" notice and the message list header. A
+// "Deleted Items" the sidebar labels Trash reads as Trash there too (#623). A path missing from
+// the account's folder list (not loaded yet) reads as its last segment, or as its role label.
+export function folderDisplayNameForPath(path, t, folderMappings, folders) {
+  const list = Array.isArray(folders) ? folders : [];
+  const folder = list.find(f => f?.path === path) || {
+    path,
+    name: String(path ?? '').split(folderDelimiter(list.find(f => f?.delimiter))).pop(),
+  };
+  return folderDisplayName(folder, t, folderMappings, list);
+}
+
 // The recently used move targets for one account, newest first, resolved against the account's
 // live folder list (a recent folder since deleted or renamed drops out) and without the folder the
 // messages are already in. The single-message pickers and the bulk picker share it (#551).

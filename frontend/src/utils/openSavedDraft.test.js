@@ -58,3 +58,23 @@ test('reopens a draft from a configured alias with that same sender', () => {
       aliases: [{ id: 'alias-1', email: 'alias@example.test' }] }]);
   assert.equal(data.aliasId, 'alias-1');
 });
+
+// #640: a draft from another client whose HTML shows an attached photo keeps it in that HTML.
+test('does not attach again a photo the reopened draft\'s HTML shows', () => {
+  const photo = { part: '2', filename: 'photo.jpg', size: 10, shownInline: true };
+  const data = savedDraftToComposeData({ ...draft, id: 'external', has_attachments: true }, {
+    html: '<p>Reply<img src="data:image/jpeg;base64,AA"></p>', attachments: [photo, { part: '3', filename: 'a.pdf', size: 5 }],
+  });
+  assert.deepEqual(data.forwardedAttachments, [{ messageId: 'external', part: '3', filename: 'a.pdf', size: 5 }]);
+  assert.equal(data.unresolvedExternalAttachments, false);
+
+  const only = savedDraftToComposeData({ ...draft, id: 'external', has_attachments: true }, {
+    html: '<p>Reply<img src="data:image/jpeg;base64,AA"></p>', attachments: [photo],
+  });
+  assert.deepEqual(only.forwardedAttachments, []);
+  assert.deepEqual(only.externalAttachments, []);
+  assert.equal(only.unresolvedExternalAttachments, false);
+
+  const text = savedDraftToComposeData({ ...draft, id: 'external', has_attachments: true }, { text: 'Reply', attachments: [photo] });
+  assert.deepEqual(text.forwardedAttachments, [{ messageId: 'external', part: '2', filename: 'photo.jpg', size: 10 }]);
+});

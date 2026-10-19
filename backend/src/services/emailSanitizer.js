@@ -549,6 +549,18 @@ function toBrowserTree(html) {
 // a URL and trims control characters and spaces from its ends. Left in, `ht&#x0A;tps://…` hid an
 // image from remote-image blocking and the proxy, which match the URL as written, while the
 // browser still fetched it from the sender (in the composer, where the app's CSP allows it).
+// The background attribute of these tags may hold an inline image as a data: URI: a cid: or
+// Content-Location background that fetchMessageBody embedded (#640). Only base64 raster images
+// pass; any other data: value is dropped, so no SVG, HTML or script rides along.
+const DATA_BACKGROUND_TAGS = new Set(['table', 'tr', 'td', 'th']);
+const DATA_IMAGE_BACKGROUND_RE = /^data:image\/(?:png|gif|jpe?g|webp|bmp|avif);base64,[A-Za-z0-9+/=]*$/i;
+
+function backgroundAttribute(tagName, value) {
+  const url = upgradeUrl(asBrowserUrl(value));
+  if (!/^data:/i.test(url)) return url;
+  return DATA_BACKGROUND_TAGS.has(tagName) && DATA_IMAGE_BACKGROUND_RE.test(url) ? url : null;
+}
+
 function asBrowserUrl(value) {
   // eslint-disable-next-line no-control-regex -- the C0 controls the URL standard trims
   return String(value).replace(/[\t\n\r]/g, '').replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '');
@@ -633,7 +645,11 @@ export function sanitizeEmail(html, { preserveDraftSignature = false } = {}) {
       // and CSS background-image declarations.
       '*': (tagName, attribs) => {
         const out = { ...attribs };
-        if (out.background) out.background = upgradeUrl(asBrowserUrl(out.background));
+        if (out.background) {
+          const background = backgroundAttribute(tagName, out.background);
+          if (background === null) delete out.background;
+          else out.background = background;
+        }
         if (out.style) out.style = upgradeStyleUrls(out.style);
         return { tagName, attribs: out };
       },
@@ -641,6 +657,8 @@ export function sanitizeEmail(html, { preserveDraftSignature = false } = {}) {
     allowedSchemes: ['http', 'https', 'mailto', 'cid'],
     allowedSchemesByTag: {
       img: ['http', 'https', 'cid', 'data'],
+      // data: only reaches these past backgroundAttribute, as a base64 raster image.
+      ...Object.fromEntries([...DATA_BACKGROUND_TAGS].map(tag => [tag, ['http', 'https', 'mailto', 'cid', 'data']])),
     },
     disallowedTagsMode: 'discard',
   });

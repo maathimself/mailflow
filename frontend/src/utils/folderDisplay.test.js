@@ -9,6 +9,7 @@ import {
   folderParentLabel,
   folderParentPath,
   folderDisplayName,
+  folderDisplayNameForPath,
   folderRole,
 } from './folderDisplay.js';
 
@@ -173,6 +174,49 @@ describe('folderDisplayName', () => {
     assert.equal(folderRole({ path: 'Drafts', special_use: '\\Drafts' }), 'drafts');
     assert.equal(folderRole({ path: 'Projects' }), null);
     assert.equal(folderRole({}), null);
+  });
+});
+
+// The empty and delete confirmations, the "Emptying" notice and the message list header name a
+// folder by its path; they read as the sidebar does (#623 follow-up).
+describe('folderDisplayNameForPath', () => {
+  const en = key => ({ 'folders.trash': 'Trash', 'folders.spam': 'Spam', 'folders.archive': 'Archive', 'folders.inbox': 'Inbox' })[key] ?? key;
+
+  it('names SmarterMail\'s "Deleted Items" Trash, as the sidebar labels it', () => {
+    const folders = [
+      { path: 'INBOX', name: 'INBOX' },
+      { path: 'Deleted Items', name: 'Deleted Items', special_use: '\\Trash' },
+      { path: 'Junk E-mail', name: 'Junk E-mail', special_use: '\\Junk' },
+    ];
+    assert.equal(folderDisplayNameForPath('Deleted Items', en, {}, folders), 'Trash');
+    assert.equal(folderDisplayNameForPath('Junk E-mail', en, {}, folders), 'Spam');
+    assert.equal(folderDisplayNameForPath('INBOX', en, {}, folders), 'Inbox');
+  });
+
+  it('agrees with the sidebar when a second folder already carries the label', () => {
+    const folders = [
+      { path: 'Deleted Items', name: 'Deleted Items', special_use: '\\Trash' },
+      { path: 'Trash', name: 'Trash', special_use: null },
+    ];
+    assert.equal(folderDisplayNameForPath('Deleted Items', en, {}, folders), 'Deleted Items');
+    assert.equal(folderDisplayNameForPath('Trash', en, {}, folders), 'Trash');
+  });
+
+  it('uses the account folder mappings', () => {
+    const folders = [{ path: 'INBOX.Old', name: 'Old', delimiter: '.' }];
+    assert.equal(folderDisplayNameForPath('INBOX.Old', en, { archive: 'INBOX.Old' }, folders), 'Archive');
+  });
+
+  it('keeps a folder without a role as its server name', () => {
+    const folders = [{ path: 'Work/Clients', name: 'Clients', delimiter: '/' }];
+    assert.equal(folderDisplayNameForPath('Work/Clients', en, {}, folders), 'Clients');
+  });
+
+  it('reads a folder missing from the list as its last segment, or its mapped role', () => {
+    const folders = [{ path: 'INBOX', name: 'INBOX', delimiter: '.' }];
+    assert.equal(folderDisplayNameForPath('INBOX.Receipts', en, {}, folders), 'Receipts');
+    assert.equal(folderDisplayNameForPath('INBOX.Trash', en, { trash: 'INBOX.Trash' }, folders), 'Trash');
+    assert.equal(folderDisplayNameForPath('Projects/Alpha', en, {}, undefined), 'Alpha');
   });
 });
 

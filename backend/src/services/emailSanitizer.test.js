@@ -1037,3 +1037,36 @@ describe('image URLs are read as the browser reads them', () => {
     expect(blockRemoteImages(out)).not.toContain('evil.example');
   });
 });
+
+// #640: an embedded cid: or Content-Location background is a data: URI, which the background
+// attribute dropped, taking the newsletter's header image with it.
+describe('sanitizeEmail data: backgrounds', () => {
+  const png = 'data:image/png;base64,iVBORw0KGgo=';
+
+  it('keeps a base64 raster image in the background of a table, row or cell', () => {
+    const out = sanitizeEmail(`<table background="${png}"><tr background="data:image/JPEG;base64,/9j/"><td background="${png}">x</td></tr></table>`);
+    expect(out).toContain(`<table background="${png}">`);
+    expect(out).toContain('<tr background="data:image/JPEG;base64,/9j/">');
+    expect(out).toContain(`<td background="${png}">`);
+  });
+
+  it('drops any other data: background, and data: on other tags', () => {
+    for (const value of [
+      'data:image/svg+xml;base64,PHN2Zz4=',
+      'data:text/html;base64,PHNjcmlwdD4=',
+      'data:image/png,<svg onload=alert(1)>',
+      'data:image/png;base64,AA" onload="alert(1)',
+      ' data:application/javascript;base64,YWxlcnQoMSk=',
+    ]) {
+      const out = sanitizeEmail(`<table background='${value}'><tr><td>x</td></tr></table>`);
+      expect(out).not.toContain('background=');
+    }
+    expect(sanitizeEmail(`<div background="${png}">x</div>`)).not.toContain('background=');
+    expect(sanitizeEmail('<td background="javascript:alert(1)">x</td>')).not.toContain('background=');
+  });
+
+  it('still upgrades a remote background to https', () => {
+    expect(sanitizeEmail('<table background="http://example.com/bg.jpg"><tr><td>x</td></tr></table>'))
+      .toContain('background="https://example.com/bg.jpg"');
+  });
+});

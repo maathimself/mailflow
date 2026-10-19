@@ -29,7 +29,7 @@ import { cancelScheduledMarkReadFor } from '../utils/markRead.js';
 import { saveSenderCategory } from '../utils/senderCategory.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
-import { folderDisplayName, folderMatchesQuery, favoriteMoveTargets, recentMoveTargets } from '../utils/folderDisplay.js';
+import { folderDisplayName, folderDisplayNameForPath, folderMatchesQuery, folderRole, favoriteMoveTargets, recentMoveTargets } from '../utils/folderDisplay.js';
 import SpamBadge from './SpamBadge.jsx';
 import ReplyDraftIndicator from './ReplyDraftIndicator.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
@@ -2689,11 +2689,16 @@ export default function MessageList() {
   const accountColor = selectedAccount?.color || 'currentColor';
   const showInboxIcon = !isUnified && selectedFolder === 'INBOX' && !searchQuery.trim();
 
+  const selectedFolderCounts = folders[selectedAccountId]?.find(f => f.path === selectedFolder);
+  // A role folder reads as the sidebar names it: the "Deleted Items" it labels Trash is Trash here
+  // too (#623). Other folders keep their path.
+  const folderLabel = folderRole(selectedFolderCounts || { path: selectedFolder }, selectedAccount?.folder_mappings)
+    ? folderDisplayNameForPath(selectedFolder, t, selectedAccount?.folder_mappings, folders[selectedAccountId])
+    : selectedFolder;
   const label = searchQuery.trim()
     ? `Search: "${searchQuery}"`
-    : isSnoozedView ? t('sidebar.snoozed') : isUnified ? t('sidebar.allInboxes') : selectedFolder;
+    : isSnoozedView ? t('sidebar.snoozed') : isUnified ? t('sidebar.allInboxes') : folderLabel;
 
-  const selectedFolderCounts = folders[selectedAccountId]?.find(f => f.path === selectedFolder);
   const headerUnread = isSnoozedView && isUnified ? 0
     : isUnified ? unreadCounts.total
     : selectedFolder === 'INBOX' ? unreadCounts.byAccount[selectedAccountId] ?? 0

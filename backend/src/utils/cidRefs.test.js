@@ -36,6 +36,11 @@ describe('the settled marker', () => {
     expect(needsCidRefetch(settleCids(body, true))).toBe(false);
     expect(needsCidRefetch('<p>Your CID: 4521</p>')).toBe(false);
   });
+  it('a body settled before images marked as attachments could show (#640) is fetched once more', () => {
+    const legacy = `${body}<!--mf-cids-settled-->`;
+    expect(needsCidRefetch(legacy)).toBe(true);
+    expect(withoutCidMarker(legacy)).toBe(body);
+  });
   it('never leaves MailFlow', () => {
     expect(withoutCidMarker(settleCids(body, true))).toBe(body);
     expect(withoutCidMarker(null)).toBe(null);

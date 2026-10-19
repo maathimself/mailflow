@@ -201,6 +201,7 @@ async function loadForwardContent({ row, account, imapManager }) {
   let text = row.body_text;
   let html = row.body_html;
   let fetchedParts = [];
+  let inlineParts = [];
   if (!text && !html) {
     const fetched = await imapManager.fetchMessageBody(
       account,
@@ -210,8 +211,13 @@ async function loadForwardContent({ row, account, imapManager }) {
     text = fetched.text;
     html = fetched.html;
     fetchedParts = parseAttachments(fetched.attachments);
+    inlineParts = fetched.inlineParts || [];
   }
 
+  // An image the HTML shows as a data: URI goes out inline (embedInlineDataImages below), so it is
+  // not attached again: one the stored list still names from sync time, before the body showed it
+  // was part of the page, and an attached file the HTML also shows, marked shownInline (#640).
+  const shownInline = new Set(html ? inlineParts.map(String) : []);
   const storedParts = [];
   const seenParts = new Set();
   for (const attachment of [
@@ -227,6 +233,7 @@ async function loadForwardContent({ row, account, imapManager }) {
       continue;
     }
     const partKey = String(attachment.part);
+    if (shownInline.has(partKey) || (html && attachment.shownInline)) continue;
     if (seenParts.has(partKey)) continue;
     seenParts.add(partKey);
     storedParts.push(attachment);

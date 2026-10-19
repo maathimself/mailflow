@@ -14,7 +14,11 @@ export function savedDraftToComposeData(draft, bodyData, accounts = []) {
   const { body, signature } = bodyData?.html
     ? splitDraftSignature(raw)
     : { body: raw, signature: null, inline: false };
-  const externalAttachments = Array.isArray(bodyData?.attachments) ? bodyData.attachments : [];
+  const listed = Array.isArray(bodyData?.attachments) ? bodyData.attachments : [];
+  // A file the draft's HTML also shows (#640) is kept by that HTML, which is saved and sent with
+  // the image inline, so it is not attached again. It still accounts for the draft's paperclip.
+  const shownInline = bodyData?.html ? listed.filter(a => a?.shownInline) : [];
+  const externalAttachments = listed.filter(a => !shownInline.includes(a));
   const knownAttachments = externalAttachments.filter(a => a?.part);
   const account = accounts.find(a => a.id === draft.account_id);
   const aliasId = account?.aliases?.find(alias =>
@@ -41,10 +45,10 @@ export function savedDraftToComposeData(draft, bodyData, accounts = []) {
     references: draft.thread_references || undefined,
     threadId: draft.thread_id || undefined,
     isReply: Boolean(draft.in_reply_to || draft.thread_references),
-    externalAttachments: externalAttachments.length || draft.has_attachments ? externalAttachments.length ? externalAttachments : [{}] : [],
+    externalAttachments: externalAttachments.length || (draft.has_attachments && !shownInline.length) ? externalAttachments.length ? externalAttachments : [{}] : [],
     forwardedAttachments: knownAttachments.map(a => ({ messageId: draft.id, part: a.part, filename: a.filename, size: a.size })),
     unresolvedExternalAttachments: draft.attachments_complete !== true
-      || Boolean(draft.has_attachments && !externalAttachments.length)
+      || Boolean(draft.has_attachments && !externalAttachments.length && !shownInline.length)
       || knownAttachments.length !== externalAttachments.length,
   };
 }

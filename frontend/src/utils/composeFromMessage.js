@@ -133,7 +133,9 @@ export async function openForwardFromMessage(message, { openCompose, getMessageB
     quotedBodyHtml: fwdHtml,
     accountId: message.account_id,
     isForward: true,
-    forwardedAttachments: (fwdBody?.attachments || []).map(att => ({
+    // A file the HTML also shows (#640) travels in the quoted body, which the server sends as an
+    // inline image, so it is not attached a second time. A text-only forward still attaches it.
+    forwardedAttachments: (fwdBody?.attachments || []).filter(att => !(fwdBody?.html && att?.shownInline)).map(att => ({
       messageId: message.id,
       part: att.part,
       filename: att.filename || 'attachment',

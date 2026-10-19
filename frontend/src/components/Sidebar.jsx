@@ -7,7 +7,7 @@ import { api } from '../utils/api.js';
 import { signOut } from '../utils/signOut.js';
 import { resolveThreadMessages } from '../utils/threadActions.js';
 import { keepDraftsApart } from '../utils/conversationActions.js';
-import { folderDisplayName } from '../utils/folderDisplay.js';
+import { folderDisplayName, folderDisplayNameForPath } from '../utils/folderDisplay.js';
 import {
   activateOnKey,
   buildFolderTree,
@@ -595,9 +595,7 @@ export default function Sidebar() {
 
   const handleDeleteFolder = (accountId, folderPath) => {
     const account = accounts.find(a => a.id === accountId);
-    const accountFolders = folders[accountId] || [];
-    const delimiter = accountFolders.find(f => f.delimiter)?.delimiter || '/';
-    const name = folderPath.split(delimiter).pop();
+    const name = folderDisplayNameForPath(folderPath, t, account?.folder_mappings, folders[accountId]);
     const accountLabel = account?.name || account?.email_address || '';
     setConfirmDialog({
       message: t('sidebar.confirmDelete', { name }),
@@ -619,9 +617,9 @@ export default function Sidebar() {
 
   const handleEmptyFolder = (accountId, folderPath) => {
     const account = accounts.find(a => a.id === accountId);
-    const accountFolders = folders[accountId] || [];
-    const delimiter = accountFolders.find(f => f.delimiter)?.delimiter || '/';
-    const name = folderPath.split(delimiter).pop();
+    // The name the folder has in the sidebar, so emptying the "Deleted Items" it labels Trash
+    // asks about and reports Trash (#623).
+    const name = folderDisplayNameForPath(folderPath, t, account?.folder_mappings, folders[accountId]);
     const accountLabel = account?.name || account?.email_address || '';
     setConfirmDialog({
       message: t('sidebar.confirmEmpty', { name }),

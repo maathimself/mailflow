@@ -492,6 +492,77 @@ describe('forwardRuleMessage', () => {
     }));
   });
 
+  // #640: an image the body shows as a data: URI goes out once, inline.
+  it('does not attach again an image the fetched body shows inline', async () => {
+    const pdf = Buffer.from('pdfdata');
+    const header = { part: '5', filename: 'header.png', type: 'image/png', encoding: 'base64', size: 3 };
+    const row = {
+      ...messageRow,
+      body_text: '',
+      body_html: null,
+      // The list stored at sync time, before the body showed the header is part of the page.
+      attachments: [header, storedAttachments[0]],
+    };
+    imapManager.fetchMessageBody.mockResolvedValue({
+      text: 'News',
+      html: '<p>News<img src="data:image/png;base64,QUJD"></p>',
+      attachments: [storedAttachments[0]],
+      inlineParts: ['5'],
+    });
+    imapManager.fetchMultipleAttachments.mockResolvedValue(new Map([['2', pdf]]));
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'delivery-1' }] })
+      .mockResolvedValueOnce({ rows: [row] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(forwardRuleMessage(input)).resolves.toBe('sent');
+
+    expect(imapManager.fetchMultipleAttachments).toHaveBeenCalledWith(
+      account, messageRow.uid, messageRow.folder, [storedAttachments[0]]);
+    const mail = transport.sendMail.mock.calls[0][0];
+    expect(mail.attachments.map(a => a.filename)).toEqual(['image-0.png', 'invoice.pdf']);
+  });
+
+  // A background is not carried as an image part (embedInlineDataImages converts <img src> only),
+  // and mail clients drop CSS data: URIs: a photo shown only that way still goes as a file.
+  it('still attaches a listed photo the body shows only as a background', async () => {
+    const photo = { part: '3', filename: 'photo.jpg', type: 'image/jpeg', encoding: 'base64', size: 3 };
+    const jpeg = Buffer.from('JPEG');
+    imapManager.fetchMessageBody.mockResolvedValue({
+      text: 'Look',
+      html: '<table background="data:image/jpeg;base64,SlBFRw=="><tr><td>Look</td></tr></table>',
+      attachments: [photo],
+      inlineParts: [],
+    });
+    imapManager.fetchMultipleAttachments.mockResolvedValue(new Map([['3', jpeg]]));
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'delivery-1' }] })
+      .mockResolvedValueOnce({ rows: [{ ...messageRow, body_text: '', body_html: null, attachments: [photo] }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(forwardRuleMessage(input)).resolves.toBe('sent');
+    expect(transport.sendMail.mock.calls[0][0].attachments.map(a => a.filename)).toEqual(['photo.jpg']);
+  });
+
+  it('does not attach again a listed photo the stored body shows inline, but does without HTML', async () => {
+    const photo = { part: '3', filename: 'photo.jpg', type: 'image/jpeg', encoding: 'base64', size: 3, shownInline: true };
+    const jpeg = Buffer.from('JPEG');
+    imapManager.fetchMultipleAttachments.mockResolvedValue(new Map([['3', jpeg]]));
+    const send = async (row) => {
+      query
+        .mockResolvedValueOnce({ rows: [{ id: 'delivery-1' }] })
+        .mockResolvedValueOnce({ rows: [row] })
+        .mockResolvedValueOnce({ rows: [] });
+      await expect(forwardRuleMessage(input)).resolves.toBe('sent');
+      return transport.sendMail.mock.calls.at(-1)[0].attachments.map(a => a.filename);
+    };
+
+    expect(await send({ ...messageRow, body_html: '<p>Look<img src="data:image/jpeg;base64,SlBFRw=="></p>', attachments: [photo] }))
+      .toEqual(['image-0.jpg']);
+    expect(await send({ ...messageRow, body_text: 'Look', body_html: null, attachments: [photo] }))
+      .toEqual(['photo.jpg']);
+  });
+
   it('rejects attachments larger than 25 MiB before SMTP delivery', async () => {
     const row = {
       ...messageRow,
