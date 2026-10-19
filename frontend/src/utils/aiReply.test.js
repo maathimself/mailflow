@@ -59,6 +59,23 @@ describe('stripQuotedReply', () => {
   });
 });
 
+describe('quote headers in other forms', () => {
+  test('French, with its space before the colon; German; Italian', () => {
+    assert.equal(stripQuotedReply('Ok.\n\nLe lun. 5 oct. 2026, Ana <ana@example.test> a écrit :\n> Voici.'), 'Ok.');
+    assert.equal(stripQuotedReply('Ok.\n\nAm 05.10.2026 um 10:00 schrieb Ana <ana@example.test>:\n> Hier.'), 'Ok.');
+    assert.equal(stripQuotedReply('Ok.\n\nIl giorno lun 5 ott 2026, Ana ha scritto:\n> Ecco.'), 'Ok.');
+  });
+
+  test('an "Original Message" separator, in any case and with any number of dashes', () => {
+    assert.equal(stripQuotedReply('Ok.\n\n-----Original Message-----\nFrom: Ana'), 'Ok.');
+    assert.equal(stripQuotedReply('Ok.\n-- Mensagem original --\nDe: Ana'), 'Ok.');
+  });
+
+  test('a line that only looks like one is kept', () => {
+    assert.equal(stripQuotedReply('Only rewrote: the intro.\nOn second thought, fine'), 'Only rewrote: the intro.\nOn second thought, fine');
+  });
+});
+
 describe('htmlToText', () => {
   test('keeps paragraphs and line breaks and decodes entities', () => {
     assert.equal(htmlToText('<p>Hi&nbsp;Ana,</p><p>Price: 10 &lt; 12 &amp; ok<br>Bye</p>'), 'Hi Ana,\nPrice: 10 < 12 & ok\nBye');
@@ -72,6 +89,50 @@ describe('htmlToText', () => {
   test('handles empty input', () => {
     assert.equal(htmlToText(''), '');
     assert.equal(htmlToText(undefined), '');
+  });
+});
+
+describe('htmlToText, more shapes', () => {
+  test('cuts at an Apple Mail or Outlook quote, but not at one the message starts with', () => {
+    assert.equal(htmlToText('<p>Yes.</p><blockquote type="cite">old</blockquote>'), 'Yes.');
+    assert.equal(htmlToText('<p>Yes.</p><div id="divRplyFwdMsg">old</div>'), 'Yes.');
+    assert.equal(htmlToText('<div class="gmail_quote">all of it</div>'), 'all of it');
+  });
+
+  test('drops style and script whatever their case, and keeps an unclosed "<" as text', () => {
+    assert.equal(htmlToText('<STYLE>p{}</Style><p>Hi</p><script>x()</script>'), 'Hi');
+    assert.equal(htmlToText('<p>3 < 4</p>'), '3 < 4');
+  });
+});
+
+// This runs over mail anyone can send. Each of these held the tab for seconds or longer with the
+// patterns the parsers used before; scanned, they take milliseconds.
+describe('on hostile input', () => {
+  const elapsed = (fn, input) => {
+    const started = performance.now();
+    fn(input);
+    return performance.now() - started;
+  };
+
+  test('htmlToText stays linear on tags that never close', () => {
+    for (const [name, input] of Object.entries({
+      'unclosed <div': '<div '.repeat(64_000),
+      'unclosed class attribute': '<div class="'.repeat(30_000),
+      'unclosed <blockquote': '<blockquote '.repeat(30_000),
+      'unclosed <style': '<style '.repeat(40_000),
+    })) {
+      assert.ok(elapsed(htmlToText, input) < 2000, name);
+    }
+  });
+
+  test('stripQuotedReply stays linear on a long crafted line', () => {
+    for (const [name, input] of Object.entries({
+      'German header with no end': `Am ${'schrieb x '.repeat(32_000)}`,
+      'many "wrote:"': `On ${'wrote: '.repeat(45_000)}x`,
+      'dashes around text': `${'-'.repeat(100_000)}x${'-'.repeat(100_000)}`,
+    })) {
+      assert.ok(elapsed(stripQuotedReply, input) < 2000, name);
+    }
   });
 });
 

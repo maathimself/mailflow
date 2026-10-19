@@ -21,19 +21,43 @@ export function aiReplyAvailable(aiStatus, plaintextEmail) {
   return Boolean(aiStatus?.enabled && aiStatus?.features?.compose && !plaintextEmail);
 }
 
-// Lines that start the quoted copy of an earlier message in a reply. Everything from the first
-// one down is that earlier message again, which the conversation already has in full.
-const QUOTE_HEADERS = [
-  /^\s*On\b.*\bwrote:\s*$/i,
-  /^\s*Em\b.*\bescreveu:\s*$/i,
-  /^\s*El\b.*\bescribió:\s*$/i,
-  /^\s*Le\b.*\ba écrit\s*:\s*$/i,
-  /^\s*Am\b.*\bschrieb\b.*:\s*$/i,
-  /^\s*Il giorno\b.*\bha scritto:\s*$/i,
-  /^\s*-{2,}\s*(Original Message|Mensagem original|Mensaje original|Message d'origine|Ursprüngliche Nachricht|Messaggio originale)\s*-{2,}\s*$/i,
-  /^-- $/, // the standard signature separator
-];
-// Outlook quotes with a header block instead: From:, then Sent:/Date: a line or two later.
+// Everything here runs over mail anyone can send, so it stays linear on hostile input: a pattern
+// that searches ahead from every position takes time growing with the square of the input (320 KB
+// of "<div " held the tab for some 20 seconds). Lines are matched by how they start and end, and
+// HTML by a scanner that looks at each character a bounded number of times.
+
+const isWordChar = ch => /[\p{L}\p{N}_]/u.test(ch);
+const startsWithWord = (text, word) => text.startsWith(word) && !isWordChar(text.charAt(word.length));
+const endsWithWord = (text, word) => text.endsWith(word) && !isWordChar(text.charAt(text.length - word.length - 1));
+
+function trimChar(text, ch) {
+  let start = 0;
+  let end = text.length;
+  while (start < end && text[start] === ch) start++;
+  while (end > start && text[end - 1] === ch) end--;
+  return text.slice(start, end);
+}
+
+const ORIGINAL_MESSAGE = new Set(['original message', 'mensagem original', 'mensaje original', "message d'origine", 'ursprüngliche nachricht', 'messaggio originale']);
+
+// A line that starts the quoted copy of an earlier message in a reply. Everything from the first one
+// down is that earlier message again, which the conversation already has in full.
+function startsQuote(line) {
+  if (line === '-- ') return true; // the standard signature separator
+  const text = line.trim().toLowerCase();
+  if (text.startsWith('--') && text.endsWith('--')) return ORIGINAL_MESSAGE.has(trimChar(text, '-').trim());
+  if (!text.endsWith(':')) return false;
+  // French puts a space before the colon: "a écrit :".
+  const intro = `${text.slice(0, -1).trimEnd()}:`;
+  return (startsWithWord(intro, 'on') && endsWithWord(intro, 'wrote:'))
+    || (startsWithWord(intro, 'em') && endsWithWord(intro, 'escreveu:'))
+    || (startsWithWord(intro, 'el') && endsWithWord(intro, 'escribió:'))
+    || (startsWithWord(intro, 'le') && endsWithWord(intro, 'a écrit:'))
+    || (startsWithWord(intro, 'am') && intro.includes('schrieb'))
+    || (startsWithWord(intro, 'il giorno') && endsWithWord(intro, 'ha scritto:'));
+}
+// Outlook quotes with a header block instead: From:, then Sent:/Date: a line or two later. Both
+// patterns are anchored and have nothing open-ended to retry, so they stay linear.
 const OUTLOOK_FROM = /^\s*\**(From|De|Von|Da|Od|От):\**\s/i;
 const OUTLOOK_SENT = /^\s*\**(Sent|Date|Enviado|Enviada|Data|Fecha|Gesendet|Envoyé|Inviato|Wysłano|Odesláno|Отправлено):\**\s/i;
 
@@ -45,7 +69,7 @@ export function stripQuotedReply(text) {
   let end = lines.length;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (QUOTE_HEADERS.some(re => re.test(line))
+    if (startsQuote(line)
       || (OUTLOOK_FROM.test(line) && lines.slice(i + 1, i + 4).some(next => OUTLOOK_SENT.test(next)))) {
       end = i;
       break;
@@ -59,22 +83,66 @@ export function stripQuotedReply(text) {
 }
 
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'" };
+const LINE_ENDING_TAGS = new Set(['p', 'div', 'li', 'tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote']);
+const SKIPPED_TAGS = new Set(['style', 'script', 'head']);
 
-// Plain text from a message's HTML, for messages sent without a text part. Cut where the quoted
-// earlier message starts, by the markers the common clients put there.
+function tagName(tag, from) {
+  let end = from;
+  while (end < tag.length && /[a-z0-9]/.test(tag[end])) end++;
+  return tag.slice(from, end);
+}
+
+// Whether an opening tag starts the quoted earlier message, by the markers the common clients put
+// on it.
+function opensQuote(name, tag) {
+  if (name === 'blockquote') return tag.includes('type="cite"') || tag.includes("type='cite'") || tag.includes('type=cite');
+  return name === 'div'
+    && (tag.includes('gmail_quote') || tag.includes('moz-cite-prefix') || tag.includes('divrplyfwdmsg') || tag.includes('appendonsend'));
+}
+
+// Where the closing tag of `name` starts at or after `from`, or -1.
+function closingTagAt(source, name, from) {
+  for (let at = source.indexOf('</', from); at !== -1; at = source.indexOf('</', at + 2)) {
+    if (source.slice(at + 2, at + 2 + name.length).toLowerCase() === name) return at;
+  }
+  return -1;
+}
+
+// Plain text from a message's HTML, for messages sent without a text part, cut where the quoted
+// earlier message starts.
 export function htmlToText(html) {
   if (!html) return '';
-  let source = String(html);
-  const quoteStart = source.search(/<div[^>]+class="[^"]*\b(gmail_quote|moz-cite-prefix)\b|<blockquote[^>]+type="cite"|<div[^>]+id="(divRplyFwdMsg|appendonsend)"/i);
-  if (quoteStart > 0) source = source.slice(0, quoteStart);
-  return source
-    .replace(/<(style|script|head)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|tr|h[1-6]|blockquote)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
+  const source = String(html);
+  let out = '';
+  let i = 0;
+  while (i < source.length) {
+    const open = source.indexOf('<', i);
+    if (open === -1) { out += source.slice(i); break; }
+    out += source.slice(i, open);
+    // As in a browser, a tag starts with a letter, "/" or "!"; any other "<" is text.
+    if (!/[a-z/!]/i.test(source.charAt(open + 1))) { out += '<'; i = open + 1; continue; }
+    const close = source.indexOf('>', open + 1);
+    // An unclosed "<" is text, as it was to the patterns this replaces.
+    if (close === -1) { out += source.slice(open); break; }
+    const tag = source.slice(open + 1, close).toLowerCase();
+    const closing = tag.startsWith('/');
+    const name = tagName(tag, closing ? 1 : 0);
+    if (!closing && open > 0 && opensQuote(name, tag)) break;
+    if (!closing && SKIPPED_TAGS.has(name)) {
+      const end = closingTagAt(source, name, close + 1);
+      if (end !== -1) {
+        const after = source.indexOf('>', end);
+        i = after === -1 ? source.length : after + 1;
+        continue;
+      }
+    }
+    if (name === 'br' || (closing && LINE_ENDING_TAGS.has(name))) out += '\n';
+    i = close + 1;
+  }
+  return out
     .replace(/&(#39|[a-z]+);/gi, (match, name) => ENTITIES[name.toLowerCase()] ?? match)
     .replace(/[ \t]+/g, ' ')
-    .replace(/ *\n */g, '\n')
+    .replace(/ ?\n ?/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
