@@ -1,9 +1,11 @@
 // Recoloring an email for a dark theme (#228): the color decisions. The pass over a rendered email
-// needs layout and is checked in Chromium by the dark-mode audit harness's self-test.
+// needs layout and is checked in Chromium by the dark-mode audit harness's self-test. The one case
+// below that needs none, text inside Chrome's translation wrappers, runs here in jsdom.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { themeAnchors, darkBackground, darkText, darkBorder, lightenTo, PIVOT, MIN_TEXT, MAX_TEXT } from './darkRecolor.js';
-import { contrastRatio } from './emailContrast.js';
+import { JSDOM } from 'jsdom';
+import { themeAnchors, darkBackground, darkText, darkBorder, lightenTo, planRecolor, applyPlan, PIVOT, MIN_TEXT, MAX_TEXT } from './darkRecolor.js';
+import { contrastRatio, parseColor } from './emailContrast.js';
 import { rgbToOklch } from './oklch.js';
 
 const anchors = themeAnchors({ background: '#0f0f11', text: '#e8e8f0' });
@@ -109,5 +111,29 @@ describe('darkBorder', () => {
     const out = darkBorder(rgb('#000000'), white, darkBg, anchors);
     const ratio = contrastRatio(out, darkBg);
     assert.ok(ratio >= 3 - 0.01 && ratio < 4, String(ratio));
+  });
+});
+
+describe('planRecolor on an email Chrome has translated', () => {
+  // How Chrome's page translation holds the text it rewrites. "Show original" puts the text back
+  // in place of these, as does translating into another language.
+  const TRANSLATED = '<font dir="auto" style="vertical-align: inherit;"><font dir="auto" style="vertical-align: inherit;">Translated text</font></font>';
+  const page = body => new JSDOM(`<!doctype html><html><body style="background-color: #ffffff; color: #222222">${body}</body></html>`).window.document;
+  const palette = { background: '#0f0f11', text: '#e8e8f0' };
+
+  test('text recolored while translated stays readable once the translation is undone', () => {
+    const doc = page(`<p id="p">${TRANSLATED}</p>`);
+    applyPlan(planRecolor(doc, palette));
+    const p = doc.getElementById('p');
+    p.replaceChildren('Texto original');
+    const color = parseColor(doc.defaultView.getComputedStyle(p).color);
+    assert.ok(contrastRatio(color, rgb('#0f0f11')) >= MIN_TEXT, JSON.stringify(color));
+  });
+
+  test("a sender's own markup is not taken for one", () => {
+    const doc = page('<p id="a"><font style="color: #cc0000;">red words</font></p><p id="b"><span style="vertical-align: inherit;">aligned words</span></p>');
+    const planned = planRecolor(doc, palette).map(([el, property]) => `${el.id || el.localName} ${property}`);
+    assert.ok(planned.includes('font color') && planned.includes('span color'), planned.join(', '));
+    assert.ok(!planned.includes('a color') && !planned.includes('b color'), planned.join(', '));
   });
 });

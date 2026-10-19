@@ -192,6 +192,30 @@ describe('no light flash before the dark pass', () => {
     assert.equal(iframe.style.visibility, '');
   });
 
+  // #639: the wrapper opens the body, so it is there from the first slice of a long email the
+  // browser parses in several. Set up then, the dark pass ran before the frame's own styles (which
+  // close the document) existed, and the page around a dark block turned white once they did.
+  test('a document still being parsed is not set up until parsing is done', async () => {
+    const { iframe, seen } = await show({ dark: true, messageId: 'flash-6' });
+    const doc = iframe.contentDocument;
+    let readyState = 'loading';
+    Object.defineProperty(doc, 'readyState', { configurable: true, get: () => readyState });
+    try {
+      parse(iframe); // the wrapper is in, the rest of the email and the frame's styles are not yet
+      doc.getElementById('mf-scale-wrapper').innerHTML =
+        '<table width="600" align="center"><tr><td bgcolor="#101010" style="color:#fff">A dark block on a light page</td></tr></table>';
+      for (let i = 0; i < 5; i += 1) await tick();
+      assert.deepEqual(seen, [], 'no dark pass on a half-parsed document');
+      assert.equal(iframe.style.visibility, 'hidden', 'still hidden while it parses');
+      readyState = 'interactive';
+      for (let i = 0; i < 5 && iframe.style.visibility; i += 1) await tick();
+      assert.deepEqual(seen, ['hidden'], 'the dark pass ran once parsing was done, while hidden');
+      assert.equal(iframe.style.visibility, '');
+    } finally {
+      delete doc.readyState;
+    }
+  });
+
   test('a light reader\'s frame is never hidden', async () => {
     const { iframe } = await show({ dark: false, messageId: 'flash-2' });
     assert.equal(iframe.style.visibility, '');
@@ -219,5 +243,65 @@ describe('frameSurface', () => {
     assert.equal(frameSurface(docWith('p{color:red}')), null);
     assert.equal(frameSurface(docWith('body{background:rgba(0,0,0,0)}')), null);
     assert.equal(frameSurface(null), null);
+  });
+});
+
+// A wide email is fitted to the frame again whenever the frame's width changes (#641): fitted
+// once on open, it was cut off on the right after the sidebar or a divider narrowed the pane.
+describe('fitting a wide email to the frame', () => {
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  test('refits when the frame gets narrower or wider, and ignores its height', async () => {
+    const observers = [];
+    const RealRO = globalThis.ResizeObserver;
+    const RO = class { constructor(cb) { this.cb = cb; this.targets = []; observers.push(this); } observe(t) { this.targets.push(t); } unobserve() {} disconnect() { this.targets = []; } };
+    globalThis.ResizeObserver = RO;
+    dom.window.ResizeObserver = RO;
+    try {
+      const iframeRef = React.createRef();
+      const emailScaleRef = { current: 1 };
+      await React.act(async () => root.render(null));
+      await React.act(async () => {
+        root.render(React.createElement(MessageBodyView, {
+          body: { html: '<table width="900"></table>', darkCss: '' }, messageId: 'fit-1', emailScaleRef,
+          hasNativeContextTarget: false, onContextMenu: null, iframeRef,
+        }));
+      });
+      const iframe = iframeRef.current;
+      let frameW = 600;
+      Object.defineProperty(iframe, 'offsetWidth', { configurable: true, get: () => frameW });
+      const doc = iframe.contentDocument;
+      for (const el of [doc.body, doc.documentElement]) Object.defineProperty(el, 'scrollWidth', { configurable: true, get: () => 900 });
+      const wrapper = doc.createElement('div');
+      wrapper.id = 'mf-scale-wrapper';
+      wrapper.setAttribute('data-mf-doc', /data-mf-doc="(\d+)"/.exec(iframe.getAttribute('srcdoc'))[1]);
+      doc.body.appendChild(wrapper);
+      for (let i = 0; i < 5 && !observers.some(o => o.targets.includes(iframe)); i += 1) await tick();
+      assert.equal(emailScaleRef.current, 600 / 900, 'fitted on open');
+      const frameObserver = observers.find(o => o.targets.includes(iframe));
+      assert.ok(frameObserver, 'the frame itself is watched');
+
+      frameW = 450; // the sidebar opened
+      frameObserver.cb([]);
+      for (let i = 0; i < 3; i += 1) await tick();
+      assert.equal(emailScaleRef.current, 0.5);
+      assert.equal(wrapper.style.transform, 'scale(0.5)');
+
+      const before = wrapper.getAttribute('style');
+      iframe.style.height = '900px'; // only the height, which this code sets itself
+      frameObserver.cb([]);
+      for (let i = 0; i < 3; i += 1) await tick();
+      assert.equal(wrapper.getAttribute('style'), before, 'not fitted again');
+
+      frameW = 1200; // and closed, with room to spare
+      frameObserver.cb([]);
+      for (let i = 0; i < 3; i += 1) await tick();
+      assert.equal(emailScaleRef.current, 1);
+      assert.equal(wrapper.style.transform, '');
+      await React.act(async () => root.render(null));
+      assert.deepEqual(frameObserver.targets, [], 'stops watching when the email is left');
+    } finally {
+      globalThis.ResizeObserver = RealRO;
+      dom.window.ResizeObserver = RealRO;
+    }
   });
 });

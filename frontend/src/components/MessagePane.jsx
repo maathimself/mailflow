@@ -29,17 +29,13 @@ import { folderMatchesQuery, favoriteMoveTargets, recentMoveTargets } from '../u
 import FolderPathLabel from './FolderPathLabel.jsx';
 import SpamBadge from './SpamBadge.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
-import { classifyAttachmentRisk } from '../utils/attachmentRisk.js';
 import { downloadEml } from '../utils/downloadEml.js';
 import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/printMessage.js';
 import AiResultBox from './AiResultBox.jsx';
 import { useAiActions } from '../hooks/useAiActions.js';
-import { previewKind } from '../utils/attachmentPreview.js';
-import AttachmentViewer from './AttachmentViewer.jsx';
+import AttachmentStrip from './AttachmentStrip.jsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
-// riskArmed value for the "Download all" link. A Symbol, so no attachment part can ever equal it.
-const DOWNLOAD_ALL = Symbol('downloadAll');
 
 // Module-level regex so the spam-name heuristic isn't recompiled on every
 // render — same heuristic as ContextMenu.jsx, both files read this constant.
@@ -69,42 +65,6 @@ function linkifyText(text) {
   return escaped.replace(
     /https?:\/\/[^\s<>"']+/g,
     url => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:inherit">${url}</a>`
-  );
-}
-
-function formatBytes(bytes) {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function fileIcon(type) {
-  const t = (type || '').toLowerCase();
-  const p = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75 };
-  if (t.startsWith('image/')) return (
-    <svg {...p}><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-  );
-  if (t === 'application/pdf') return (
-    <svg {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-  );
-  if (t.includes('word') || t.includes('document')) return (
-    <svg {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-  );
-  if (t.includes('sheet') || t.includes('excel') || t.includes('csv')) return (
-    <svg {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="10" y1="13" x2="10" y2="17"/><line x1="8" y1="15" x2="12" y2="15"/></svg>
-  );
-  if (t.includes('zip') || t.includes('compressed') || t.includes('archive')) return (
-    <svg {...p}><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="11" x2="16" y2="11"/></svg>
-  );
-  if (t.startsWith('video/')) return (
-    <svg {...p}><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-  );
-  if (t.startsWith('audio/')) return (
-    <svg {...p}><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-  );
-  return (
-    <svg {...p}><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
   );
 }
 
@@ -260,7 +220,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [bodyError, setBodyError] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
   const [loadingBody, setLoadingBody] = useState(false);
-  const [downloadingPart, setDownloadingPart] = useState(null);
   const [showReplyMenu, setShowReplyMenu] = useState(false);
   const [savingAllow, setSavingAllow] = useState(false);
   const [paneScrolled, setPaneScrolled] = useState(false);
@@ -759,36 +718,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     // and a run the user is still waiting for must survive that. Identity changes cancel runs
     // instead, from the store, where logout and account switch are actually known about.
   }, []);
-
-  // riskArmed: a risky attachment needs a second click to download; the first
-  // arms the button and shows why. Holds the attachment's part, or DOWNLOAD_ALL.
-  const [riskArmed, setRiskArmed] = useState(null);
-  // viewerStart: index into the previewable attachments the viewer opened on, or null.
-  const [viewerStart, setViewerStart] = useState(null);
-  useEffect(() => { setRiskArmed(null); setViewerStart(null); }, [selectedMessageId]);
-
-  const handleDownload = async (messageId, part, filename) => {
-    setDownloadingPart(part);
-    try {
-      const res = await fetch(`/api/mail/messages/${messageId}/attachments/${encodeURIComponent(part)}`, {
-        credentials: 'include'
-      });
-      if (!res.ok) throw new Error('Download failed');
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Download error:', err);
-    } finally {
-      setDownloadingPart(null);
-    }
-  };
 
   const handleOpenMovePicker = useCallback(async () => {
     if (!message) return;
@@ -1387,24 +1316,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const bccList = Array.isArray(body?.bccAddresses) ? body.bccAddresses : [];
 
   const attachments = body?.attachments || [];
-  const previewable = attachments.filter(att => previewKind(att));
-  // "Download all" hands over every file at once, so it asks first whenever one of them would. While
-  // it does, the link has no href, so a right-click "Save link as", a middle click or a long press has
-  // nothing to fetch; the confirming click starts the download itself.
-  const anyRiskyAttachment = attachments.some(att =>
-    ['block', 'warn'].includes(classifyAttachmentRisk(att.filename, att.type).level));
-  const downloadAllArmed = riskArmed === DOWNLOAD_ALL;
-  const downloadAllUrl = message ? `/api/mail/messages/${message.id}/attachments.zip` : '';
-  const confirmDownloadAll = () => {
-    if (!downloadAllArmed) { setRiskArmed(DOWNLOAD_ALL); return; }
-    setRiskArmed(null);
-    const a = document.createElement('a');
-    a.href = downloadAllUrl;
-    a.download = '';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  };
 
   return (
     <div
@@ -2196,116 +2107,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         {/* Attachments */}
         {attachments.length > 0 && (
           <div style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>
-                {t('message.attachment', { count: attachments.length })}
-              </div>
-              {attachments.length > 1 && (
-                <a
-                  {...(anyRiskyAttachment ? {
-                    role: 'button',
-                    tabIndex: 0,
-                    onClick: confirmDownloadAll,
-                    onKeyDown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); confirmDownloadAll(); } },
-                  } : { href: downloadAllUrl, download: true })}
-                  style={{
-                    fontSize: 12, color: downloadAllArmed ? 'var(--red)' : 'var(--accent)', textDecoration: 'none',
-                    display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
-                  }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                  {downloadAllArmed
-                    ? t('message.attachmentRisk.armed', { label: t('message.downloadAll') })
-                    : t('message.downloadAll')}
-                </a>
-              )}
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {attachments.map((att, i) => {
-                const risk = classifyAttachmentRisk(att.filename, att.type);
-                const risky = risk.level === 'block' || risk.level === 'warn';
-                const riskColor = risk.level === 'block' ? 'var(--red)' : risk.level === 'warn' ? 'var(--amber)' : 'var(--text-tertiary)';
-                const armed = riskArmed === att.part;
-                const canPreview = previewable.includes(att);
-                const riskText = risk.level === 'ok' ? '' : risk.doubleExt
-                  ? t('message.attachmentRisk.doubleExt', { ext: risk.doubleExt })
-                  : t(`message.attachmentRisk.${risk.level}`, { ext: risk.ext });
-                return (
-                <button
-                  key={i}
-                  title={canPreview ? t('message.preview.open') : undefined}
-                  onClick={() => {
-                    if (risky && !armed) { setRiskArmed(att.part); return; }
-                    setRiskArmed(null);
-                    if (canPreview) { setViewerStart(previewable.indexOf(att)); return; }
-                    handleDownload(message.id, att.part, att.filename);
-                  }}
-                  disabled={downloadingPart === att.part}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '8px 12px', borderRadius: 8,
-                    background: 'var(--bg-secondary)',
-                    border: `1px solid ${risky ? riskColor : 'var(--border)'}`,
-                    cursor: downloadingPart === att.part ? 'wait' : 'pointer',
-                    color: 'var(--text-primary)',
-                    transition: 'background 0.1s',
-                    maxWidth: 240,
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
-                >
-                  <span style={{ display: 'flex', flexShrink: 0, color: 'var(--text-secondary)' }}>{fileIcon(att.type)}</span>
-                  <div style={{ minWidth: 0, textAlign: 'left' }}>
-                    <div style={{
-                      fontSize: 12, fontWeight: 500,
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>
-                      {att.filename}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                      {downloadingPart === att.part ? t('message.downloading') : formatBytes(att.size)}
-                    </div>
-                    {risk.level !== 'ok' && (
-                      <div style={{ fontSize: 11, color: riskColor, fontWeight: risk.level === 'block' ? 600 : 400, whiteSpace: 'normal' }}>
-                        {armed ? t('message.attachmentRisk.armed', { label: riskText }) : riskText}
-                      </div>
-                    )}
-                  </div>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                    stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
-                    {canPreview ? (
-                      <>
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                        <circle cx="12" cy="12" r="3"/>
-                      </>
-                    ) : (
-                      <>
-                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                        <polyline points="7 10 12 15 17 10"/>
-                        <line x1="12" y1="15" x2="12" y2="3"/>
-                      </>
-                    )}
-                  </svg>
-                </button>
-                );
-              })}
-            </div>
+            <AttachmentStrip key={message.id} messageId={message.id} attachments={attachments} />
           </div>
-        )}
-
-        {viewerStart !== null && message && previewable.length > 0 && (
-          <AttachmentViewer
-            key={`${message.id}:${viewerStart}`}
-            messageId={message.id}
-            attachments={previewable}
-            startIndex={viewerStart}
-            onClose={() => setViewerStart(null)}
-            onDownloadFallback={att => handleDownload(message.id, att.part, att.filename)}
-          />
         )}
 
         {/* AI action results — pinned boxes above the message (#204) */}

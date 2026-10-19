@@ -974,7 +974,7 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
           width: '100%', maxWidth: 680,
           maxHeight: '80vh', overflow: 'auto',
           padding: '24px 28px',
-          animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) both',
+          animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) backwards',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>

@@ -35,7 +35,12 @@ export function usableDarkCss(darkCss) {
 // still there for a moment after it changes.
 export function buildFrameDoc({ html, palette = DARK_DEFAULTS, darkCss = '', remoteImagesBlocked = false, remoteImagesProxied = false, docKey = '' }) {
   const css = usableDarkCss(darkCss);
-  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+  // index.html marks the app translate="no" so a browser translator cannot break React's DOM,
+  // and Chrome's translator carries that into this frame. React renders nothing in here, so the
+  // email opts back in at its own root. Not on the <iframe>: there Chrome's translator also
+  // rewrites its title, which the app has already localized, and skips an email swapped into
+  // the frame later.
+  return `<!DOCTYPE html><html translate="yes"><head><meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       <meta name="color-scheme" content="only light">
       <meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; style-src 'unsafe-inline';${remoteLoadsCsp(remoteImagesBlocked, remoteImagesProxied)}">

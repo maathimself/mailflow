@@ -5821,7 +5821,7 @@ function ConfirmOverlay({ dialog, onClose }) {
         background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
         borderRadius: 12, padding: '24px 24px 20px', maxWidth: 360, width: '100%',
         boxShadow: 'var(--shadow-modal)',
-        animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) both',
+        animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) backwards',
       }} onClick={e => e.stopPropagation()}>
         <p style={{ margin: '0 0 8px', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
           {dialog.title}
@@ -8734,7 +8734,7 @@ function SearchResultsView({ results, query, onNavigate, t }) {
 
 export default function AdminPanel() {
   const { t } = useTranslation();
-  const { setShowAdmin, adminTab, setAdminTab, user } = useStore();
+  const { setShowAdmin, adminTab, setAdminTab, user, fontSize } = useStore();
   const isMobile = useMobile();
   const visibleTabs = TABS.filter(tab => (!tab.adminOnly || user?.isAdmin) && (!tab.mobileHidden || !isMobile));
 
@@ -8931,9 +8931,11 @@ export default function AdminPanel() {
       <div className="admin-panel admin-window" style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 16, width: '100%', maxWidth: 740,
-        height: '82vh', maxHeight: 700, display: 'flex', overflow: 'hidden',
+        // vh is the real screen, but the app is drawn scaled by the font size (MailApp), so at
+        // 125% a plain 82vh came out taller than the screen and the top went off it.
+        height: `calc(82vh / ${(fontSize || 100) / 100})`, maxHeight: 700, display: 'flex', overflow: 'hidden',
         boxShadow: 'var(--shadow-modal)',
-        animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) both',
+        animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) backwards',
       }}>
         {/* Left sidebar */}
         <div style={{

@@ -67,6 +67,8 @@ const bodyRequests = [];
 const bulkReads = [];
 let blockImages = false;
 let textOnly = false;
+// What every fetched body carries as its attachment list; a test fills it to see the strip.
+const bodyAttachments = [];
 const remoteBodyRequests = [];
 globalThis.fetch = async (url, opts = {}) => {
   const u = String(url);
@@ -81,7 +83,7 @@ globalThis.fetch = async (url, opts = {}) => {
     const remote = u.includes('remoteImages=1');
     if (remote) remoteBodyRequests.push(id);
     if (textOnly) return { ok: true, status: 200, json: async () => ({ html: '', text: `plain body of ${id}`, attachments: [] }) };
-    return { ok: true, status: 200, json: async () => ({ html: `<p>body of ${id}</p>`, text: '', attachments: [], hasBlockedRemoteImages: blockImages && !remote }) };
+    return { ok: true, status: 200, json: async () => ({ html: `<p>body of ${id}</p>`, text: '', attachments: bodyAttachments, hasBlockedRemoteImages: blockImages && !remote }) };
   }
   return { ok: true, status: 200, json: async () => ({}) };
 };
@@ -214,6 +216,29 @@ describe('conversation pane', () => {
     assert.equal(bodyRequests.length, before, 'a body already loaded is kept');
   });
 
+  test('an opened card renders the attachments its body carries (#634)', async (t) => {
+    // The body response already lists the files; before the strip the card dropped that
+    // list, so a grouped thread gave no way to see or download an attachment at all.
+    bodyAttachments.push(
+      { part: '2', filename: 'invoice.pdf', type: 'application/pdf', size: 12345 },
+      { part: '3', filename: 'notes.txt', type: 'text/plain', size: 678 },
+    );
+    t.after(() => { bodyAttachments.length = 0; });
+    await React.act(async () => {
+      root.render(React.createElement(ConversationPane, { key: 'attachments', threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm1' }));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    const opened = document.querySelector('[data-message-id="m1"]');
+    assert.match(opened.textContent, /message\.attachment/, 'the strip renders under its heading');
+    assert.match(opened.textContent, /invoice\.pdf/, 'the first file shows as a chip');
+    assert.match(opened.textContent, /notes\.txt/, 'and so does the second');
+    assert.match(opened.textContent, /12 KB/, 'with its size');
+    assert.match(opened.textContent, /message\.downloadAll/, 'and "Download all" for more than one');
+    assert.ok(
+      !document.querySelector('[data-message-id="m2"]').textContent.includes('invoice.pdf'),
+      'a collapsed card, whose body was never fetched, shows none');
+  });
+
   test('a plain-text message stays translatable under the translate="no" UI', async (t) => {
     // See index.html: <body> is translate="no", and a plain-text body renders in the main
     // document, so it has to opt back in or the browser cannot translate it.
@@ -226,6 +251,20 @@ describe('conversation pane', () => {
     const body = [...document.querySelectorAll('div')].find(el => el.textContent === 'plain body of m1');
     assert.ok(body, 'the plain-text body is rendered');
     assert.equal(body.getAttribute('translate'), 'yes');
+  });
+
+  test('an HTML message stays translatable under the translate="no" UI', async () => {
+    // Chrome's translator carries the page's translate="no" into the same-origin frame an HTML
+    // body renders in, so the email has to opt back in inside its own document.
+    await React.act(async () => {
+      root.render(React.createElement(ConversationPane, { key: 'html-body', threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm1' }));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    const frame = [...document.querySelectorAll('iframe')].find(f => /body of m1/.test(f.getAttribute('srcdoc') ?? ''));
+    assert.ok(frame, 'the HTML body is rendered in a frame');
+    const text = new dom.window.DOMParser().parseFromString(frame.getAttribute('srcdoc'), 'text/html').querySelector('p');
+    assert.ok(text, 'the HTML body reaches the frame');
+    assert.equal(text.closest('[translate]')?.getAttribute('translate'), 'yes');
   });
 
   // #228: plain text follows a dark theme, and each card can switch back to its original colors.

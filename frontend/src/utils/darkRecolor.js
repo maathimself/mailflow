@@ -109,8 +109,15 @@ export function darkBorder(color, lightBg, newBg, anchors) {
 const SKIP = new Set(['HEAD', 'STYLE', 'SCRIPT', 'TITLE', 'META', 'LINK', 'BASE', 'TEMPLATE', 'IMG', 'PICTURE', 'VIDEO', 'SVG']);
 const SIDES = ['top', 'right', 'bottom', 'left'];
 const same = (a, b) => Math.round(a.r) === Math.round(b.r) && Math.round(a.g) === Math.round(b.g) && Math.round(a.b) === Math.round(b.b);
+// Chrome's page translation puts the text it rewrites in these, and takes them out again for
+// "Show original" or another language. Their text counts as their parent's too, so a color
+// planned while the email is translated is not lost with them.
+const isTranslationWrapper = (node) => node.localName === 'font' && node.style.verticalAlign === 'inherit';
 const hasOwnText = (el) => {
-  for (const node of el.childNodes) if (node.nodeType === 3 && node.nodeValue.trim()) return true;
+  for (const node of el.childNodes) {
+    if (node.nodeType === 3 && node.nodeValue.trim()) return true;
+    if (isTranslationWrapper(node)) return true;
+  }
   return false;
 };
 

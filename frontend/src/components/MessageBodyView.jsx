@@ -6,6 +6,7 @@ import { forwardIframeKeydown } from '../utils/iframeKeys.js';
 import { buildFrameDoc, DARK_DEFAULTS, SCALE_WRAPPER } from '../utils/emailFrameDoc.js';
 import { applyDarkBody, restoreBody } from '../utils/darkBody.js';
 import { loadImagesNearView } from '../utils/frameLazyImages.js';
+import { fitEmailToFrame, contentOverflows, createFitGuard, FIT_TOLERANCE_PX } from '../utils/emailFrameFit.js';
 
 // The theme's colors for a body shown dark (#228). They come from CSS variables that an admin's
 // custom CSS can redefine, and they are written into the frame's stylesheet, so only a plain
@@ -120,6 +121,7 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
     let iframeKeyHandler = null;
     let focusReturn = null;
     let stopLazyImages = null;
+    let frameRo = null;
     // Shown once the dark pass has run (see the layout effect below), or if the document never
     // turns up, so a frame can never be left hidden.
     const reveal = () => { iframe.style.removeProperty('visibility'); };
@@ -159,6 +161,15 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
       // dark), and this email, parsed a moment later, showed light until its load event, which
       // waits for every image. Each document carries its own key.
       if (!doc || doc.getElementById(SCALE_WRAPPER)?.getAttribute('data-mf-doc') !== docKey) return;
+      // Nor while it is still being parsed (#639). The wrapper opens the body, so it is there as
+      // soon as parsing starts, and a browser busy with other work (the list after a folder switch)
+      // parses a long email in several slices. Set up between two of them, the dark pass ran
+      // before the frame's own styles, which close the document, existed: the body, unstyled then,
+      // was left out of the recoloring and turned white once they arrived, and any of the email
+      // still to come stayed as sent, its images never made eager. The frame runs no scripts, so
+      // nothing holds parsing up: 'interactive' follows within moments, and the frame stays hidden
+      // until then.
+      if (doc.readyState === 'loading') return;
       // Guard the fast path against re-running on a document already wired up. This is
       // per effect run, so a genuine re-run (changed deps) still re-attaches everything
       // the cleanup tore down.
@@ -190,57 +201,48 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
       forceEagerImages(doc);
 
       pinFrameRoot(doc);
-      const b = doc.body;
-      const h = doc.documentElement;
 
       // Some marketing emails (e.g. Avis) use class-based !important rules that
       // lock layout to a fixed pixel width and cannot be overridden by our injected
       // CSS. Measure the rendered content width and, if it exceeds the iframe,
       // scale the entire wrapper div down proportionally so all content is visible.
-      const iframeW = iframe.offsetWidth;
-      if (iframeW > 0) {
-        // iOS Safari clamps scrollWidth to the iframe viewport when overflow:hidden
-        // is set on html/body, so wide fixed-layout emails are never detected.
-        // Temporarily expose overflow-x inline (beating the !important stylesheet
-        // rule) to let scrollWidth reflect the true content width, then restore.
-        // Note: overflow-x:visible is coerced to auto when overflow-y is non-visible —
-        // that's fine; auto still returns the real scrollable content width.
-        if (b) b.style.setProperty('overflow-x', 'visible', 'important');
-        if (h) h.style.setProperty('overflow-x', 'visible', 'important');
-        const contentW = Math.max(
-          h ? h.scrollWidth : 0,
-          b ? b.scrollWidth : 0,
-        );
-        if (b) b.style.removeProperty('overflow-x');
-        if (h) h.style.removeProperty('overflow-x');
-
-        const wrapper = doc.getElementById('mf-scale-wrapper');
-        if (contentW > iframeW + 2) { // +2 absorbs sub-pixel rounding
-          const scale = iframeW / contentW;
-          emailScaleRef.current = scale;
-          if (wrapper) {
-            wrapper.style.transform       = `scale(${scale})`;
-            wrapper.style.transformOrigin = 'top left';
-            // Lock the wrapper at its natural content width so the scale
-            // maps exactly contentW → iframeW with no clipping.
-            wrapper.style.width           = `${contentW}px`;
-          }
-        }
-      }
+      // Done again whenever the frame's width changes or the email grows wider than
+      // it (#641): fitted only here, an email that widened as its images loaded, or a
+      // pane narrowed by the sidebar, was left cut off on the right.
+      let fittedW = 0;
+      const fitGuard = createFitGuard();
+      const fit = () => {
+        const frameW = iframe.offsetWidth;
+        if (!(frameW > 0)) return false;
+        fittedW = frameW;
+        const prev = emailScaleRef.current;
+        emailScaleRef.current = fitEmailToFrame(doc, frameW, { scale: prev, ...fitGuard.limits(frameW) });
+        fitGuard.record(prev, emailScaleRef.current, frameW, performance.now());
+        return emailScaleRef.current !== prev;
+      };
+      fit();
 
       const expandScrollContainers = createScrollExpander(doc);
       expandScrollContainers();
       // One measurement per frame, however many images load in it: each load and the
       // ResizeObserver each asked for their own, and every change of the frame's height lays
       // the pane out again.
+      // The fit rides along: `refit` when the frame's width changed or an image arrived,
+      // `check` when only the email's size did, which refits only if it now overflows.
       let measureQueued = false;
       let expandQueued = false;
-      scheduleMeasure = ({ expand = false } = {}) => {
+      let fitQueued = null;
+      scheduleMeasure = ({ expand = false, fit: fitting = null } = {}) => {
         expandQueued = expandQueued || expand;
+        if (fitting && fitQueued !== 'refit') fitQueued = fitting;
         if (measureQueued) return;
         measureQueued = true;
         rafId = requestAnimationFrame(() => {
           measureQueued = false;
+          const fitting = fitQueued;
+          fitQueued = null;
+          // A new scale changes the height to apply; measured afresh, as for a new email.
+          if (fitting && (fitting === 'refit' || contentOverflows(doc)) && fit()) heights.reset();
           if (expandQueued) {
             expandQueued = false;
             expandScrollContainers();
@@ -323,7 +325,7 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
       // scroll containers whose content has grown due to the newly loaded image.
       doc.querySelectorAll('img').forEach(img => {
         if (!img.complete) {
-          img.addEventListener('load', () => scheduleMeasure({ expand: true }), { once: true });
+          img.addEventListener('load', () => scheduleMeasure({ expand: true, fit: 'refit' }), { once: true });
           img.addEventListener('error', () => scheduleMeasure(), { once: true });
         }
       });
@@ -339,8 +341,15 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
         // (stale document, then the real one), and overwriting the ref without this
         // leaves the previous observer running against the old document forever.
         if (roRef.current) roRef.current.disconnect();
-        roRef.current = new ResizeObserver(() => scheduleMeasure());
+        roRef.current = new ResizeObserver(() => scheduleMeasure({ fit: 'check' }));
         roRef.current.observe(root);
+        // The frame's own width: the sidebar, a divider, the window. Its height is ours to set,
+        // so a change below the rounding tolerance, height included, is ignored.
+        frameRo?.disconnect();
+        frameRo = new ResizeObserver(() => {
+          if (Math.abs(iframe.offsetWidth - fittedW) >= FIT_TOLERANCE_PX) scheduleMeasure({ fit: 'refit' });
+        });
+        frameRo.observe(iframe);
       }
 
       // Images held back further down the email load as the reader nears them.
@@ -382,6 +391,7 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
       cancelAnimationFrame(rafId);
       if (pollId) cancelAnimationFrame(pollId);
       if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
+      frameRo?.disconnect();
       if (contextMenuDoc && iframeContextMenuHandler) {
         contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);
       }

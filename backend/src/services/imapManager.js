@@ -968,7 +968,7 @@ function safeDate(d) {
 // connectStaggerMs:     base gap between successive account connects at startup, to keep the
 //                       initial burst under a provider's per-IP connection rate limit.
 //                       Omitted → 200ms default. See connectStaggerFor(). (#218)
-const PROVIDERS = {
+export const PROVIDERS = {
   google: {
     // Gmail folders are label memberships; matching Message-IDs are not proof of a move.
     labelStore: true,

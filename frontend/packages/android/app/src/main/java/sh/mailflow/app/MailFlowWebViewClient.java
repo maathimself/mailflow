@@ -17,12 +17,14 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
     private static final String FALLBACK_PATH = "/host-unavailable.html";
     private final Bridge bridge;
     private final Context context;
+    private final MainActivity activity;
     private boolean loadingFallback = false;
 
-    public MailFlowWebViewClient(Bridge bridge, Context context) {
+    public MailFlowWebViewClient(Bridge bridge, MainActivity activity) {
         super(bridge);
         this.bridge = bridge;
-        this.context = context.getApplicationContext();
+        this.context = activity.getApplicationContext();
+        this.activity = activity;
     }
 
     @Override
@@ -31,6 +33,7 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
         if (request == null || uri == null) return super.shouldOverrideUrlLoading(view, request);
 
         String url = uri.toString();
+        if (request.isForMainFrame() && openOidcLogin(view, url)) return true;
         if (isConfiguredHost(url) || isAppPage(url)) return false;
         if (!request.isForMainFrame()) return isWebUrl(uri);
         if (openExternallyIfNeeded(url)) return true;
@@ -40,6 +43,7 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
 
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, String url) {
+        if (openOidcLogin(view, url)) return true;
         if (isConfiguredHost(url) || isAppPage(url)) return false;
         if (openExternallyIfNeeded(url)) {
             return true;
@@ -86,6 +90,13 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
                 loadFallback(view);
             }
         });
+    }
+
+    private boolean openOidcLogin(WebView view, String url) {
+        String host = MailFlowNativePlugin.getSavedHost(context);
+        if (!MailFlowOidcLogin.isStartUrl(host, url)) return false;
+        MailFlowOidcLogin.open(activity, view, host, url);
+        return true;
     }
 
     private boolean isConfiguredHost(String url) {

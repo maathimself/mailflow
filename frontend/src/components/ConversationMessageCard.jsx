@@ -11,6 +11,7 @@ import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/pri
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import MessageBodyView from './MessageBodyView.jsx';
+import AttachmentStrip from './AttachmentStrip.jsx';
 import { isDarkTheme, canShowDark, showDark } from '../utils/darkScheme.js';
 import AiResultBox from './AiResultBox.jsx';
 import { useAiActions } from '../hooks/useAiActions.js';
@@ -329,6 +330,12 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
               } : {}),
             }}>{body.text}</div>
           )}
+
+          {/* Attachments, the reading pane's strip (#634): the body response already
+              carries them — without this the card dropped the files on the floor and a
+              grouped thread gave no way to see or download an attachment at all. The card
+              owes the strip its spacing; the reading pane's wrapper keeps its own. */}
+          <AttachmentStrip messageId={message.id} attachments={body?.attachments} style={{ marginTop: 12 }} />
 
           {/* Reply and forward are per message, not per thread: replying to a conversation
               means replying to one message in it, and which one decides the recipients and

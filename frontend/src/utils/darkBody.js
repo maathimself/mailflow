@@ -21,7 +21,7 @@ import { measureTextContrast, compareWithLight, brightShare } from './emailContr
 import { planRecolor, applyPlan, themeAnchors } from './darkRecolor.js';
 import { darkenImages } from './darkImages.js';
 
-// Per document: its light measurement (taken once, the text never changes) and how to undo
+// Per document: its light measurement (taken once, from its light rendering) and how to undo
 // whatever is shown now.
 const states = new WeakMap();
 const stateOf = (doc) => {

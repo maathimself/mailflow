@@ -170,6 +170,27 @@ public class MailFlowNativePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void openOidcLogout(PluginCall call) {
+        call.resolve(openOidcLogout(call.getString("url", "")));
+    }
+
+    private JSObject openOidcLogout(String url) {
+        JSObject result = new JSObject();
+        String host = getSavedHost(getContext());
+        Uri target = Uri.parse(url);
+        if (host == null || target.getHost() == null
+            || !("https".equalsIgnoreCase(target.getScheme()) || "http".equalsIgnoreCase(target.getScheme()))
+            || !(getActivity() instanceof MainActivity) || getActivity().isFinishing()) {
+            result.put("handled", false);
+            return result;
+        }
+        MainActivity activity = (MainActivity) getActivity();
+        activity.runOnUiThread(() -> MailFlowOidcLogin.open(activity, getBridge().getWebView(), host, url, true));
+        result.put("handled", true);
+        return result;
+    }
+
+    @PluginMethod
     public void setUnreadCount(PluginCall call) {
         Integer count = call.getInt("count");
         if (count != null) {
@@ -522,6 +543,7 @@ public class MailFlowNativePlugin extends Plugin {
             + "var call=function(method,args,fallback){var p=plugin();if(!p||typeof p[method]!=='function')return Promise.resolve(fallback||null);return p[method](args||{}).catch(function(){return fallback||null;});};"
             + "window.mailflowNative=window.mailflowNative||{};"
             + "window.mailflowNative.platform='android';"
+            + "window.mailflowNative.openOidcLogout=function(url){return nativeCall('openOidcLogout',{url:url},{handled:false});};"
             + "window.mailflowNative.updates=window.mailflowNative.updates||{};"
             + "window.mailflowNative.updates.check=function(verbose){return call('checkForUpdates',{verbose:!!verbose});};"
             + "window.mailflowNative.updates.installDownloaded=function(){return nativeCall('installDownloadedUpdate',{},null).then(function(result){return result||call('installDownloadedUpdate',{}, {installed:false,reason:'unavailable'});});};"
@@ -1271,6 +1293,10 @@ public class MailFlowNativePlugin extends Plugin {
             JSObject result = new JSObject();
             result.put("shown", true);
             return result;
+        }
+
+        if ("openOidcLogout".equals(method) && instance != null) {
+            return instance.openOidcLogout(args == null ? "" : args.optString("url", ""));
         }
 
         if ("installDownloadedUpdate".equals(method) && instance != null) {

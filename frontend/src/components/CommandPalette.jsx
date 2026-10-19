@@ -163,7 +163,7 @@ export default function CommandPalette({ open, onClose, labelPickerMessage = nul
           borderRadius: 12, width: '100%', maxWidth: 520, margin: '0 16px',
           boxShadow: 'var(--shadow-modal)',
           overflow: 'hidden',
-          animation: 'modal-enter var(--motion-fast) var(--ease-emphasized) both',
+          animation: 'modal-enter var(--motion-fast) var(--ease-emphasized) backwards',
         }}
         onClick={e => e.stopPropagation()}
       >

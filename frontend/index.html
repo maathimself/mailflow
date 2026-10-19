@@ -30,9 +30,11 @@
   translate="no" on <html>, so the tab title in <head> is covered too: the app ships its own
   translations (Settings → Appearance → Language). A browser translator rewrites the text nodes
   React owns, and React's next update then fails with "Failed to execute 'removeChild' on 'Node'"
-  and takes the whole app down. HTML mail renders in its own frame, a separate document this
-  attribute does not reach. The containers React writes plain-text mail into set translate="yes"
-  again, which Chrome honours and Edge's translator does not.
+  and takes the whole app down. Chrome's translator carries this into the frame HTML mail
+  renders in, so that frame's document (utils/emailFrameDoc.js) sets translate="yes" at its
+  root, as do the containers React writes mail into directly: plain text, and HTML under the
+  experimental div renderer. Chrome honors all of them; Edge's translator honors none, so
+  there mail stays untranslated, but nothing crashes.
 -->
 <body class="notranslate">
   <div id="root"></div>

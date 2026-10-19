@@ -686,6 +686,19 @@ describe('message body rendering', () => {
     assert.equal(card.closest('[translate]')?.getAttribute('translate'), 'yes');
   });
 
+  test('an HTML body stays translatable under the translate="no" UI', async () => {
+    // Chrome's translator carries the page's translate="no" into the same-origin frame, so the
+    // email has to opt back in inside its own document. jsdom does not parse srcdoc (see above),
+    // so the test parses it.
+    await open('h1');
+    const srcdoc = document.querySelector('iframe')?.getAttribute('srcdoc') ?? '';
+    const text = new dom.window.DOMParser().parseFromString(srcdoc, 'text/html').getElementById('hello');
+    assert.ok(text, 'the HTML body reaches the frame');
+    assert.equal(text.closest('[translate]')?.getAttribute('translate'), 'yes');
+    // Not on the <iframe>, where Chrome would also translate the frame's localized title.
+    assert.equal(document.querySelector('iframe').getAttribute('translate'), null);
+  });
+
   test('switching messages resets the frame height', async () => {
     // The pane sets the frame back to 300px before paint, so a tall email does not leave the
     // next, shorter one padded out with its height.
