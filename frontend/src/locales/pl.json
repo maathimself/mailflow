@@ -130,6 +130,7 @@
       "keepEditing": "Kontynuuj edycję"
     },
     "draftHasAttachments": "Załączniki nie są zapisywane wraz z wersjami roboczymi. Po ponownym otwarciu tej wersji trzeba będzie dodać je ponownie.",
+    "dropToAttach": "Upuść pliki, aby je załączyć",
     "emptySubject": {
       "title": "Wysłać bez tematu?",
       "sendAnyway": "Wyślij mimo to",

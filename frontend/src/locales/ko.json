@@ -188,6 +188,7 @@
       "copyAll": "이 필드의 내용을 모두 복사하세요."
     },
     "draftHasAttachments": "첨부 파일은 초안과 함께 저장되지 않습니다. 이 초안을 다시 열면 다시 첨부해야 합니다.",
+    "dropToAttach": "파일을 놓으면 첨부됩니다",
     "undoSend": {
       "sending": "\"{{subject}}\" 보내는 중…",
       "undone": "전송이 취소되었습니다",

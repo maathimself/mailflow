@@ -499,6 +499,7 @@
       "keepEditing": "Pokračovat v úpravách"
     },
     "draftHasAttachments": "Přílohy se s koncepty neukládají. Po opětovném otevření tohoto konceptu je budete muset přiložit znovu.",
+    "dropToAttach": "Pusťte soubory sem a přiložte je",
     "emptySubject": {
       "title": "Odeslat bez předmětu?",
       "sendAnyway": "Přesto odeslat",

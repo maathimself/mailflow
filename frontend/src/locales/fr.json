@@ -130,6 +130,7 @@
       "keepEditing": "Continuer à éditer"
     },
     "draftHasAttachments": "Les pièces jointes ne sont pas sauvegardées avec les brouillons. Vous devrez les rattacher à la réouverture.",
+    "dropToAttach": "Déposez les fichiers pour les joindre",
     "emptySubject": {
       "title": "Envoyer sans objet ?",
       "sendAnyway": "Envoyer quand même",

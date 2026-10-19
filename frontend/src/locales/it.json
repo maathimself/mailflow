@@ -130,6 +130,7 @@
       "keepEditing": "Continua a modificare"
     },
     "draftHasAttachments": "Gli allegati non vengono salvati con le bozze. Dovranno essere ricollegati alla riapertura.",
+    "dropToAttach": "Rilascia i file per allegarli",
     "emptySubject": {
       "title": "Inviare senza oggetto?",
       "sendAnyway": "Invia comunque",

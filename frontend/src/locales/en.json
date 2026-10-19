@@ -130,6 +130,7 @@
       "keepEditing": "Keep editing"
     },
     "draftHasAttachments": "Attachments are not saved with drafts. They will need to be re-attached when you reopen this draft.",
+    "dropToAttach": "Drop files to attach",
     "emptySubject": {
       "title": "Send without a subject?",
       "sendAnyway": "Send anyway",

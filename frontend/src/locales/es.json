@@ -130,6 +130,7 @@
       "keepEditing": "Seguir editando"
     },
     "draftHasAttachments": "Los archivos adjuntos no se guardan con los borradores. Deberás volver a adjuntarlos al reabrir.",
+    "dropToAttach": "Suelta los archivos para adjuntarlos",
     "emptySubject": {
       "title": "¿Enviar sin asunto?",
       "sendAnyway": "Enviar de todas formas",

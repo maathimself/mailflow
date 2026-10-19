@@ -130,6 +130,7 @@
       "keepEditing": "Continuar editando"
     },
     "draftHasAttachments": "Os anexos não são salvos junto com os rascunhos. Será preciso anexá-los novamente ao reabrir este rascunho.",
+    "dropToAttach": "Solte os arquivos para anexar",
     "emptySubject": {
       "title": "Enviar sem assunto?",
       "sendAnyway": "Enviar mesmo assim",
