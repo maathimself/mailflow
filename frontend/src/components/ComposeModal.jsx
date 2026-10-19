@@ -31,6 +31,7 @@ import { UNDO_SEND_SECONDS, undoWindowMs, trackHeldSend, reopenCompose } from '.
 import { openSentMessage } from '../utils/openSentMessage.js';
 import { frameGeometry } from '../utils/frameGeometry.js';
 import { AI_MESSAGE_MAX_CHARS } from '../aiActions.js';
+import { aiTextToHtml } from '../utils/aiText.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -851,8 +852,7 @@ export default function ComposeModal() {
 
   const applyAiText = () => {
     if (!aiPanel?.text || !editor) return;
-    const html = '<p>' + aiPanel.text.trim().replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
-    editor.commands.setContent(html);
+    editor.commands.setContent(aiTextToHtml(aiPanel.text));
     setAiPanel(null);
   };
 
