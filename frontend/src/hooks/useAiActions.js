@@ -5,6 +5,7 @@ import { api } from '../utils/api.js';
 import { BUILTIN_SUMMARIZE, buildAiActionContent, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
 import { aiRuns } from '../utils/aiRunRegistry.js';
+import { stripTags } from '../utils/stripTags.js';
 
 // AI actions on one message, shared by the reading pane and the conversation view (#521).
 //
@@ -57,7 +58,7 @@ export function useAiActions(messageId, body) {
     }
 
     const textContent = body?.text
-      || body?.html?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+      || (body?.html ? stripTags(body.html).replace(/\s+/g, ' ').trim() : '')
       || '';
     if (!textContent) return;
 
