@@ -133,6 +133,8 @@ describe('parseSearchQuery', () => {
 describe('freeTextTermCondition', () => {
   it('still matches sender, subject, and the stored search_vector at the given param positions', () => {
     const cond = freeTextTermCondition(3, 4);
+    expect(cond).toContain("to_tsvector('english', coalesce(m.body_text,''))");
+    expect(cond).toContain("CASE WHEN numnode(plainto_tsquery('english', $4)) > 0");
     expect(cond).toContain('m.from_name ILIKE $3');
     expect(cond).toContain('m.from_email ILIKE $3');
     expect(cond).toContain('m.subject ILIKE $3');

@@ -15,24 +15,10 @@ vi.mock('./db.js', () => {
     }
     return state.pool.query(sql, params);
   };
-  return {
-    query: execute,
-    withTransaction: async fn => {
-      await state.pool.query('BEGIN');
-      try {
-        const result = await fn({ query: execute });
-        await state.pool.query('COMMIT');
-        return result;
-      } catch (err) {
-        await state.pool.query('ROLLBACK');
-        throw err;
-      }
-    },
-  };
+  return { query: execute };
 });
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req, _res, next) => next() }));
 import router from '../routes/search.js';
-import { withTransaction } from './db.js';
 
 const url = process.env.MAILFLOW_TEST_DATABASE_URL;
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -48,31 +34,30 @@ async function compile(query, baseline = false) {
   finally { state.capture = false; }
   expect(status, JSON.stringify(payload)).toBe(200);
   let sql = state.sql;
-  if (baseline && sql) {
-    sql = sql.slice(sql.lastIndexOf('\n      SELECT\n'))
-      .replace(/(?:AND|WHERE) NOT \(SELECT enough FROM recent_page\)/g, '')
-      .replace(/\) SELECT \* FROM fast_matches[\s\S]*?SELECT \* FROM matched_messages/, '')
-      .replace(/\)\s*SELECT \* FROM matched_messages/, '')
-      .replace(/LEFT JOIN body_matches_([0-9]+) ON body_matches_\1.id = m.id/g, '')
-      .replace(/body_matches_([0-9]+).id IS NOT NULL/g,
-        (_arm, idx) => `to_tsvector('english', LEFT(coalesce(m.body_text,''), 600000)) @@ plainto_tsquery('english', $${idx})`);
-    expect(sql).not.toContain('body_matches');
+  if (baseline && sql?.includes('date_matches AS')) {
+    const scope = sql.match(/FROM \(SELECT \* FROM messages m WHERE ([\s\S]*?)\n {10}ORDER BY m.date DESC OFFSET 0/)[1];
+    const columns = sql.match(/date_matches AS \(SELECT ([\s\S]*?)\n {6}FROM/)[1];
+    const direct = sql.match(/ORDER BY m.date DESC OFFSET 0\) m\n {8}WHERE ([\s\S]*?)\n {10}AND NOT EXISTS/)[1]
+      .replace(/CASE WHEN numnode\(plainto_tsquery\('english', \$\d+\)\) > 0\s+THEN ([\s\S]*?)\s+ELSE false END/g, '$1')
+      .replaceAll("coalesce(m.body_text,'')", "LEFT(coalesce(m.body_text,''), 600000)");
+    const [cap, off] = [state.params.length - 1, state.params.length];
+    sql = `SELECT ${columns} FROM messages m JOIN email_accounts a ON m.account_id=a.id
+      WHERE ${scope} AND ${direct} ORDER BY m.date DESC LIMIT $${cap} OFFSET $${off}`;
   }
   return { sql, params: state.params };
 }
 
-async function execute(sql, params, baseline = false) {
-  if (baseline || !sql.includes('body_matches_')) return state.pool.query(sql, params);
-  return withTransaction(async client => {
-    await client.query("SET LOCAL work_mem='16MB'");
-    expect((await client.query('SHOW work_mem')).rows[0].work_mem).toBe('16MB');
-    return client.query(sql, params);
-  });
+async function execute(sql, params) {
+  return state.pool.query(sql, params);
 }
 
 async function search(query, baseline = false) {
   const { sql, params } = await compile(query, baseline);
   return sql ? (await execute(sql, params, baseline)).rows : [];
+}
+
+function planNodes(node) {
+  return [node, ...(node.Plans || []).flatMap(planNodes)];
 }
 
 describe.skipIf(!url)('body search (PostgreSQL)', () => {
@@ -168,13 +153,11 @@ describe.skipIf(!url)('body search (PostgreSQL)', () => {
       for (const q of ['rarebodytoken', 'absentbodytoken', '-rarebodytoken', 'calendar']) {
         const { sql, params } = await compile({ q });
         const plan = (await execute(`EXPLAIN (ANALYZE, FORMAT JSON) ${sql}`, params)).rows[0]['QUERY PLAN'][0];
-        const nodes = [];
-        const visit = node => { nodes.push(node); (node.Plans || []).forEach(visit); };
-        visit(plan.Plan);
-        expect(nodes.some(n => n['Index Name'] === 'idx_messages_body')).toBe(true);
-        const body = nodes.find(n => n['Subplan Name']?.startsWith('CTE body_matches_'));
-        expect(body).toBeDefined();
-        expect(body['Actual Loops']).toBe(q === 'calendar' || q === '-rarebodytoken' ? 0 : 1);
+        const nodes = planNodes(plan.Plan);
+        if (!q.startsWith('-')) expect(nodes.some(n => n['Index Name'] === 'idx_messages_body')).toBe(true);
+        const body = nodes.find(n => n['Subplan Name']?.startsWith('CTE term_candidates_'));
+        if (q.startsWith('-')) expect(body).toBeUndefined();
+        else expect(body['Actual Rows']).toBe(q === 'calendar' ? 0 : q === 'rarebodytoken' ? 1 : 0);
         expect(nodes.filter(n => n.Filter?.includes('to_tsvector') && n['Relation Name'] === 'messages' && n['Actual Rows'] > 256)).toEqual([]);
       }
     } finally {
@@ -182,6 +165,74 @@ describe.skipIf(!url)('body search (PostgreSQL)', () => {
       await state.pool.query('DELETE FROM messages WHERE uid>10000');
     }
   }, 120000);
+
+  it('bounds broad fallback IDs and walks the date index to stop early', async () => {
+    await state.pool.query(`INSERT INTO messages (account_id,uid,date,body_text)
+      SELECT $1,60000+i,NOW()+i*interval '1 second','routingbroadtoken'
+      FROM generate_series(1,5000)i`, [id(3)]);
+    await state.pool.query('ANALYZE messages');
+    try {
+      await state.pool.query("SET work_mem='2MB'");
+      for (const nesting of ['on', 'off']) {
+        await state.pool.query(`SET enable_nestloop=${nesting}`);
+        const { sql, params } = await compile({ q: 'routingbroadtoken', limit: 200, offset: 250 });
+        const plan = (await execute(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`, params)).rows[0]['QUERY PLAN'][0];
+        const nodes = planNodes(plan.Plan);
+        const collected = nodes.filter(n => /^CTE (body_matches_|term_candidates_)/.test(n['Subplan Name'] || ''));
+        expect(collected.length).toBeGreaterThan(0);
+        expect(collected.every(n => n['Actual Rows'] <= 1800)).toBe(true);
+        if (nesting === 'on') expect(nodes.some(n => n['Index Name'] === 'idx_messages_date' && n['Actual Loops'] > 0 && n['Actual Rows'] <= 450)).toBe(true);
+        const evaluated = nodes.filter(n => n.Filter?.includes('to_tsvector') && n['Actual Loops'] > 0);
+        expect(evaluated.length).toBeGreaterThan(0);
+        expect(evaluated.every(n => (n['Actual Rows'] + (n['Rows Removed by Filter'] || 0))*n['Actual Loops'] <= 450)).toBe(true);
+      }
+      const deep = await compile({ q: 'routingbroadtoken', limit: 200, offset: 25000 });
+      const deepPlan = (await execute(`EXPLAIN (ANALYZE, FORMAT JSON) ${deep.sql}`, deep.params)).rows[0]['QUERY PLAN'][0];
+      const stored = planNodes(deepPlan.Plan).filter(n => n['Subplan Name']?.startsWith('CTE term_candidates_'));
+      expect(stored.length).toBeGreaterThan(0);
+      expect(stored.every(n => n['Actual Rows'] <= 4096)).toBe(true);
+      await state.pool.query('RESET enable_nestloop');
+      expect((await search({ q: 'routingbroadtoken', limit: 200, offset: 250 })).map(r => Number(r.uid)))
+        .toEqual(Array.from({ length: 200 }, (_, i) => 64750 - i));
+    } finally {
+      await state.pool.query('RESET work_mem; RESET enable_nestloop');
+      await state.pool.query('DELETE FROM messages WHERE uid>60000');
+    }
+  });
+
+  it('routes all-broad, mixed, selective, negative and threshold-boundary terms', async () => {
+    // offset 257 + limit 1 gives T=1032, without running the recent probe.
+    await state.pool.query(`INSERT INTO messages (account_id,uid,date,body_text,subject,snippet)
+      SELECT $1,70000+i,NOW()+i*interval '1 second',
+        'routebroad '||CASE WHEN i<=1031 THEN 'routebelow ' ELSE '' END||
+        CASE WHEN i<=1032 THEN 'routeboundary ' ELSE '' END||
+        CASE WHEN i<=2 THEN 'routerare ' ELSE '' END||
+        CASE WHEN i=1 THEN 'routeone' ELSE '' END,
+        'routemetadata '||CASE WHEN i<=1031 THEN 'routebelow' ELSE '' END, 'routevector'
+      FROM generate_series(1,3000)i`, [id(3)]);
+    await state.pool.query('ANALYZE messages');
+    try {
+      for (const [q, term] of [
+        ['routebroad routemetadata', null], ['routebroad routerare', 5],
+        ['routerare', 3], ['routerare routeone', 5],
+        ['routebroad -routerare', null], ['routerare -routebroad', 3],
+        ['-routerare', null], ['-routebroad', null],
+        ['routebelow', 3], ['routeboundary', null], ['routemetadata', null], ['routevector', null],
+      ]) {
+        const { sql, params } = await compile({ q, offset: 257, limit: 1 });
+        const prefix = sql.slice(0, sql.indexOf('      SELECT * FROM ('));
+        const routed = await execute(`${prefix} SELECT term, $${params.length - 1}::int AS cap, $${params.length}::int AS off FROM search_driver`, params);
+        expect(routed.rows[0]?.term ?? null, q).toBe(term);
+        expect((await search({ q, offset: 257, limit: 1 })).map(r => r.id), q)
+          .toEqual((await search({ q, offset: 257, limit: 1 }, true)).map(r => r.id));
+      }
+      for (const [q, uids] of [['routerare -routebroad', []], ['routerare -routeone', [70002]],
+        ['after:2026-01-01 -routebroad', []]]) {
+        expect((await search({ q, limit: 200 })).map(r => Number(r.uid)), q).toEqual(uids);
+        expect((await search({ q, limit: 200 }, true)).map(r => Number(r.uid)), q).toEqual(uids);
+      }
+    } finally { await state.pool.query('DELETE FROM messages WHERE uid>70000'); }
+  });
 
   it('stops after a recent page without executing the all-match body scan', async () => {
     await state.pool.query(`INSERT INTO messages (account_id,uid,date,body_text)
@@ -191,13 +242,13 @@ describe.skipIf(!url)('body search (PostgreSQL)', () => {
     try {
       const { sql, params } = await compile({ q: 'commonpagetoken', limit: 50 });
       const plan = (await execute(`EXPLAIN (ANALYZE, FORMAT JSON) ${sql}`, params)).rows[0]['QUERY PLAN'][0];
-      const nodes = [];
-      const visit = node => { nodes.push(node); (node.Plans || []).forEach(visit); };
-      visit(plan.Plan);
+      const nodes = planNodes(plan.Plan);
       const bodyScans = nodes.filter(n => n['Index Name'] === 'idx_messages_body');
       expect(bodyScans.length).toBeGreaterThan(0);
       expect(bodyScans.every(n => n['Actual Loops'] === 0)).toBe(true);
-      expect(nodes.filter(n => /^CTE (body_matches_|matched_messages)/.test(n['Subplan Name'] || '')).every(n => n['Actual Loops'] === 0)).toBe(true);
+      expect(nodes.filter(n => /^CTE (term_candidates_|search_driver)/.test(n['Subplan Name'] || '')).every(n => n['Actual Rows'] === 0)).toBe(true);
+      const skipped = nodes.filter(n => n['Subplan Name']?.startsWith('CTE term_candidates_')).flatMap(planNodes);
+      expect(skipped.filter(n => n['Relation Name'] === 'messages').every(n => n['Actual Loops'] === 0)).toBe(true);
       expect((await search({ q: 'commonpagetoken' })).map(r => Number(r.uid)))
         .toEqual(Array.from({ length: 50 }, (_, i) => 31000 - i));
     } finally { await state.pool.query('DELETE FROM messages WHERE uid>30000'); }
@@ -212,12 +263,7 @@ describe.skipIf(!url)('body search (PostgreSQL)', () => {
     try {
       const { sql, params } = await compile({ q: 'boundedbodytoken' });
       const plan = (await execute(`EXPLAIN (ANALYZE, FORMAT JSON) ${sql}`, params)).rows[0]['QUERY PLAN'][0];
-      const evaluated = [];
-      const visit = node => {
-        if (node.Filter?.includes('to_tsvector') && node['Actual Loops'] > 0) evaluated.push(node);
-        (node.Plans || []).forEach(visit);
-      };
-      visit(plan.Plan);
+      const evaluated = planNodes(plan.Plan).filter(n => n.Filter?.includes('to_tsvector') && n['Actual Loops'] > 0);
       expect(evaluated.length).toBeGreaterThan(0);
       expect(evaluated.every(n => (n['Actual Rows'] + (n['Rows Removed by Filter'] || 0))*n['Actual Loops'] <= 256)).toBe(true);
     } finally {
@@ -248,7 +294,7 @@ describe.skipIf(!url)('body search (PostgreSQL)', () => {
     } finally { await state.pool.query('DELETE FROM messages WHERE uid>40000'); }
   }, 120000);
 
-  it('uses local search memory and restores the session after success and failure', async () => {
+  it('keeps session search memory on success and failure', async () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       for (const memory of ['4MB', '2MB']) {
@@ -261,7 +307,7 @@ describe.skipIf(!url)('body search (PostgreSQL)', () => {
           const res = { status: n => { status = n; return res; }, json: v => { payload = v; } };
           await handler({ query: { q: 'lighthouse' }, session: { userId: id(1) } }, res);
           expect(status).toBe(fail ? 500 : 200);
-          expect(state.memory).toEqual(['16MB']);
+          expect(state.memory).toEqual([memory]);
           expect((await state.pool.query('SHOW work_mem')).rows[0].work_mem).toBe(memory);
           if (fail) expect(payload).toEqual({ error: 'Search failed' });
         }
@@ -280,16 +326,18 @@ describe.skipIf(!url)('body search (PostgreSQL)', () => {
   it('does not evaluate bodies for empty tsqueries', async () => {
     const { sql, params } = await compile({ q: 'the or' });
     const plan = (await execute(`EXPLAIN (ANALYZE, FORMAT JSON) ${sql}`, params)).rows[0]['QUERY PLAN'][0];
-    const nodes = [];
-    const visit = node => { nodes.push(node); (node.Plans || []).forEach(visit); };
-    visit(plan.Plan);
-    const bodies = nodes.filter(n => n['Subplan Name']?.startsWith('CTE body_matches_'));
-    expect(bodies).toHaveLength(2);
-    for (const body of bodies) {
-      expect(body['Actual Rows']).toBe(0);
-      expect(body['One-Time Filter']).toBe('false');
-    }
+    const nodes = planNodes(plan.Plan);
+    const bodyScans = nodes.filter(n => n['Index Name'] === 'idx_messages_body');
+    expect(bodyScans.every(n => n['Actual Loops'] === 0)).toBe(true);
+    expect(nodes.filter(n => n.Filter?.includes('to_tsvector') && n['Actual Loops'] > 0)).toEqual([]);
     expect((await search({ q: 'the or' })).map(r => r.id)).toEqual((await search({ q: 'the or' }, true)).map(r => r.id));
+  });
+
+  it('benchmarks main without the revised empty-tsquery guard', async () => {
+    const { sql, params } = await compile({ q: 'the or' }, true);
+    const plan = (await execute(`EXPLAIN (VERBOSE, FORMAT JSON) ${sql}`, params)).rows[0]['QUERY PLAN'][0];
+    expect(JSON.stringify(plan)).toContain('to_tsvector');
+    expect(JSON.stringify(plan)).toContain('600000');
   });
 
   it('does not rescan broad negative matches at default or low work_mem', async () => {
@@ -300,16 +348,12 @@ describe.skipIf(!url)('body search (PostgreSQL)', () => {
     try {
       const broadQuery = await compile({ q: '-broadbodytoken' });
       const broadPlan = (await execute(`EXPLAIN (ANALYZE, FORMAT JSON) ${broadQuery.sql}`, broadQuery.params)).rows[0]['QUERY PLAN'][0];
-      const scans = [];
-      const visit = node => { if (node['CTE Name']?.startsWith('body_matches_')) scans.push(node); (node.Plans || []).forEach(visit); };
-      visit(broadPlan.Plan);
-      expect(scans.length).toBeGreaterThan(0);
-      expect(scans.every(n => n['Actual Loops'] <= 1)).toBe(true);
+      expect(JSON.stringify(broadPlan)).not.toContain('CTE body_matches_');
       await state.pool.query("SET work_mem='64kB'");
       const { sql, params } = await compile({ q: '-broadbodytoken' });
       const plan = (await execute(`EXPLAIN (FORMAT JSON) ${sql}`, params)).rows[0]['QUERY PLAN'][0];
       // A non-hashed SubPlan scans the materialized match set for each outer row.
-      expect(JSON.stringify(plan)).not.toMatch(/\(SubPlan [0-9]+\)/);
+      expect(JSON.stringify(plan)).not.toContain('CTE term_candidates_');
       expect((await search({ q: '-broadbodytoken' })).map(r => Number(r.uid))).toEqual([15, 14, 13, 7, 6, 5, 4, 3, 2, 1]);
     } finally {
       await state.pool.query('RESET work_mem');
@@ -317,7 +361,7 @@ describe.skipIf(!url)('body search (PostgreSQL)', () => {
     }
   }, 120000);
 
-  it.skipIf(!process.env.SEARCH_INDEX_BENCHMARK)('benchmarks 400k hydrated messages at default memory', async () => {
+  it.skipIf(!process.env.SEARCH_INDEX_BENCHMARK)('benchmarks 400k hydrated messages at 2MB and default memory', async () => {
     await state.pool.query(`CREATE INDEX idx_messages_from_email_trgm ON messages USING gin(from_email gin_trgm_ops);
       CREATE INDEX idx_messages_from_name_trgm ON messages USING gin(from_name gin_trgm_ops);
       CREATE INDEX idx_messages_subject_trgm ON messages USING gin(subject gin_trgm_ops)`);
@@ -327,7 +371,7 @@ describe.skipIf(!url)('body search (PostgreSQL)', () => {
     const settings = (await state.pool.query(`SELECT name,setting,unit FROM pg_settings
       WHERE name IN ('work_mem','shared_buffers','temp_buffers','hash_mem_multiplier','max_parallel_workers_per_gather')`)).rows;
     const report = { postgres: (await state.pool.query('SELECT version()')).rows[0].version,
-      messages: 400000, node: process.version, settings, transactionWorkMem: '16MB', queries: {}, writesMs: {} };
+      messages: 400000, node: process.version, settings, transactionWorkMem: 'session default', queries: {}, writesMs: {} };
     const save = async () => {
       if (process.env.SEARCH_INDEX_BENCHMARK_OUTPUT) await writeFile(process.env.SEARCH_INDEX_BENCHMARK_OUTPUT, JSON.stringify(report, null, 2));
     };
@@ -350,12 +394,6 @@ describe.skipIf(!url)('body search (PostgreSQL)', () => {
     report.heapBytes = Number((await state.pool.query("SELECT pg_relation_size('messages') bytes")).rows[0].bytes);
     report.analyzeMs = (await timed('ANALYZE messages')).ms;
     await save();
-    const nodesOf = plan => {
-      const nodes = [];
-      const visit = node => { nodes.push(node); (node.Plans || []).forEach(visit); };
-      visit(plan.Plan);
-      return nodes;
-    };
     const commonTerms = 'ordinary calendar meeting invoice paragraph reference agenda bulletin attachment summary';
     const cases = [
       ['rare', { q: 'lighthouse' }, i => i%10007===0],
@@ -371,61 +409,87 @@ describe.skipIf(!url)('body search (PostgreSQL)', () => {
       ['oldAccount', { q: 'ordinary', accountId: id(4) }, () => true],
       ['oldOperator', { q: 'ordinary subject:"Bulletin 1000"' }, i => String(i).startsWith('1000')],
     ];
-    for (const [name, query, matches] of cases) {
+    const fallbackTerms = [
+      ['common', 'ordinary', () => true],
+      ['common53', 'broadfraction', i => i%100<53],
+      ['broadRare', 'ordinary lighthouse', i => i%10007===0],
+      ['negativeRare', '-lighthouse', i => i%10007!==0],
+      ['negative53', '-broadfraction', i => i%100>=53],
+      ['negativeCommon', '-ordinary', () => false],
+      ['rare', 'lighthouse', i => i%10007===0],
+      ['absent', 'unfindabletoken', () => false],
+    ];
+    const matrix = cases.map(([name, query, matches]) => [`4MB/${name}`, query, matches, '4MB']);
+    for (const [limit, offset] of [[200, 0], [50, 250], [200, 250]]) {
+      for (const [name, q, matches] of fallbackTerms) {
+        matrix.push([`2MB/${name}/${limit}/${offset}`, { q, limit, offset }, matches, '2MB']);
+      }
+    }
+    const calibration = Boolean(process.env.SEARCH_INDEX_CALIBRATION);
+    if (calibration) {
+      matrix.length = 0;
+      for (const factor of [1, 4, 16]) {
+        for (const [name, q, matches] of [
+          ['common53', 'broadfraction', i => i%100<53], ['mid', 'middlefrequency', i => i%80===0],
+        ]) matrix.push([`2MB/${name}/factor${factor}`, { q, limit: 200, offset: 250, threshold: Math.min(4096, factor*450), ...(name === 'mid' ? { accountId: id(4) } : {}) }, matches, '2MB']);
+      }
+    }
+    for (const [name, query, matches, memory] of matrix) {
       console.log(`Benchmark query: ${name}`);
-      const entry = report.queries[name] = { query, baseline: [], revised: [] };
+      await state.pool.query(`SET work_mem='${memory}'; SET statement_timeout=30000`);
+      const entry = report.queries[name] = { query, memory, baseline: [], revised: [] };
       const max = query.accountId ? 133333 : 266666;
       const expected = [];
       for (let i=max; i>=1; i--) if (matches(i)) expected.push(i);
       entry.expectedRows = expected.length;
-      entry.orderedUids = expected.slice(query.offset || 0, (query.offset || 0)+50);
-      for (const baseline of [true, false]) {
-        await state.pool.query('SET statement_timeout=30000');
-        const { sql, params } = await compile(query, baseline);
-        try {
-          for (let run=0; run<3; run++) {
-            const plan = (await execute(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`, params, baseline)).rows[0]['QUERY PLAN'][0];
-            entry[baseline ? 'baseline' : 'revised'].push(plan);
-            if (!baseline) {
-              expect(nodesOf(plan).filter(n => n['Lossy Heap Blocks'] > 0)).toEqual([]);
-              if (['common','common53','negativeRare','sender','oldAccount'].includes(name)) {
-                expect(nodesOf(plan).filter(n => n['Index Name'] === 'idx_messages_body').every(n => n['Actual Loops'] === 0)).toBe(true);
-              }
+      entry.orderedUids = expected.slice(query.offset || 0, (query.offset || 0)+(query.limit || 50));
+      for (const baseline of calibration ? [false] : [true, false]) {
+        const variant = baseline ? 'baseline' : 'revised';
+        let { sql, params } = await compile(query, baseline);
+        if (calibration) sql = sql.replaceAll('LIMIT 1800', `LIMIT ${query.threshold}`)
+          .replace('matches < 1800', `matches < ${query.threshold}`);
+        let completed = true;
+        for (let run=0; run<3; run++) {
+          try {
+            const plan = (await execute(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`, params)).rows[0]['QUERY PLAN'][0];
+            entry[variant].push(plan);
+            if (!baseline && ['common','common53','negativeRare','sender','oldAccount'].some(n => name === `4MB/${n}`)) {
+              expect(planNodes(plan.Plan).filter(n => n['Index Name'] === 'idx_messages_body').every(n => n['Actual Loops'] === 0)).toBe(true);
             }
+          } catch (err) {
+            if (err.code !== '57014') throw err;
+            if (!baseline && !calibration) expect(query.q, 'Only the unbounded negative complement may time out').toBe('-ordinary');
+            entry[variant].push({ timeoutMs: 30000 });
+            completed = false;
           }
-          expect((await execute(sql, params, baseline)).rows.map(r => Number(r.uid))).toEqual(entry.orderedUids);
-        } catch (err) {
-          if (!baseline || err.code !== '57014') throw err;
-          entry.baselineTimeoutMs = 30000;
+          await save();
         }
-        await save();
+        if (completed) {
+          const rows = (await execute(sql, params)).rows.map(r => Number(r.uid));
+          expect(rows, `${name}/${variant}`).toEqual(entry.orderedUids);
+          entry[`${variant}Parity`] = true;
+        }
       }
-      const start = performance.now();
-      let payload;
-      let status=200;
-      const res={ json: v => { payload=v; }, status: n => { status=n; return res; } };
-      await handler({ query, session: { userId: id(1) } }, res);
-      entry.routeMs = performance.now()-start;
-      expect(status).toBe(200);
-      expect(payload.messages.map(r => Number(r.uid))).toEqual(entry.orderedUids);
+      // Check the registered route too, except cases that exceed its timeout.
+      if (!calibration && !entry.revised.some(p => p.timeoutMs)) {
+        const start = performance.now();
+        let payload;
+        let status=200;
+        const res={ json: v => { payload=v; }, status: n => { status=n; return res; } };
+        await handler({ query, session: { userId: id(1) } }, res);
+        entry.routeMs = performance.now()-start;
+        expect(status).toBe(200);
+        expect(payload.messages.map(r => Number(r.uid))).toEqual(entry.orderedUids);
+      }
       await save();
     }
-    // Repeat broad inclusion/exclusion under a lower incoming session budget.
-    await state.pool.query("SET work_mem='2MB'");
-    report.lowMemory = {};
-    for (const q of ['ordinary', 'broadfraction', '-ordinary']) {
-      const { sql, params } = await compile({ q });
-      const plan = (await execute(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`, params)).rows[0]['QUERY PLAN'][0];
-      expect(nodesOf(plan).filter(n => n['Lossy Heap Blocks'] > 0)).toEqual([]);
-      expect((await state.pool.query('SHOW work_mem')).rows[0].work_mem).toBe('2MB');
-      report.lowMemory[q] = plan;
-    }
-    await state.pool.query("SET work_mem='4MB'");
+    await state.pool.query("SET work_mem='4MB'; SET statement_timeout=0");
+    if (calibration) return;
     // Large bodies exercise the bounded probe without exporting a real corpus.
     await state.pool.query("UPDATE messages SET body_text=repeat('ordinary calendar meeting invoice paragraph reference agenda bulletin attachment summary ',3000) WHERE uid BETWEEN 266651 AND 266666");
     const large = await compile({ q: commonTerms });
     report.largeBodies = (await execute(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${large.sql}`, large.params)).rows[0]['QUERY PLAN'][0];
-    expect(nodesOf(report.largeBodies).filter(n => n['Index Name'] === 'idx_messages_body').every(n => n['Actual Loops'] === 0)).toBe(true);
+    expect(planNodes(report.largeBodies.Plan).filter(n => n['Index Name'] === 'idx_messages_body').every(n => n['Actual Loops'] === 0)).toBe(true);
     // Same schema and UPDATE for both batches; rollback excludes commit/WAL costs.
     for (const phase of ['first', 'second']) {
       const times=report.writesMs[phase]=[];

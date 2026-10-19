@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import { query, withTransaction } from '../services/db.js';
-import { recordDb } from '../services/performanceMetrics.js';
+import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
 
 const RECENT_PREFIX_ROWS = 256;
+const SELECTIVITY_ROWS_PER_PAGE_ROW = 4;
+const MAX_SELECTIVE_TERM_ROWS = 4096;
 
 const router = Router();
 router.use(requireAuth);
@@ -107,20 +108,21 @@ export function trashFolderExclusionCondition() {
       )`;
 }
 
-// Materialize body IDs separately: date-ordered scans must not re-tokenize every
-// body while looking for a rare term. This uses the baseline idx_messages_body
-// expression, so searches add no index-maintenance or migration cost.
-export function freeTextTermCondition(likeIdx, ftsIdx, directBody = false) {
+function freeTextMetadataCondition(likeIdx, ftsIdx) {
   return `(
         m.from_name ILIKE $${likeIdx}
         OR m.from_email ILIKE $${likeIdx}
         OR m.subject ILIKE $${likeIdx}
         OR m.search_vector @@ plainto_tsquery('english', $${ftsIdx})
-        OR ${directBody
-          ? `CASE WHEN numnode(plainto_tsquery('english', $${ftsIdx})) > 0
+      )`;
+}
+
+export function freeTextTermCondition(likeIdx, ftsIdx) {
+  return `(
+        ${freeTextMetadataCondition(likeIdx, ftsIdx)}
+        OR CASE WHEN numnode(plainto_tsquery('english', $${ftsIdx})) > 0
               THEN to_tsvector('english', coalesce(m.body_text,'')) @@ plainto_tsquery('english', $${ftsIdx})
-              ELSE false END`
-          : `body_matches_${ftsIdx}.id IS NOT NULL`}
+              ELSE false END
       )`;
 }
 
@@ -143,10 +145,11 @@ router.get('/', searchLimiter, async (req, res) => {
   const probe = off + cap <= RECENT_PREFIX_ROWS;
 
   const conditions = [];
-  const textConditions = [];
+  const termChecks = [];
+  const drivers = [];
+  const driverTerms = [];
   const directConditions = [];
-  const bodyMatches = [];
-  const bodyJoins = [];
+  const threshold = Math.min(MAX_SELECTIVE_TERM_ROWS, SELECTIVITY_ROWS_PER_PAGE_ROW * (off + cap));
   const params = [targetIds];
   let p = 2;
 
@@ -210,27 +213,35 @@ router.get('/', searchLimiter, async (req, res) => {
     params.push(term.value); // raw term for plainto_tsquery
     const ftsIdx = p++;
 
-    // LEFT JOIN allows hash/merge joins (including disk spill) for large match
-    // sets; an IN subplan can repeatedly scan them when they exceed work_mem.
-    // Initialize the tsquery once. Keeping it as an InitPlan also prevents
-    // common-term statistics from choosing a full body-tokenizing scan.
-    bodyMatches.push(`body_matches_${ftsIdx} AS MATERIALIZED (
-        SELECT id FROM messages
-        WHERE account_id = ANY($1) AND is_deleted = false
-          ${probe ? 'AND NOT (SELECT enough FROM recent_page)' : ''}
-          AND numnode(plainto_tsquery('english', $${ftsIdx})) > 0
-          AND to_tsvector('english', coalesce(body_text,'')) @@ (SELECT plainto_tsquery('english', $${ftsIdx}))
-      )`);
-    bodyJoins.push(`LEFT JOIN body_matches_${ftsIdx} ON body_matches_${ftsIdx}.id = m.id`);
-    const cond = freeTextTermCondition(likeIdx, ftsIdx);
-    textConditions.push(term.negate ? negateCond(cond) : cond);
-    const direct = freeTextTermCondition(likeIdx, ftsIdx, true);
+    const direct = freeTextTermCondition(likeIdx, ftsIdx);
     directConditions.push(term.negate ? negateCond(direct) : direct);
+    // Negative terms are always evaluated on the driving rows. Their match
+    // count cannot provide a selective positive driver.
+    if (term.negate) continue;
+    const metadata = freeTextMetadataCondition(likeIdx, ftsIdx);
+    termChecks.push(`term_candidates_${ftsIdx} AS MATERIALIZED (
+        SELECT id FROM (
+          (SELECT id FROM messages
+           WHERE account_id = ANY($1) AND is_deleted = false
+             ${probe ? 'AND NOT (SELECT enough FROM recent_page)' : ''}
+             AND numnode(plainto_tsquery('english', $${ftsIdx})) > 0
+             AND to_tsvector('english', coalesce(body_text,'')) @@ (SELECT plainto_tsquery('english', $${ftsIdx}))
+           LIMIT ${threshold})
+          UNION
+          (SELECT m.id FROM messages m
+           WHERE m.account_id = ANY($1) AND m.is_deleted = false
+             ${probe ? 'AND NOT (SELECT enough FROM recent_page)' : ''}
+             AND ${metadata}
+           LIMIT ${threshold})
+        ) candidates LIMIT ${threshold}
+      )`);
+    driverTerms.push(ftsIdx);
+    drivers.push(`SELECT ${ftsIdx} AS term, count(*) AS matches FROM term_candidates_${ftsIdx}`);
   }
 
   // Require at least one real search condition before applying folder scope, so a
   // bare `in:inbox` (or a lone folder param) never dumps an entire folder.
-  if (!conditions.length && !textConditions.length) return res.json({ messages: [], query: q });
+  if (!conditions.length && !directConditions.length) return res.json({ messages: [], query: q });
 
   // Resolve folder scope: in: operator wins; otherwise use the param.
   const { folderScope, folderFuzzy } = resolveSearchFolderScope(filters, req.query.folder || '');
@@ -264,7 +275,8 @@ router.get('/', searchLimiter, async (req, res) => {
         a.name as account_name, a.email_address as account_email, a.color as account_color`;
   const scope = `m.account_id = ANY($1) AND m.is_deleted = false
         ${conditions.length ? `AND ${conditions.join('\n        AND ')}` : ''}`;
-  const useProbe = bodyMatches.length > 0 && probe;
+  const useText = directConditions.length > 0;
+  const useProbe = useText && probe;
   // A complete page from a bounded newest prefix is also a complete page of
   // the full result. Otherwise use the indexed fallback, in the same snapshot.
   const recent = useProbe ? `recent_messages AS MATERIALIZED (
@@ -280,28 +292,46 @@ router.get('/', searchLimiter, async (req, res) => {
       ), ` : '';
 
   try {
-    const sql = `
-      ${bodyMatches.length ? `WITH ${recent}${bodyMatches.join(',\n      ')}, matched_messages AS MATERIALIZED (` : ''}
-      SELECT
-        ${columns}
-      FROM messages m
+    const direct = directConditions.join(' AND ');
+    const selected = drivers.length ? `SELECT term FROM (${drivers.join(' UNION ALL ')}) counts
+        WHERE matches < ${threshold} ${useProbe ? 'AND NOT (SELECT enough FROM recent_page)' : ''}
+        ORDER BY matches, term LIMIT 1` : 'SELECT NULL::integer AS term WHERE false';
+    // OFFSET 0 keeps the body predicates above the ordered scan. PostgreSQL
+    // cannot replace it with an unbounded body bitmap when the term is broad.
+    const dateQuery = `SELECT ${columns}
+      FROM (
+        SELECT ${messageColumns}
+        FROM (SELECT * FROM messages m WHERE ${scope}
+          ORDER BY m.date DESC OFFSET 0) m
+        WHERE ${direct || 'true'}
+          AND NOT EXISTS (SELECT 1 FROM search_driver)
+          ${useProbe ? 'AND NOT (SELECT enough FROM recent_page)' : ''}
+        ORDER BY m.date DESC LIMIT $${p}::bigint + $${p + 1}::bigint
+      ) m
+      JOIN email_accounts a ON m.account_id = a.id`;
+    const driverIds = driverTerms.map(term =>
+      `SELECT id FROM term_candidates_${term} WHERE (SELECT term FROM search_driver) = ${term}`);
+    const sql = useText ? `WITH ${recent}${termChecks.length ? `${termChecks.join(',\n      ')},` : ''}
+      search_driver AS MATERIALIZED (${selected}),
+      date_matches AS (${dateQuery})
+      ${driverTerms.length ? `, selective_matches AS (
+        SELECT ${columns}
+        FROM (${driverIds.join(' UNION ALL ')}) candidates
+        CROSS JOIN LATERAL (SELECT * FROM messages m WHERE m.id = candidates.id OFFSET 0) m
+        JOIN email_accounts a ON m.account_id = a.id
+        WHERE ${scope} AND ${direct}
+          ${useProbe ? 'AND NOT (SELECT enough FROM recent_page)' : ''}
+      )` : ''}
+      SELECT * FROM (
+        ${useProbe ? 'SELECT * FROM fast_matches WHERE (SELECT enough FROM recent_page) UNION ALL' : ''}
+        SELECT * FROM date_matches
+        ${driverTerms.length ? 'UNION ALL SELECT * FROM selective_matches' : ''}
+      ) matched_messages
+      ORDER BY date DESC LIMIT $${p} OFFSET $${p + 1}` : `
+      SELECT ${columns} FROM messages m
       JOIN email_accounts a ON m.account_id = a.id
-      ${bodyJoins.join('\n      ')}
-      WHERE ${scope}
-        ${useProbe ? 'AND NOT (SELECT enough FROM recent_page)' : ''}
-        ${textConditions.length ? `AND ${textConditions.join('\n        AND ')}` : ''}
-      ${bodyMatches.length ? `) ${useProbe ? 'SELECT * FROM fast_matches WHERE (SELECT enough FROM recent_page) UNION ALL ' : ''}SELECT * FROM matched_messages${useProbe ? ' WHERE NOT (SELECT enough FROM recent_page)' : ''}` : ''}
-      ORDER BY ${bodyMatches.length ? 'date' : 'm.date'} DESC
-      LIMIT $${p} OFFSET $${p + 1}
-    `;
-    const result = bodyMatches.length ? await withTransaction(async client => {
-      // Keep the body bitmap exact for large match sets without changing the
-      // pooled session's defaults. work_mem is per operation, not per request.
-      await client.query("SET LOCAL work_mem='16MB'");
-      const start = process.hrtime.bigint();
-      try { return await client.query(sql, params); }
-      finally { recordDb(Number(process.hrtime.bigint() - start) / 1e6); }
-    }) : await query(sql, params);
+      WHERE ${scope} ORDER BY m.date DESC LIMIT $${p} OFFSET $${p + 1}`;
+    const result = await query(sql, params);
 
     res.json({ messages: result.rows, query: q });
   } catch (err) {
