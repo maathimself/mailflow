@@ -20,6 +20,12 @@ describe('aiTextToHtml', () => {
     );
   });
 
+  test('stays linear on a long run of spaces', () => {
+    const started = performance.now();
+    aiTextToHtml(`${' '.repeat(200_000)}x`);
+    assert.ok(performance.now() - started < 1000);
+  });
+
   test('is a single empty paragraph for no text', () => {
     assert.equal(aiTextToHtml(''), '<p></p>');
     assert.equal(aiTextToHtml(null), '<p></p>');

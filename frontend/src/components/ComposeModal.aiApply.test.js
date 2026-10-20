@@ -59,7 +59,8 @@ let answer = '';
 
 before(() => {
   api.ai.status = async () => ({ enabled: true, features: { compose: true } });
-  api.ai.chat = async () => answer;
+  // A function stands for a model that answers from the text it was given.
+  api.ai.chat = async (messages) => (typeof answer === 'function' ? answer(messages[1].content) : answer);
   useStore.setState({
     user: { id: 'u1' },
     accounts: [{ id: 'acct', enabled: true, email_address: 'me@example.invalid', name: 'Me', color: '#fff' }],
@@ -68,10 +69,10 @@ before(() => {
 
 // A new message, Improve from the AI menu answered with `text`, then Apply. Returns the editor and
 // an unmount.
-async function improveAndApply(text) {
+async function improveAndApply(text, body = '<p>draft</p>') {
   answer = text;
   useStore.setState({ plaintextEmail: false, composing: false, composeData: null, prepareComposeSwitch: null });
-  useStore.getState().openCompose({ accountId: 'acct', to: ['bob@example.invalid'], cc: [], subject: 'Plan', body: '<p>draft</p>', bodyIsHtml: true });
+  useStore.getState().openCompose({ accountId: 'acct', to: ['bob@example.invalid'], cc: [], subject: 'Plan', body, bodyIsHtml: true });
   const root = createRoot(document.getElementById('root'));
   await React.act(async () => { root.render(React.createElement(ComposeModal)); });
   await React.act(async () => {});
@@ -90,6 +91,17 @@ describe('Apply', () => {
     const { editor, close } = await improveAndApply('Hi Bob,\n\nThe plan is approved.\nThanks\n\nMe');
     try {
       assert.equal(editor.getHTML(), '<p>Hi Bob,</p><p></p><p>The plan is approved.<br>Thanks</p><p></p><p>Me</p>');
+    } finally { await close(); }
+  });
+
+  test('adds no blank line the draft did not have', async () => {
+    // A model with nothing to improve returns the text it was given. Each Enter is a paragraph in
+    // this editor, and an empty one is a blank line the user typed.
+    const draft = '<p>Hi Bob,</p><p></p><p>The plan is approved.</p><p></p><p>Thanks,</p><p>Jordan</p>';
+    const { editor, close } = await improveAndApply(given => given, draft);
+    try {
+      const empty = (html) => html.split('<p></p>').length - 1;
+      assert.equal(empty(editor.getHTML()), empty(draft));
     } finally { await close(); }
   });
 

@@ -801,8 +801,11 @@ export default function ComposeModal() {
     const controller = new AbortController();
     aiAbortRef.current = controller;
 
+    // One newline per paragraph, as the composer draws them: getText's default separator is a
+    // blank line, so a single Enter reached the model as one and came back from Apply as a new
+    // empty paragraph. This way a blank line from the model is one the user typed.
     const currentText = plaintextEmail ? body
-      : (htmlMode ? stripTags(htmlSource) : (editor?.getText() ?? ''));
+      : (htmlMode ? stripTags(htmlSource) : (editor?.getText({ blockSeparator: '\n' }) ?? ''));
 
     const toStr = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])].join(', ');
     const PROMPTS = {
