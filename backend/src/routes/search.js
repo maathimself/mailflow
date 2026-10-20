@@ -17,8 +17,10 @@ setInterval(() => {
   }
 }, 60_000);
 
+// A user's API tokens share one bucket of their own, so a tool cannot spend the searches the
+// person is typing in the browser, and many tokens do not add up to many budgets.
 function searchLimiter(req, res, next) {
-  const key = req.session.userId;
+  const key = req.apiToken ? `tokens:${req.session.userId}` : req.session.userId;
   const now = Date.now();
   const b = searchBuckets.get(key);
   if (!b || now > b.resetAt) {

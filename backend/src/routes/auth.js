@@ -1168,29 +1168,36 @@ router.post('/reset-password', authLimiter, async (req, res) => {
 
   const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
   try {
-    // Atomically consume the token — DELETE RETURNING prevents two concurrent resets
-    // from both reading a valid token, both updating the password, and only then deleting.
-    const tokenResult = await query(
-      `DELETE FROM password_reset_tokens
-       WHERE token_hash = $1 AND expires_at > NOW()
-       RETURNING user_id`,
-      [tokenHash]
-    );
-    if (!tokenResult.rows.length) {
+    // The link is spent, the password set, and trusted devices, API tokens and linked identities
+    // revoked together or not at all: a failure part-way must not leave a new password, a spent
+    // link and tokens that survived, with nothing left to retry with.
+    const reset = await withTransaction(async (client) => {
+      // Atomically consume the token — DELETE RETURNING prevents two concurrent resets
+      // from both reading a valid token, both updating the password, and only then deleting.
+      const tokenResult = await client.query(
+        `DELETE FROM password_reset_tokens
+         WHERE token_hash = $1 AND expires_at > NOW()
+         RETURNING user_id`,
+        [tokenHash]
+      );
+      if (!tokenResult.rows.length) return null;
+      const id = tokenResult.rows[0].user_id;
+
+      const hash = await bcrypt.hash(password, 12);
+      const { rows: [user] } = await client.query('SELECT username FROM users WHERE id = $1 FOR UPDATE', [id]);
+      await client.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, id]);
+      // Revoke trusted devices, API tokens and, while password sign-in is on, linked single sign-on
+      // identities here, and every session below, so a pre-existing (possibly attacker) session,
+      // device, token or linked account can't survive a compromise-driven password reset (#714).
+      await client.query('DELETE FROM trusted_devices WHERE user_id = $1', [id]);
+      await client.query('DELETE FROM api_tokens WHERE user_id = $1', [id]);
+      return { id, username: user?.username, removed: await removeIdentitiesForPasswordReset(client, id) };
+    });
+    if (!reset) {
       return res.status(400).json({ error: 'Invalid or expired reset link' });
     }
-    const userId = tokenResult.rows[0].user_id;
-
-    const hash = await bcrypt.hash(password, 12);
-    // Revoke all existing sessions, trusted devices and, while password sign-in is on, linked
-    // single sign-on identities, so a pre-existing (possibly attacker) session, device or linked
-    // account can't survive a compromise-driven password reset (#714).
-    const { username, removed } = await withTransaction(async client => {
-      const { rows: [user] } = await client.query('SELECT username FROM users WHERE id = $1 FOR UPDATE', [userId]);
-      await client.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, userId]);
-      await client.query('DELETE FROM trusted_devices WHERE user_id = $1', [userId]);
-      return { username: user?.username, removed: await removeIdentitiesForPasswordReset(client, userId) };
-    });
+    const { id: userId, username, removed } = reset;
+    // Sessions are in Redis, outside the transaction, so they end once it has committed.
     await destroyUserSessions(userId);
     if (removed.length) console.log(`[auth] password reset for ${username} removed ${removed.length} linked identity(s): ${removed.map(i => i.provider_name).join(', ')}`);
     removed.forEach(() => logAuthEvent('identity_unlinked', { userId, username, ip: req.ip, success: true }));
