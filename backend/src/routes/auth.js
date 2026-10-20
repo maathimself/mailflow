@@ -20,6 +20,7 @@ import { sanitizeRightSidebarPrefs } from '../utils/rightSidebarPrefs.js';
 import { redisClient } from '../services/redis.js';
 import { destroyUserSessions } from '../services/userSessions.js';
 import { touchLastSeen } from '../services/lastSeen.js';
+import { aiEnabledForNewUser } from '../services/aiNewUsers.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 
 const router = Router();
@@ -163,8 +164,8 @@ router.post('/register', authLimiter, async (req, res) => {
     }
 
     const result = await client.query(
-      'INSERT INTO users (username, password_hash, is_admin) VALUES ($1, $2, $3) RETURNING id, username, is_admin',
-      [username.toLowerCase().trim(), hash, isFirstUser]
+      'INSERT INTO users (username, password_hash, is_admin, ai_enabled) VALUES ($1, $2, $3, $4) RETURNING id, username, is_admin',
+      [username.toLowerCase().trim(), hash, isFirstUser, await aiEnabledForNewUser(client)]
     );
     const newUser = result.rows[0];
 

@@ -5,7 +5,8 @@ import { summarizeMessage, summarizeAvailable, getMessageFields, getMessageAnnot
 // head it is shown instead. Generation is lazy and bounded:
 //
 //   - triggered only by a sections fetch that returns waiting heads lacking a gist,
-//     and only when an AI provider is configured (never at ingest — cost control);
+//     and only when an AI provider is configured and the user may use it (never at
+//     ingest, for cost control);
 //   - at most GIST_CONCURRENCY AI calls in flight per account, capped per invocation;
 //   - one gtd_sections_updated broadcast per account once its batch writes ≥1 gist,
 //     so clients receive the gist on the next refetch with no spinner.
@@ -59,7 +60,7 @@ async function runPool(items, limit, worker) {
 // Guards against two overlapping sections fetches queueing the same message twice.
 const _inFlight = new Set();
 
-async function generateForAccount(accountId, ids) {
+async function generateForAccount(accountId, ids, userId) {
   // Skip ids that already carry a cached gist (belt-and-suspenders over the sections-side filter,
   // so a head that got a gist since the sections snapshot isn't regenerated / doesn't re-broadcast).
   const existing = await getMessageAnnotations(accountId, ids, 'gtd');
@@ -70,6 +71,7 @@ async function generateForAccount(accountId, ids) {
   let wrote = 0;
   await runPool(rows, GIST_CONCURRENCY, async (row) => {
     const gist = await summarizeMessage({
+      userId,
       subject: row.subject,
       from: row.from_name || row.from_email,
       content: row.content,
@@ -99,7 +101,8 @@ export async function queueGistGeneration({ sections, userId, broadcast } = {}) 
   const reserved = new Set(candidates.map(c => c.id));
 
   try {
-    if (!await summarizeAvailable()) return;
+    // Per user: the heads are this user's, and an admin may have turned AI off for them.
+    if (!await summarizeAvailable(userId)) return;
 
     const byAccount = new Map();
     for (const c of candidates) {
@@ -111,7 +114,7 @@ export async function queueGistGeneration({ sections, userId, broadcast } = {}) 
     for (const [accountId, ids] of byAccount) {
       let wrote = 0;
       try {
-        wrote = await generateForAccount(accountId, ids);
+        wrote = await generateForAccount(accountId, ids, userId);
       } catch (err) {
         console.warn(`GTD gist generation failed for account ${accountId}:`, err.message);
       } finally {

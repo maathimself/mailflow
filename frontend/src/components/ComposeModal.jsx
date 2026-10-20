@@ -849,13 +849,18 @@ export default function ComposeModal() {
 
     try {
       const fullText = await api.ai.chat(messages, {
+        purpose: 'compose',
         signal: controller.signal,
         onDelta: (text) => setAiPanel(p => p ? { ...p, text } : p),
       });
       setAiPanel(p => p ? { ...p, status: 'done', text: fullText } : p);
     } catch (err) {
       if (err.name !== 'AbortError') {
-        setAiPanel(p => p ? { ...p, status: 'error', text: err.message } : p);
+        // Refused: AI is off for this user, or the writing assistant is off for everyone (#644).
+        const text = err.code === 'ai_user_disabled' ? t('compose.toolbar.aiNotAllowed')
+          : err.code === 'ai_feature_disabled' ? t('compose.toolbar.aiFeatureOff')
+            : err.message;
+        setAiPanel(p => p ? { ...p, status: 'error', text } : p);
       }
     }
   };

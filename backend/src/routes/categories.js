@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { invalidateSocialDomainCache, backfillCategories, aiClassifyMessage, BUILTIN_SETS } from '../services/categorizer.js';
 import { validateHost } from '../services/hostValidation.js';
 import { safeFetch } from '../services/safeFetch.js';
+import { getUserAiAccess } from '../services/aiAccess.js';
 
 const router = Router();
 
@@ -231,6 +232,10 @@ const UUID_RE_CAT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 router.post('/categories/ai-classify/:messageId', requireAuth, async (req, res) => {
   const { messageId } = req.params;
   if (!UUID_RE_CAT.test(messageId)) return res.status(400).json({ error: 'Invalid message id' });
+
+  // Refused before any provider call when AI is off for the instance or for this user (#644).
+  const { allowed } = await getUserAiAccess(req.session.userId);
+  if (!allowed) return res.status(403).json({ error: 'AI is not available for your account' });
 
   const msgResult = await query(`
     SELECT m.subject, m.from_email, m.snippet

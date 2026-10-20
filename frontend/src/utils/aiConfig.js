@@ -66,6 +66,7 @@ export function normalizeAiForm(raw = {}) {
       compose: raw.features?.compose !== false,
       summarize: raw.features?.summarize !== false,
     },
+    newUsersEnabled: raw.newUsersEnabled !== false,
   };
 }
 
@@ -102,6 +103,7 @@ export function buildAiSavePayload(form = {}) {
     apiKeyConfig: normalized.apiKeyConfig,
     chatgptConfig: normalized.chatgptConfig,
     features: normalized.features,
+    newUsersEnabled: normalized.newUsersEnabled,
   };
 }
 

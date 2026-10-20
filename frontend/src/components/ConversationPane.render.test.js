@@ -404,6 +404,7 @@ describe('conversation actions', () => {
     const chat = requests.find(r => r.url.includes('/ai/chat'));
     assert.ok(chat, 'the action went to the AI endpoint');
     assert.match(JSON.parse(chat.body).messages[0].content, /body of m1/, 'with this message\'s text');
+    assert.equal(JSON.parse(chat.body).purpose, 'summarize', 'under the summaries switch (#644)');
     assert.match(card('m1').textContent, /Short summary\./, 'the result is pinned on this message');
     assert.doesNotMatch(card('m3').textContent, /Short summary/, 'and only on this message');
   });

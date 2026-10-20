@@ -74,6 +74,7 @@ export function useAiActions(messageId, body) {
     const { content, truncated } = buildAiActionContent(promptText, textContent);
     try {
       const fullText = await api.ai.chat([{ role: 'user', content }], {
+        purpose: 'summarize',
         signal: ctrl.signal,
         onDelta: (text) => {
           applyIfViewing(r => ({ ...r, [key]: { status: 'loading', text, label: actionLabel, truncated } }));
@@ -84,7 +85,11 @@ export function useAiActions(messageId, body) {
       if (fullText) saveResult(msgId, key, fullText, actionLabel, truncated);
     } catch (err) {
       if (err.name === 'AbortError') return;
-      applyIfViewing(r => ({ ...r, [key]: { status: 'error', text: err.message, label: actionLabel } }));
+      // Refused: AI is off for this user, or summaries are off for everyone (#644).
+      const text = err.code === 'ai_user_disabled' ? t('message.aiNotAllowed')
+        : err.code === 'ai_feature_disabled' ? t('message.aiFeatureOff')
+          : err.message;
+      applyIfViewing(r => ({ ...r, [key]: { status: 'error', text, label: actionLabel } }));
     } finally {
       aiRuns.finish(msgId, key);
     }
