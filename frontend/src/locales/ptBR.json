@@ -1923,6 +1923,7 @@
     "done": "Marcar como concluída",
     "doneFailed": "Não foi possível marcar como concluída",
     "doneArchiveFailed": "Marcada como concluída, mas o arquivamento falhou — ainda está na sua Caixa de entrada",
+    "doneThreadRemains": "Algumas mensagens desta conversa não puderam ser removidas, então ela continua na sua seção do GTD",
     "state": {
       "todo": "A fazer",
       "watch": "Acompanhar",

@@ -308,6 +308,191 @@ async function hasSurvivingCopy(account, msg, removing) {
   return false;
 }
 
+// Whether a copy about to be archived still reads as unread. The archive primitive moves no
+// unread, so an unread copy would leave its folder's count off. markThreadRead's `error` cannot
+// tell a failed DB fan-out from a failed \Seen push, and the thread's rows can miss a copy filed
+// under another thread key, so the copy itself is read back by id. A failed read counts as unread
+// and keeps the copy where it is. A row that is gone has nothing to move; the archive's guarded
+// write then applies nothing. This is the live check on main; callers also honour fanOutFailed
+// when markThreadRead provides it (PR #662).
+async function copyStillUnread(account, copy) {
+  try {
+    const row = await loadOwnedMessage(account.user_id, copy.id);
+    return row ? row.is_read !== true : false;
+  } catch (err) {
+    console.warn(`GTD done: could not confirm a copy in ${copy.folder || 'INBOX'} was marked read: ${err.message}`);
+    return true;
+  }
+}
+
+// Done marks the whole thread read, but the acted message's mark-read only reaches its own copies.
+// Mark another message read after its copy is deleted, so the deleted copy gets no read writes
+// (removeMessageCopy already counts its unread), and before its copy is archived, since the
+// archive primitive moves no unread. A failure only leaves the counts to the next recompute.
+// With `verify` (before an archive), returns { fanOutFailed } when this copy was not marked read,
+// a throw included: markThreadRead throws only from its lookup, before any read write.
+async function markOtherMessageRead(account, copy, { verify = false } = {}) {
+  try {
+    const result = await markThreadRead(account, copy);
+    if (result.error) console.warn(`GTD done: mark-read for a thread copy in ${copy.folder} degraded: ${result.error.message}`);
+    if (!verify) return {};
+    return { fanOutFailed: result.fanOutFailed === true || await copyStillUnread(account, copy) };
+  } catch (err) {
+    console.warn(`GTD done: mark-read for a thread copy in ${copy.folder} failed: ${err.message}`);
+    return { fanOutFailed: true };
+  }
+}
+
+// A removal that found nothing to remove means the copy changed after the thread was read. It
+// still keeps the thread in the section unless both the cache and the server have lost it; a
+// failed check counts as still there.
+async function copyIsGone(account, copy) {
+  try {
+    const folders = await getMessageCopyFolders(account.id, copy.message_id);
+    if (folders.includes(copy.folder)) {
+      console.warn(`GTD done: a thread copy in ${copy.folder} no longer matches its message, leaving it`);
+      return false;
+    }
+    if (await hasMessageCopy(account, copy.uid, copy.folder, copy.message_id)) {
+      console.warn(`GTD done: a thread copy in ${copy.folder} is still on the server, leaving it`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn(`GTD done: could not check a thread copy in ${copy.folder}: ${err.message}`);
+    return false;
+  }
+}
+
+// Clear another message's copy out of a GTD folder /done is stripping. A thread stays in a
+// section while any of its messages has a copy there, so these go too, but each belongs to a
+// message the user never acted on and may be its only copy. It is deleted only once the server
+// confirms the cached copy is that message and that another copy keeps it; with none, it is
+// archived. A copy that cannot be verified, or has no Message-ID to verify, is left where it is.
+// Returns { cleared }; a copy left behind keeps the thread in its section, which the caller
+// reports as threadRemains. On Gmail the message stays in All Mail, as in hasSurvivingCopy, but
+// the uid must still carry the message's Message-ID.
+async function clearOtherThreadCopy(account, copy, removing) {
+  if (!copy.message_id) {
+    console.warn(`GTD done: a thread copy in ${copy.folder} has no Message-ID to verify, leaving it`);
+    return { cleared: false };
+  }
+  let confirmed;
+  try {
+    confirmed = await hasMessageCopy(account, copy.uid, copy.folder, copy.message_id);
+  } catch (err) {
+    console.warn(`GTD done: could not verify a thread copy in ${copy.folder}, leaving it: ${err.message}`);
+    return { cleared: false };
+  }
+  if (!confirmed) {
+    console.warn(`GTD done: a thread copy in ${copy.folder} is not on the server as cached, leaving it`);
+    return { cleared: false };
+  }
+  if (isLabelStoreAccount(account)) {
+    const { removed } = await removeExactLabelCopy(copy, copy.folder, copy.uid);
+    await markOtherMessageRead(account, copy);
+    return { cleared: removed || await copyIsGone(account, copy), removed };
+  }
+  if (await hasSurvivingCopy(account, copy, removing)) {
+    const { removed } = await removeLabel(copy, copy.folder);
+    await markOtherMessageRead(account, copy);
+    return { cleared: removed || await copyIsGone(account, copy), removed };
+  }
+  // The archive moves no unread, so a copy the DB never marked read stays in its folder.
+  if ((await markOtherMessageRead(account, copy, { verify: true })).fanOutFailed) {
+    console.error(`GTD done: the only copy of a thread message was not marked read, leaving it in ${copy.folder}`);
+    return { cleared: false };
+  }
+  // The archived copy becomes the durable one, so it takes the \Seen flag too.
+  const { error: seenError } = await markCopySeen(account, copy);
+  if (seenError) console.warn(`GTD done: \\Seen for a thread copy in ${copy.folder} degraded: ${seenError.message}`);
+  try {
+    const { archived, noArchiveFolder } = await archiveInboxCopy(account, copy, copy.folder);
+    if (noArchiveFolder) {
+      console.warn(`GTD done: the only copy of a thread message stays in ${copy.folder}; no archive folder`);
+      return { cleared: false };
+    }
+    return { cleared: true, removed: archived };
+  } catch (err) {
+    console.error(`GTD done: archive of a thread copy in ${copy.folder} failed:`, err.message);
+    return { cleared: false };
+  }
+}
+
+// Archive INBOX rows of a message already marked read, which the archive primitive's counts rely
+// on. `flaggedId` is the row markThreadRead resolved and flagged \Seen. The message can have more
+// INBOX rows under the same Message-ID; each of those is moved only once the server confirms it,
+// and takes \Seen here so it does not sync back unread from the archive. A row not marked read
+// (`readFailed`, markThreadRead's fanOutFailed when it provides one as in PR #662, or
+// copyStillUnread, the live check) stays. One row failing does not stop the rest.
+// Returns { archived } when any row moved, { failed } when one was left behind, and
+// { noArchiveFolder }.
+async function archiveInboxRows(account, rows, flaggedId, readFailed) {
+  const outcome = { archived: false, failed: false, noArchiveFolder: false };
+  for (const row of rows) {
+    try {
+      if (readFailed || await copyStillUnread(account, row)) {
+        console.warn('GTD done: an INBOX copy was not marked read, leaving it');
+        outcome.failed = true;
+        continue;
+      }
+      if (row.id !== flaggedId) {
+        let confirmed;
+        try {
+          confirmed = await hasMessageCopy(account, row.uid, 'INBOX', row.message_id);
+        } catch (err) {
+          console.warn(`GTD done: could not verify a duplicate INBOX copy, leaving it: ${err.message}`);
+        }
+        if (!confirmed) {
+          if (confirmed === false) console.warn('GTD done: a duplicate INBOX copy is not on the server as cached, leaving it');
+          outcome.failed = true;
+          continue;
+        }
+        const { error } = await markCopySeen(account, { ...row, folder: 'INBOX' });
+        if (error) console.warn(`GTD done: \\Seen for a thread copy in INBOX degraded: ${error.message}`);
+      }
+      const result = await archiveInboxCopy(account, row, 'INBOX');
+      if (result.archived) outcome.archived = true;
+      if (result.noArchiveFolder) {
+        outcome.noArchiveFolder = true;
+        break;
+      }
+    } catch (err) {
+      console.error('GTD done: archive of a thread copy in INBOX failed:', err.message);
+      outcome.failed = true;
+    }
+  }
+  return outcome;
+}
+
+// Archive another thread message's INBOX rows, so done takes the whole conversation out of the
+// Inbox. markThreadRead marks the message read first and resolves a live INBOX row; with none,
+// the thread's rows are stale and nothing is moved. A headerless copy cannot be resolved by
+// Message-ID, so it stays. Returns as archiveInboxRows.
+async function archiveOtherInboxCopies(account, copy, rows) {
+  if (!copy.message_id) {
+    console.warn('GTD done: a thread copy in INBOX has no Message-ID to resolve, leaving it');
+    return { failed: true };
+  }
+  let inboxCopy;
+  try {
+    const result = await markThreadRead(account, copy);
+    inboxCopy = result.inboxCopy;
+    if (result.error) console.warn(`GTD done: mark-read for a thread copy in INBOX degraded: ${result.error.message}`);
+    // The DB never marked it read, so the archive's zero unread move would leave INBOX's count off.
+    // Honoured when markThreadRead provides it (PR #662); archiveInboxRows checks each row live.
+    if (result.fanOutFailed === true) {
+      console.error('GTD done: a thread message was not marked read, leaving its INBOX copy');
+      return { failed: true };
+    }
+  } catch (err) {
+    console.error('GTD done: INBOX lookup for a thread copy failed:', err.message);
+    return { failed: true };
+  }
+  if (!inboxCopy) return {};
+  return archiveInboxRows(account, [inboxCopy, ...rows.filter(row => row.id !== inboxCopy.id)], inboxCopy.id, false);
+}
+
 // DELETE /api/gtd/classify { messageId, state } — remove a GTD label by deleting
 // the message's copy that lives in the state folder, leaving all other copies
 // (INBOX, other labels) intact. The acted message id identifies the thread member
@@ -352,11 +537,11 @@ router.delete('/classify', async (req, res) => {
 // (or sends 'all') for "done from anywhere" — strip every GTD label the thread carries. The
 // id is its GTD-label-folder copy for the sidebar, or the INBOX copy from the inbox; either way
 // the archive step resolves the INBOX copy from the shared Message-ID rather than acting on
-// `id` directly. In one round trip this: (a) marks the whole thread read (DB fan-out across
-// sibling copies, \Seen on the INBOX copy so it rides the archive move); (b) strips the
-// row's own GTD label copies named in `states` — a merged Waiting row passes both
-// watch+delegated — leaving any GTD labels in OTHER sections intact; (c) archives the INBOX
-// copy if one exists (reusing resolveArchiveFolder + moveMessage, snooze's in-place UPDATE).
+// `id` directly. In one round trip this: (a) strips the thread's GTD label copies named in
+// `states` — a merged Waiting row passes both watch+delegated — leaving any GTD labels in OTHER
+// sections intact; (b) marks the whole thread read (DB fan-out across the surviving sibling
+// copies, \Seen on the INBOX copy so it rides the archive move); (c) archives every INBOX copy
+// in the thread (reusing resolveArchiveFolder + moveMessage, snooze's in-place UPDATE).
 // One terminal gtd_sections_updated broadcast makes the row disappear cleanly on refetch.
 router.post('/done', async (req, res) => {
   const { id, states } = req.body || {};
@@ -373,9 +558,13 @@ router.post('/done', async (req, res) => {
   // for this thread; the GTD sidebar's explicit-states path is untouched. Only look copies up when
   // we'll use them (enabled + all-states); resolveDoneFolders still owns the gtd_enabled gate.
   const allStates = states == null || states === 'all';
+  const threadCopies = enabled && msg.thread_key
+    ? await getMessagesByThreadKeys(msg.account_id, [msg.thread_key])
+    : [];
+  const copyFolders = enabled ? await getMessageCopyFolders(msg.account_id, msg.message_id) : [];
   let existing;
   if (allStates && enabled) {
-    existing = await getMessageCopyFolders(msg.account_id, msg.message_id);
+    existing = [...copyFolders, ...threadCopies.map(copy => copy.folder)];
   }
   const target = allStates
     ? resolveDoneFolders({ enabled, folders, states: 'all', existing })
@@ -384,16 +573,15 @@ router.post('/done', async (req, res) => {
 
   const account = await getOwnedAccount(req.session.userId, msg.account_id);
 
-  // (a) Mark the whole thread read. The DB fan-out (by Message-ID) covers every sibling
-  // copy and adjusts each folder's unread count; \Seen is set on the durable INBOX copy
-  // only (it rides the archive move; Gmail propagates message-wide) — the same per-copy
-  // asymmetry the ordinary read route accepts. A best-effort flag push is never fatal.
-  const { inboxCopy, error: markReadError } = await markThreadRead(account, msg);
-  if (markReadError) console.warn(`GTD done: mark-read for ${id} degraded:`, markReadError.message);
+  // Whether the cache lists an INBOX copy of the acted message, for reporting a failed archive of
+  // it. It does not license the strips: a stale row (another client moved the message) would let
+  // done delete the last real copies, so hasSurvivingCopy below confirms INBOX on the server too.
+  const hasInboxCopy = copyFolders.includes('INBOX');
 
-  // (b) Strip this row's GTD label copies. Each is a distinct folder copy resolved from
-  // the shared Message-ID; removeMessageCopy deletes the IMAP + DB copy and adjusts that
-  // label folder's counts, leaving INBOX and other-section labels untouched.
+  // (a) Strip the thread's GTD label copies: the acted message's, resolved from its Message-ID,
+  // and every other message's copy in those folders (clearOtherThreadCopy).
+  // removeMessageCopy deletes the IMAP + DB copy and adjusts that label folder's counts,
+  // leaving INBOX and other-section labels untouched.
   //
   // Strip the acted row's OWN folder (msg.folder) LAST. A merged Waiting done passes both
   // watch+delegated, and if an earlier copy's removal throws we 500 — but the same-id retry
@@ -410,37 +598,127 @@ router.post('/done', async (req, res) => {
   // is the message's only copy (see hasSurvivingCopy). Without an acted GTD copy to keep, refuse
   // rather than delete them all.
   let keepActed = false;
-  if (!inboxCopy && stripOrder.length && !await hasSurvivingCopy(account, msg, stripOrder)) {
+  if (stripOrder.length && !await hasSurvivingCopy(account, msg, stripOrder)) {
     if (!stripOrder.includes(msg.folder)) {
       return res.status(409).json({ error: 'This is the only copy of the message. Archive or move it instead.', onlyCopy: true });
     }
     keepActed = true;
   }
 
+  // The thread's other messages' copies go first, so the acted row is still the last one stripped.
+  const otherCopies = threadCopies
+    .filter(copy => copy.message_id !== msg.message_id && stripOrder.includes(copy.folder))
+    .map(copy => ({ ...copy, account_id: msg.account_id }));
+
   const removed = [];
+  let threadRemains = false;
+  // Another message's copy that fails to clear is left where it is; only the acted message's own
+  // strip below 500s, since its row is what a same-id retry resolves.
+  for (const copy of otherCopies) {
+    try {
+      const result = await clearOtherThreadCopy(account, copy, stripOrder);
+      if (!result.cleared) threadRemains = true;
+      if (result.removed && !removed.includes(copy.folder)) removed.push(copy.folder);
+    } catch (err) {
+      console.error(`GTD done: clearing a thread copy in ${copy.folder} failed, leaving it:`, err.message);
+      threadRemains = true;
+    }
+  }
+  // The acted message can have more than one copy in a folder; removeLabel resolves only one, so
+  // the others go first, each by its exact uid and Message-ID, and only when another copy outside
+  // the stripped folders keeps the message (not the keepActed path).
+  const actedDuplicates = keepActed ? [] : threadCopies.filter(copy => copy.message_id === msg.message_id
+    && stripOrder.includes(copy.folder) && copy.id !== msg.id);
   try {
     for (const folder of stripOrder) {
       if (keepActed && folder === msg.folder) continue;
+      for (const copy of actedDuplicates.filter(dup => dup.folder === folder)) {
+        const { removed: didRemove } = await removeExactLabelCopy(msg, folder, copy.uid);
+        if (didRemove && !removed.includes(folder)) removed.push(folder);
+      }
       const { removed: didRemove } = await removeLabel(msg, folder);
-      if (didRemove) removed.push(folder);
+      if (didRemove && !removed.includes(folder)) removed.push(folder);
     }
   } catch (err) {
+    // The thread is not marked read on this path. A retry by the same id marks it.
     console.error(`GTD done: label strip for ${id} failed:`, err.message);
     return res.status(500).json({ error: 'Failed to mark done' });
   }
 
-  // (c) Archive the INBOX copy if one is present, via the shared per-copy archive primitive
+  // A copy of the acted message still in a stripped folder keeps the thread in its section. The
+  // kept copy's own folder is expected to hold it until the archive below.
+  try {
+    const left = await getMessageCopyFolders(account.id, msg.message_id);
+    if (left.some(folder => stripOrder.includes(folder) && !(keepActed && folder === msg.folder))) {
+      console.warn(`GTD done: a copy of ${id} is still in a stripped GTD folder`);
+      threadRemains = true;
+    }
+  } catch (err) {
+    console.warn(`GTD done: could not re-check the copies of ${id}: ${err.message}`);
+    threadRemains = true;
+  }
+
+  // (b) Mark the whole thread read, after the strips so the deleted copies get no read writes.
+  // The DB fan-out (by Message-ID) covers every surviving sibling copy, the kept acted copy
+  // included, and adjusts each folder's unread count; \Seen is set on the durable INBOX copy
+  // only (it rides the archive move; Gmail propagates message-wide) — the same per-copy
+  // asymmetry the ordinary read route accepts. A best-effort flag push is never fatal. It runs
+  // before the archive, whose counts move no unread. The strips are done by now, so a failed
+  // INBOX lookup must not 500: the acted row may be gone and a retry by the same id would 404.
+  //
+  // markThreadRead throws only when its INBOX lookup fails, before any read write. An unread kept
+  // copy must not be archived then: the primitive moves no unread, so its folder would keep an
+  // unread it no longer holds. Retry once; if that fails too the copy stays where it is.
+  let inboxCopy = null;
+  let inboxLookupFailed = false;
+  let fanOutFailed = false;
+  const attempts = keepActed && !msg.is_read ? 2 : 1;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const result = await markThreadRead(account, msg);
+      inboxCopy = result.inboxCopy;
+      inboxLookupFailed = false;
+      if (result.error) console.warn(`GTD done: mark-read for ${id} degraded:`, result.error.message);
+      // Honoured when markThreadRead provides it (PR #662); copyStillUnread is the live check.
+      fanOutFailed = result.fanOutFailed === true;
+      break;
+    } catch (err) {
+      console.error(`GTD done: INBOX lookup for ${id} failed:`, err.message);
+      inboxLookupFailed = true;
+    }
+  }
+
+  // (c) Archive the acted message's INBOX copy if one is present, then every other thread
+  // message's INBOX rows (archiveInboxRows, archiveOtherInboxCopies), via the shared per-copy archive primitive
   // (resolveArchiveFolder + guarded moveMessage + race-safe DB repoint + count adjust, with
   // the Gmail All-Mail DELETE branch). No archive folder configured is a soft outcome, not a
   // failure — the GTD labels are already gone, so the thread has left all GTD sections regardless.
   let archived = false;
   let noArchiveFolder = false;
-  let archiveFailed = false;
-  const toArchive = inboxCopy || (keepActed ? msg : null);
+  let archiveFailed = hasInboxCopy && inboxLookupFailed;
+  // An INBOX copy that appeared after the only-copy check leaves the kept GTD copy in its folder.
+  if (keepActed && inboxCopy) threadRemains = true;
+  // Likewise a kept copy the DB never marked read: the archive would move no unread.
+  const keptUnmarked = keepActed && !inboxCopy
+    && (fanOutFailed || await copyStillUnread(account, msg));
+  if (keptUnmarked) {
+    console.error(`GTD done: ${id} was not marked read, leaving its only copy in ${msg.folder}`);
+    archiveFailed = true;
+    threadRemains = true;
+  }
+  // An INBOX copy whose message the DB never marked read stays: the archive moves no unread.
+  const inboxUnmarked = Boolean(inboxCopy) && (fanOutFailed || await copyStillUnread(account, { ...inboxCopy, folder: 'INBOX' }));
+  if (inboxUnmarked) {
+    console.error(`GTD done: ${id} was not marked read, leaving its INBOX copy`);
+    archiveFailed = true;
+  }
+  const toArchive = inboxCopy
+    ? (inboxUnmarked ? null : inboxCopy)
+    : (keepActed && !keptUnmarked ? msg : null);
   if (toArchive) {
     try {
       // A kept GTD copy is archived from its own folder; with no archive folder it stays put. It
-      // is now the durable copy, so it takes the \Seen that (a) set on INBOX only.
+      // is now the durable copy, so it takes the \Seen that (b) set on INBOX only.
       if (!inboxCopy) {
         const { error } = await markCopySeen(account, msg);
         if (error) console.warn(`GTD done: mark-read for ${id} degraded:`, error.message);
@@ -448,21 +726,67 @@ router.post('/done', async (req, res) => {
       const result = await archiveInboxCopy(account, toArchive, inboxCopy ? 'INBOX' : msg.folder);
       archived = result.archived;
       noArchiveFolder = result.noArchiveFolder;
+      // A kept GTD copy with nowhere to go stays in its folder, and the thread in its section.
+      if (!inboxCopy && noArchiveFolder) threadRemains = true;
     } catch (err) {
-      // Step (b) already stripped the labels (or had nothing to strip). A failed archive must
+      // Step (a) already stripped the labels (or had nothing to strip). A failed archive must
       // not 500: that misreports a mostly-successful action, and — with the label row now
       // gone — a retry by the same id would 404. Report a partial success (200, archiveFailed
       // true, archived false) so the client can surface it and the id stays retryable.
       console.error(`GTD done: archive of INBOX copy for ${id} failed:`, err.message);
       archiveFailed = true;
+      // A kept GTD copy that failed to move is still in its folder, so is the thread.
+      if (!inboxCopy) threadRemains = true;
     }
+  }
+
+  // With the kept copy moved out, its folder no longer needs to hold the message. A duplicate there
+  // was not stripped (the kept copy was the only one outside the stripped folders), so it keeps the
+  // thread in its section. (A kept copy that stayed put already set threadRemains above.)
+  if (keepActed && !inboxCopy && archived) {
+    try {
+      const left = await getMessageCopyFolders(account.id, msg.message_id);
+      if (left.some(folder => stripOrder.includes(folder))) {
+        console.warn(`GTD done: a copy of ${id} is still in a stripped GTD folder beside the kept copy`);
+        threadRemains = true;
+      }
+    } catch (err) {
+      console.warn(`GTD done: could not re-check the copies of ${id}: ${err.message}`);
+      threadRemains = true;
+    }
+  }
+
+  // Done archives the whole conversation: the acted message's other INBOX rows (a duplicate under
+  // the same Message-ID; markThreadRead resolved only one), then every other message's.
+  const inboxRows = threadCopies
+    .filter(copy => copy.folder === 'INBOX')
+    .map(copy => ({ ...copy, account_id: msg.account_id }));
+  const actedExtras = inboxRows.filter(copy => copy.message_id === msg.message_id && copy.id !== inboxCopy?.id);
+  if (inboxCopy && actedExtras.length) {
+    const result = await archiveInboxRows(account, actedExtras, inboxCopy.id, fanOutFailed);
+    if (result.failed) archiveFailed = true;
+    if (result.noArchiveFolder) noArchiveFolder = true;
+    if (result.archived) archived = true;
+  }
+  const otherMessages = new Map();
+  for (const copy of inboxRows) {
+    if (copy.message_id === msg.message_id) continue;
+    const key = copy.message_id || Symbol('headerless');
+    if (!otherMessages.has(key)) otherMessages.set(key, []);
+    otherMessages.get(key).push(copy);
+  }
+  for (const rows of otherMessages.values()) {
+    const result = await archiveOtherInboxCopies(account, rows[0], rows);
+    if (result.failed) archiveFailed = true;
+    if (result.noArchiveFolder) noArchiveFolder = true;
+    if (result.archived) archived = true;
   }
 
   // One terminal refresh so GTD section data converges to the post-done state (removeMessageCopy
   // also emits mid-op, but this covers the archive that follows it).
   broadcast({ type: 'gtd_sections_updated', accountId: msg.account_id }, account.user_id);
 
-  res.json({ ok: true, removed, archived, noArchiveFolder, archiveFailed });
+  res.json({ ok: true, removed, archived, noArchiveFolder, archiveFailed, threadRemains });
 });
 
 // POST /api/gtd/folders/ensure { accountId, folders } — create any of the account's

@@ -11,6 +11,7 @@ export async function doneInboxGtdMessage(message, {
   try {
     const result = await gtdDone(message.id);
     if (result?.archiveFailed) notify({ title: t('gtd.doneArchiveFailed'), body: message.subject || t('common.noSubject') });
+    if (result?.threadRemains) notify({ title: t('gtd.doneThreadRemains'), body: message.subject || t('common.noSubject') });
     return result;
   } catch (error) {
     console.error('GTD done failed:', error.message);

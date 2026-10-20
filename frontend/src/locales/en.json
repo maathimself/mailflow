@@ -1923,6 +1923,7 @@
     "done": "Mark done",
     "doneFailed": "Couldn't mark done",
     "doneArchiveFailed": "Marked done, but archiving failed — still in your Inbox",
+    "doneThreadRemains": "Some messages in this conversation couldn't be cleared, so it stays in its GTD section",
     "state": {
       "todo": "Todo",
       "watch": "Watch",

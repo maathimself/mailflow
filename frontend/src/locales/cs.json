@@ -690,6 +690,7 @@
     "done": "Označit jako hotové",
     "doneFailed": "Nepodařilo se označit jako hotové",
     "doneArchiveFailed": "Označeno jako hotové, ale archivace se nezdařila — zpráva zůstává v Doručené poště",
+    "doneThreadRemains": "Některé zprávy v této konverzaci nebylo možné odebrat, proto zůstává ve své sekci GTD",
     "state": {
       "todo": "K vyřízení",
       "watch": "Sledovat",

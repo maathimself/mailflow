@@ -1923,6 +1923,7 @@
     "done": "Als erledigt markieren",
     "doneFailed": "Konnte nicht als erledigt markiert werden",
     "doneArchiveFailed": "Als erledigt markiert, aber Archivieren fehlgeschlagen – noch im Posteingang",
+    "doneThreadRemains": "Einige Nachrichten dieser Konversation konnten nicht entfernt werden, daher bleibt sie in ihrem GTD-Bereich",
     "state": {
       "todo": "Aufgabe",
       "watch": "Beobachten",

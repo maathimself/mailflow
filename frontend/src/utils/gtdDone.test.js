@@ -118,4 +118,24 @@ describe('doneGtdRow', () => {
     ]);
     assert.equal(completedGtdRemovalMap.size, 1);
   });
+
+  it('says so when the server could not clear the whole thread from its section', async () => {
+    const calls = [];
+    await doneGtdRow(thread, states, deps({
+      gtdDone: async () => ({ ok: true, threadRemains: true }),
+      addNotification: notification => calls.push(['notify', notification]),
+    }));
+
+    assert.deepEqual(calls, [
+      ['notify', { title: 'gtd.doneThreadRemains', body: 'A subject' }],
+    ]);
+  });
+
+  it('drops the removal guard when the thread stays in its section, so the next refetch shows it', async () => {
+    await doneGtdRow(thread, states, deps({
+      gtdDone: async () => ({ ok: true, threadRemains: true }),
+    }));
+    assert.equal(pendingGtdRemovalMap.size, 0);
+    assert.equal(completedGtdRemovalMap.size, 0);
+  });
 });

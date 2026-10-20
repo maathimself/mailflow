@@ -1923,6 +1923,7 @@
     "done": "Marquer comme terminé",
     "doneFailed": "Impossible de marquer comme terminé",
     "doneArchiveFailed": "Marqué comme terminé, mais l'archivage a échoué — toujours dans la boîte de réception",
+    "doneThreadRemains": "Certains messages de cette conversation n'ont pas pu être retirés, elle reste donc dans sa section GTD",
     "state": {
       "todo": "À faire",
       "watch": "Surveiller",

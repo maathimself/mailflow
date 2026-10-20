@@ -1923,6 +1923,7 @@
     "done": "Segna come completato",
     "doneFailed": "Impossibile segnare come completato",
     "doneArchiveFailed": "Segnato come completato, ma archiviazione non riuscita: è ancora nella posta in arrivo",
+    "doneThreadRemains": "Alcuni messaggi di questa conversazione non sono stati rimossi, quindi resta nella sua sezione GTD",
     "state": {
       "todo": "Da fare",
       "watch": "Osservare",

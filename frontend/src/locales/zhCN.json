@@ -1923,6 +1923,7 @@
     "done": "标记为完成",
     "doneFailed": "无法标记为完成",
     "doneArchiveFailed": "已标记为完成，但归档失败——邮件仍在收件箱中",
+    "doneThreadRemains": "此会话中的部分邮件无法清除，因此它仍留在原 GTD 分区中",
     "state": {
       "todo": "待办",
       "watch": "关注",

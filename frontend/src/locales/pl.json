@@ -1941,6 +1941,7 @@
     "done": "Oznacz jako wykonane",
     "doneFailed": "Nie udało się oznaczyć jako gotowe",
     "doneArchiveFailed": "Oznaczono jako gotowe, ale archiwizacja nie powiodła się — wiadomość nadal znajduje się w skrzynce odbiorczej",
+    "doneThreadRemains": "Nie udało się usunąć niektórych wiadomości z tej rozmowy, więc pozostaje ona w swojej sekcji GTD",
     "state": {
       "todo": "Do zrobienia",
       "watch": "Do obserwowania",

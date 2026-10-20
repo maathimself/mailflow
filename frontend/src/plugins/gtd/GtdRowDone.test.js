@@ -36,4 +36,12 @@ describe('GTD main-list Done adapter', () => {
     assert.ok(failed.events.some(([event]) => event === 'restore'));
     assert.ok(failed.events.some(([event]) => event === 'increment'));
   });
+
+  it('says so when the server could not clear the whole thread from its section', async () => {
+    const h = harness({ ok: true, threadRemains: true });
+    await doneInboxGtdMessage(row, h.deps);
+    assert.deepEqual(h.events.filter(([event]) => event === 'notify'), [
+      ['notify', { title: 'gtd.doneThreadRemains', body: 'One' }],
+    ]);
+  });
 });
