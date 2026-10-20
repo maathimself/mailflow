@@ -433,8 +433,10 @@ export default function ComposeModal() {
     editorProps: {
       attributes: { spellcheck: 'true' },
       // A file dropped on the body is attached by the composer's drop handler, not inserted here.
+      // Asked of the files, not the types: Chrome lists Files for another site's image without
+      // handing the file over, and that image still goes in as before.
       handleDrop(view, event) {
-        return Array.from(event.dataTransfer?.types || []).includes('Files');
+        return (event.dataTransfer?.files?.length ?? 0) > 0;
       },
       handlePaste(view, event) {
         // If clipboard has HTML containing a table (e.g. from Excel), let

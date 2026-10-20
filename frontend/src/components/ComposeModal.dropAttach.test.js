@@ -72,9 +72,9 @@ before(async () => {
 after(() => close());
 
 // A drag event as the browser sends it. jsdom has no DataTransfer, so the event carries a stand-in.
-async function drag(type, target, { types, files = [] }) {
+async function drag(type, target, { types, files = [], data = {} }) {
   const event = new window.Event(type, { bubbles: true, cancelable: true });
-  Object.defineProperty(event, 'dataTransfer', { value: { types, files, dropEffect: 'none' } });
+  Object.defineProperty(event, 'dataTransfer', { value: { types, files, dropEffect: 'none', getData: (format) => data[format] ?? '' } });
   await React.act(async () => { target.dispatchEvent(event); });
   // FileReader finishes on a later task.
   await React.act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
@@ -116,5 +116,40 @@ describe('dropping files on the composer', () => {
     assert.equal(overlayShown(), false);
     const dropped = await drag('drop', composer(), { types: ['text/plain'] });
     assert.equal(dropped.defaultPrevented, false);
+  });
+
+  // An image dragged from a web page brings the file and its HTML. ProseMirror asks handleDrop only
+  // once it knows where in the body the drop landed, which jsdom cannot tell it, so these two say.
+  const droppedOnBody = async (dragged) => {
+    const view = editor().view;
+    view.posAtCoords = () => ({ pos: 1, inside: -1 });
+    try {
+      return await drag('drop', document.querySelector('.ProseMirror'), dragged);
+    } finally {
+      delete view.posAtCoords;
+    }
+  };
+
+  test('an image dragged in from a web page is attached once, not also put in the body', async () => {
+    const src = 'https://example.invalid/logo.png';
+    const dropped = await droppedOnBody({
+      types: ['text/uri-list', 'text/html', 'Files'],
+      files: [new window.File(['png'], 'logo.png', { type: 'image/png' })],
+      data: { 'text/html': `<img src="${src}">`, 'text/uri-list': src },
+    });
+    assert.equal(dropped.defaultPrevented, true);
+    assert.equal(composer().textContent.split('logo.png').length - 1, 1, 'attached once');
+    assert.equal(editor().getHTML(), '<p>Hi Bob</p>', 'nothing went into the body');
+  });
+
+  test('an image the browser lists as a file but does not hand over still goes into the body', async () => {
+    // What Chrome does with another site's image.
+    const src = 'https://other.example.invalid/photo.png';
+    const dropped = await droppedOnBody({
+      types: ['text/uri-list', 'text/html', 'Files'], files: [],
+      data: { 'text/html': `<img src="${src}">`, 'text/uri-list': src },
+    });
+    assert.equal(dropped.defaultPrevented, true, 'the browser does not open the image in place of the app');
+    assert.match(editor().getHTML(), /<img src="https:\/\/other\.example\.invalid\/photo\.png">/);
   });
 });
