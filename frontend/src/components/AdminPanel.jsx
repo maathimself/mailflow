@@ -4040,9 +4040,10 @@ function AISection() {
     });
 
     Promise.all([
-      api.ai.getConfig().then(({ config: cfg }) => {
+      api.ai.getConfig().then(({ config: cfg, newUsersEnabled }) => {
         if (!active) return;
-        const normalized = normalizeAiForm(cfg || {});
+        // "Allow AI for new users" is kept when no provider is configured, so it comes on its own.
+        const normalized = normalizeAiForm({ ...(cfg || {}), newUsersEnabled });
         setConfig(cfg);
         formRef.current = normalized;
         setForm(normalized);
@@ -4146,20 +4147,25 @@ function AISection() {
     </div>
   );
 
+  // A switch inside its label, so the text toggles it too and a screen reader reads its state.
   const toggle = (label, checked, onChange) => (
     <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 10 }}>
-      <div
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
         onClick={onChange}
         style={{
           width: 36, height: 20, borderRadius: 10, position: 'relative', cursor: 'pointer', flexShrink: 0,
+          padding: 0, border: 'none',
           background: checked ? 'var(--accent)' : 'var(--border)', transition: 'background 0.2s',
         }}
       >
-        <div style={{
+        <span style={{
           position: 'absolute', top: 2, left: checked ? 18 : 2, width: 16, height: 16,
           borderRadius: '50%', background: '#fff', transition: 'left 0.2s',
         }} />
-      </div>
+      </button>
       <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{label}</span>
     </label>
   );
@@ -4323,6 +4329,9 @@ function AISection() {
             <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>{t('admin.ai.features')}</div>
             {toggle(t('admin.ai.featureCompose'), form.features.compose, () => setForm(f => ({ ...f, features: { ...f.features, compose: !f.features.compose } })))}
             {toggle(t('admin.ai.featureSummarize'), form.features.summarize, () => setForm(f => ({ ...f, features: { ...f.features, summarize: !f.features.summarize } })))}
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '16px 0 8px' }}>{t('admin.ai.access')}</div>
+            {toggle(t('admin.ai.newUsersEnabled'), form.newUsersEnabled, () => setForm(f => ({ ...f, newUsersEnabled: !f.newUsersEnabled })))}
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: -4, lineHeight: 1.4 }}>{t('admin.ai.newUsersEnabledHint')}</div>
           </div>
         )}
 
@@ -4931,7 +4940,7 @@ function UsersTab() {
 
 function UsersAndInvitesPanel() {
   const { t, i18n } = useTranslation();
-  const { user: currentUser } = useStore();
+  const { user: currentUser, addNotification } = useStore();
   const [users, setUsers] = useState([]);
   const [editingUser, setEditingUser] = useState(null);
   const [userTotal, setUserTotal] = useState(0);
@@ -4992,6 +5001,18 @@ function UsersAndInvitesPanel() {
     const newVal = !u.isAdmin;
     await api.admin.updateUser(u.id, { isAdmin: newVal });
     setUsers(us => us.map(x => x.id === u.id ? { ...x, isAdmin: newVal } : x));
+  };
+
+  // Per-user AI access (#644). The server reads it on every AI request, so it applies at once.
+  const handleToggleAi = async (u) => {
+    const newVal = u.aiEnabled === false;
+    try {
+      await api.admin.updateUser(u.id, { aiEnabled: newVal });
+    } catch (err) {
+      addNotification({ type: 'error', title: t('admin.users.aiToggleFailed', { username: u.username }), body: err.message });
+      return;
+    }
+    setUsers(us => us.map(x => x.id === u.id ? { ...x, aiEnabled: newVal } : x));
   };
 
   const handleDeleteUser = (u) => {
@@ -5081,7 +5102,10 @@ function UsersAndInvitesPanel() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 28 }}>
         {users.map(u => (
           <div key={u.id} style={{
-            display: 'flex', alignItems: 'center', gap: 10,
+            // On a phone the actions wrap below the name rather than squeezing it to nothing. The
+            // name column's 120px basis still fits the widest row (switch, edit, admin, 2FA,
+            // delete) on one line at the desktop settings width.
+            display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10,
             padding: '10px 12px', borderRadius: 8,
             background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
           }}>
@@ -5097,9 +5121,9 @@ function UsersAndInvitesPanel() {
                 : u.username[0].toUpperCase()}
             </div>
 
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+            <div style={{ flex: '1 1 120px', minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', minWidth: 0, overflowWrap: 'anywhere' }}>
                   {u.username}
                 </span>
                 {u.isAdmin && (
@@ -5133,45 +5157,74 @@ function UsersAndInvitesPanel() {
               </div>
             </div>
 
-            <IconBtn onClick={() => setEditingUser(u)} title={t('admin.users.edit')}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
-              </svg>
-            </IconBtn>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto', flexShrink: 0 }}>
+              {/* Shown for every user, the admin included: AI may run on the admin's own subscription. */}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={u.aiEnabled !== false}
+                aria-label={t('admin.users.aiAccessLabel', { username: u.username })}
+                onClick={() => handleToggleAi(u)}
+                title={u.aiEnabled !== false ? t('admin.users.aiOnHint') : t('admin.users.aiOffHint')}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+                  padding: '5px 8px', borderRadius: 6, fontSize: 11, fontWeight: 500,
+                  border: '1px solid var(--border)', background: 'transparent',
+                  color: u.aiEnabled !== false ? 'var(--text-secondary)' : 'var(--text-tertiary)', cursor: 'pointer',
+                }}
+              >
+                <span aria-hidden="true" style={{
+                  width: 24, height: 14, borderRadius: 7, position: 'relative', flexShrink: 0,
+                  background: u.aiEnabled !== false ? 'var(--accent)' : 'var(--border)', transition: 'background 0.2s',
+                }}>
+                  <span style={{
+                    position: 'absolute', top: 2, left: u.aiEnabled !== false ? 12 : 2, width: 10, height: 10,
+                    borderRadius: '50%', background: '#fff', transition: 'left 0.2s',
+                  }} />
+                </span>
+                {u.aiEnabled !== false ? t('admin.users.aiOn') : t('admin.users.aiOff')}
+              </button>
 
-            {u.id !== currentUser?.id && (
-              <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
-                <button
-                  onClick={() => handleToggleAdmin(u)}
-                  title={u.isAdmin ? t('admin.users.removeAdmin') : t('admin.users.makeAdmin')}
-                  style={{
-                    padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 500,
-                    border: '1px solid var(--border)',
-                    background: u.isAdmin ? 'var(--bg-elevated)' : 'transparent',
-                    color: u.isAdmin ? 'var(--text-secondary)' : 'var(--accent)',
-                    cursor: 'pointer', transition: 'all 0.1s',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
-                >
-                  {u.isAdmin ? t('admin.users.removeAdmin') : t('admin.users.makeAdmin')}
-                </button>
-                {u.totpEnabled && (
-                  <IconBtn onClick={() => handleDisableTotp(u)} title={t('admin.users.disable2fa')}>
+              <IconBtn onClick={() => setEditingUser(u)} title={t('admin.users.edit')}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                </svg>
+              </IconBtn>
+
+              {u.id !== currentUser?.id && (
+                <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                  <button
+                    onClick={() => handleToggleAdmin(u)}
+                    title={u.isAdmin ? t('admin.users.removeAdmin') : t('admin.users.makeAdmin')}
+                    style={{
+                      padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 500,
+                      border: '1px solid var(--border)',
+                      background: u.isAdmin ? 'var(--bg-elevated)' : 'transparent',
+                      color: u.isAdmin ? 'var(--text-secondary)' : 'var(--accent)',
+                      cursor: 'pointer', transition: 'all 0.1s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+                  >
+                    {u.isAdmin ? t('admin.users.removeAdmin') : t('admin.users.makeAdmin')}
+                  </button>
+                  {u.totpEnabled && (
+                    <IconBtn onClick={() => handleDisableTotp(u)} title={t('admin.users.disable2fa')}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect x="5" y="11" width="14" height="11" rx="2" ry="2"/>
+                        <path d="M11 15v2M8 11V7a4 4 0 018 0v4"/>
+                      </svg>
+                    </IconBtn>
+                  )}
+                  <IconBtn onClick={() => handleDeleteUser(u)} title={t('admin.users.deleteUser')} danger>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <rect x="5" y="11" width="14" height="11" rx="2" ry="2"/>
-                      <path d="M11 15v2M8 11V7a4 4 0 018 0v4"/>
+                      <polyline points="3 6 5 6 21 6"/>
+                      <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
                     </svg>
                   </IconBtn>
-                )}
-                <IconBtn onClick={() => handleDeleteUser(u)} title={t('admin.users.deleteUser')} danger>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
-                  </svg>
-                </IconBtn>
-              </div>
-            )}
+                </div>
+              )}
+            </div>
           </div>
         ))}
         {users.length < userTotal && (

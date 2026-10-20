@@ -36,7 +36,7 @@ export async function listUsers(req, res) {
   const [result, countResult] = await Promise.all([
     query(
       `SELECT id, username, is_admin, totp_enabled, created_at, avatar, last_seen_at, recovery_email,
-              password_hash IS NOT NULL AS has_password
+              ai_enabled, password_hash IS NOT NULL AS has_password
          FROM users ORDER BY created_at ASC LIMIT $1 OFFSET $2`,
       [limit, offset],
     ),
@@ -53,6 +53,7 @@ export async function listUsers(req, res) {
       lastSeenAt: u.last_seen_at,
       recoveryEmail: u.recovery_email,
       hasPassword: u.has_password,
+      aiEnabled: u.ai_enabled,
     })),
     total: parseInt(countResult.rows[0].total),
   });
@@ -99,10 +100,10 @@ function normalizeUsername(raw) {
   return { username };
 }
 
-// Changes any of isAdmin, username and recoveryEmail; fields left out are not touched.
+// Changes any of isAdmin, aiEnabled, username and recoveryEmail; fields left out are not touched.
 export async function updateUser(req, res) {
   const { id } = req.params;
-  const { isAdmin, username, recoveryEmail } = req.body ?? {};
+  const { isAdmin, aiEnabled, username, recoveryEmail } = req.body ?? {};
 
   // Prevent removing your own admin status
   if (id === req.session.userId && isAdmin === false) {
@@ -117,6 +118,14 @@ export async function updateUser(req, res) {
     values.push(isAdmin);
     sets.push(`is_admin = $${values.length}`);
     changes.push(`is_admin=${isAdmin}`);
+  }
+  // Whether the user may use the instance's AI provider (#644). Takes effect on their next AI
+  // request: the AI routes read it from the database each time.
+  if (aiEnabled !== undefined) {
+    if (typeof aiEnabled !== 'boolean') return res.status(400).json({ error: 'aiEnabled must be true or false' });
+    values.push(aiEnabled);
+    sets.push(`ai_enabled = $${values.length}`);
+    changes.push(`ai_enabled=${aiEnabled}`);
   }
   let newUsername;
   if (username !== undefined) {
