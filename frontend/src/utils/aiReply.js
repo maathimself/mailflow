@@ -2,17 +2,12 @@
 // an instruction from the user ("approve the artwork", "decline politely"). This builds what is
 // sent; the request goes through the same /api/ai/chat proxy as the other compose actions.
 
-// How much of the conversation is sent. Bodies are fetched one request each, so the count is
-// capped, and the text is capped below the proxy's 32,000 characters per message, leaving room
-// for the instruction and the framing around it.
+import { AI_MESSAGE_MAX_CHARS, cutPoint } from '../aiActions.js';
+
+// How much of the conversation is read. Bodies are fetched one request each, so the count is
+// capped; the text then goes whole up to the AI request limit, as since #633, and anything left
+// out is told to the model and shown to the user.
 export const MAX_CONTEXT_MESSAGES = 10;
-export const CONTEXT_BUDGET_CHARS = 24_000;
-// The message being answered matters most, so it may take up to half the budget; each earlier
-// one gets less, and the oldest are dropped first when the budget runs out.
-const LATEST_MESSAGE_CHARS = 12_000;
-const EARLIER_MESSAGE_CHARS = 6_000;
-// Below this, what is left of the budget would hold a scrap of a message rather than the message.
-const MIN_MESSAGE_CHARS = 500;
 export const MAX_INSTRUCTION_CHARS = 1_000;
 
 // Whether "Reply with AI" can be offered. It writes a draft (the writing assistant) from received
@@ -157,10 +152,10 @@ export function unquote(text) {
   return quoted.map(line => line.replace(/^\s*> ?/, '')).join('\n').trim();
 }
 
-// The messages to send: the conversation up to and including the one being answered (a reply
-// to an older message in the thread is about that message, not what came after it), one copy of
-// each, the newest MAX_CONTEXT_MESSAGES. A draft in the thread was never sent, so it is left out.
-export function pickContextMessages(messages, { inReplyTo } = {}) {
+// The conversation up to and including the message being answered (a reply to an older message in
+// the thread is about that message, not what came after it), oldest first, one copy of each. A
+// draft in the thread was never sent, so it is left out.
+export function conversationUpTo(messages, { inReplyTo } = {}) {
   const seen = new Set();
   const unique = [];
   const sent = (messages || []).filter(m => !m.is_draft);
@@ -171,8 +166,12 @@ export function pickContextMessages(messages, { inReplyTo } = {}) {
     unique.push(message);
   }
   const answered = inReplyTo ? unique.findIndex(m => m.message_id === inReplyTo) : -1;
-  const upTo = answered >= 0 ? unique.slice(0, answered + 1) : unique;
-  return upTo.slice(-MAX_CONTEXT_MESSAGES);
+  return answered >= 0 ? unique.slice(0, answered + 1) : unique;
+}
+
+// The newest MAX_CONTEXT_MESSAGES of it: the ones whose bodies are read.
+export function pickContextMessages(messages, options) {
+  return conversationUpTo(messages, options).slice(-MAX_CONTEXT_MESSAGES);
 }
 
 // Every address the user sends from, so their own messages can be told apart in the prompt.
@@ -203,7 +202,7 @@ export function toContextMessage(message, body, own = new Set()) {
 }
 
 // The conversation for the reply: the thread up to the message being answered, with the bodies
-// of its messages. A reply opened from a list that is not grouped into conversations does not
+// of its messages, as { messages, leftOut }, leftOut counting the older ones past the cap. A reply opened from a list that is not grouped into conversations does not
 // carry the thread, so it is looked up from the message being answered; a message with no
 // thread is read on its own. When none of that can be loaded, it falls back to the quoted
 // message the composer already has. `deps` are the API calls, passed in so this can be tested
@@ -225,19 +224,20 @@ export async function loadReplyConversation(
     thread = answered?.thread_id || null;
   }
   if (thread) {
-    const messages = await getThread(thread).then(r => r?.messages || [], () => []);
-    const conversation = await read(pickContextMessages(messages, { inReplyTo }));
-    if (conversation.length) return conversation;
+    const all = conversationUpTo(await getThread(thread).then(r => r?.messages || [], () => []), { inReplyTo });
+    const picked = all.slice(-MAX_CONTEXT_MESSAGES);
+    const conversation = await read(picked);
+    if (conversation.length) return { messages: conversation, leftOut: all.length - picked.length };
   }
   if (answered?.id) {
     const conversation = await read([answered]);
-    if (conversation.length) return conversation;
+    if (conversation.length) return { messages: conversation, leftOut: 0 };
   }
 
   const text = stripQuotedReply(unquote(quotedBody));
-  if (!text) return [];
+  if (!text) return { messages: [], leftOut: 0 };
   const sender = Array.isArray(originalFrom) ? originalFrom[0] : null;
-  return [{ from: formatAddress(sender?.name, sender?.email), fromUser: false, date: null, text }];
+  return { messages: [{ from: formatAddress(sender?.name, sender?.email), fromUser: false, date: null, text }], leftOut: 0 };
 }
 
 function clip(text, max) {
@@ -249,29 +249,53 @@ function formatDate(date) {
   return parsed && !Number.isNaN(parsed.getTime()) ? `${parsed.toISOString().slice(0, 16).replace('T', ' ')} UTC` : '';
 }
 
-// The chat messages for the AI. The newest messages are kept first; older ones are shortened,
-// then left out, to stay within CONTEXT_BUDGET_CHARS.
-export function buildReplyPrompt({ conversation, instruction, subject, senderName, hasSignature }) {
-  let remaining = CONTEXT_BUDGET_CHARS;
-  const included = [];
-  for (let i = conversation.length - 1; i >= 0 && remaining >= MIN_MESSAGE_CHARS; i--) {
-    const cap = i === conversation.length - 1 ? LATEST_MESSAGE_CHARS : EARLIER_MESSAGE_CHARS;
-    const text = clip(conversation[i].text, Math.min(cap, remaining));
-    remaining -= text.length;
-    included.unshift({ ...conversation[i], text });
-  }
-  const omitted = conversation.length - included.length;
-
-  const blocks = included.map((m, i) => {
-    const header = [
-      `--- Message ${i + 1} of ${included.length}${i === included.length - 1 ? ' (the one being answered)' : ''} ---`,
-      `From: ${m.from || 'unknown'}${m.fromUser ? ' (the user)' : ''}`,
-      ...(formatDate(m.date) ? [`Date: ${formatDate(m.date)}`] : []),
-    ];
-    return `${header.join('\n')}\n\n${m.text}`;
-  });
-
+// The chat messages for the AI, as { messages, partial }. The conversation goes whole when it fits
+// one request (AI_MESSAGE_MAX_CHARS). When it does not, the oldest messages are left out first, and
+// a message being answered too long on its own is cut at a paragraph or sentence break, as #633
+// cuts an email. Either way the model is told, and partial ({ leftOut, cut }) lets the panel say
+// so to the user; it is null when everything went.
+export function buildReplyPrompt({ conversation, leftOut = 0, instruction, subject, senderName, hasSignature }) {
   const cleanInstruction = clip((instruction || '').trim(), MAX_INSTRUCTION_CHARS);
+  const cleanSubject = clip((subject || '').trim(), MAX_INSTRUCTION_CHARS) || '(none)';
+  const count = conversation.length;
+  const intro = (omitted) => (omitted > 0
+    ? `Conversation (oldest first; ${omitted} earlier message${omitted === 1 ? '' : 's'} left out):`
+    : 'Conversation (oldest first):');
+  const header = (m, i, of) => [
+    `--- Message ${i + 1} of ${of}${i === of - 1 ? ' (the one being answered)' : ''} ---`,
+    `From: ${m.from || 'unknown'}${m.fromUser ? ' (the user)' : ''}`,
+    ...(formatDate(m.date) ? [`Date: ${formatDate(m.date)}`] : []),
+  ].join('\n');
+  const cutNote = (shown, total) => `\n\n[Only the first ${shown} of ${total} characters of this message are included. The rest was left out to fit the AI request size limit.]`;
+  const top = `Subject: ${cleanSubject}\n\n`;
+  const bottom = `\n\nInstruction for the reply: ${cleanInstruction || 'Write a suitable reply.'}`;
+
+  // Room for the texts: everything else at its longest (the most messages left out, the widest
+  // numbering) is set aside first, so what is built below cannot run past the limit.
+  let room = AI_MESSAGE_MAX_CHARS - top.length - intro(count + leftOut).length - 2 - bottom.length;
+  const included = [];
+  let cut = false;
+  for (let i = count - 1; i >= 0; i--) {
+    const m = conversation[i];
+    const frame = header(m, count - 1, count).length + 4; // its header, a blank line, the gap to the next
+    if (frame + m.text.length <= room) {
+      included.unshift(m);
+      room -= frame + m.text.length;
+      continue;
+    }
+    if (included.length === 0) {
+      // The message being answered does not fit by itself: its beginning goes, at a natural break.
+      let end = Math.max(0, room - frame - cutNote(m.text.length, m.text.length).length);
+      const last = m.text.charCodeAt(end - 1);
+      if (last >= 0xd800 && last <= 0xdbff) end -= 1; // don't split a surrogate pair
+      const shown = m.text.slice(0, cutPoint(m.text, end)).trimEnd();
+      included.unshift({ ...m, text: shown + cutNote(shown.length, m.text.length) });
+      cut = true;
+    }
+    break;
+  }
+  const omitted = leftOut + count - included.length;
+  const blocks = included.map((m, i) => `${header(m, i, included.length)}\n\n${m.text}`);
 
   const system = [
     'You are an email writing assistant drafting a reply on the user\'s behalf.',
@@ -283,21 +307,15 @@ export function buildReplyPrompt({ conversation, instruction, subject, senderNam
     'Return only the body text of the reply, with no subject line and no quoted text. Use plain text with no markdown or HTML. Use double newlines between paragraphs.',
     closingInstruction({ senderName, hasSignature }),
   ].join(' ');
+  const user = `${top}${intro(omitted)}\n\n${blocks.join('\n\n')}${bottom}`;
 
-  const user = [
-    `Subject: ${(subject || '').trim() || '(none)'}`,
-    '',
-    omitted > 0 ? `Conversation (oldest first; ${omitted} earlier message${omitted === 1 ? '' : 's'} left out):` : 'Conversation (oldest first):',
-    '',
-    blocks.join('\n\n'),
-    '',
-    `Instruction for the reply: ${cleanInstruction || 'Write a suitable reply.'}`,
-  ].join('\n');
-
-  return [
-    { role: 'system', content: system },
-    { role: 'user', content: user },
-  ];
+  return {
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+    partial: omitted > 0 || cut ? { leftOut: omitted, cut } : null,
+  };
 }
 
 // How the email should end. The composer appends the signature when it is on, so the AI leaves
@@ -338,7 +356,9 @@ export function buildDraftPrompt({ instruction, subject, to, senderName, hasSign
 // escaped, because it can be written from mail other people sent and must not be able to put
 // markup, such as a link, into the user's message.
 export function aiTextToHtml(text) {
-  const escaped = String(text || '').replace(/\r\n?/g, '\n').replace(/[ \t]+\n/g, '\n').trim()
+  // Trailing spaces go line by line: a pattern for them retries from every space, which on a long
+  // run of spaces from a runaway model takes time growing with its square.
+  const escaped = String(text || '').replace(/\r\n?/g, '\n').split('\n').map(line => line.trimEnd()).join('\n').trim()
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   return escaped.split(/\n{2,}/)
     .map(paragraph => `<p>${paragraph.replace(/\n/g, '<br>')}</p>`)

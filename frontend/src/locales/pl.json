@@ -195,6 +195,7 @@
       "aiReplyInstruction": "Polecenie dla odpowiedzi AI",
       "aiReplyGenerate": "Generuj",
       "aiReplyReading": "Czytanie konwersacji…",
+      "aiReplyPartial": "Na podstawie najnowszej części rozmowy: reszta była zbyt długa, by wysłać ją do AI.",
       "aiWritePlaceholder": "Co ma zawierać e-mail? Np. poproś o wycenę",
       "aiWriteInstruction": "Polecenie dla szkicu AI",
       "aiTooLong": "ta wersja robocza ma {{count}} znaków, więcej niż {{max}}, które przyjmuje AI. Skróć ją lub usuń cytowany tekst i spróbuj ponownie.",

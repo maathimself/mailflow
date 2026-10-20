@@ -814,8 +814,11 @@ export default function ComposeModal() {
     const controller = new AbortController();
     aiAbortRef.current = controller;
 
+    // One newline per paragraph, as the composer draws them: getText's default separator is a
+    // blank line, so a single Enter reached the model as one and came back from Apply as a new
+    // empty paragraph. This way a blank line from the model is one the user typed.
     const currentText = plaintextEmail ? body
-      : (htmlMode ? stripTags(htmlSource) : (editor?.getText() ?? ''));
+      : (htmlMode ? stripTags(htmlSource) : (editor?.getText({ blockSeparator: '\n' }) ?? ''));
 
     const PROMPTS = {
       improve: {
@@ -893,11 +896,14 @@ export default function ComposeModal() {
             accounts,
           }, { getThread: api.getThread, getMessageBody: api.getMessageBody, resolveMessage: api.resolveMessage });
           // Kept only when something was found, so a failed load is tried again next time.
-          if (conversation.length) aiReplyConversationRef.current = conversation;
+          if (conversation.messages.length) aiReplyConversationRef.current = conversation;
         }
         if (controller.signal.aborted) return;
-        setAiPanel(p => p ? { ...p, status: 'generating' } : p);
-        messages = buildReplyPrompt({ conversation: aiReplyConversationRef.current || [], instruction, subject, ...closing });
+        const loaded = aiReplyConversationRef.current || { messages: [], leftOut: 0 };
+        const reply = buildReplyPrompt({ conversation: loaded.messages, leftOut: loaded.leftOut, instruction, subject, ...closing });
+        messages = reply.messages;
+        // What did not fit is said under the suggestion, as a cut summary is (#633).
+        setAiPanel(p => p ? { ...p, status: 'generating', partial: reply.partial } : p);
       } else {
         const to = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])].join(', ');
         messages = buildDraftPrompt({ instruction, subject, to, ...closing });
@@ -3057,6 +3063,9 @@ function ComposeAiPanel({ panel, mobile = false, onInstructionChange, onGenerate
       )}
       {panel.status === 'generating' && !panel.text && (
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{t('compose.toolbar.aiGenerating')}</div>
+      )}
+      {panel.partial && panel.text && panel.status !== 'error' && (
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6 }}>{t('compose.toolbar.aiReplyPartial')}</div>
       )}
       {panel.status === 'error' ? (
         <div style={{ fontSize: 12, color: 'var(--red)' }}>{t('compose.toolbar.aiError', { message: panel.text })}</div>

@@ -195,6 +195,7 @@
       "aiReplyInstruction": "Instruction for the AI reply",
       "aiReplyGenerate": "Generate",
       "aiReplyReading": "Reading the conversation…",
+      "aiReplyPartial": "Based on the latest part of the conversation: the rest was too long to send to the AI.",
       "aiWritePlaceholder": "What should the email say? E.g. ask for a quote",
       "aiWriteInstruction": "Instruction for the AI draft",
       "aiTooLong": "this draft has {{count}} characters, more than the {{max}} the AI can take. Shorten it or remove the quoted text, then try again.",

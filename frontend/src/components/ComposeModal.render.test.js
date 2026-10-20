@@ -1112,6 +1112,35 @@ describe('Reply with AI', () => {
     });
   });
 
+  describe('on a conversation too long for one request', () => {
+    let realBody;
+    before(async () => {
+      realBody = api.getMessageBody;
+      // The message being answered alone is longer than one AI request.
+      api.getMessageBody = async (id) => (id === 'm3' ? { text: 'A clause of the contract.\n\n'.repeat(3_000) } : bodies[id]);
+      await mount({
+        accountId: 'acct', isReply: true, subject: 'Re: Artwork', body: '', cc: [],
+        to: [ANA], originalFrom: [ANA], inReplyTo: '<m3@example.invalid>',
+      });
+    });
+    after(async () => {
+      await unmount();
+      api.getMessageBody = realBody;
+    });
+
+    test('tells the model what was cut, and says under the suggestion that it is partial', async () => {
+      await openAiMenu();
+      await press(button('compose.toolbar.aiReply'));
+      answer = 'Hi Ana,\n\nApproved.';
+      await click(button('compose.toolbar.aiReplyGenerate'));
+      await React.act(async () => {});
+      const request = chats.at(-1)[1].content;
+      assert.ok(request.length <= 32_000, `${request.length}`);
+      assert.match(request, /\[Only the first \d+ of \d+ characters of this message are included/);
+      assert.match(document.body.textContent, /compose\.toolbar\.aiReplyPartial/);
+    });
+  });
+
   describe("opened by the message view's Reply with AI", () => {
     const opened = {
       accountId: 'acct', isReply: true, aiReply: true, subject: 'Re: Artwork', body: '', cc: [],
