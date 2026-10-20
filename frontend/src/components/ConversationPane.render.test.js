@@ -1370,3 +1370,35 @@ describe('a conversation another account also received', () => {
     }
   });
 });
+
+test('GTD conversation header uses the displayed account on desktop and mobile', async () => {
+  await import('../plugins/gtd/index.jsx');
+  const { patchGtdMetadata, clearGtdMetadata } = await import('../plugins/gtd/metadataStore.js');
+  const original = useStore.getState();
+  const selected = { ...THREAD[0], id: 'header-selection', account_id: 'other' };
+  try {
+    for (const width of [1024, 375]) {
+      dom.window.innerWidth = width;
+      await React.act(async () => {
+        useStore.setState({ enabledPlugins: ['gtd'], accounts: [{ id: 'acct', gtd_enabled: false }, { id: 'other', gtd_enabled: true }],
+          messages: [selected], searchQuery: '', selectedMessageId: selected.id, selectedAccountId: 'acct' });
+        patchGtdMetadata(selected, 'watch');
+        root.render(React.createElement(ConversationPane, { key: width, threadId: 'header-thread', folder: 'Sent', selectedMessageId: selected.id }));
+      });
+      const chips = document.querySelectorAll('[aria-label="gtd.state.watch"]');
+      assert.equal(chips.length, 1, `header shown once at ${width}`);
+      assert.equal(Boolean(chips[0].closest('[role="group"]')), width > 375, `desktop puts it in the toolbar at ${width}`);
+    }
+    await React.act(async () => {
+      useStore.setState({ messages: [], threadMessages: {}, selectedMessageId: null });
+      root.render(React.createElement(ConversationPane, { threadId: 'header-thread', folder: 'Sent' }));
+    });
+    assert.equal(document.querySelector('[aria-label="gtd.state.watch"]'), null, 'local fallback cannot borrow selected metadata');
+  } finally { dom.window.innerWidth = 1024; await React.act(async () => {
+    clearGtdMetadata(); root.unmount();
+    useStore.setState({ enabledPlugins: original.enabledPlugins, accounts: original.accounts,
+      messages: original.messages, threadMessages: original.threadMessages,
+      searchQuery: original.searchQuery, selectedMessageId: original.selectedMessageId, selectedAccountId: original.selectedAccountId });
+    root = createRoot(document.getElementById('root'));
+  }); }
+});

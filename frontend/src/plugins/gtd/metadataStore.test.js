@@ -39,6 +39,29 @@ describe('fetchVisibleGtdMetadata', () => {
     ]);
   });
 
+  it('asks only for messages not yet answered when onlyMissing, labeled or not', async () => {
+    clearGtdMetadata();
+    const calls = [];
+    const api = { gtdMetadata: async (accountId, ids) => {
+      calls.push(ids);
+      return { messages: ids.includes(M1) ? { [M1]: { states: ['todo'] } } : {} };
+    } };
+    const m1 = { id: M1, account_id: A1 };
+    const m2 = { id: M2, account_id: A1 };
+    await fetchVisibleGtdMetadata([m1, m2], { api });
+    await fetchVisibleGtdMetadata([m1, m2], { api, onlyMissing: true });
+    await fetchVisibleGtdMetadata([m1, m2, { id: 'm-3', account_id: A1 }], { api, onlyMissing: true });
+    await fetchVisibleGtdMetadata([m1], { api, onlyMissing: true });
+    await fetchVisibleGtdMetadata([m1, m2], { api, onlyMissing: true });
+    assert.deepEqual(calls, [[M1, M2], ['m-3']]);
+    assert.deepEqual(getGtdMetadata(M1).states, ['todo'], 'onlyMissing keeps the cache');
+    await fetchVisibleGtdMetadata([m1, m2], { api });
+    assert.deepEqual(calls.at(-1), [M1, M2], 'a full fetch asks for every visible message');
+    clearGtdMetadata(m2);
+    await fetchVisibleGtdMetadata([m1, m2], { api, onlyMissing: true });
+    assert.deepEqual(calls.at(-1), [M2], 'a cleared message is asked for again');
+  });
+
   it('ignores a slow response superseded by a newer fetch', async () => {
     let resolveSlow;
     const slowApi = { gtdMetadata: () => new Promise(resolve => { resolveSlow = resolve; }) };

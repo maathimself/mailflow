@@ -1,6 +1,8 @@
 import { setGtdRowListener } from '../../utils/gtdRowEvents.js';
 const STATE_ORDER = ['todo', 'watch', 'delegated', 'reference', 'someday'];
 const metadata = new Map();
+// Ids the server has answered for, labeled or not: an unlabeled message is absent from the reply.
+const answered = new Set();
 let visibleMessages = new Map();
 const listeners = new Set();
 const refreshListeners = new Set();
@@ -62,9 +64,10 @@ function relatedIds(message) {
 
 export function clearGtdMetadata(message) {
   if (message) {
-    for (const id of relatedIds(message)) metadata.delete(id);
+    for (const id of relatedIds(message)) { metadata.delete(id); answered.delete(id); }
   } else {
     metadata.clear();
+    answered.clear();
     visibleMessages.clear();
     sessionGeneration += 1;
   }
@@ -78,14 +81,21 @@ export function refreshGtdMetadata(message, session = sessionGeneration) {
   invalidateGtdMetadata();
 }
 
-export async function fetchVisibleGtdMetadata(messages, { api }) {
+// onlyMissing: a change in what is on screen (a j/k step, a thread expanding) asks only for messages
+// not already cached. A full fetch (first load, account change, invalidation) refreshes every visible
+// message and drops what has left the screen; an onlyMissing one keeps the cache as it is.
+export async function fetchVisibleGtdMetadata(messages, { api, onlyMissing = false }) {
   const generation = ++requestGeneration;
   visibleMessages = new Map((messages || []).filter(message => message?.id && message.account_id)
     .map(message => [message.id, message]));
-  for (const id of metadata.keys()) if (!visibleMessages.has(id)) metadata.delete(id);
-  emit();
+  if (!onlyMissing) {
+    for (const id of metadata.keys()) if (!visibleMessages.has(id)) metadata.delete(id);
+    answered.clear();
+    emit();
+  }
   const idsByAccount = new Map();
   for (const message of visibleMessages.values()) {
+    if (onlyMissing && (answered.has(message.id) || metadata.has(message.id))) continue;
     if (!idsByAccount.has(message.account_id)) idsByAccount.set(message.account_id, []);
     idsByAccount.get(message.account_id).push(message.id);
   }
@@ -108,8 +118,8 @@ export async function fetchVisibleGtdMetadata(messages, { api }) {
     if (!fresh || typeof fresh !== 'object' || Array.isArray(fresh)) return false;
     let complete = true;
     for (const id of batch.ids) {
-      if (!Object.hasOwn(fresh, id)) metadata.delete(id);
-      else if (Array.isArray(fresh[id]?.states)) metadata.set(id, fresh[id]);
+      if (!Object.hasOwn(fresh, id)) { metadata.delete(id); answered.add(id); }
+      else if (Array.isArray(fresh[id]?.states)) { metadata.set(id, fresh[id]); answered.add(id); }
       else complete = false;
     }
     emit();
@@ -121,6 +131,7 @@ export async function fetchVisibleGtdMetadata(messages, { api }) {
 
 export function startGtdMetadataFetch(messages, {
   api,
+  onlyMissing = false,
   delay = 2000,
   schedule = setTimeout,
   cancelSchedule = clearTimeout,
@@ -133,7 +144,7 @@ export function startGtdMetadataFetch(messages, {
   const fetchMetadata = async allowRetry => {
     if (cancelled || session !== sessionGeneration || (generation !== undefined && generation !== requestGeneration)) return;
     try {
-      const pending = fetchVisibleGtdMetadata(messages, { api });
+      const pending = fetchVisibleGtdMetadata(messages, { api, onlyMissing });
       generation = requestGeneration;
       const status = await pending;
       if (!cancelled && status === 'partial' && allowRetry) {

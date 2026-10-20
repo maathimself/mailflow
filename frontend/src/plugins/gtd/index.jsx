@@ -11,6 +11,7 @@ import GtdRuntime from './GtdRuntime.jsx';
 import GtdSettings from './GtdSettings.jsx';
 import GtdRowDone from './GtdRowDone.jsx';
 import GtdInboxIndicators from './GtdInboxIndicators.jsx';
+import GtdMessageHeader from './GtdMessageHeader.jsx';
 import { shouldShowInboxGtdMetadata } from './indicators.js';
 import { invalidateGtdMetadata } from './metadataStore.js';
 import { buildGtdContextItems } from './GtdContextMenu.jsx';
@@ -82,6 +83,12 @@ registerSlot('message-row-meta', {
       && shouldShowInboxGtdMetadata(store);
   },
   render: ctx => <GtdInboxIndicators message={ctx.message} />,
+});
+
+registerSlot('message-header-meta', {
+  pluginId: 'gtd',
+  isActive: ctx => gtdActiveForContext(ctx.account ? [ctx.account] : [], ctx.message?.account_id, true),
+  render: ctx => <GtdMessageHeader message={ctx.message} />,
 });
 
 // WS: a GTD label folder changed (tick / classify copy-remove / transition strip). Refetch the
