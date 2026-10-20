@@ -1910,6 +1910,8 @@
     "allClearHint": "처리할 항목이 없습니다.",
     "classifyFailed": "라벨을 적용할 수 없습니다.",
     "classified": "라벨이 적용됨",
+    "classifiedMany": "{{count}}개를 {{state}}(으)로 지정함",
+    "classifiedSome": "{{total}}개 중 {{count}}개를 {{state}}(으)로 지정함",
     "toggleSection": "{{section}} 전환",
     "inboxZero": "받은 편지함 제로 ✓",
     "done": "완료로 표시",

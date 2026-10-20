@@ -1915,6 +1915,8 @@
     "tabEmpty": "Здесь пока пусто",
     "removeFrom": "Убрать из «{{state}}»",
     "classified": "Метка добавлена",
+    "classifiedMany": "Метка «{{state}}» добавлена: {{count}}",
+    "classifiedSome": "Метка «{{state}}» добавлена: {{count}} из {{total}}",
     "classifyFailed": "Не удалось добавить метку",
     "undoFailed": "Не удалось отменить метку",
     "removed": "Метка удалена",

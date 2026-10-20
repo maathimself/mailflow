@@ -1915,6 +1915,8 @@
     "tabEmpty": "Nothing here yet",
     "removeFrom": "Remove from {{state}}",
     "classified": "Label applied",
+    "classifiedMany": "Tagged {{count}} as {{state}}",
+    "classifiedSome": "Tagged {{count}} of {{total}} as {{state}}",
     "classifyFailed": "Couldn't apply label",
     "undoFailed": "Couldn't undo label",
     "removed": "Label removed",

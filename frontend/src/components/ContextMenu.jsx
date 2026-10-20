@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { Fragment, useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { useStore } from '../store/index.js';
@@ -9,7 +9,7 @@ import { isSnoozed } from '../utils/snoozeActions.js';
 import { usePluginCollected } from '../plugins/PluginSlot.jsx';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
-import { folderMatchesQuery, favoriteMoveTargets, recentMoveTargets } from '../utils/folderDisplay.js';
+import { buildMovePickerSections, movePickerSectionHeading, movePickerFoldersEmpty, runMovePickerAction } from '../utils/folderDisplay.js';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import { useMobile } from '../hooks/useMobile.js';
 
@@ -137,6 +137,10 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
     message, account, variant, onAction, onClose,
     openSubmenu: (render) => setPluginSubmenu(() => render),
     t,
+  });
+
+  const movePluginSections = usePluginCollected('move-picker-sections', {
+    account, messages: [message], currentFolder: message.folder, onClose, t,
   });
 
   const items = [
@@ -698,79 +702,48 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                 <div style={{ padding: '12px 14px', color: 'var(--text-tertiary)', fontSize: 12 }}>
                   {t('contextMenu.folders.loading')}
                 </div>
-              ) : moveFolders?.length === 0 ? (
-                <div style={{ padding: '12px 14px', color: 'var(--text-tertiary)', fontSize: 12 }}>
-                  {t('contextMenu.folders.empty')}
-                </div>
               ) : (() => {
-                const searchQuery = folderSearch.trim().toLowerCase();
-                if (searchQuery) {
-                  const filtered = (moveFolders || [])
-                    .filter(f => f.path !== message.folder && folderMatchesQuery(f, searchQuery));
-                  return filtered.length === 0 ? (
-                    <div style={{ padding: '12px 14px', color: 'var(--text-tertiary)', fontSize: 12 }}>
-                      {t('contextMenu.folders.empty')}
-                    </div>
-                  ) : (
-                    <>
-                      {filtered.map(folder => (
+                const sections = buildMovePickerSections({
+                  folders: moveFolders || [], recents: recentFolders, favorites: favoriteFolders,
+                  pluginSections: movePluginSections, accountId: message.account_id,
+                  currentFolder: message.folder, query: folderSearch,
+                });
+                const foldersEmpty = movePickerFoldersEmpty(sections, moveFolders);
+                const rendered = sections.map((section, i) => {
+                  const heading = movePickerSectionHeading(section, t);
+                  return (
+                    <Fragment key={section.key}>
+                      {heading && (
+                        <div style={{ padding: '5px 14px 3px', color: 'var(--text-tertiary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          {heading}
+                        </div>
+                      )}
+                      {section.rows.map(row => row.kind === 'action' ? (
                         <FolderMenuItem
-                          key={folder.path}
-                          folder={folder}
-                          onClick={() => { onAction('moveTo', folder.path); onClose(); }}
+                          key={`action-${row.item.key}`}
+                          icon={row.item.renderIcon(13)}
+                          label={row.item.label}
+                          onClick={() => runMovePickerAction(row.item, onClose)}
+                        />
+                      ) : (
+                        <FolderMenuItem
+                          key={row.folder.path}
+                          folder={row.folder}
+                          onClick={() => { onAction('moveTo', row.folder.path); onClose(); }}
                         />
                       ))}
-                    </>
+                      {(i < sections.length - 1 || foldersEmpty) && <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />}
+                    </Fragment>
                   );
-                }
-                const recentForAccount = recentMoveTargets(recentFolders, moveFolders, {
-                  accountId: message.account_id, currentFolder: message.folder,
-                });
-                const favoritesForAccount = favoriteMoveTargets(favoriteFolders, moveFolders, {
-                  accountId: message.account_id, currentFolder: message.folder, exclude: recentForAccount,
                 });
                 return (
                   <>
-                    {recentForAccount.length > 0 && (
-                      <>
-                        <div style={{ padding: '5px 14px 3px', color: 'var(--text-tertiary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                          {t('contextMenu.folders.recent')}
-                        </div>
-                        {recentForAccount.map(folder => (
-                          <FolderMenuItem
-                            key={`recent-${folder.path}`}
-                            folder={folder}
-                            onClick={() => { onAction('moveTo', folder.path); onClose(); }}
-                          />
-                        ))}
-                        <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
-                      </>
+                    {rendered}
+                    {foldersEmpty && (
+                      <div style={{ padding: '12px 14px', color: 'var(--text-tertiary)', fontSize: 12 }}>
+                        {t('contextMenu.folders.empty')}
+                      </div>
                     )}
-                    {favoritesForAccount.length > 0 && (
-                      <>
-                        <div style={{ padding: '5px 14px 3px', color: 'var(--text-tertiary)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                          {t('contextMenu.folders.favorites')}
-                        </div>
-                        {favoritesForAccount.map(folder => (
-                          <FolderMenuItem
-                            key={`fav-${folder.path}`}
-                            folder={folder}
-                            onClick={() => { onAction('moveTo', folder.path); onClose(); }}
-                          />
-                        ))}
-                        <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
-                      </>
-                    )}
-                    {(moveFolders || [])
-                      .filter(f => f.path !== message.folder)
-                      .map(folder => (
-                        <FolderMenuItem
-                          key={folder.path}
-                          folder={folder}
-                          onClick={() => { onAction('moveTo', folder.path); onClose(); }}
-                        />
-                      ))
-                    }
                   </>
                 );
               })()}
@@ -845,10 +818,11 @@ function MenuItem({ icon, label, onClick, danger, hasSubmenu, disabled }) {
   );
 }
 
-function FolderMenuItem({ folder, onClick }) {
+function FolderMenuItem({ folder, icon: iconOverride, label, onClick }) {
   const [hov, setHov] = useState(false);
-  const su = (folder.special_use || '').toLowerCase();
-  const icon = su.includes('sent')
+  const su = (folder?.special_use || '').toLowerCase();
+  const icon = iconOverride ? iconOverride
+    : su.includes('sent')
     ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
     : su.includes('trash')
     ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
@@ -873,7 +847,7 @@ function FolderMenuItem({ folder, onClick }) {
       }}
     >
       <span style={{ flexShrink: 0, color: 'var(--text-tertiary)', display: 'flex' }}>{icon}</span>
-      <FolderPathLabel folder={folder} label={folder.favoriteLabel} />
+      {folder ? <FolderPathLabel folder={folder} label={folder.favoriteLabel} /> : <FolderPathLabel label={label} />}
     </div>
   );
 }

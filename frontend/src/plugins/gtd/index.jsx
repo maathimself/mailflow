@@ -11,6 +11,10 @@ import GtdRuntime from './GtdRuntime.jsx';
 import GtdSettings from './GtdSettings.jsx';
 import GtdRowDone from './GtdRowDone.jsx';
 import { buildGtdContextItems } from './GtdContextMenu.jsx';
+import GtdStateIcon from './GtdStateIcon.jsx';
+import { buildGtdMovePickerSections } from './movePickerSections.js';
+import { classifyWithUndo, classifyManyWithUndo } from '../../utils/gtdClassification.js';
+import { api } from '../../utils/api.js';
 import { gtdActiveForContext } from '../../utils/gtd.js';
 import { accountAffectsUnifiedInbox } from '../../utils/unifiedInbox.js';
 import { useStore } from '../../store/index.js';
@@ -43,6 +47,19 @@ registerSlot('right-sidebar', {
 // Context-menu items (GTD submenu + sidebar "Done"), injected into the 'Actions' group at the seam
 // where GTD used to sit. ctx: { message, account, variant, onAction, onClose, openSubmenu, t }.
 registerCollector('context-menu-actions', { pluginId: 'gtd', build: buildGtdContextItems });
+
+// Move-picker section: tag the picked messages with a GTD state, one undo per pick.
+// ctx: { account, messages, currentFolder, onClose, t }. messages are the selected rows as shown (a
+// thread row is its representative message, not every member), unlike core's bulk move, which
+// expands threads. A plugin that needs every member resolves them itself.
+registerCollector('move-picker-sections', {
+  pluginId: 'gtd',
+  build: (ctx) => buildGtdMovePickerSections(ctx, {
+    classifyOne: (m, s) => classifyWithUndo(m.id, s, { api, store: useStore, t: ctx.t, message: m }),
+    classifyMany: (ms, s) => classifyManyWithUndo(ms, s, { api, store: useStore, t: ctx.t }),
+    renderStateIcon: (state, size) => <GtdStateIcon state={state} size={size} />,
+  }),
+});
 
 // Row hover "done" checkmark on main-list rows of a GTD-active account (activation already gated by
 // the registry). ctx: { message }.

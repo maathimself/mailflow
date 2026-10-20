@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from 'react';
 import AccountMark from './AccountMark.jsx';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
@@ -24,7 +24,8 @@ import { openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFr
 import MessageBodyView from './MessageBodyView.jsx';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { saveSenderCategory } from '../utils/senderCategory.js';
-import { folderMatchesQuery, favoriteMoveTargets, recentMoveTargets } from '../utils/folderDisplay.js';
+import { buildMovePickerSections, movePickerSectionHeading, movePickerFoldersEmpty, runMovePickerAction } from '../utils/folderDisplay.js';
+import { usePluginCollected } from '../plugins/PluginSlot.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
 import SpamBadge from './SpamBadge.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
@@ -902,16 +903,19 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     if (!showMovePicker) setMoveSearch('');
   }, [showMovePicker]);
 
-  const recentForMove = message
-    ? recentMoveTargets(recentFolders, movePickerFolders, {
-        accountId: message.account_id, currentFolder: message.folder,
+  const movePluginSections = usePluginCollected('move-picker-sections', {
+    account, messages: message ? [message] : [], currentFolder: message?.folder,
+    onClose: () => setShowMovePicker(false), t,
+  });
+  const moveSections = message
+    ? buildMovePickerSections({
+        folders: movePickerFolders, recents: recentFolders, favorites: favoriteFolders,
+        pluginSections: movePluginSections, accountId: message.account_id,
+        currentFolder: message.folder, query: moveSearch,
       })
     : [];
-  const favoritesForMove = message
-    ? favoriteMoveTargets(favoriteFolders, movePickerFolders, {
-        accountId: message.account_id, currentFolder: message.folder, exclude: recentForMove,
-      })
-    : [];
+  const moveFoldersEmpty = movePickerFoldersEmpty(moveSections, movePickerFolders);
+  const closeMovePicker = () => setShowMovePicker(false);
 
   if (!message) {
     // A detached window with no message is mid-close (see auto-close effect above) —
@@ -1497,13 +1501,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                 <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
                   {t('contextMenu.folders.loading')}
                 </div>
-              ) : movePickerFolders.length === 0 ? (
+              ) : movePickerFolders.length === 0 && moveSections.length === 0 ? (
                 <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
                   {t('contextMenu.folders.empty')}
                 </div>
               ) : (
                 <>
-                  <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
+                  {movePickerFolders.length > 0 && <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
                     <input
                       autoFocus
                       value={moveSearch}
@@ -1517,90 +1521,42 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                         outline: 'none',
                       }}
                     />
-                  </div>
+                  </div>}
                   <div style={{ maxHeight: 285, overflowY: 'auto' }}>
-                  {(() => {
-                    const q = moveSearch.trim().toLowerCase();
-                    if (q) {
-                      const filtered = movePickerFolders
-                        .filter(f => f.path !== message.folder && folderMatchesQuery(f, q));
-                      return filtered.length === 0 ? (
-                        <div style={{ padding: '12px 12px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
-                          {t('contextMenu.folders.empty')}
-                        </div>
-                      ) : filtered.map(f => (
-                        <button
-                          key={f.path}
-                          onClick={() => handleMoveToFolder(f.path)}
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                        >
-                          <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
-                          <FolderPathLabel folder={f} />
-                        </button>
-                      ));
-                    }
+                  {moveSections.map((section, i) => {
+                    const heading = movePickerSectionHeading(section, t);
                     return (
-                      <>
-                        {recentForMove.length > 0 && (
-                          <>
-                            <div style={{ padding: '5px 12px 3px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                              {t('contextMenu.folders.recent')}
-                            </div>
-                            {recentForMove.map(f => (
-                              <button
-                                key={`recent-${f.path}`}
-                                onClick={() => handleMoveToFolder(f.path)}
-                                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
-                                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                                onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                              >
-                                <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
-                                <FolderPathLabel folder={f} />
-                              </button>
-                            ))}
-                            <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
-                          </>
+                      <Fragment key={section.key}>
+                        {heading && (
+                          <div style={{ padding: '5px 12px 3px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                            {heading}
+                          </div>
                         )}
-                        {favoritesForMove.length > 0 && (
-                          <>
-                            <div style={{ padding: '5px 12px 3px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                              {t('contextMenu.folders.favorites')}
-                            </div>
-                            {favoritesForMove.map(f => (
-                              <button
-                                key={`fav-${f.path}`}
-                                onClick={() => handleMoveToFolder(f.path)}
-                                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
-                                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                                onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                              >
-                                <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
-                                <FolderPathLabel folder={f} label={f.favoriteLabel} />
-                              </button>
-                            ))}
-                            <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
-                          </>
-                        )}
-                        {movePickerFolders
-                          .filter(f => f.path !== message.folder)
-                          .map(f => (
+                        {section.rows.map(row => {
+                          const isAction = row.kind === 'action';
+                          const f = row.folder;
+                          return (
                             <button
-                              key={f.path}
-                              onClick={() => handleMoveToFolder(f.path)}
+                              key={isAction ? `action-${row.item.key}` : f.path}
+                              onClick={isAction ? () => runMovePickerAction(row.item, closeMovePicker) : () => handleMoveToFolder(f.path)}
                               style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
                               onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
                               onMouseLeave={e => e.currentTarget.style.background = 'none'}
                             >
-                              <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} /></span>
-                              <FolderPathLabel folder={f} />
+                              <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>{isAction ? row.item.renderIcon(13) : <FolderIcon specialUse={f.special_use} />}</span>
+                              {isAction ? <FolderPathLabel label={row.item.label} /> : <FolderPathLabel folder={f} label={f.favoriteLabel} />}
                             </button>
-                          ))
-                        }
-                      </>
+                          );
+                        })}
+                        {(i < moveSections.length - 1 || moveFoldersEmpty) && <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />}
+                      </Fragment>
                     );
-                  })()}
+                  })}
+                  {moveFoldersEmpty && (
+                    <div style={{ padding: '12px 12px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
+                      {t('contextMenu.folders.empty')}
+                    </div>
+                  )}
                   </div>
                 </>
               )}
@@ -2461,84 +2417,42 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                 <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
                   {t('contextMenu.folders.loading')}
                 </div>
-              ) : movePickerFolders.length === 0 ? (
-                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
-                  {t('contextMenu.folders.empty')}
-                </div>
-              ) : (() => {
-                const q = moveSearch.trim().toLowerCase();
-                if (q) {
-                  const filtered = movePickerFolders
-                    .filter(f => f.path !== message.folder && folderMatchesQuery(f, q));
-                  return filtered.length === 0 ? (
-                    <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
-                      {t('contextMenu.folders.empty')}
-                    </div>
-                  ) : filtered.map(f => (
-                    <button
-                      key={f.path}
-                      onClick={() => handleMoveToFolder(f.path)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
-                    >
-                      <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
-                      <FolderPathLabel folder={f} />
-                    </button>
-                  ));
-                }
-                return (
-                  <>
-                    {recentForMove.length > 0 && (
-                      <>
+              ) : (
+                <>
+                {moveSections.map((section, i) => {
+                  const heading = movePickerSectionHeading(section, t);
+                  return (
+                    <Fragment key={section.key}>
+                      {heading && (
                         <div style={{ padding: '8px 20px 4px', fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                          {t('contextMenu.folders.recent')}
+                          {heading}
                         </div>
-                        {recentForMove.map(f => (
+                      )}
+                      {section.rows.map(row => {
+                        const isAction = row.kind === 'action';
+                        const f = row.folder;
+                        return (
                           <button
-                            key={`recent-${f.path}`}
-                            onClick={() => handleMoveToFolder(f.path)}
+                            key={isAction ? `action-${row.item.key}` : f.path}
+                            onClick={isAction ? () => runMovePickerAction(row.item, closeMovePicker) : () => handleMoveToFolder(f.path)}
                             style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
                           >
-                            <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
-                            <FolderPathLabel folder={f} />
+                            <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>{isAction ? row.item.renderIcon(18) : <FolderIcon specialUse={f.special_use} size={18} />}</span>
+                            {isAction ? <FolderPathLabel label={row.item.label} /> : <FolderPathLabel folder={f} label={f.favoriteLabel} />}
                           </button>
-                        ))}
-                        <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
-                      </>
-                    )}
-                    {favoritesForMove.length > 0 && (
-                      <>
-                        <div style={{ padding: '8px 20px 4px', fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                          {t('contextMenu.folders.favorites')}
-                        </div>
-                        {favoritesForMove.map(f => (
-                          <button
-                            key={`fav-${f.path}`}
-                            onClick={() => handleMoveToFolder(f.path)}
-                            style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
-                          >
-                            <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
-                            <FolderPathLabel folder={f} label={f.favoriteLabel} />
-                          </button>
-                        ))}
-                        <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />
-                      </>
-                    )}
-                    {movePickerFolders
-                      .filter(f => f.path !== message.folder)
-                      .map(f => (
-                        <button
-                          key={f.path}
-                          onClick={() => handleMoveToFolder(f.path)}
-                          style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', minHeight: 48, padding: '0 20px', background: 'none', border: 'none', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', textAlign: 'left' }}
-                        >
-                          <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}><FolderIcon specialUse={f.special_use} size={18} /></span>
-                          <FolderPathLabel folder={f} />
-                        </button>
-                      ))
-                    }
-                  </>
-                );
-              })()}
+                        );
+                      })}
+                      {i < moveSections.length - 1 && <div style={{ height: 6 }} />}
+                    </Fragment>
+                  );
+                })}
+                {moveFoldersEmpty && (
+                  <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                    {t('contextMenu.folders.empty')}
+                  </div>
+                )}
+                </>
+              )}
             </div>
           </div>
         </>

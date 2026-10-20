@@ -1915,6 +1915,8 @@
     "tabEmpty": "Rien ici pour l'instant",
     "removeFrom": "Retirer de {{state}}",
     "classified": "Étiquette appliquée",
+    "classifiedMany": "{{count}} étiquetés {{state}}",
+    "classifiedSome": "{{count}} sur {{total}} étiquetés {{state}}",
     "classifyFailed": "Impossible d'appliquer l'étiquette",
     "undoFailed": "Impossible d'annuler l'étiquette",
     "removed": "Étiquette retirée",

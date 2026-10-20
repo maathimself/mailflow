@@ -1,5 +1,40 @@
 import { clearGtdRailSelection, beginGtdClassification, endGtdClassification } from './gtdHotkeys.js';
 
+function storeAccessor(store) {
+  return () => store.getState ? store.getState() : store;
+}
+
+// List and rail payloads name the same server thread differently.
+function undoScopeFor(messageId, message) {
+  return {
+    messageId, accountId: message?.account_id,
+    threadKey: message?.thread_key ?? message?.thread_id,
+  };
+}
+
+function scopesOverlap(previous, undoScope) {
+  return previous.messageId === undoScope.messageId || (
+    undoScope.accountId && undoScope.threadKey
+    && previous.accountId === undoScope.accountId && previous.threadKey === undoScope.threadKey
+  );
+}
+
+// A bulk Undo carries one scope per tag it can undo and ends when any of those threads switches.
+function dismissThreadUndo(currentStore, undoScope) {
+  currentStore().dismissUndoNotifications(notification => {
+    if (notification.pluginId !== 'gtd') return false;
+    const scopes = notification.gtdUndoScopes
+      || (notification.gtdUndoScope ? [notification.gtdUndoScope] : []);
+    return scopes.some(previous => scopesOverlap(previous, undoScope));
+  });
+}
+
+function clearSourceSelection(currentStore, messageId) {
+  const current = currentStore();
+  if (current.selectedMessageId === messageId) current.setSelectedMessage(null);
+  clearGtdRailSelection(messageId);
+}
+
 export async function classifyWithUndo(messageId, state, {
   api,
   store,
@@ -7,34 +42,16 @@ export async function classifyWithUndo(messageId, state, {
   message,
 }) {
   if (!beginGtdClassification(messageId)) return null;
-  const currentStore = () => store.getState ? store.getState() : store;
-  // List and rail payloads name the same server thread differently.
-  const undoScope = {
-    messageId, accountId: message?.account_id,
-    threadKey: message?.thread_key ?? message?.thread_id,
-  };
-  const dismissThreadUndo = () => currentStore().dismissUndoNotifications(notification => {
-    const previous = notification.gtdUndoScope;
-    return notification.pluginId === 'gtd' && previous && (
-      previous.messageId === messageId || (
-        undoScope.accountId && undoScope.threadKey
-        && previous.accountId === undoScope.accountId && previous.threadKey === undoScope.threadKey
-      )
-    );
-  });
-  const clearSourceSelection = () => {
-    const current = currentStore();
-    if (current.selectedMessageId === messageId) current.setSelectedMessage(null);
-    clearGtdRailSelection(messageId);
-  };
+  const currentStore = storeAccessor(store);
+  const undoScope = undoScopeFor(messageId, message);
   try {
     const result = await api.gtdClassify(messageId, state);
     const current = currentStore();
     current.scheduleGtdSectionsFetch();
-    if (result?.switched) dismissThreadUndo();
+    if (result?.switched) dismissThreadUndo(currentStore, undoScope);
     if (result?.sourceRemoved) {
       current.removeMessage(messageId);
-      clearSourceSelection();
+      clearSourceSelection(currentStore, messageId);
     }
 
     const notification = {
@@ -72,9 +89,9 @@ export async function classifyWithUndo(messageId, state, {
     console.error('GTD classify failed:', err);
     // API errors contain only a message, so even a clean rejection cannot be
     // distinguished from an uncertain mutation. End this thread's older GTD Undo.
-    dismissThreadUndo();
+    dismissThreadUndo(currentStore, undoScope);
     currentStore().scheduleGtdSectionsFetch();
-    clearSourceSelection();
+    clearSourceSelection(currentStore, messageId);
     currentStore().addNotification({
       pluginId: 'gtd',
       type: 'error',
@@ -85,4 +102,94 @@ export async function classifyWithUndo(messageId, state, {
   } finally {
     endGtdClassification(messageId);
   }
+}
+
+// Sequential so a bulk tag never floods the account's IMAP connection pool.
+export async function classifyManyWithUndo(messages, state, { api, store, t }) {
+  const seen = new Set();
+  const unique = messages.filter(message => !seen.has(message.id) && seen.add(message.id));
+  if (unique.length === 0) return { tagged: 0, total: 0 };
+  const currentStore = storeAccessor(store);
+  const stateLabel = t(`gtd.state.${state}`);
+  const undoTokens = [];
+  const undoScopes = [];
+  let tagged = 0;
+
+  for (const message of unique) {
+    const messageId = message.id;
+    if (!beginGtdClassification(messageId)) continue;
+    const undoScope = undoScopeFor(messageId, message);
+    try {
+      const result = await api.gtdClassify(messageId, state);
+      if (result?.switched) dismissThreadUndo(currentStore, undoScope);
+      if (result?.sourceRemoved) {
+        currentStore().removeMessage(messageId);
+        clearSourceSelection(currentStore, messageId);
+      }
+      // An already-labelled message answers applied: false; it still ends in this state.
+      tagged += 1;
+      if (result?.applied && result.undoToken) {
+        undoTokens.push(result.undoToken);
+        undoScopes.push(undoScope);
+      }
+    } catch (err) {
+      console.error('GTD classify failed:', err);
+      // Same uncertainty as the single path: the mutation may have happened.
+      dismissThreadUndo(currentStore, undoScope);
+      clearSourceSelection(currentStore, messageId);
+    } finally {
+      endGtdClassification(messageId);
+    }
+  }
+
+  currentStore().scheduleGtdSectionsFetch();
+  const total = unique.length;
+
+  if (tagged === 0) {
+    currentStore().addNotification({
+      pluginId: 'gtd',
+      type: 'error',
+      title: t('gtd.classifyFailed'),
+      body: stateLabel,
+    });
+    return { tagged, total };
+  }
+
+  const notification = {
+    pluginId: 'gtd',
+    title: tagged === total
+      ? t('gtd.classifiedMany', { count: tagged, state: stateLabel })
+      : t('gtd.classifiedSome', { count: tagged, total, state: stateLabel }),
+  };
+
+  if (undoTokens.length > 0) {
+    notification.gtdUndoScopes = undoScopes;
+    let consumed = false;
+    notification.onUndo = async () => {
+      if (consumed) return false;
+      consumed = true;
+      let failed = false;
+      for (const token of [...undoTokens].reverse()) {
+        try {
+          await api.gtdUndoClassify(token);
+        } catch (err) {
+          console.error('GTD classification undo failed:', err);
+          failed = true;
+        }
+      }
+      currentStore().scheduleGtdSectionsFetch();
+      if (failed) {
+        currentStore().addNotification({
+          pluginId: 'gtd',
+          type: 'error',
+          title: t('gtd.undoFailed'),
+          body: stateLabel,
+        });
+      }
+      return !failed;
+    };
+  }
+
+  currentStore().addNotification(notification);
+  return { tagged, total };
 }

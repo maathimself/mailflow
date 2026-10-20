@@ -1915,6 +1915,8 @@
     "tabEmpty": "Noch nichts hier",
     "removeFrom": "Aus {{state}} entfernen",
     "classified": "Label angewendet",
+    "classifiedMany": "{{count}} als {{state}} markiert",
+    "classifiedSome": "{{count}} von {{total}} als {{state}} markiert",
     "classifyFailed": "Label konnte nicht angewendet werden",
     "undoFailed": "Label konnte nicht rückgängig gemacht werden",
     "removed": "Label entfernt",

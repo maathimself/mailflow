@@ -1934,6 +1934,8 @@
     "tabEmpty": "Nie ma tu jeszcze żadnych elementów",
     "removeFrom": "Usuń ze stanu {{state}}",
     "classified": "Zastosowano etykietę",
+    "classifiedMany": "Oznaczono {{count}} jako {{state}}",
+    "classifiedSome": "Oznaczono {{count}} z {{total}} jako {{state}}",
     "classifyFailed": "Nie udało się zastosować etykiety",
     "removed": "Usunięto etykietę",
     "removeFailed": "Nie udało się usunąć etykiety",

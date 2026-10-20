@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import AccountMark from './AccountMark.jsx';
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid, selectSelectedMessageAccountId } from '../store/index.js';
@@ -29,7 +29,11 @@ import { cancelScheduledMarkReadFor } from '../utils/markRead.js';
 import { saveSenderCategory } from '../utils/senderCategory.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
-import { folderDisplayName, folderDisplayNameForPath, folderMatchesQuery, folderRole, favoriteMoveTargets, recentMoveTargets } from '../utils/folderDisplay.js';
+import {
+  folderDisplayName, folderDisplayNameForPath, folderRole, buildMovePickerSections, movePickerSectionHeading,
+  movePickerFoldersEmpty, runMovePickerAction,
+} from '../utils/folderDisplay.js';
+import { usePluginCollected } from '../plugins/PluginSlot.jsx';
 import SpamBadge from './SpamBadge.jsx';
 import ReplyDraftIndicator from './ReplyDraftIndicator.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
@@ -2724,6 +2728,23 @@ export default function MessageList() {
   const canMove = selectedAccountIds.length === 1;
   const bulkMarkAsRead = selectedMsgs.some(m => !m.is_read);
   const bulkMarkAsStarred = selectedMsgs.some(m => !m.is_starred);
+  const bulkMoveAccount = accounts.find(a => a.id === selectedMsgs[0]?.account_id);
+  // messages are the selected rows as shown: a thread row is its representative message, not
+  // expanded to every member the way handleBulkMove expands it. A plugin that needs every member
+  // resolves them itself.
+  const bulkMovePluginSections = usePluginCollected('move-picker-sections', {
+    account: bulkMoveAccount, messages: selectedMsgs, currentFolder: selectedFolder,
+    onClose: () => setShowFolderPicker(false), t,
+  });
+  // The bulk picker only opens for one account's messages. Built only while it is open, since
+  // the list re-renders far more often than the picker is used.
+  const bulkMoveSections = showFolderPicker ? buildMovePickerSections({
+    folders: pickerFolders, recents: recentFolders, favorites: favoriteFolders,
+    pluginSections: bulkMovePluginSections, accountId: selectedMsgs[0]?.account_id,
+    currentFolder: selectedFolder, query: pickerSearch,
+  }) : [];
+  const bulkMoveFoldersEmpty = movePickerFoldersEmpty(bulkMoveSections, pickerFolders);
+  const closeBulkPickerAfterAction = () => { setShowFolderPicker(false); clearSelection(); };
 
   return (
     <div style={{
@@ -3760,13 +3781,13 @@ export default function MessageList() {
                     <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
                       {t('common.loading')}
                     </div>
-                  ) : pickerFolders.length === 0 ? (
+                  ) : pickerFolders.length === 0 && bulkMoveSections.length === 0 ? (
                     <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
                       {t('contextMenu.folders.empty')}
                     </div>
                   ) : (
                     <>
-                      <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
+                      {pickerFolders.length > 0 && <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
                         <input
                           autoFocus
                           value={pickerSearch}
@@ -3780,62 +3801,62 @@ export default function MessageList() {
                             outline: 'none',
                           }}
                         />
-                      </div>
+                      </div>}
                       <div style={{ maxHeight: 285, overflowY: 'auto' }}>
                       {(() => {
-                        const q = pickerSearch.trim().toLowerCase();
-                        const displayed = pickerFolders
-                          .filter(f => f.path !== selectedFolder && (!q || folderMatchesQuery(f, q)));
-                        // Recent and favorite targets above the full list, as in the single-message
-                        // pickers (#551). The bulk picker only opens for one account's messages.
-                        const target = { accountId: selectedMsgs[0]?.account_id, currentFolder: selectedFolder };
-                        const recent = q ? [] : recentMoveTargets(recentFolders, pickerFolders, target);
-                        const favorites = q ? [] : favoriteMoveTargets(favoriteFolders, pickerFolders, { ...target, exclude: recent });
+                        const q = pickerSearch.trim();
                         const heading = label => (
                           <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                             {label}
                           </div>
                         );
                         const divider = <div style={{ height: 1, background: 'var(--border-subtle)', margin: '3px 0' }} />;
-                        const item = (f, key) => (
-                          <button
-                            key={key}
-                            onClick={() => handleBulkMove([...selectedIds], selectedMsgs, f.path)}
-                            style={{
-                              display: 'flex', alignItems: 'center', gap: 8,
-                              width: '100%', padding: '8px 12px',
-                              background: 'none', border: 'none',
-                              color: 'var(--text-primary)', fontSize: 13,
-                              cursor: 'pointer', textAlign: 'left',
-                              transition: 'background 0.1s',
-                            }}
-                            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                            onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                          >
-                            <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
-                              <FolderIcon specialUse={f.special_use} />
-                            </span>
-                            <FolderPathLabel folder={f} label={f.favoriteLabel} />
-                          </button>
-                        );
-                        return displayed.length === 0 ? (
-                          <div style={{ padding: '12px 12px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
-                            {t('contextMenu.folders.empty')}
-                          </div>
-                        ) : (
+                        const item = row => {
+                          const isAction = row.kind === 'action';
+                          const f = row.folder;
+                          return (
+                            <button
+                              key={isAction ? `action-${row.item.key}` : f.path}
+                              onClick={isAction
+                                ? () => runMovePickerAction(row.item, closeBulkPickerAfterAction)
+                                : () => handleBulkMove([...selectedIds], selectedMsgs, f.path)}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 8,
+                                width: '100%', padding: '8px 12px',
+                                background: 'none', border: 'none',
+                                color: 'var(--text-primary)', fontSize: 13,
+                                cursor: 'pointer', textAlign: 'left',
+                                transition: 'background 0.1s',
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                            >
+                              <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
+                                {isAction ? row.item.renderIcon(13) : <FolderIcon specialUse={f.special_use} />}
+                              </span>
+                              {isAction ? <FolderPathLabel label={row.item.label} /> : <FolderPathLabel folder={f} label={f.favoriteLabel} />}
+                            </button>
+                          );
+                        };
+                        return (
                           <>
-                            {recent.length > 0 && (<>
-                              {heading(t('contextMenu.folders.recent'))}
-                              {recent.map(f => item(f, `recent-${f.path}`))}
-                              {divider}
-                            </>)}
-                            {favorites.length > 0 && (<>
-                              {heading(t('contextMenu.folders.favorites'))}
-                              {favorites.map(f => item(f, `fav-${f.path}`))}
-                              {divider}
-                            </>)}
-                            {!q && heading(t('messageList.moveToFolder'))}
-                            {displayed.map(f => item(f, f.path))}
+                            {bulkMoveSections.map((section, i) => {
+                              const sectionLabel = section.key === 'all'
+                                ? (q ? null : t('messageList.moveToFolder'))
+                                : movePickerSectionHeading(section, t);
+                              return (
+                                <Fragment key={section.key}>
+                                  {sectionLabel && heading(sectionLabel)}
+                                  {section.rows.map(item)}
+                                  {(i < bulkMoveSections.length - 1 || bulkMoveFoldersEmpty) && divider}
+                                </Fragment>
+                              );
+                            })}
+                            {bulkMoveFoldersEmpty && (
+                              <div style={{ padding: '12px 12px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
+                                {t('contextMenu.folders.empty')}
+                              </div>
+                            )}
                           </>
                         );
                       })()}
@@ -3891,62 +3912,58 @@ export default function MessageList() {
                         <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
                           {t('common.loading')}
                         </div>
-                      ) : pickerFolders.length === 0 ? (
-                        <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
-                          {t('contextMenu.folders.empty')}
-                        </div>
                       ) : (() => {
-                        const q = pickerSearch.trim().toLowerCase();
-                        const displayed = pickerFolders
-                          .filter(f => f.path !== selectedFolder && (!q || folderMatchesQuery(f, q)));
-                        const target = { accountId: selectedMsgs[0]?.account_id, currentFolder: selectedFolder };
-                        const recent = q ? [] : recentMoveTargets(recentFolders, pickerFolders, target);
-                        const favorites = q ? [] : favoriteMoveTargets(favoriteFolders, pickerFolders, { ...target, exclude: recent });
                         const heading = label => (
                           <div style={{ padding: '12px 20px 6px', fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', borderBottom: '1px solid var(--border-subtle)' }}>
                             {label}
                           </div>
                         );
-                        const item = (f, key) => (
-                          <button
-                            key={key}
-                            onClick={() => { handleBulkMove([...selectedIds], selectedMsgs, f.path); setShowFolderPicker(false); }}
-                            style={{
-                              display: 'flex', alignItems: 'center', gap: 14,
-                              width: '100%', minHeight: 48,
-                              padding: '0 20px',
-                              background: 'none', border: 'none',
-                              borderBottom: '1px solid var(--border-subtle)',
-                              color: 'var(--text-primary)', fontSize: 15,
-                              cursor: 'pointer', textAlign: 'left',
-                            }}
-                          >
-                            <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
-                              <FolderIcon specialUse={f.special_use} />
-                            </span>
-                            <FolderPathLabel folder={f} label={f.favoriteLabel} />
-                          </button>
-                        );
-                        if (displayed.length === 0) {
+                        const item = row => {
+                          const isAction = row.kind === 'action';
+                          const f = row.folder;
                           return (
-                            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
-                              {t('contextMenu.folders.empty')}
-                            </div>
+                            <button
+                              key={isAction ? `action-${row.item.key}` : f.path}
+                              onClick={isAction
+                                ? () => runMovePickerAction(row.item, closeBulkPickerAfterAction)
+                                : () => { handleBulkMove([...selectedIds], selectedMsgs, f.path); setShowFolderPicker(false); }}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 14,
+                                width: '100%', minHeight: 48,
+                                padding: '0 20px',
+                                background: 'none', border: 'none',
+                                borderBottom: '1px solid var(--border-subtle)',
+                                color: 'var(--text-primary)', fontSize: 15,
+                                cursor: 'pointer', textAlign: 'left',
+                              }}
+                            >
+                              <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>
+                                {isAction ? row.item.renderIcon(13) : <FolderIcon specialUse={f.special_use} />}
+                              </span>
+                              {isAction ? <FolderPathLabel label={row.item.label} /> : <FolderPathLabel folder={f} label={f.favoriteLabel} />}
+                            </button>
                           );
-                        }
-                        const sectioned = recent.length > 0 || favorites.length > 0;
-                        return (<>
-                          {recent.length > 0 && (<>
-                            {heading(t('contextMenu.folders.recent'))}
-                            {recent.map(f => item(f, `recent-${f.path}`))}
-                          </>)}
-                          {favorites.length > 0 && (<>
-                            {heading(t('contextMenu.folders.favorites'))}
-                            {favorites.map(f => item(f, `fav-${f.path}`))}
-                          </>)}
-                          {sectioned && heading(t('messageList.foldersHeading'))}
-                          {displayed.map(f => item(f, f.path))}
-                        </>);
+                        };
+                        return (
+                          <>
+                            {bulkMoveSections.map((section, i) => {
+                              const sectionLabel = section.key === 'all'
+                                ? (i > 0 ? t('messageList.foldersHeading') : null)
+                                : movePickerSectionHeading(section, t);
+                              return (
+                                <Fragment key={section.key}>
+                                  {sectionLabel && heading(sectionLabel)}
+                                  {section.rows.map(item)}
+                                </Fragment>
+                              );
+                            })}
+                            {bulkMoveFoldersEmpty && (
+                              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                                {t('contextMenu.folders.empty')}
+                              </div>
+                            )}
+                          </>
+                        );
                       })()}
                     </div>
                   </div>

@@ -1915,6 +1915,8 @@
     "tabEmpty": "这里还没有内容",
     "removeFrom": "从{{state}}中移除",
     "classified": "已添加标签",
+    "classifiedMany": "已将 {{count}} 封标记为{{state}}",
+    "classifiedSome": "已将 {{count}}/{{total}} 封标记为{{state}}",
     "classifyFailed": "无法添加标签",
     "undoFailed": "无法撤销标签",
     "removed": "已移除标签",

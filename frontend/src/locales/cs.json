@@ -683,6 +683,8 @@
     "tabEmpty": "Zatím tu nic není",
     "removeFrom": "Odebrat ze stavu {{state}}",
     "classified": "Štítek použit",
+    "classifiedMany": "Štítek {{state}} použit u {{count}}",
+    "classifiedSome": "Štítek {{state}} použit u {{count}} z {{total}}",
     "classifyFailed": "Štítek se nepodařilo použít",
     "removed": "Štítek odebrán",
     "removeFailed": "Štítek se nepodařilo odebrat",

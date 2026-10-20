@@ -1915,6 +1915,8 @@
     "tabEmpty": "Nada aquí todavía",
     "removeFrom": "Quitar de {{state}}",
     "classified": "Etiqueta aplicada",
+    "classifiedMany": "{{count}} etiquetados como {{state}}",
+    "classifiedSome": "{{count}} de {{total}} etiquetados como {{state}}",
     "classifyFailed": "No se pudo aplicar la etiqueta",
     "undoFailed": "No se pudo deshacer la etiqueta",
     "removed": "Etiqueta eliminada",
