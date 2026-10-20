@@ -902,13 +902,19 @@ export default function ComposeModal() {
         messages = buildDraftPrompt({ instruction, subject, to, ...closing });
       }
       const fullText = await api.ai.chat(messages, {
+        // A reply is written from received mail, which the summaries switch covers; a new email
+        // only from what the user typed, which the writing assistant's does (#644).
+        purpose: replying ? 'summarize' : 'compose',
         signal: controller.signal,
         onDelta: (text) => setAiPanel(p => p ? { ...p, text } : p),
       });
       setAiPanel(p => p ? { ...p, status: 'done', text: fullText } : p);
     } catch (err) {
       if (err.name !== 'AbortError') {
-        setAiPanel(p => p ? { ...p, status: 'error', text: err.message } : p);
+        const text = err.code === 'ai_user_disabled' ? t('compose.toolbar.aiNotAllowed')
+          : err.code === 'ai_feature_disabled' ? t('compose.toolbar.aiFeatureOff')
+            : err.message;
+        setAiPanel(p => p ? { ...p, status: 'error', text } : p);
       }
     }
   };

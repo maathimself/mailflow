@@ -11,10 +11,12 @@ import {
 describe('aiReplyAvailable', () => {
   const on = { enabled: true, features: { compose: true, summarize: true } };
 
-  test('needs the AI enabled with its compose feature', () => {
+  test('needs the AI enabled with both its writing assistant and its summaries', () => {
+    // It writes a draft (compose) from received mail (which only summaries send to the provider).
     assert.equal(aiReplyAvailable(on, false), true);
     assert.equal(aiReplyAvailable({ ...on, enabled: false }, false), false);
     assert.equal(aiReplyAvailable({ ...on, features: { compose: false, summarize: true } }, false), false);
+    assert.equal(aiReplyAvailable({ ...on, features: { compose: true, summarize: false } }, false), false);
     assert.equal(aiReplyAvailable(null, false), false, 'not before the status has loaded');
   });
 

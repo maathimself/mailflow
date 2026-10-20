@@ -15,7 +15,9 @@ registerHooks({
   load(url, context, nextLoad) {
     if (url.endsWith('react-i18next/dist/es/index.js') || url.endsWith('/react-i18next')) {
       return { format: 'module', shortCircuit: true, source: [
-        'export const useTranslation = () => ({ t: (k) => k, i18n: { language: "en", changeLanguage: () => {} } });',
+        // Keys stand in for text. The one string that wraps another (the AI panel's error) shows
+        // what it wraps, so a test can tell which error it is.
+        'export const useTranslation = () => ({ t: (k, o) => (o?.message ? `${k} ${o.message}` : k), i18n: { language: "en", changeLanguage: () => {} } });',
         'export const initReactI18next = { type: "3rdParty", init: () => {} };',
         'export const Trans = ({ children }) => children ?? null;',
         'export const I18nextProvider = ({ children }) => children ?? null;',
@@ -991,6 +993,8 @@ describe('Reply with AI', () => {
   };
   const real = {};
   const chats = [];
+  const purposes = [];
+  let refusal = null;
   let threadLoads = 0;
   let answer = '';
   let unmount;
@@ -1021,8 +1025,10 @@ describe('Reply with AI', () => {
   before(() => {
     Object.assign(real, { status: api.ai.status, chat: api.ai.chat, getThread: api.getThread, getMessageBody: api.getMessageBody, resolveMessage: api.resolveMessage });
     api.ai.status = async () => ({ enabled: true, features: { compose: true, summarize: true } });
-    api.ai.chat = async (messages, { onDelta } = {}) => {
+    api.ai.chat = async (messages, { purpose, onDelta } = {}) => {
       chats.push(messages);
+      purposes.push(purpose);
+      if (refusal) throw Object.assign(new Error('refused'), { status: 403, code: refusal });
       onDelta?.(answer.slice(0, 5));
       return answer;
     };
@@ -1069,6 +1075,7 @@ describe('Reply with AI', () => {
       assert.match(request, /From: Me <me@example\.invalid> \(the user\)\n[\s\S]*Could the logo be bigger\?/);
       assert.match(request, /\(the one being answered\)[\s\S]*Can you approve\?/);
       assert.match(request, /Instruction for the reply: approve it$/);
+      assert.equal(purposes.at(-1), 'summarize', 'asked for under summaries: it sends received mail');
       assert.match(document.body.textContent, /Approved, thank you\./, 'the suggestion is shown');
     });
 
@@ -1205,12 +1212,24 @@ describe('Reply with AI', () => {
       const request = chats.at(-1).map(m => m.content).join('\n');
       assert.match(request, /Subject: Quote\nTo: Bob <bob@example\.invalid>/);
       assert.match(request, /Instruction for the email: ask for a quote for 500 boxes$/);
+      assert.equal(purposes.at(-1), 'compose', 'asked for under the writing assistant');
     });
 
     test('Apply keeps the blank lines between paragraphs', async () => {
       await click(button('compose.toolbar.aiApply'));
       const editor = document.querySelector('.ProseMirror').editor;
       assert.equal(editor.getHTML(), '<p>Hi Bob,</p><p></p><p>Could you send a quote for 500 boxes?</p><p></p><p>Thanks</p>');
+    });
+
+    test('says so when the administrator has turned AI off for the user', async () => {
+      await openAiMenu();
+      await press(button('compose.toolbar.aiWriteDraft'));
+      refusal = 'ai_user_disabled';
+      try {
+        await click(button('compose.toolbar.aiReplyGenerate'));
+        await React.act(async () => {});
+      } finally { refusal = null; }
+      assert.match(document.body.textContent, /compose\.toolbar\.aiNotAllowed/);
     });
 
     test('with the field left empty, it writes from the subject on its own', async () => {

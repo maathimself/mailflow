@@ -15,10 +15,11 @@ const EARLIER_MESSAGE_CHARS = 6_000;
 const MIN_MESSAGE_CHARS = 500;
 export const MAX_INSTRUCTION_CHARS = 1_000;
 
-// Whether "Reply with AI" can be offered. It needs the AI's compose feature, and it writes into
+// Whether "Reply with AI" can be offered. It writes a draft (the writing assistant) from received
+// mail (which only summaries send to the provider), so it needs both switches; and it writes into
 // the rich-text editor, which a user who composes in plain text does not have.
 export function aiReplyAvailable(aiStatus, plaintextEmail) {
-  return Boolean(aiStatus?.enabled && aiStatus?.features?.compose && !plaintextEmail);
+  return Boolean(aiStatus?.enabled && aiStatus?.features?.compose && aiStatus?.features?.summarize && !plaintextEmail);
 }
 
 // Everything here runs over mail anyone can send, so it stays linear on hostile input: a pattern

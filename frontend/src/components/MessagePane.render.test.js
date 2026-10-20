@@ -797,8 +797,8 @@ describe('move picker favorites', () => {
 describe('Reply with AI in the toolbar', () => {
   const button = () => document.querySelector('[title="compose.toolbar.aiReply"]');
   let realStatus;
-  async function show({ compose }) {
-    api.ai.status = async () => ({ enabled: true, features: { compose, summarize: true } });
+  async function show({ compose, summarize = true }) {
+    api.ai.status = async () => ({ enabled: true, features: { compose, summarize } });
     // A fresh mount: the pane asks for the AI status when it mounts.
     await React.act(async () => { root.render(null); });
     await React.act(async () => {
@@ -828,6 +828,8 @@ describe('Reply with AI in the toolbar', () => {
   test('is not offered when the AI does not write emails, or the user writes in plain text', async () => {
     await show({ compose: false });
     assert.equal(button(), null);
+    await show({ compose: true, summarize: false });
+    assert.equal(button(), null, 'nor without summaries: the reply is written from received mail');
     useStore.setState({ plaintextEmail: true });
     await show({ compose: true });
     assert.equal(button(), null);
