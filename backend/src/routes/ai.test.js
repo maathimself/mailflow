@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   getAdminAiConfig: vi.fn(),
+  getAiNewUsersEnabled: vi.fn(),
   saveAiConfig: vi.fn(),
   deleteAiConfig: vi.fn(),
   getAiStatus: vi.fn(),
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../services/db.js', () => ({ query: mocks.query }));
 vi.mock('../services/aiProvider.js', () => ({
   getAdminAiConfig: mocks.getAdminAiConfig,
+  getAiNewUsersEnabled: mocks.getAiNewUsersEnabled,
   saveAiConfig: mocks.saveAiConfig,
   deleteAiConfig: mocks.deleteAiConfig,
   getAiStatus: mocks.getAiStatus,
@@ -37,6 +39,9 @@ import aiRoutes, { aiLanguageInstruction } from './ai.js';
 
 const ADMIN = 'admin-user';
 const MEMBER = 'ordinary-user';
+// Users whose ai_enabled is false, and users whose row cannot be read.
+const aiDisabledUsers = new Set();
+let aiUserReadError = null;
 const FLOW_ID = '11111111-1111-4111-8111-111111111111';
 
 function buildApp() {
@@ -71,7 +76,7 @@ function request(path, { method = 'GET', user = ADMIN, body } = {}) {
 }
 
 function chat(body, options = {}) {
-  return request('/api/ai/chat', { method: 'POST', user: MEMBER, body, ...options });
+  return request('/api/ai/chat', { method: 'POST', user: MEMBER, body: { purpose: 'compose', ...body }, ...options });
 }
 
 async function* deltas(...values) {
@@ -92,7 +97,14 @@ afterAll(async () => {
 
 beforeEach(() => {
   Object.values(mocks).forEach((mock) => mock.mockReset());
+  aiDisabledUsers.clear();
+  aiUserReadError = null;
   mocks.query.mockImplementation(async (sql, params = []) => {
+    if (/SELECT ai_enabled, is_admin FROM users/i.test(sql)) {
+      if (aiUserReadError) throw aiUserReadError;
+      if (params[0] === 'deleted-user') return { rows: [] };
+      return { rows: [{ ai_enabled: !aiDisabledUsers.has(params[0]), is_admin: params[0] === ADMIN }] };
+    }
     if (/SELECT is_admin FROM users/i.test(sql)) {
       return { rows: params[0] === ADMIN ? [{ is_admin: true }] : [{ is_admin: false }] };
     }
@@ -102,9 +114,10 @@ beforeEach(() => {
     throw new Error(`Unexpected SQL: ${sql}`);
   });
   mocks.getAdminAiConfig.mockResolvedValue(null);
+  mocks.getAiNewUsersEnabled.mockResolvedValue(true);
   mocks.saveAiConfig.mockImplementation(async (config) => config);
   mocks.deleteAiConfig.mockResolvedValue(undefined);
-  mocks.getAiStatus.mockResolvedValue({ enabled: true, provider: 'api-key', features: { compose: true } });
+  mocks.getAiStatus.mockResolvedValue({ enabled: true, provider: 'api-key', features: { compose: true, summarize: true } });
   mocks.testAiProvider.mockResolvedValue({ ok: true });
   mocks.streamChat.mockImplementation(() => deltas('Hello'));
   mocks.startDeviceFlow.mockResolvedValue({
@@ -141,7 +154,14 @@ describe('admin authorization and configuration', () => {
     mocks.getAdminAiConfig.mockResolvedValue(config);
     const response = await request('/api/admin/ai');
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ config });
+    expect(await response.json()).toEqual({ config, newUsersEnabled: true });
+  });
+
+  // #644: kept when no provider is configured, so the admin form can still show it.
+  it('returns "Allow AI for new users" also when no provider is configured', async () => {
+    mocks.getAiNewUsersEnabled.mockResolvedValue(false);
+    const response = await request('/api/admin/ai');
+    expect(await response.json()).toEqual({ config: null, newUsersEnabled: false });
   });
 
   it('saves provider selection through the adapter without returning secrets', async () => {
@@ -285,7 +305,7 @@ describe('authenticated AI status and streaming', () => {
     const authenticated = await request('/api/ai/status', { user: MEMBER });
     expect(authenticated.status).toBe(200);
     expect(await authenticated.json()).toEqual({
-      enabled: true, provider: 'api-key', features: { compose: true },
+      enabled: true, provider: 'api-key', features: { compose: true, summarize: true },
     });
   });
 
@@ -350,7 +370,7 @@ describe('authenticated AI status and streaming', () => {
     const response = await fetch(`${base}/api/ai/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-test-user': MEMBER },
-      body: JSON.stringify({ messages: [{ role: 'user', content: 'Hi' }] }),
+      body: JSON.stringify({ purpose: 'summarize', messages: [{ role: 'user', content: 'Hi' }] }),
       signal: controller.signal,
     });
     const reader = response.body.getReader();
@@ -371,6 +391,132 @@ describe('authenticated AI status and streaming', () => {
     expect(text).toContain('data: {"error":"AI request failed"}\n\n');
     expect(text).toContain('data: [DONE]\n\n');
     expect(text).not.toContain('access-token-secret');
+  });
+});
+
+// #644: the provider is shared by the whole instance, so each user carries an AI switch, and the
+// instance's feature switches are enforced here rather than only by hiding buttons.
+describe('per-user AI access and feature gates', () => {
+  const chatgptStatus = {
+    enabled: true,
+    provider: 'chatgpt',
+    features: { compose: true, summarize: true },
+    reconnectRequired: false,
+    connection: { connected: true, state: 'connected', expiresAt: 2_000_000_000_000, accountLabel: 'v•••@example.com' },
+  };
+  const hi = [{ role: 'user', content: 'Hi' }];
+
+  it('shows the ChatGPT connection to admins only', async () => {
+    mocks.getAiStatus.mockResolvedValue(chatgptStatus);
+    const member = await (await request('/api/ai/status', { user: MEMBER })).json();
+    expect(member).toEqual({
+      enabled: true, provider: 'chatgpt', features: { compose: true, summarize: true }, reconnectRequired: false,
+    });
+    expect(JSON.stringify(member)).not.toContain('example.com');
+
+    const admin = await (await request('/api/ai/status', { user: ADMIN })).json();
+    expect(admin).toEqual(chatgptStatus);
+  });
+
+  it.each([MEMBER, ADMIN])('reports AI as off to %s when their AI access is off', async (user) => {
+    mocks.getAiStatus.mockResolvedValue(chatgptStatus);
+    aiDisabledUsers.add(user);
+    const response = await request('/api/ai/status', { user });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      enabled: false, provider: 'chatgpt', features: { compose: false, summarize: false }, reconnectRequired: false,
+    });
+  });
+
+  it('fails closed when the user row is missing or cannot be read', async () => {
+    const missing = await (await request('/api/ai/status', { user: 'deleted-user' })).json();
+    expect(missing).toMatchObject({ enabled: false, features: { compose: false, summarize: false } });
+    const refused = await chat({ messages: hi }, { user: 'deleted-user' });
+    expect(refused.status).toBe(403);
+
+    aiUserReadError = new Error('connection terminated');
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await request('/api/ai/status', { user: MEMBER })).status).toBe(500);
+    const failed = await chat({ messages: hi });
+    expect(failed.status).toBe(500);
+    expect(mocks.streamChat).not.toHaveBeenCalled();
+    logged.mockRestore();
+  });
+
+  it.each([
+    [{ messages: hi, purpose: null }],
+    [{ messages: hi, purpose: 'translate' }],
+    [{ messages: hi, purpose: 'constructor' }],
+    [{ messages: hi, purpose: ['compose'] }],
+  ])('refuses a chat whose purpose is present but unknown %#', async (body) => {
+    const response = await request('/api/ai/chat', { method: 'POST', user: MEMBER, body });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/purpose/);
+    expect(mocks.streamChat).not.toHaveBeenCalled();
+  });
+
+  it.each([MEMBER, ADMIN])('refuses chat for %s when their AI access is off', async (user) => {
+    aiDisabledUsers.add(user);
+    for (const purpose of ['compose', 'summarize']) {
+      const response = await chat({ messages: hi, purpose }, { user });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ code: 'ai_user_disabled', error: expect.stringMatching(/not enabled for your account/) });
+    }
+    expect(mocks.streamChat).not.toHaveBeenCalled();
+  });
+
+  it('enforces the writing assistant and summaries switches separately', async () => {
+    mocks.getAiStatus.mockResolvedValue({ enabled: true, provider: 'api-key', features: { compose: false, summarize: true } });
+    const compose = await chat({ messages: hi, purpose: 'compose' });
+    expect(compose.status).toBe(403);
+    expect(await compose.json()).toMatchObject({ code: 'ai_feature_disabled', feature: 'compose', error: expect.stringMatching(/writing assistant/) });
+    expect(mocks.streamChat).not.toHaveBeenCalled();
+    expect((await chat({ messages: hi, purpose: 'summarize' })).status).toBe(200);
+
+    mocks.streamChat.mockClear();
+    mocks.getAiStatus.mockResolvedValue({ enabled: true, provider: 'api-key', features: { compose: true, summarize: false } });
+    const summarize = await chat({ messages: hi, purpose: 'summarize' });
+    expect(summarize.status).toBe(403);
+    expect(await summarize.json()).toMatchObject({ code: 'ai_feature_disabled', feature: 'summarize', error: expect.stringMatching(/summaries/) });
+    expect(mocks.streamChat).not.toHaveBeenCalled();
+    expect((await chat({ messages: hi, purpose: 'compose' })).status).toBe(200);
+  });
+
+  // A tab opened before the update sends no purpose. It could be either feature, so it is served
+  // only while both are on, and still only for a user with AI access.
+  describe('a chat without a purpose (a tab from before the update)', () => {
+    const legacy = (user = MEMBER) => request('/api/ai/chat', { method: 'POST', user, body: { messages: hi } });
+
+    it('is served while both switches are on', async () => {
+      const response = await legacy();
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('data: [DONE]');
+    });
+
+    it.each([
+      [{ compose: false, summarize: true }, 'compose'],
+      [{ compose: true, summarize: false }, 'summarize'],
+    ])('is refused when one switch is off: %o', async (features, off) => {
+      mocks.getAiStatus.mockResolvedValue({ enabled: true, provider: 'api-key', features });
+      const response = await legacy();
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ code: 'ai_feature_disabled', feature: off });
+      expect(mocks.streamChat).not.toHaveBeenCalled();
+    });
+
+    it('is refused for a user whose AI access is off', async () => {
+      aiDisabledUsers.add(MEMBER);
+      const response = await legacy();
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ code: 'ai_user_disabled' });
+      expect(mocks.streamChat).not.toHaveBeenCalled();
+    });
+  });
+
+  it('applies a change to the user flag on the next request', async () => {
+    expect((await chat({ messages: hi })).status).toBe(200);
+    aiDisabledUsers.add(MEMBER);
+    expect((await chat({ messages: hi })).status).toBe(403);
   });
 });
 

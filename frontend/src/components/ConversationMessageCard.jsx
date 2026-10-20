@@ -312,8 +312,6 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
                 onDarkResult={setDarkResult}
                 messageId={message.id}
                 emailScaleRef={emailScaleRef}
-                hasNativeContextTarget={false}
-                onContextMenu={null}
               />
             </div>
           )}

@@ -5,6 +5,7 @@ import { validateHost } from './hostValidation.js';
 import { createRequestSignal, parseJson, readLimited, readSseData, sanitizeText } from './aiHttp.js';
 import { completeCodexText, streamCodexResponses } from './openaiCodexResponses.js';
 import { getCodexAccess, getCodexStatus } from './openaiCodexAuth.js';
+import { aiEnabledForNewUser, setAiEnabledForNewUser } from './aiNewUsers.js';
 
 export const AI_PROVIDER_API_KEY = 'api-key';
 export const AI_PROVIDER_CHATGPT = 'chatgpt';
@@ -167,8 +168,18 @@ export function createAiProvider({
     return parsed ? normalizeAiConfig(parsed) : null;
   }
 
+  // "Allow AI for new users" (#644) is stored apart from the provider configuration (see
+  // aiNewUsers.js) and shown with it.
+  async function getAiNewUsersEnabled() {
+    return aiEnabledForNewUser({ query: queryFn });
+  }
+
+  async function withNewUsersEnabled(config) {
+    return config ? { ...publicConfig(config), newUsersEnabled: await getAiNewUsersEnabled() } : null;
+  }
+
   async function getAdminAiConfig() {
-    return publicConfig(await loadAiConfig());
+    return withNewUsersEnabled(await loadAiConfig());
   }
 
   async function saveAiConfig(input = {}) {
@@ -209,7 +220,11 @@ export function createAiProvider({
        ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
       [JSON.stringify(config)],
     );
-    return publicConfig(config);
+    // Only a boolean changes it, so a save from an admin tab that predates the setting keeps it.
+    if (typeof input.newUsersEnabled === 'boolean') {
+      await setAiEnabledForNewUser(input.newUsersEnabled, { query: queryFn });
+    }
+    return withNewUsersEnabled(config);
   }
 
   async function deleteAiConfig() {
@@ -388,6 +403,7 @@ export function createAiProvider({
   return {
     loadAiConfig,
     getAdminAiConfig,
+    getAiNewUsersEnabled,
     saveAiConfig,
     deleteAiConfig,
     getAiStatus,
@@ -401,6 +417,7 @@ const defaultProvider = createAiProvider();
 
 export const loadAiConfig = defaultProvider.loadAiConfig;
 export const getAdminAiConfig = defaultProvider.getAdminAiConfig;
+export const getAiNewUsersEnabled = defaultProvider.getAiNewUsersEnabled;
 export const saveAiConfig = defaultProvider.saveAiConfig;
 export const deleteAiConfig = defaultProvider.deleteAiConfig;
 export const getAiStatus = defaultProvider.getAiStatus;

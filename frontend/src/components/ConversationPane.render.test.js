@@ -267,6 +267,40 @@ describe('conversation pane', () => {
     assert.equal(text.closest('[translate]')?.getAttribute('translate'), 'yes');
   });
 
+  // A card has no right-click menu of its own, so a right-click on the email shows the browser's.
+  // The card handed the frame `false` for the reading pane's check of which targets keep the
+  // browser's menu, and the frame called it: every right-click threw instead.
+  test("a right-click on an HTML message leaves the browser's menu, without an error", async (t) => {
+    await React.act(async () => {
+      root.render(React.createElement(ConversationPane, { key: 'right-click', threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm1' }));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    const frame = [...document.querySelectorAll('iframe')].find(f => /body of m1/.test(f.getAttribute('srcdoc') ?? ''));
+    assert.ok(frame, 'the HTML body is rendered in a frame');
+    // jsdom does not load srcdoc, so the email goes into the frame's document as parsing leaves it,
+    // and the frame is set up once it is there.
+    const doc = frame.contentDocument;
+    const listening = [];
+    const listen = doc.addEventListener;
+    doc.addEventListener = function (type, ...rest) { listening.push(type); return listen.call(this, type, ...rest); };
+    t.after(() => { delete doc.addEventListener; });
+    const wrapper = doc.createElement('div');
+    wrapper.id = 'mf-scale-wrapper';
+    wrapper.setAttribute('data-mf-doc', /data-mf-doc="(\d+)"/.exec(frame.getAttribute('srcdoc'))[1]);
+    wrapper.innerHTML = '<p>body of m1</p>';
+    doc.body.appendChild(wrapper);
+    for (let i = 0; i < 20 && !listening.includes('contextmenu'); i += 1) await new Promise(r => setTimeout(r, 0));
+    assert.ok(listening.includes('contextmenu'), 'the frame listens for right-clicks');
+
+    // A listener's exception is reported to the frame's window, not thrown at the dispatch.
+    const errors = [];
+    frame.contentWindow.addEventListener('error', e => { errors.push(e.message); e.preventDefault(); });
+    const rightClick = new frame.contentWindow.MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    wrapper.querySelector('p').dispatchEvent(rightClick);
+    assert.deepEqual(errors, []);
+    assert.equal(rightClick.defaultPrevented, false, "the browser's menu is left to show");
+  });
+
   // #228: plain text follows a dark theme, and each card can switch back to its original colors.
   test('a plain-text card in a dark theme can be switched to its original colors and back', async (t) => {
     const { useStore } = await import('../store/index.js');
@@ -404,6 +438,7 @@ describe('conversation actions', () => {
     const chat = requests.find(r => r.url.includes('/ai/chat'));
     assert.ok(chat, 'the action went to the AI endpoint');
     assert.match(JSON.parse(chat.body).messages[0].content, /body of m1/, 'with this message\'s text');
+    assert.equal(JSON.parse(chat.body).purpose, 'summarize', 'under the summaries switch (#644)');
     assert.match(card('m1').textContent, /Short summary\./, 'the result is pinned on this message');
     assert.doesNotMatch(card('m3').textContent, /Short summary/, 'and only on this message');
   });

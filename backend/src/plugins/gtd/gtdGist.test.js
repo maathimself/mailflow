@@ -37,9 +37,19 @@ describe('selectGistCandidates', () => {
   });
 });
 
+// The per-user AI access read (#644) is the only query the gate itself makes; everything else is
+// generation work.
+const isUserAiRead = (sql) => /SELECT ai_enabled, is_admin FROM users/i.test(sql);
+const generationQueries = () => query.mock.calls.filter((c) => !isUserAiRead(c[0]));
+let userAiEnabled = true;
+const userAiRow = (sql, params) => (isUserAiRead(sql)
+  ? { rows: params[0] === 'u1' ? [{ ai_enabled: userAiEnabled, is_admin: false }] : [] }
+  : null);
+
 describe('queueGistGeneration — provider gating', () => {
   beforeEach(() => {
-    query.mockReset();
+    userAiEnabled = true;
+    query.mockReset().mockImplementation(async (sql, params) => userAiRow(sql, params) ?? { rows: [] });
     getAiStatus.mockReset();
     completeText.mockReset();
   });
@@ -61,7 +71,7 @@ describe('queueGistGeneration — provider gating', () => {
 
     expect(getAiStatus).toHaveBeenCalledTimes(1);
     expect(completeText).not.toHaveBeenCalled();
-    expect(query).not.toHaveBeenCalled();
+    expect(generationQueries()).toHaveLength(0);
     expect(broadcast).not.toHaveBeenCalled();
   });
 
@@ -70,7 +80,7 @@ describe('queueGistGeneration — provider gating', () => {
     await queueGistGeneration({ sections: oneWaiting, userId: 'u1', broadcast: vi.fn() });
     expect(getAiStatus).toHaveBeenCalledTimes(1);
     expect(completeText).not.toHaveBeenCalled();
-    expect(query).not.toHaveBeenCalled();
+    expect(generationQueries()).toHaveLength(0);
   });
 
   it('treats provider status failures as unavailable', async () => {
@@ -78,7 +88,20 @@ describe('queueGistGeneration — provider gating', () => {
     await expect(queueGistGeneration({ sections: oneWaiting, userId: 'u1', broadcast: vi.fn() }))
       .resolves.toBeUndefined();
     expect(completeText).not.toHaveBeenCalled();
-    expect(query).not.toHaveBeenCalled();
+    expect(generationQueries()).toHaveLength(0);
+  });
+
+  // #644: an admin can turn AI off for one user; their waiting heads get no gist, and nothing is
+  // read for them, while the instance provider stays on for everyone else.
+  it('generates nothing for a user whose AI access is off', async () => {
+    getAiStatus.mockResolvedValue({ enabled: true, features: { summarize: true } });
+    userAiEnabled = false;
+    const broadcast = vi.fn();
+    await queueGistGeneration({ sections: oneWaiting, userId: 'u1', broadcast });
+    expect(query.mock.calls.filter((c) => isUserAiRead(c[0])).map((c) => c[1])).toEqual([['u1']]);
+    expect(completeText).not.toHaveBeenCalled();
+    expect(generationQueries()).toHaveLength(0);
+    expect(broadcast).not.toHaveBeenCalled();
   });
 });
 
@@ -92,6 +115,7 @@ describe('queueGistGeneration — write path', () => {
   // SELECT echoes one row per requested id so the pool has real work to do.
   function mockDb({ updateRowCount = 1 } = {}) {
     query.mockImplementation((sql, params) => {
+      if (isUserAiRead(sql)) return Promise.resolve(userAiRow(sql, params));
       if (isBodySelect(sql)) {
         const ids = params[0];
         return Promise.resolve({
@@ -108,6 +132,7 @@ describe('queueGistGeneration — write path', () => {
   });
 
   beforeEach(() => {
+    userAiEnabled = true;
     query.mockReset();
     getAiStatus.mockReset();
     completeText.mockReset();
@@ -156,6 +181,27 @@ describe('queueGistGeneration — write path', () => {
     expect(broadcast).not.toHaveBeenCalled();
   });
 
+  // #644: each gist is generated for this user, so AI turned off for them after the up-front gate
+  // stops the rest of the batch.
+  it('passes the user to summarizeMessage, which stops when their access is turned off mid-batch', async () => {
+    mockDb();
+    let reads = 0;
+    const route = query.getMockImplementation();
+    query.mockImplementation((sql, params) => {
+      if (isUserAiRead(sql)) {
+        reads++;
+        return Promise.resolve({ rows: params[0] === 'u1' ? [{ ai_enabled: reads === 1, is_admin: false }] : [] });
+      }
+      return route(sql, params);
+    });
+    const broadcast = vi.fn();
+    await queueGistGeneration({ sections: waitingHeads(['w1', 'w2']), userId: 'u1', broadcast });
+    expect(query.mock.calls.filter((c) => isUserAiRead(c[0])).every((c) => c[1][0] === 'u1')).toBe(true);
+    expect(reads).toBe(3); // the gate, then one check per gist
+    expect(completeText).not.toHaveBeenCalled();
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
   it('caps generation per account at MAX_GISTS_PER_ACCOUNT (20), deferring the remainder', async () => {
     mockDb();
     const broadcast = vi.fn();
@@ -177,6 +223,7 @@ describe('queueGistGeneration — write path', () => {
     const configGate = new Promise((resolve) => { releaseConfig = resolve; });
     getAiStatus.mockImplementation(() => configGate.then(() => ({ enabled: true, features: { summarize: true } })));
     query.mockImplementation((sql, params) => {
+      if (isUserAiRead(sql)) return Promise.resolve(userAiRow(sql, params));
       if (isBodySelect(sql)) {
         const ids = params[0];
         return Promise.resolve({ rows: ids.map((id) => ({ id, subject: 'S', from_name: 'A', from_email: 'a@x', content: 'b' })) });
@@ -197,7 +244,10 @@ describe('queueGistGeneration — write path', () => {
     releaseConfig();
     await Promise.all([first, second]);
 
-    expect(getAiStatus).toHaveBeenCalledTimes(1); // second never reached the gate
+    // The first call's gate plus summarizeMessage's own check for its one gist (#644); the
+    // second call never reached either.
+    expect(getAiStatus).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls.filter((c) => isUserAiRead(c[0]))).toHaveLength(2);
     expect(query.mock.calls.filter((c) => isBodySelect(c[0]))).toHaveLength(1);
     expect(query.mock.calls.filter((c) => isGistUpdate(c[0]))).toHaveLength(1);
     expect(completeText).toHaveBeenCalledTimes(1);

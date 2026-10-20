@@ -3597,7 +3597,7 @@ describe('computeThreadId subject fallback requires a shared correspondent (#468
       ],
     });
 
-    const id = await computeThreadId(ACCOUNT, '<y@partner.com>', ...noHeaders, 'Status', {
+    const id = await computeThreadId(ACCOUNT, '<y@partner.com>', ...noHeaders, 'Re: Status', {
       fromEmail: 'anna@partner.com',
       to: [{ email: OWNER }],
       cc: [],
@@ -3612,7 +3612,7 @@ describe('computeThreadId subject fallback requires a shared correspondent (#468
       rows: [{ thread_id: 't', from_email: 'Anna@Partner.com', to_addresses: [{ email: OWNER }], cc_addresses: [] }],
     });
 
-    const id = await computeThreadId(ACCOUNT, '<z@partner.com>', ...noHeaders, 'Status', {
+    const id = await computeThreadId(ACCOUNT, '<z@partner.com>', ...noHeaders, 'Re: Status', {
       fromEmail: 'anna@PARTNER.COM', to: [], cc: [], own: OWNER.toUpperCase(),
     });
 
@@ -3629,7 +3629,7 @@ describe('computeThreadId subject fallback requires a shared correspondent (#468
       }],
     });
 
-    const id = await computeThreadId(ACCOUNT, '<w@partner.com>', ...noHeaders, 'Status', {
+    const id = await computeThreadId(ACCOUNT, '<w@partner.com>', ...noHeaders, 'Re: Status', {
       fromEmail: 'anna@partner.com', to: [], cc: [], own: OWNER,
     });
 
@@ -3731,6 +3731,280 @@ describe('computeThreadId subject fallback requires a shared correspondent (#468
     });
 
     expect(id).toBe('header-thread');
+  });
+});
+
+describe('computeThreadId subject fallback needs evidence of a reply (#649)', () => {
+  const ACCOUNT = 'acct-649';
+  const OWNER = 'me@example.com';
+  const noHeaders = [null, null];
+  const SUBJECT = 'Order Confirmation for Eldridge from King David';
+
+  beforeEach(() => {
+    query.mockReset();
+    getAccountAddresses.mockReset();
+    getAccountAddresses.mockResolvedValue([OWNER]);
+  });
+
+  it('starts a new thread for the same sender and subject without a reply prefix', async () => {
+    // The report: every receipt for the same restaurant joined the one before it. A sender
+    // that is not obviously no-reply, so this is the same-sender rule on its own.
+    query.mockResolvedValueOnce({
+      rows: [{ thread_id: 'first-receipt', from_email: 'orders@shop.example', to_addresses: [{ email: OWNER }], cc_addresses: [] }],
+    });
+
+    const id = await computeThreadId(ACCOUNT, '<receipt-2@shop.example>', ...noHeaders, SUBJECT, {
+      fromEmail: 'orders@shop.example', to: [{ email: OWNER }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('<receipt-2@shop.example>');
+  });
+
+  it('still joins the same sender when the subject carries a reply prefix', async () => {
+    // Someone following up on their own earlier message from a client that drops headers.
+    query.mockResolvedValueOnce({
+      rows: [{ thread_id: 'anna-thread', from_email: 'anna@partner.com', to_addresses: [{ email: OWNER }], cc_addresses: [] }],
+    });
+
+    const id = await computeThreadId(ACCOUNT, '<again@partner.com>', ...noHeaders, 'AW: Lunch on Friday', {
+      fromEmail: 'anna@partner.com', to: [{ email: OWNER }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('anna-thread');
+  });
+
+  it('joins an exchange between two parties even without a prefix', async () => {
+    // Bob answers a message he was copied on, keeping the subject as it was.
+    query.mockResolvedValueOnce({
+      rows: [{
+        thread_id: 'numbers-thread',
+        from_email: 'anna@partner.com',
+        to_addresses: [{ email: OWNER }],
+        cc_addresses: [{ email: 'bob@partner.com' }],
+      }],
+    });
+
+    const id = await computeThreadId(ACCOUNT, '<bob@partner.com>', ...noHeaders, 'Quarterly numbers', {
+      fromEmail: 'bob@partner.com', to: [{ email: 'anna@partner.com' }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('numbers-thread');
+  });
+
+  it('does not count a sender addressing its own mail to itself as an exchange', async () => {
+    // Bulk senders often put their own address in To and BCC everyone. That made each such
+    // message look like an answer to the one before it.
+    query.mockResolvedValueOnce({
+      rows: [{ thread_id: 'digest-1', from_email: 'digest@news.example', to_addresses: [{ email: 'digest@news.example' }], cc_addresses: [] }],
+    });
+
+    const id = await computeThreadId(ACCOUNT, '<digest-2@news.example>', ...noHeaders, 'Your weekly digest', {
+      fromEmail: 'digest@news.example', to: [{ email: 'digest@news.example' }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('<digest-2@news.example>');
+  });
+
+  it('never uses the fallback for bulk mail, even with a reply prefix', async () => {
+    const id = await computeThreadId(ACCOUNT, '<list-2@lists.example>', ...noHeaders, 'Re: Weekly update', {
+      fromEmail: 'anna@partner.com', to: [{ email: OWNER }], cc: [], own: OWNER, isBulk: true,
+    });
+
+    expect(id).toBe('<list-2@lists.example>');
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'no-reply@doordash.com',
+    'noreply@example.com',
+    'NoReply@Example.com',
+    'donotreply@bank.example',
+    'do-not-reply@bank.example',
+    'do_not_reply@bank.example',
+    'no-reply-orders@shop.example',
+    'noreply+alerts@shop.example',
+  ])('never uses the fallback for a no-reply sender (%s)', async (from) => {
+    const id = await computeThreadId(ACCOUNT, '<alert-2@example.com>', ...noHeaders, `Re: ${SUBJECT}`, {
+      fromEmail: from, to: [{ email: OWNER }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('<alert-2@example.com>');
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('does not mistake an address that merely contains "reply" for a no-reply one', async () => {
+    query.mockResolvedValueOnce({
+      rows: [{ thread_id: 'reply-thread', from_email: 'replyteam@partner.com', to_addresses: [{ email: OWNER }], cc_addresses: [] }],
+    });
+
+    const id = await computeThreadId(ACCOUNT, '<r2@partner.com>', ...noHeaders, 'RE: Contract', {
+      fromEmail: 'replyteam@partner.com', to: [{ email: OWNER }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('reply-thread');
+  });
+
+  it('does not count bulk or no-reply mail sent to a sender as an exchange with that sender', async () => {
+    // Anna writes without a prefix. A newsletter and a no-reply notice were addressed to her,
+    // which would pass for an exchange, but they are not something she answers. The third
+    // candidate, Bob's message to her, is an ordinary exchange.
+    query.mockResolvedValueOnce({
+      rows: [
+        { thread_id: 'bulk', from_email: 'news@shop.example', to_addresses: [{ email: 'anna@partner.com' }], cc_addresses: [], is_bulk: true },
+        { thread_id: 'no-reply', from_email: 'no-reply@shop.example', to_addresses: [{ email: 'anna@partner.com' }], cc_addresses: [], is_bulk: false },
+        { thread_id: 'bob', from_email: 'bob@partner.com', to_addresses: [{ email: 'anna@partner.com' }], cc_addresses: [], is_bulk: null },
+      ],
+    });
+
+    const id = await computeThreadId(ACCOUNT, '<anna@partner.com>', ...noHeaders, 'Order question', {
+      fromEmail: 'anna@partner.com', to: [{ email: OWNER }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('bob');
+    expect(query.mock.calls[0][0]).toContain('is_bulk');
+  });
+
+  it('starts a new thread when the only exchange is bulk mail sent to the sender', async () => {
+    query.mockResolvedValueOnce({
+      rows: [{ thread_id: 'bulk', from_email: 'news@shop.example', to_addresses: [{ email: 'anna@partner.com' }], cc_addresses: [], is_bulk: true }],
+    });
+
+    const id = await computeThreadId(ACCOUNT, '<anna2@partner.com>', ...noHeaders, 'Order question', {
+      fromEmail: 'anna@partner.com', to: [{ email: OWNER }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('<anna2@partner.com>');
+  });
+
+  it.each([
+    ['bulk', 'team@vendor.example', true],
+    ['no-reply', 'no-reply@vendor.example', false],
+  ])('still threads a header-less reply sent to a %s sender', async (_kind, from, isBulk) => {
+    // Our "RE: Survey" from a client that drops headers, sent to the address the survey came
+    // from. Also the shape of a header-less reply to a mailing-list post.
+    query.mockResolvedValueOnce({
+      rows: [{ thread_id: 'survey', from_email: from, to_addresses: [{ email: OWNER }], cc_addresses: [], is_bulk: isBulk }],
+    });
+
+    const id = await computeThreadId(ACCOUNT, `<re-${_kind}@example.com>`, ...noHeaders, 'RE: Survey', {
+      fromEmail: OWNER, to: [{ email: from }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('survey');
+  });
+
+  it('leaves header threading alone, even for bulk mail from a no-reply sender', async () => {
+    query.mockResolvedValueOnce({ rows: [{ message_id: '<order@doordash.com>', thread_id: 'order-thread' }] });
+
+    const id = await computeThreadId(ACCOUNT, '<update@doordash.com>', '<order@doordash.com>', '<order@doordash.com>', SUBJECT, {
+      fromEmail: 'no-reply@doordash.com', to: [{ email: OWNER }], cc: [], own: OWNER, isBulk: true,
+    });
+
+    expect(id).toBe('order-thread');
+  });
+});
+
+// The ingest paths have to hand computeThreadId the parsed bulk flag, or bulk mail without
+// threading headers would still reach the subject fallback (#649). Each path is driven with a
+// header-less message from an ordinary sender, so the only thing that keeps the fallback's
+// candidate query from running is the flag.
+describe('ingest paths pass isBulk to computeThreadId (#649)', () => {
+  const subjectFallbackRan = () => query.mock.calls.some(([sql]) => String(sql).includes('normalized_subject = $3'));
+  const parsedMessage = (isBulk) => ({
+    uid: 5, messageId: `<digest-${isBulk}@news.example>`, subject: 'Weekly digest',
+    fromName: 'News', fromEmail: 'news@news.example', to: [{ email: 'me@example.com' }], cc: [], replyTo: [],
+    inReplyTo: null, references: null, date: new Date('2026-10-01T10:00:00Z'), snippet: 'hi',
+    isRead: true, isStarred: false, hasAttachments: false, flags: ['\\Seen'], isBulk, parsedHeaders: {},
+  });
+  let seq = 0;
+  const freshAccount = () => ({
+    id: `acct-649-wiring-${++seq}`, user_id: 'user-1', email_address: 'me@example.com', enabled: true,
+    gtd_enabled: false, categorization_enabled: false, imap_host: 'imap.example.com', imap_port: 993,
+    imap_tls: true, auth_user: 'me', auth_pass: 'enc',
+  });
+
+  beforeEach(() => {
+    query.mockReset();
+    parseMessage.mockReset();
+    getAccountAddresses.mockReset();
+    getAccountAddresses.mockResolvedValue(['me@example.com']);
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it.each([true, false])('sync (isBulk %s)', async (isBulk) => {
+    const account = freshAccount();
+    invalidateGtdConfigCache(account.id);
+    const client = {
+      noop: vi.fn(async () => true),
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
+      fetch: vi.fn(async function* () { yield { uid: 5 }; }),
+    };
+    query.mockImplementation(async (sql) => {
+      if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) return { rows: [{ uid_validity: 100, highest_modseq: '500' }] };
+      if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return { rows: [{ n: 0 }] };
+      if (sql.includes('COALESCE(MAX(uid), 0)')) return { rows: [{ max_uid: 0 }] };
+      if (sql.includes('SELECT gtd_enabled, gtd_folders FROM email_accounts')) return { rows: [{ gtd_enabled: false, gtd_folders: {} }] };
+      if (sql.includes("preferences->>'categorizationEnabled'")) return { rows: [{ val: false }] };
+      if (sql.includes('INSERT INTO messages')) return { rows: [{ id: 'msg-1', is_new: true }] };
+      return { rows: [] };
+    });
+    parseMessage.mockResolvedValue(parsedMessage(isBulk));
+
+    await ImapManager.prototype.syncMessages.call({ maybeClassifyNewMessage: vi.fn() }, account, client, 'Watch', 50, false, true);
+
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT INTO messages'))).toBe(true);
+    expect(subjectFallbackRan()).toBe(!isBulk);
+  });
+
+  it.each([true, false])('backfill (isBulk %s)', async (isBulk) => {
+    const account = freshAccount();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    ImapFlow.mockImplementation(function () {
+      const client = new EventEmitter();
+      client.usable = true;
+      client.connect = vi.fn(() => Promise.resolve());
+      client.logout = vi.fn(() => Promise.resolve());
+      client.close = vi.fn();
+      client.noop = vi.fn(() => Promise.resolve());
+      client.mailbox = { exists: 1, uidValidity: 7 };
+      client.getMailboxLock = vi.fn(async () => ({ release: vi.fn() }));
+      client.search = vi.fn(async () => [5]);
+      client.fetch = vi.fn(async function* () { yield { uid: 5 }; });
+      return client;
+    });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    query.mockImplementation(async (sql) => {
+      if (sql.includes('FROM email_accounts WHERE id = $1')) return { rows: [account] };
+      if (sql.includes('COUNT(*) as count')) return { rows: [{ count: '0', max_uid: 0 }] };
+      if (sql.includes("preferences->>'categorizationEnabled'")) return { rows: [{ val: false }] };
+      if (sql.includes('INSERT INTO messages')) return { rows: [{ id: 'msg-1', is_new: true }] };
+      return { rows: [] };
+    });
+    parseMessage.mockResolvedValue(parsedMessage(isBulk));
+
+    const mgr = new ImapManager({ clients: new Set() });
+    mgr.maybeClassifyNewMessage = vi.fn();
+    await mgr.backfillMessages(account, 'INBOX');
+
+    expect(error).not.toHaveBeenCalled();
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT INTO messages'))).toBe(true);
+    expect(subjectFallbackRan()).toBe(!isBulk);
+  });
+
+  it.each([true, false])('reply draft ingest (isBulk %s)', async (isBulk) => {
+    const account = freshAccount();
+    parseMessage.mockResolvedValue(parsedMessage(isBulk));
+    query.mockImplementation(async () => ({ rows: [{ id: 'row-1' }] }));
+
+    await Object.create(ImapManager.prototype)._ingestDraftUidWithClient(account, 'Drafts', 5,
+      { mailbox: { uidValidity: 9n } }, { headers: Buffer.from('headers'), bodyStructure: { type: 'text/plain' } });
+
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT INTO messages'))).toBe(true);
+    expect(subjectFallbackRan()).toBe(!isBulk);
   });
 });
 

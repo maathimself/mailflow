@@ -27,9 +27,13 @@ Object.assign(globalThis, { window: dom.window, document: dom.window.document, l
 globalThis.__VITE_ENV__ = { MODE: 'test', DEV: false, PROD: true };
 
 const sent = [];
+const purposes = [];
+let refuse = null; // the refusal code the stubbed server answers with
 globalThis.fetch = async (url, opts = {}) => {
   if (String(url).includes('/ai/chat')) {
     sent.push(JSON.parse(opts.body).messages);
+    purposes.push(JSON.parse(opts.body).purpose);
+    if (refuse) return new Response(JSON.stringify({ error: 'Refused by the server.', code: refuse }), { status: 403 });
     return new Response('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
   }
   return new Response('{}', { status: 200 });
@@ -80,4 +84,24 @@ test('an over-limit body is cut, disclosed, and the flag survives a reload', asy
   assert.equal(hook.results.summarize.truncated.total, 64000);
   await React.act(async () => root.unmount());
   assert.equal(sent.length, before);
+});
+
+// #644: the server checks each request against the admin's switch for its feature. Summaries and
+// custom actions both fall under summaries, as the reading pane gates them today.
+test('Summarize and custom actions ask for the summarize feature', async () => {
+  purposes.length = 0;
+  await runWith('m4', { text: 'Hello' }, BUILTIN_SUMMARIZE);
+  await runWith('m5', { text: 'Hello' }, { id: 'y', label: 'Translate', prompt: 'Translate it.' });
+  assert.deepEqual(purposes, ['summarize', 'summarize']);
+});
+
+test('a refusal says which switch is off: the user\'s, or summaries for everyone', async () => {
+  try {
+    for (const [id, code, key] of [['m6', 'ai_user_disabled', 'message.aiNotAllowed'], ['m7', 'ai_feature_disabled', 'message.aiFeatureOff']]) {
+      refuse = code;
+      const { results } = await runWith(id, { text: 'Hello' }, BUILTIN_SUMMARIZE);
+      assert.equal(results.summarize.status, 'error');
+      assert.equal(results.summarize.text, key);
+    }
+  } finally { refuse = null; }
 });

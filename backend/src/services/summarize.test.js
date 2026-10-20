@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('./aiProvider.js', () => ({ getAiStatus: vi.fn(), completeText: vi.fn() }));
+vi.mock('./db.js', () => ({ query: vi.fn() }));
 import { completeText, getAiStatus } from './aiProvider.js';
+import { query } from './db.js';
 import {
   buildSummaryPrompt,
   sanitizeSummaryLine,
@@ -58,31 +60,62 @@ describe('sanitizeSummaryLine', () => {
 });
 
 describe('summarizeAvailable', () => {
-  beforeEach(() => { getAiStatus.mockReset(); });
+  let aiEnabled;
+  beforeEach(() => {
+    getAiStatus.mockReset();
+    aiEnabled = true;
+    query.mockReset().mockImplementation(async (sql, [userId]) => (
+      /SELECT ai_enabled, is_admin FROM users/.test(sql) && userId === 'u1'
+        ? { rows: [{ ai_enabled: aiEnabled, is_admin: false }] }
+        : { rows: [] }
+    ));
+  });
 
   it('is true only when enabled and summarize is not disabled', async () => {
     getAiStatus.mockResolvedValue({ enabled: true, features: { summarize: true } });
-    expect(await summarizeAvailable()).toBe(true);
+    expect(await summarizeAvailable('u1')).toBe(true);
     getAiStatus.mockResolvedValue({ enabled: true, features: {} }); // absent => allowed
-    expect(await summarizeAvailable()).toBe(true);
+    expect(await summarizeAvailable('u1')).toBe(true);
   });
 
   it('is false when disabled, when summarize is off, or when status throws', async () => {
     getAiStatus.mockResolvedValue({ enabled: false, features: { summarize: true } });
-    expect(await summarizeAvailable()).toBe(false);
+    expect(await summarizeAvailable('u1')).toBe(false);
     getAiStatus.mockResolvedValue({ enabled: true, features: { summarize: false } });
-    expect(await summarizeAvailable()).toBe(false);
+    expect(await summarizeAvailable('u1')).toBe(false);
     getAiStatus.mockRejectedValue(new Error('down'));
+    expect(await summarizeAvailable('u1')).toBe(false);
+  });
+
+  // #644: background summaries run on the instance's provider too, so they follow the user's switch.
+  it('is false for a user whose AI access is off, an unknown user, no user, or an unreadable row', async () => {
+    getAiStatus.mockResolvedValue({ enabled: true, features: { summarize: true } });
+    aiEnabled = false;
+    expect(await summarizeAvailable('u1')).toBe(false);
+    aiEnabled = true;
+    expect(await summarizeAvailable('someone-else')).toBe(false);
     expect(await summarizeAvailable()).toBe(false);
+    query.mockRejectedValue(new Error('connection terminated'));
+    expect(await summarizeAvailable('u1')).toBe(false);
   });
 });
 
 describe('summarizeMessage', () => {
-  beforeEach(() => { completeText.mockReset(); });
+  let aiEnabled;
+  beforeEach(() => {
+    completeText.mockReset();
+    aiEnabled = true;
+    getAiStatus.mockReset().mockResolvedValue({ enabled: true, features: { summarize: true } });
+    query.mockReset().mockImplementation(async (sql, [userId]) => (
+      /SELECT ai_enabled, is_admin FROM users/.test(sql) && userId === 'u1'
+        ? { rows: [{ ai_enabled: aiEnabled, is_admin: false }] }
+        : { rows: [] }
+    ));
+  });
 
   it('sends the built prompt and returns the sanitised line', async () => {
     completeText.mockResolvedValue('"waiting on their reply 🎉"');
-    const line = await summarizeMessage({ subject: 'S', from: 'Alice', content: 'body' });
+    const line = await summarizeMessage({ userId: 'u1', subject: 'S', from: 'Alice', content: 'body' });
     expect(line).toBe('waiting on their reply');
     expect(completeText).toHaveBeenCalledWith(
       [{ role: 'user', content: expect.stringContaining('Subject: S') }],
@@ -92,12 +125,26 @@ describe('summarizeMessage', () => {
 
   it('passes a custom maxLen through to the token budget', async () => {
     completeText.mockResolvedValue('short line');
-    await summarizeMessage({ subject: 'S', content: 'b', maxLen: 60 });
+    await summarizeMessage({ userId: 'u1', subject: 'S', content: 'b', maxLen: 60 });
     expect(completeText).toHaveBeenCalledWith(expect.anything(), { maxTokens: 60 });
   });
 
   it('returns null (never throws) when the provider errors', async () => {
     completeText.mockRejectedValue(new Error('provider down'));
-    await expect(summarizeMessage({ subject: 'S', content: 'b' })).resolves.toBeNull();
+    await expect(summarizeMessage({ userId: 'u1', subject: 'S', content: 'b' })).resolves.toBeNull();
+  });
+
+  // #644: plugins get summarizeMessage from the capability surface, so it checks the gate itself
+  // rather than trusting the caller to have asked summarizeAvailable first.
+  it('calls no provider without a user, for a user whose AI access is off, or with summaries off', async () => {
+    completeText.mockResolvedValue('a line');
+    expect(await summarizeMessage({ subject: 'S', content: 'b' })).toBeNull();
+    expect(await summarizeMessage({ userId: 'someone-else', subject: 'S', content: 'b' })).toBeNull();
+    aiEnabled = false;
+    expect(await summarizeMessage({ userId: 'u1', subject: 'S', content: 'b' })).toBeNull();
+    aiEnabled = true;
+    getAiStatus.mockResolvedValue({ enabled: true, features: { summarize: false } });
+    expect(await summarizeMessage({ userId: 'u1', subject: 'S', content: 'b' })).toBeNull();
+    expect(completeText).not.toHaveBeenCalled();
   });
 });

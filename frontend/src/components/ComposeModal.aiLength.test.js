@@ -58,10 +58,17 @@ const { AI_MESSAGE_MAX_CHARS } = await import('../aiActions.js');
 const ComposeModal = (await import('./ComposeModal.jsx')).default;
 
 const chats = [];
+const chatOptions = [];
+let refuse = null; // the refusal code the stubbed server answers with
 
 before(() => {
   api.ai.status = async () => ({ enabled: true, features: { compose: true } });
-  api.ai.chat = async (messages) => { chats.push(messages); return 'Improved.'; };
+  api.ai.chat = async (messages, options) => {
+    chats.push(messages);
+    chatOptions.push(options);
+    if (refuse) throw Object.assign(new Error('Refused by the server.'), { status: 403, code: refuse });
+    return 'Improved.';
+  };
   useStore.setState({
     user: { id: 'u1' },
     accounts: [{ id: 'acct', enabled: true, email_address: 'me@example.invalid', name: 'Me', color: '#fff' }],
@@ -71,6 +78,7 @@ before(() => {
 // A new message whose body is `text`, then Improve from the AI menu. Returns an unmount.
 async function improve(text) {
   chats.length = 0;
+  chatOptions.length = 0;
   useStore.setState({ plaintextEmail: false, composing: false, composeData: null, prepareComposeSwitch: null });
   useStore.getState().openCompose({ accountId: 'acct', to: ['bob@example.invalid'], cc: [], subject: 'Long', body: `<p>${text}</p>`, bodyIsHtml: true });
   const root = createRoot(document.getElementById('root'));
@@ -99,5 +107,28 @@ describe('AI tools on a long draft (#633)', () => {
       assert.equal(chats.length, 1);
       assert.match(chats[0][1].content, /TAIL$/);
     } finally { await close(); }
+  });
+});
+
+// #644: the server checks the writing assistant's switch, and refuses when it or the user's AI
+// access is off.
+describe('AI tools ask for the writing assistant', () => {
+  test('a request names its purpose', async () => {
+    const close = await improve('Short draft.');
+    try {
+      assert.equal(chatOptions.length, 1);
+      assert.equal(chatOptions[0].purpose, 'compose');
+    } finally { await close(); }
+  });
+
+  test('a refusal says which switch is off: the user\'s, or the writing assistant for everyone', async () => {
+    for (const [code, key] of [['ai_user_disabled', 'aiNotAllowed'], ['ai_feature_disabled', 'aiFeatureOff']]) {
+      refuse = code;
+      const close = await improve('Short draft.');
+      try {
+        assert.match(document.body.textContent, new RegExp(`compose\\.toolbar\\.${key}`), code);
+        assert.doesNotMatch(document.body.textContent, /Refused by the server/);
+      } finally { refuse = null; await close(); }
+    }
   });
 });

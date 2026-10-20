@@ -54,7 +54,8 @@ export const broadcast = (payload, userId) => getMailEngine().broadcast(payload,
 
 // ── Summarize ─────────────────────────────────────────────────────────────────
 // Condense a message into one line via the configured AI provider (fails closed when the
-// provider is off / the summarize feature is disabled). No access to keys or the provider itself.
+// provider is off / the summarize feature is disabled / the user's AI access is off; both take
+// the user, and summarizeMessage checks it itself). No access to keys or the provider itself.
 export { summarizeMessage, summarizeAvailable } from '../services/summarize.js';
 
 // ── Per-plugin storage ────────────────────────────────────────────────────────

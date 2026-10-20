@@ -131,6 +131,7 @@ describe('normalizeAiForm', () => {
       apiKeyConfig: { baseUrl: '', apiKey: '', model: '' },
       chatgptConfig: { model: 'gpt-5.6-luna' },
       features: { compose: true, summarize: true },
+      newUsersEnabled: true,
     });
   });
 
@@ -148,6 +149,7 @@ describe('normalizeAiForm', () => {
       apiKeyConfig: { baseUrl: 'http://ollama:11434/v1', apiKey: '••••••••', model: 'llama3' },
       chatgptConfig: { model: 'gpt-5.6-luna' },
       features: { compose: false, summarize: true },
+      newUsersEnabled: true,
     });
   });
 
@@ -164,6 +166,7 @@ describe('normalizeAiForm', () => {
       apiKeyConfig: { baseUrl: 'https://api.example/v1', apiKey: '••••••••', model: 'fallback' },
       chatgptConfig: { model: 'gpt-5.4' },
       features: { compose: true, summarize: true },
+      newUsersEnabled: true,
     });
   });
 
@@ -278,6 +281,7 @@ describe('buildAiSavePayload', () => {
       apiKeyConfig: { baseUrl: 'https://api.example/v1', apiKey: '••••••••', model: 'fallback' },
       chatgptConfig: { model: 'gpt-5.4-mini' },
       features: { compose: true, summarize: true },
+      newUsersEnabled: true,
     });
     assert.equal('connectionMethod' in payload, false);
     assert.equal('accountProvider' in payload, false);
@@ -298,9 +302,24 @@ describe('buildAiSavePayload', () => {
       apiKeyConfig: { baseUrl: 'https://api.example/v1', apiKey: '••••••••', model: 'fallback' },
       chatgptConfig: { model: 'gpt-5.4-mini' },
       features: { compose: true, summarize: true },
+      newUsersEnabled: true,
     });
     assert.equal('connectionMethod' in buildAiSavePayload(accountForm), false);
     assert.equal('accountProvider' in buildAiSavePayload(accountForm), false);
+  });
+
+  // #644: "Allow AI for new users" is saved with the rest of the AI configuration, and stays off
+  // once an admin turns it off.
+  it('carries "Allow AI for new users" through the form and the save', () => {
+    const form = normalizeAiForm({
+      provider: 'api-key',
+      apiKeyConfig: { baseUrl: 'https://api.example/v1', model: 'fallback' },
+      newUsersEnabled: false,
+    });
+    assert.equal(form.newUsersEnabled, false);
+    assert.equal(buildAiSavePayload(form).newUsersEnabled, false);
+    assert.equal(buildAiSavePayload({ ...form, newUsersEnabled: true }).newUsersEnabled, true);
+    assert.equal(normalizeAiForm({ provider: 'api-key' }).newUsersEnabled, true);
   });
 });
 
