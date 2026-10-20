@@ -305,3 +305,38 @@ describe('fitting a wide email to the frame', () => {
     }
   });
 });
+
+// The reading pane's menu opens on a right-click on the email, except on a target its check leaves
+// to the browser. A conversation card has no menu of its own (ConversationPane.render.test.js).
+describe('a right-click on the email', () => {
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  test("opens the pane's menu where it was made, and the browser's on a target the pane leaves to it", async () => {
+    const iframeRef = React.createRef();
+    const opened = [];
+    await React.act(async () => root.render(null));
+    await React.act(async () => {
+      root.render(React.createElement(MessageBodyView, {
+        body: { html: '<p>x</p>', darkCss: '' }, messageId: 'menu-1', emailScaleRef: { current: 1 }, iframeRef,
+        onContextMenu: (x, y, options) => opened.push({ x, y, ...options }),
+        hasNativeContextTarget: ev => Boolean(ev.target.closest('a[href]')),
+      }));
+    });
+    const iframe = iframeRef.current;
+    const doc = iframe.contentDocument;
+    const wrapper = doc.createElement('div');
+    wrapper.id = 'mf-scale-wrapper';
+    wrapper.setAttribute('data-mf-doc', /data-mf-doc="(\d+)"/.exec(iframe.getAttribute('srcdoc'))[1]);
+    wrapper.innerHTML = '<p>Hi</p><a href="https://example.invalid/">a link</a>';
+    doc.body.appendChild(wrapper);
+    for (let i = 0; i < 5; i += 1) await tick();
+    const rightClick = (el) => {
+      const ev = new doc.defaultView.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 40 });
+      el.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    assert.equal(rightClick(wrapper.querySelector('p')), true, "the browser's menu is held back");
+    assert.deepEqual(opened, [{ x: 30, y: 40, source: 'iframe', selectedText: '' }], "the pane's opens where the right-click was");
+    assert.equal(rightClick(wrapper.querySelector('a')), false, "a link keeps the browser's");
+    assert.equal(opened.length, 1);
+  });
+});

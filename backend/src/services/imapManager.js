@@ -1703,6 +1703,21 @@ function normalizeSubject(subject) {
   return s.toLowerCase();
 }
 
+// Whether a subject starts with a reply or forward prefix that normalizeSubject strips.
+function hasReplyPrefix(subject) {
+  return typeof subject === 'string' && SUBJECT_PREFIX_RE.test(subject.trim());
+}
+
+// A sender that says outright nobody replies to it: no-reply@, noreply@, do-not-reply@,
+// donotreply@ and the same with a suffix (no-reply-orders@, noreply+abc@). Anchored at the
+// start and free of nested quantifiers, so it stays linear on any input.
+const NO_REPLY_LOCAL_RE = /^(?:no|do[-_.]?not)[-_.]?reply(?:[-_.+]|$)/;
+function isNoReplySender(address) {
+  const s = normalizeAddress(address);
+  const at = s.lastIndexOf('@');
+  return at > 0 && NO_REPLY_LOCAL_RE.test(s.slice(0, at));
+}
+
 // Compute the thread_id for an incoming message.
 // Primary: RFC 5322 References / In-Reply-To header chain.
 // Fallback: subject normalization when headers are absent (e.g. Outlook RE: replies).
@@ -1749,10 +1764,24 @@ export async function computeThreadId(accountId, messageId, inReplyTo, reference
   // A reply from the other party still matches, because that party sent one message and
   // received the other. Two senders who merely wrote to the same address do not.
   //
+  // Even a shared correspondent is not enough when it is the same sender (#649). A shop's
+  // receipts ("Order Confirmation for ... from ...") or a provider's sign-in alerts arrive
+  // from one address with one subject, so each new one joined the last and a single thread
+  // collected every receipt for months. A message from the same sender therefore joins only
+  // when its subject carries a reply or forward prefix, as a reply to one's own earlier
+  // message does. A message from the other side of an exchange joins with or without one.
+  //
+  // Bulk mail and no-reply senders never use the fallback: they are exactly the mail that
+  // repeats a subject, and nobody's message is an answer to them unless it was sent to them.
+  // So a bulk or no-reply candidate holds a thread together only for a message addressed to
+  // its sender, such as our own header-less "RE:" to a survey or a mailing-list post.
+  //
   // Candidates are scanned oldest first and capped. Finding no match simply starts a new
   // thread, which is the safe direction to fail in: a thread that did not merge is a much
   // smaller problem than unrelated mail merged together.
+  if (participants?.isBulk === true || isNoReplySender(participants?.fromEmail)) return messageId;
   const normalized = normalizeSubject(subject);
+  const replyPrefix = hasReplyPrefix(subject);
   const own = normalized && participants
     ? await ownAddressesFor(accountId, participants.own)
     : new Set();
@@ -1760,7 +1789,7 @@ export async function computeThreadId(accountId, messageId, inReplyTo, reference
   // Nothing to match on when the only party is the account itself.
   if (normalized && (mine.sender || mine.recipients.size > 0)) {
     const candidates = await query(
-      `SELECT thread_id, from_email, to_addresses, cc_addresses FROM messages
+      `SELECT thread_id, from_email, to_addresses, cc_addresses, is_bulk FROM messages
        WHERE account_id = $1
          AND is_deleted = false
          AND message_id IS DISTINCT FROM $2
@@ -1777,7 +1806,11 @@ export async function computeThreadId(accountId, messageId, inReplyTo, reference
         to: parseAddressColumn(row.to_addresses),
         cc: parseAddressColumn(row.cc_addresses),
       }, own);
-      if (sharesCorrespondent(mine, theirs)) return row.thread_id;
+      if (row.is_bulk === true || isNoReplySender(row.from_email)) {
+        if (isExchange(mine, theirs) && mine.recipients.has(theirs.sender)) return row.thread_id;
+        continue;
+      }
+      if (isExchange(mine, theirs) || (replyPrefix && sameSender(mine, theirs))) return row.thread_id;
     }
   }
 
@@ -1810,16 +1843,25 @@ function messageParties(msg, ownAddresses) {
   return { sender: sender && !ownAddresses.has(sender) ? sender : '', recipients };
 }
 
-// Whether two messages are part of the same correspondence: same sender, or one wrote to the
-// other's sender.
+// The two ways two messages can be part of the same correspondence: the same sender, or an
+// exchange, where one wrote to the other's sender. The subject fallback accepts an exchange
+// alone but the same sender only with a reply prefix (#649).
+//
+// An exchange needs two different senders. Bulk senders often address a message to
+// themselves and BCC everyone, and without this every such message would count as answering
+// the one before it.
 //
 // A shared RECIPIENT deliberately does not count. Two unrelated senders writing to the same
 // third-party address have that address in common, and that happens constantly: mail
 // forwarded from an old address, a catch-all domain, a mailing list, anything BCC'd. Treating
 // it as a link is what let four unrelated "storage full" notices, all addressed to the same
 // forwarded address, stay in one thread even after #468 was supposedly fixed.
-function sharesCorrespondent(a, b) {
-  if (a.sender && b.sender && a.sender === b.sender) return true;
+function sameSender(a, b) {
+  return Boolean(a.sender) && a.sender === b.sender;
+}
+
+function isExchange(a, b) {
+  if (a.sender === b.sender) return false;
   if (a.sender && b.recipients.has(a.sender)) return true;
   if (b.sender && a.recipients.has(b.sender)) return true;
   return false;
@@ -4520,7 +4562,8 @@ export class ImapManager {
             const inReplyTo = sanitizeStr(parsed.inReplyTo);
             const refs = sanitizeStr(parsed.references);
             const threadId = await computeThreadId(account.id, msgId, inReplyTo, refs, sanitizeStr(parsed.subject),
-              { fromEmail: parsed.fromEmail, to: parsed.to, cc: parsed.cc, own: account.email_address });
+              { fromEmail: parsed.fromEmail, to: parsed.to, cc: parsed.cc, own: account.email_address,
+                isBulk: parsed.isBulk });
 
             // Upsert only this server UID. Shared Message-IDs do not prove a move,
             // including self-mail and duplicate deliveries within one mailbox.
@@ -5272,7 +5315,8 @@ export class ImapManager {
                 const bfReplyTo  = sanitizeStr(parsed.inReplyTo);
                 const bfRefs     = sanitizeStr(parsed.references);
                 const bfThreadId = await computeThreadId(account.id, bfMsgId, bfReplyTo, bfRefs, sanitizeStr(parsed.subject),
-                  { fromEmail: parsed.fromEmail, to: parsed.to, cc: parsed.cc, own: account.email_address });
+                  { fromEmail: parsed.fromEmail, to: parsed.to, cc: parsed.cc, own: account.email_address,
+                    isBulk: parsed.isBulk });
 
                 let bfCategory = null;
                 if (account.categorization_enabled || await getGlobalCategorizationEnabled(account.user_id)) {
@@ -6115,7 +6159,7 @@ export class ImapManager {
     walkStructure(msg.bodyStructure, structure);
     const threadId = await computeThreadId(account.id, parsed.messageId, parsed.inReplyTo,
       parsed.references, parsed.subject, { fromEmail: parsed.fromEmail, to: parsed.to,
-        cc: parsed.cc, own: account.email_address });
+        cc: parsed.cc, own: account.email_address, isBulk: parsed.isBulk });
     const uidValidity = String(client.mailbox?.uidValidity || '');
     const validIdentity = Boolean(parsed.messageId) && headerIds(parsed.messageId)[0] === parsed.messageId;
     const sameIdentity = `messages.message_id = EXCLUDED.message_id AND $19
