@@ -13,7 +13,7 @@ import { imageProxyPath, proxyWidth, fetchProxiedImage, createUserLimiter } from
 import { imageCache, imageCacheKey } from '../services/imageCache.js';
 import { shrinkImage } from '../services/imageShrink.js';
 import { fitInlineImages } from '../services/inlineImageFit.js';
-import { needsCidRefetch, withoutCidMarker } from '../utils/cidRefs.js';
+import { needsCidRefetch, needsImageRefetch, settleCids, settledEarlier, withoutCidMarker } from '../utils/cidRefs.js';
 import { sanitizeDbText, storeFetchedBody } from '../services/messageBodyStore.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, parseMailboxList, buildHeadersFromMessage } from '../services/messageParser.js';
 import { draftMessageSql, resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings, readCopyTargets, pushSeen } from '../utils/mailUtils.js';
@@ -409,6 +409,72 @@ function fetchWithTimeout(promise, ms) {
 // none stored, so it shows none.
 const bccOf = (message) => (Array.isArray(message.bcc_addresses) ? message.bcc_addresses : []);
 
+// Messages whose cached body a repair fetch (below) lately failed to replace: served as stored for
+// a while, rather than every view waiting on a mail server that is not answering first. Kept in
+// this process only, and emptied past its cap: forgetting one costs a single fetch.
+const BODY_REPAIR_RETRY_MS = 10 * 60_000;
+const BODY_REPAIR_FAILURES_MAX = 10_000;
+const failedBodyRepairs = new Map();
+
+function bodyRepairFailedLately(id) {
+  const at = failedBodyRepairs.get(id);
+  if (at === undefined) return false;
+  if (Date.now() - at < BODY_REPAIR_RETRY_MS) return true;
+  failedBodyRepairs.delete(id);
+  return false;
+}
+
+function noteBodyRepairFailed(id) {
+  if (failedBodyRepairs.size >= BODY_REPAIR_FAILURES_MAX) failedBodyRepairs.clear();
+  failedBodyRepairs.set(id, Date.now());
+}
+
+// A view waits this long on a repair fetch, then gets the stored body: it was readable before,
+// and a mail server that accepts a connection and then says nothing would otherwise hold every
+// such view for the whole fetch timeout. The fetch goes on, and stores its body when it arrives.
+const BODY_REPAIR_TIMEOUT_MS = 8000;
+// Repair fetches under way, by message id: the views of one message while it runs share it.
+const bodyRepairs = new Map();
+
+// The body of `message` fetched again to repair the stored one, and stored, once however many
+// views ask at a time. Resolves to { stored } with what storeFetchedBody stored, or to
+// { keptHtml } when the stored HTML stays because the fetch came back with text alone (marked, so
+// it is not fetched again for that), or to {} when the message is gone from the server or its row
+// changed meanwhile. Either write lands only on the row as the repair found it: one that arrives
+// after the view stopped waiting must not replace a body stored since. A failure is noted, so the
+// views after it get the stored body for a while.
+function repairBody(message) {
+  const { id } = message;
+  const running = bodyRepairs.get(id);
+  if (running) return running;
+  const repair = (async () => {
+    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
+    const account = accountResult.rows[0];
+    imapManager.noteUserActivity(account.id);
+    const body = await imapManager.fetchMessageBody(account, message.uid, message.folder);
+    if (body.html == null && body.text == null) {
+      noteBodyRepairFailed(id);
+      return {};
+    }
+    if (body.html == null) {
+      const keptHtml = settleCids(message.body_html, true);
+      const kept = await query('UPDATE messages SET body_html = $1 WHERE id = $2 AND body_html = $3 AND uid = $4 AND folder = $5',
+        [keptHtml, id, message.body_html, message.uid, message.folder]);
+      return kept?.rowCount ? { keptHtml } : {};
+    }
+    const { sanitized, safeText, stored } = await storeFetchedBody(id, body, { over: message });
+    return stored ? { stored: { sanitized, safeText, attachments: body.attachments } } : {};
+  })().catch((err) => {
+    console.warn('Body repair fetch failed, serving the stored body:', err.message || err);
+    noteBodyRepairFailed(id);
+    throw err;
+  }).finally(() => bodyRepairs.delete(id));
+  // A view that stopped waiting has nothing to do with the failure; it is noted above.
+  repair.catch(() => {});
+  bodyRepairs.set(id, repair);
+  return repair;
+}
+
 // Get full message body + attachments list
 router.get('/messages/:id/body', async (req, res) => {
   const { id } = req.params;
@@ -438,10 +504,18 @@ router.get('/messages/:id/body', async (req, res) => {
     // CSS url(http://) in inline style attributes or <style> blocks
     /url\(\s*['"]?http:\/\//i.test(message.body_html)
   );
-  if ((message.body_html || message.body_text) && !hasCidRefs && !hasHttpImgs) {
-    const attachments = message.attachments
-      ? (typeof message.attachments === 'string' ? JSON.parse(message.attachments) : message.attachments)
-      : [];
+  const cachedAttachments = message.attachments
+    ? (typeof message.attachments === 'string' ? JSON.parse(message.attachments) : message.attachments)
+    : [];
+  const cached = Boolean(message.body_html || message.body_text);
+  // A body the release before served as stored, fetched again only to repair its images: one
+  // settled under an earlier marker, or one an email's own images may show in now (#640). When
+  // that fetch fails or is slow the stored body is served, as before (repairBody).
+  // A draft's stored body is what its composer saved, so it is never replaced this way.
+  const repairOnly = cached && !hasHttpImgs && (!hasCidRefs || settledEarlier(message.body_html));
+  const staleImages = repairOnly && !(message.flags || []).includes('\\Draft')
+    && needsImageRefetch(message.body_html, cachedAttachments);
+  const serveCached = async () => {
     // Apply head-stripping to already-cached HTML so emails stored before this
     // fix was deployed are cleaned up immediately on first view.
     let html = message.body_html ? stripEmailHead(message.body_html) : null;
@@ -502,22 +576,10 @@ router.get('/messages/:id/body', async (req, res) => {
     const imageStats = {};
     if (remoteImagesProxied && shown) responseHtml = proxyRemoteImages(shown, (raw, width) => imageProxyPath(id, raw, width), imageStats);
     const inline = req.query.original === '1' ? { html: responseHtml, count: 0 } : await fitInlineImages(responseHtml, req.session.userId);
-    return res.json({ ...splitDarkScheme(inline.html), inlineImagesFitted: inline.count > 0, text: message.body_text, attachments, hasBlockedRemoteImages, remoteImagesBlocked, remoteImagesProxied, trackersBlocked: imageStats.trackers ?? 0, senderEmail: message.sender_email, senderName: message.sender_name, forwardedFromEmail: message.forwarded_from_email, forwardedFromName: message.forwarded_from_name, forwardedVia: message.forwarded_via, bccAddresses: bccOf(message) });
-  }
-
-  // Fetch from IMAP — signal user activity so background jobs back off during this request.
-  try {
-    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
-    const account = accountResult.rows[0];
-    imapManager.noteUserActivity(account.id);
-
-    const { html, text, attachments, cidsComplete } = await fetchWithTimeout(
-      imapManager.fetchMessageBody(account, message.uid, message.folder),
-      BODY_FETCH_TIMEOUT_MS
-    );
-
-    const { sanitized, safeText } = await storeFetchedBody(id, { html, text, attachments, cidsComplete });
-
+    return res.json({ ...splitDarkScheme(inline.html), inlineImagesFitted: inline.count > 0, text: message.body_text, attachments: cachedAttachments, hasBlockedRemoteImages, remoteImagesBlocked, remoteImagesProxied, trackersBlocked: imageStats.trackers ?? 0, senderEmail: message.sender_email, senderName: message.sender_name, forwardedFromEmail: message.forwarded_from_email, forwardedFromName: message.forwarded_from_name, forwardedVia: message.forwarded_via, bccAddresses: bccOf(message) });
+  };
+  // A body fetched from the mail server and stored (storeFetchedBody), as the response gives it.
+  const serveFetched = async ({ sanitized, safeText, attachments }) => {
     // Apply remote-image blocking at response time — safeHtml (unblocked) is what
     // was written to the DB cache above, preserving the canonical body; the response is it
     // without the settled marker.
@@ -536,7 +598,35 @@ router.get('/messages/:id/body', async (req, res) => {
     const imageStats = {};
     if (remoteImagesProxied && sanitized) responseHtml = proxyRemoteImages(sanitized, (raw, width) => imageProxyPath(id, raw, width), imageStats);
     const inline = req.query.original === '1' ? { html: responseHtml, count: 0 } : await fitInlineImages(responseHtml, req.session.userId);
-    res.json({ ...splitDarkScheme(inline.html), inlineImagesFitted: inline.count > 0, text: safeText, attachments: attachments || [], hasBlockedRemoteImages, remoteImagesBlocked, remoteImagesProxied, trackersBlocked: imageStats.trackers ?? 0, senderEmail: message.sender_email, senderName: message.sender_name, forwardedFromEmail: message.forwarded_from_email, forwardedFromName: message.forwarded_from_name, forwardedVia: message.forwarded_via, bccAddresses: bccOf(message) });
+    return res.json({ ...splitDarkScheme(inline.html), inlineImagesFitted: inline.count > 0, text: safeText, attachments: attachments || [], hasBlockedRemoteImages, remoteImagesBlocked, remoteImagesProxied, trackersBlocked: imageStats.trackers ?? 0, senderEmail: message.sender_email, senderName: message.sender_name, forwardedFromEmail: message.forwarded_from_email, forwardedFromName: message.forwarded_from_name, forwardedVia: message.forwarded_via, bccAddresses: bccOf(message) });
+  };
+  if (cached && !hasCidRefs && !hasHttpImgs && !staleImages) return serveCached();
+  if (repairOnly) {
+    if (bodyRepairFailedLately(id)) return serveCached();
+    let repaired;
+    try {
+      repaired = await fetchWithTimeout(repairBody(message), BODY_REPAIR_TIMEOUT_MS);
+    } catch (err) {
+      // Still running, it stores its body when that arrives; until then the stored one is served.
+      if (err.message === 'BODY_FETCH_TIMEOUT') noteBodyRepairFailed(id);
+      return serveCached();
+    }
+    if (repaired.stored) return serveFetched(repaired.stored);
+    if (repaired.keptHtml) message.body_html = repaired.keptHtml;
+    return serveCached();
+  }
+
+  // Fetch from IMAP — signal user activity so background jobs back off during this request.
+  try {
+    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
+    const account = accountResult.rows[0];
+    imapManager.noteUserActivity(account.id);
+
+    const { html, text, attachments, cidsComplete } = await fetchWithTimeout(
+      imapManager.fetchMessageBody(account, message.uid, message.folder),
+      BODY_FETCH_TIMEOUT_MS
+    );
+    return await serveFetched({ ...await storeFetchedBody(id, { html, text, attachments, cidsComplete }), attachments });
   } catch (err) {
     const msg = err.message || 'Unknown error';
     console.error('Body fetch error:', msg);
