@@ -563,6 +563,38 @@ describe('forwardRuleMessage', () => {
       .toEqual(['photo.jpg']);
   });
 
+  it('forwards an application/octet-stream image the stored body shows once, with the real file and no cache marker', async () => {
+    const logo = { part: '2', filename: 'logo.png', type: 'application/octet-stream', encoding: 'base64', size: 3, disposition: 'attachment', shownInline: true };
+    const data = { part: '3', filename: 'data.bin', type: 'application/octet-stream', encoding: 'base64', size: 3, disposition: 'attachment' };
+    imapManager.fetchMultipleAttachments.mockResolvedValue(new Map([['3', Buffer.from('BIN')]]));
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'delivery-1' }] })
+      .mockResolvedValueOnce({ rows: [{ ...messageRow, body_html: '<p>Hi<img src="data:image/png;base64,QUJD"></p><!--mf-cids-settled:3-->', attachments: [logo, data] }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(forwardRuleMessage(input)).resolves.toBe('sent');
+    const mail = transport.sendMail.mock.calls[0][0];
+    expect(mail.attachments.map(a => a.filename)).toEqual(['image-0.png', 'data.bin']);
+    expect(mail.html).not.toContain('mf-cids-settled');
+  });
+
+  it('forwards a PDF named like an image as the file it is, not as an inline image', async () => {
+    const scan = { part: '2', filename: 'scan.png', type: 'application/octet-stream', encoding: 'base64', size: 3, disposition: 'attachment' };
+    const pdf = Buffer.from('%PDF');
+    // What fetchMessageBody gives for it: the HTML's reference left unresolved, nothing shown inline.
+    imapManager.fetchMessageBody.mockResolvedValue({
+      text: 'Scan', html: '<p>Scan<img src="cid:part-2-000000000000@mailflow.invalid"></p>', attachments: [scan], inlineParts: [],
+    });
+    imapManager.fetchMultipleAttachments.mockResolvedValue(new Map([['2', pdf]]));
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'delivery-1' }] })
+      .mockResolvedValueOnce({ rows: [{ ...messageRow, body_text: '', body_html: null, attachments: [scan] }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(forwardRuleMessage(input)).resolves.toBe('sent');
+    expect(transport.sendMail.mock.calls[0][0].attachments).toEqual([expect.objectContaining({ filename: 'scan.png', content: pdf })]);
+  });
+
   it('rejects attachments larger than 25 MiB before SMTP delivery', async () => {
     const row = {
       ...messageRow,

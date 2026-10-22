@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
+import { pasteWithoutPageColors } from '../utils/contentEditablePaste.js';
 
 const BTN = {
   background: 'none', border: 'none', borderRadius: 4,
@@ -205,6 +206,7 @@ export default function SignatureEditor({ value, onChange }) {
           contentEditable
           suppressContentEditableWarning
           onInput={emit}
+          onPaste={pasteWithoutPageColors}
           style={{
             minHeight: 100, padding: '10px 12px',
             color: 'var(--text-primary)', fontSize: 13,

@@ -384,11 +384,9 @@ router.post('/done', async (req, res) => {
 
   const account = await getOwnedAccount(req.session.userId, msg.account_id);
 
-  // (a) Mark the whole thread read. The DB fan-out (by Message-ID) covers every sibling
-  // copy and adjusts each folder's unread count; \Seen is set on the durable INBOX copy
-  // only (it rides the archive move; Gmail propagates message-wide) — the same per-copy
-  // asymmetry the ordinary read route accepts. A best-effort flag push is never fatal.
-  const { inboxCopy, error: markReadError } = await markThreadRead(account, msg);
+  // Skip copies being stripped. A kept acted copy gets its awaited write before archive
+  // below; other surviving copies are confirmed here, without delaying ordinary reads.
+  const { inboxCopy, pushedIds = [], error: markReadError } = await markThreadRead(account, msg, { excludeFolders: target.folders });
   if (markReadError) console.warn(`GTD done: mark-read for ${id} degraded:`, markReadError.message);
 
   // (b) Strip this row's GTD label copies. Each is a distinct folder copy resolved from
@@ -441,7 +439,7 @@ router.post('/done', async (req, res) => {
     try {
       // A kept GTD copy is archived from its own folder; with no archive folder it stays put. It
       // is now the durable copy, so it takes the \Seen that (a) set on INBOX only.
-      if (!inboxCopy) {
+      if (!inboxCopy && !pushedIds.includes(msg.id)) {
         const { error } = await markCopySeen(account, msg);
         if (error) console.warn(`GTD done: mark-read for ${id} degraded:`, error.message);
       }

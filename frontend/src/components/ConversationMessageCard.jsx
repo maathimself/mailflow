@@ -144,7 +144,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
   }, [expanded, message.id]);
 
   const loadedBody = async () => body;
-  const ai = useAiActions(message.id, body);
+  const ai = useAiActions(message.id, body, message.subject);
   const [showAiMenu, setShowAiMenu] = useState(false);
   const runAi = (action) => { setShowAiMenu(false); ai.run(action); };
 
@@ -312,8 +312,6 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
                 onDarkResult={setDarkResult}
                 messageId={message.id}
                 emailScaleRef={emailScaleRef}
-                hasNativeContextTarget={false}
-                onContextMenu={null}
               />
             </div>
           )}

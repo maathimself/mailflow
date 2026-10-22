@@ -21,6 +21,7 @@ import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { ComposerLink } from '../utils/editorLink.js';
 import { PasteWithoutPageColors } from '../utils/editorPaste.js';
+import { pasteWithoutPageColors } from '../utils/contentEditablePaste.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { resolveInitialFrom } from '../utils/defaultSender.js';
 import { initialComposeFocus, isComposeSendShortcut } from '../utils/composeFromMessage.js';
@@ -32,6 +33,7 @@ import { openSentMessage } from '../utils/openSentMessage.js';
 import { frameGeometry } from '../utils/frameGeometry.js';
 import { AI_MESSAGE_MAX_CHARS } from '../aiActions.js';
 import { stripTags } from '../utils/stripTags.js';
+import { aiTextToHtml } from '../utils/aiText.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -799,8 +801,11 @@ export default function ComposeModal() {
     const controller = new AbortController();
     aiAbortRef.current = controller;
 
+    // One newline per paragraph, as the composer draws them: getText's default separator is a
+    // blank line, so a single Enter reached the model as one and came back from Apply as a new
+    // empty paragraph. This way a blank line from the model is one the user typed.
     const currentText = plaintextEmail ? body
-      : (htmlMode ? stripTags(htmlSource) : (editor?.getText() ?? ''));
+      : (htmlMode ? stripTags(htmlSource) : (editor?.getText({ blockSeparator: '\n' }) ?? ''));
 
     const toStr = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])].join(', ');
     const PROMPTS = {
@@ -857,8 +862,7 @@ export default function ComposeModal() {
 
   const applyAiText = () => {
     if (!aiPanel?.text || !editor) return;
-    const html = '<p>' + aiPanel.text.trim().replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
-    editor.commands.setContent(html);
+    editor.commands.setContent(aiTextToHtml(aiPanel.text));
     setAiPanel(null);
   };
 
@@ -1424,6 +1428,7 @@ export default function ComposeModal() {
         signatureContentRef.current = signatureRef.current?.innerHTML || '';
         setHasRichSignature(Boolean(signatureContentRef.current));
       }}
+      onPaste={pasteWithoutPageColors}
       style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, outline: 'none' }}
     />
   );
@@ -1887,6 +1892,7 @@ export default function ComposeModal() {
                 contentEditable
                 suppressContentEditableWarning
                 spellCheck={false}
+                onPaste={pasteWithoutPageColors}
                 style={{
                   padding: '10px 16px', borderTop: '1px solid var(--border-subtle)',
                   color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6,
@@ -2534,6 +2540,7 @@ export default function ComposeModal() {
               contentEditable
               suppressContentEditableWarning
               spellCheck={false}
+              onPaste={pasteWithoutPageColors}
               style={{
                 width: '100%', minHeight: 120,
                 padding: '10px 14px',

@@ -23,7 +23,7 @@ import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList, newMailAlerts } from './inboxRules.js';
 import { classifyAndTagMessage } from './spamPipeline.js';
 import { generateVCard } from '../utils/vcard.js';
-import { mimeToExtension } from '../utils/inlineImages.js';
+import { mimeToExtension, standardImageType, rasterImageTypeOfName, sniffImageType } from '../utils/inlineImages.js';
 import { truncateFilename } from '../utils/contentDisposition.js';
 import { BLOCK, WARN } from './attachmentExtensions.js';
 import { randomBytes, randomUUID } from 'crypto';
@@ -822,7 +822,7 @@ function listUnreferencedInlineImages(results, html) {
     results.attachments.push({
       part: img.part,
       filename: img.filename || `image.${mimeToExtension(img.type.split('/')[1])}`,
-      type: img.type,
+      type: img.rawType || img.type,
       encoding: img.encoding,
       size: img.size,
       disposition: img.disposition,
@@ -839,7 +839,27 @@ const MAX_RELATED_NAME_LENGTH = 2048;
 const MAX_ADOPTED_IMAGE_BYTES = 5 * 1024 * 1024;
 // A file name matches only on an image part named like an image, or not named with any extension:
 // an image/* part called "report.pdf" is a file, whatever the HTML says.
-const IMAGE_NAME_RE = /\.(?:png|gif|jpe?g|webp|bmp|avif|svg|ico|tiff?)$/i;
+const IMAGE_NAME_RE = /\.(?:png|gif|jpe?g|jpe|jfif|webp|bmp|avif|svg|ico|tiff?)$/i;
+const imageFileName = (filename) => (filename && (!filename.includes('.') || IMAGE_NAME_RE.test(filename)) ? filename : '');
+
+// The image type a leaf part is shown as, or '' when it is not an image. Some mailers send a
+// layout image as application/octet-stream, or with no type, named header.jpg (#640): the name
+// makes it a likely image, shown only once its bytes are one (sniffedImageType). image/jpg and
+// other aliases become the standard type.
+function imageTypeOf(type, filename) {
+  if (type.startsWith('image/')) return standardImageType(type);
+  return !type || type === 'application/octet-stream' ? rasterImageTypeOfName(filename) : '';
+}
+
+// The image type a part's first bytes show (sniffImageType), from its encoded body: only the start
+// is decoded.
+function sniffedImageType(buf, encoding) {
+  const head = buf.subarray(0, 256);
+  const enc = (encoding || '').toLowerCase();
+  if (enc === 'base64') return sniffImageType(Buffer.from(head.toString('ascii').replace(/\s/g, '').slice(0, 64), 'base64'));
+  return sniffImageType(enc === 'quoted-printable' ? decodeQuotedPrintableToBuffer(head) : head);
+}
+
 // Elements whose content is raw text or never rendered: nothing inside them is markup that shows
 // an image (and a <style>'s url()s are scanned as CSS). <plaintext> runs to the end of the document.
 const RAW_TEXT_TAGS = ['script', 'style', 'textarea', 'title', 'xmp', 'noscript', 'noembed', 'noframes', 'iframe'];
@@ -959,14 +979,21 @@ function imageUrlText(html, start, end) {
   return value.includes('&amp;') ? value.replaceAll('&amp;', '&') : value;
 }
 
+// Where the image URL html[start, end) starts past any spaces inside the quotes when it is a cid:
+// URL, else -1; cidOfUrl gives the Content-ID that URL names (cid:x, cid:<x>).
+function cidUrlStart(html, start, end) {
+  while (start < end && isHtmlSpace(html[start])) start++;
+  return end - start >= 5 && html.slice(start, start + 4).toLowerCase() === 'cid:' ? start : -1;
+}
+const cidOfUrl = (html, start, end) => html.slice(start + 4, end).trim().replace(/^<|>$/g, '');
+
 // Where a cid: image URL starts in the HTML (past any spaces inside the quotes), for each one
 // onCid(cid, offset, isImgSrc) is called with the Content-ID it names (cid:x, cid:<x>).
 function scanCidImageUrls(html, onCid) {
   scanImageUrls(html, (start, end, unquoted, isImgSrc) => {
-    while (start < end && isHtmlSpace(html[start])) start++;
-    if (end - start < 5 || html.slice(start, start + 4).toLowerCase() !== 'cid:') return;
-    const cid = html.slice(start + 4, end).trim().replace(/^<|>$/g, '');
-    if (cid) onCid(cid, start, isImgSrc);
+    const at = cidUrlStart(html, start, end);
+    const cid = at < 0 ? '' : cidOfUrl(html, at, end);
+    if (cid) onCid(cid, at, isImgSrc);
   });
 }
 
@@ -992,11 +1019,11 @@ export function contentLocationFromMimeHeader(buf) {
   return '';
 }
 
-// Some senders mark the images their HTML shows as attachments, or reference them inside a
-// multipart/related by Content-Location or file name instead of cid: (#640). Each image the HTML
-// does reference (noteBodyImageCandidate) joins the inline images, and each reference by name
-// becomes a cid: reference, so the inline image embedding, its repeat budget and the cid cache
-// handling (#595) treat it like any other.
+// Some senders mark the images their HTML shows as attachments, or reference them by file name
+// (or inside a multipart/related by Content-Location) instead of cid:, or write the file name as
+// the cid: (#640). Each image the HTML does reference (noteBodyImageCandidate) joins the inline
+// images, and each reference by name becomes a cid: reference to its Content-ID, so the inline
+// image embedding, its repeat budget and the cid cache handling (#595) treat it like any other.
 //
 // Inside a multipart/related the image is part of the page (header, badges, social icons) and
 // leaves the attachment list. Outside one it is a file the sender also shows, a photo cited by
@@ -1010,7 +1037,7 @@ export function contentLocationFromMimeHeader(buf) {
 function adoptReferencedImages(results, html) {
   results.inlineImages = results.inlineImages || [];
   const candidates = (results.imageCandidates || []).filter(c => !(c.sizeKnown && c.serverSize > MAX_ADOPTED_IMAGE_BYTES));
-  if (!html || (!candidates.length && !results.inlineImages.some(img => img.relatedNames))) return html;
+  if (!html || (!candidates.length && !results.inlineImages.some(img => img.relatedNames || img.filename))) return html;
 
   const nonce = randomBytes(6).toString('hex');
   const synthetic = (part) => `part-${part}-${nonce}@mailflow.invalid`;
@@ -1034,17 +1061,42 @@ function adoptReferencedImages(results, html) {
   // A part whose size the server did not give is matched only by a cid: reference from inside its
   // multipart/related, the way mailers build a page's images: one an unbounded file name or
   // location could claim might be any size, and is left an attachment.
+  const targetOf = (candidate) => ({ cid: usable(candidate.ownCid) ? candidate.ownCid : synthetic(candidate.part), candidate });
   for (const candidate of candidates) {
-    if (!candidate.sizeKnown) continue;
-    nameFor(candidate.relatedNames, { cid: usable(candidate.ownCid) ? candidate.ownCid : synthetic(candidate.part), candidate });
+    if (candidate.sizeKnown) nameFor(candidate.names, targetOf(candidate));
   }
 
+  // cid:header.jpg where header.jpg is an image's file name, not its Content-ID. It names that
+  // image only when no Content-ID answers it and no other image part has the name (null here).
+  // A known limit: a reply quoting an Outlook body written as a bare cid:image001.png now shows
+  // the new message's own image001.png there, a wrong image where it showed a broken one. Outlook's
+  // usual cid:image001.png@01DA... is not a file name, and stays unresolved.
+  const byFileName = new Map();
+  const fileNameFor = (filename, target) => {
+    const name = imageFileName(filename);
+    if (!name || name.length > MAX_RELATED_NAME_LENGTH) return;
+    const key = name.toLowerCase();
+    byFileName.set(key, byFileName.has(key) ? null : target);
+  };
+  for (const img of results.inlineImages) fileNameFor(img.filename, usable(img.cid) ? { cid: img.cid } : null);
+  const eligible = new Set(candidates.filter(c => c.sizeKnown));
+  for (const candidate of results.imageCandidates || []) {
+    fileNameFor(candidate.filename, eligible.has(candidate) ? targetOf(candidate) : null);
+  }
+  const resolves = cidMatcher(key => taken.has(key));
+  const fileNamed = cidMatcher(key => Boolean(byFileName.get(key)));
+
   const adopted = new Map();
-  if (byName.size) {
+  if (byName.size || byFileName.size) {
     let out = '';
     let last = 0;
     scanImageUrls(html, (start, end, unquoted) => {
-      const target = byName.get(imageUrlText(html, start, end));
+      let target = byName.get(imageUrlText(html, start, end));
+      if (!target && byFileName.size) {
+        const at = cidUrlStart(html, start, end);
+        const cid = at < 0 ? '' : cidOfUrl(html, at, end);
+        if (cid && !resolves(cid)) target = byFileName.get(fileNamed(cid));
+      }
       if (!target || start < last) return;
       // Quoted, so the '>' closing the tag never reads as the end of a cid:<...> reference.
       const cid = unquoted ? `"cid:${target.cid}"` : `cid:${target.cid}`;
@@ -1067,7 +1119,8 @@ function adoptReferencedImages(results, html) {
   const delisted = new Set();
   for (const [candidate, cid] of adopted) {
     candidate.adopted = true;
-    if (candidate.entry && candidate.inRelated) delisted.add(candidate.entry);
+    // A part only named like an image leaves the list once its bytes show it is one (fetchMessageBody).
+    if (candidate.entry && candidate.inRelated && !candidate.sniff) delisted.add(candidate.entry);
     results.inlineImages.push({
       part: candidate.part,
       type: candidate.type,
@@ -1078,6 +1131,7 @@ function adoptReferencedImages(results, html) {
       disposition: candidate.disposition,
       // Still listed: marked shownInline once embedded, so a forward does not send it twice.
       ...(candidate.entry && !candidate.inRelated ? { listed: candidate.entry } : {}),
+      ...(candidate.sniff ? { sniff: true, ...(candidate.entry && candidate.inRelated ? { delist: candidate.entry } : {}) } : {}),
     });
   }
   // In place: fetchMessageBody holds this array as the message's attachment list.
@@ -1163,6 +1217,9 @@ function walkNode(node, results, inRelated) {
   const disposition = (node.disposition || '').toLowerCase();
   const rawFilename = node.dispositionParameters?.filename || node.parameters?.name || null;
   const filename = rawFilename ? rawFilename.replace(BIDI_OVERRIDE_RE, '').trim() || 'attachment' : null;
+  const imageType = imageTypeOf(type, filename);
+  // Typed by its name alone: its bytes decide (sniffedImageType).
+  const sniff = Boolean(imageType) && !type.startsWith('image/');
   // A part explicitly marked Content-Disposition: attachment is an attachment
   // no matter its MIME type. Checking the text/* types first used to absorb
   // attached .html/.txt files into the message body: the paperclip showed
@@ -1179,7 +1236,7 @@ function walkNode(node, results, inRelated) {
       disposition,
     };
     results.attachments.push(entry);
-    if (type.startsWith('image/')) noteBodyImageCandidate(node, results, inRelated, filename, entry);
+    if (imageType) noteBodyImageCandidate(node, results, inRelated, filename, entry, imageType, sniff);
   } else if (type === 'text/html' || type === 'application/xhtml+xml' || type === 'text/plain') {
     results.textParts.push({
       part: node.part || '1',
@@ -1205,26 +1262,24 @@ function walkNode(node, results, inRelated) {
       encoding: node.encoding || '',
       charset: node.parameters?.charset || 'utf-8',
     });
-  } else if (type.startsWith('image/') && node.id && disposition !== 'attachment') {
+  } else if (imageType && node.id && disposition !== 'attachment') {
     // Inline image referenced via cid: in the HTML body. One the HTML never
     // references is listed as an attachment once the body is known.
     results.inlineImages = results.inlineImages || [];
     results.inlineImages.push({
       part: node.part || '1',
-      type: node.type || 'image/png',
+      type: imageType,
       encoding: node.encoding || 'base64',
       // Content-ID header value is wrapped in angle brackets — strip them
       cid: (node.id || '').replace(/^<|>$/g, ''),
       filename,
       size: node.dispositionParameters?.size ? parseInt(node.dispositionParameters.size) : node.size || 0,
       disposition,
+      ...(sniff ? { sniff, rawType: node.type || 'application/octet-stream' } : {}),
     });
     // Inside a multipart/related the HTML may name it by Content-Location or file name instead.
     if (inRelated) {
-      results.inlineImages[results.inlineImages.length - 1].relatedNames = [
-        (node.location || '').trim(),
-        filename && (!filename.includes('.') || IMAGE_NAME_RE.test(filename)) ? filename : '',
-      ];
+      results.inlineImages[results.inlineImages.length - 1].relatedNames = [(node.location || '').trim(), imageFileName(filename)];
     }
   } else if (filename) {
     // Named non-text part without an explicit disposition — still an attachment.
@@ -1237,36 +1292,40 @@ function walkNode(node, results, inRelated) {
       disposition,
     };
     results.attachments.push(entry);
-    if (type.startsWith('image/')) noteBodyImageCandidate(node, results, inRelated, filename, entry);
-  } else if (type.startsWith('image/') && inRelated) {
+    if (imageType) noteBodyImageCandidate(node, results, inRelated, filename, entry, imageType, sniff);
+  } else if (imageType && inRelated) {
     // Unnamed, with no Content-ID: shown only if the HTML references its Content-Location.
-    noteBodyImageCandidate(node, results, inRelated, null, null);
+    noteBodyImageCandidate(node, results, inRelated, null, null, imageType);
   }
 }
 
 // An image filed as an attachment above (or, unnamed, not listed at all) that the HTML may still
-// show: one with a Content-ID (senders mark some cid: images Content-Disposition: attachment), or
-// one inside a multipart/related that the HTML references by Content-Location or file name.
-// Whether the HTML references it is known only once the body is decoded (adoptReferencedImages);
-// until then it stays an attachment, as the sync walk and the paperclip flag see it.
+// show: one with a Content-ID (senders mark some cid: images Content-Disposition: attachment), one
+// inside a multipart/related that the HTML references by Content-Location or file name, or one
+// elsewhere that it references by file name (#640). Whether the HTML references it is known only
+// once the body is decoded (adoptReferencedImages); until then it stays an attachment, as the sync
+// walk and the paperclip flag see it.
 //
 // imapflow reads a part's Content-Location from BODYSTRUCTURE only when more extension data
 // follows it, and the location is the last field, so it is practically never there.
 // needsLocation marks a part fetchMessageBody reads the MIME header of instead.
-function noteBodyImageCandidate(node, results, inRelated, filename, entry) {
+function noteBodyImageCandidate(node, results, inRelated, filename, entry, type, sniff = false) {
   const cid = (node.id || '').trim().replace(/^<|>$/g, '').trim();
-  if (!cid && !inRelated) return;
+  const name = imageFileName(filename);
+  if (!cid && !inRelated && !name) return;
   const location = (node.location || '').trim();
   results.imageCandidates = results.imageCandidates || [];
   results.imageCandidates.push({
     entry,
     part: node.part || '1',
-    type: node.type || 'image/png',
+    type,
     encoding: node.encoding || 'base64',
     cid,
     filename,
     inRelated,
-    relatedNames: inRelated ? [location, filename && (!filename.includes('.') || IMAGE_NAME_RE.test(filename)) ? filename : ''] : [],
+    sniff,
+    // A Content-Location is a URL within the multipart/related's page only.
+    names: inRelated ? [location, name] : [name],
     needsLocation: inRelated && !cid && !location,
     // The server's count of the part's bytes, for MAX_ADOPTED_IMAGE_BYTES. imapflow reads a
     // missing count as 0, so 0 is unknown.
@@ -1703,6 +1762,21 @@ function normalizeSubject(subject) {
   return s.toLowerCase();
 }
 
+// Whether a subject starts with a reply or forward prefix that normalizeSubject strips.
+function hasReplyPrefix(subject) {
+  return typeof subject === 'string' && SUBJECT_PREFIX_RE.test(subject.trim());
+}
+
+// A sender that says outright nobody replies to it: no-reply@, noreply@, do-not-reply@,
+// donotreply@ and the same with a suffix (no-reply-orders@, noreply+abc@). Anchored at the
+// start and free of nested quantifiers, so it stays linear on any input.
+const NO_REPLY_LOCAL_RE = /^(?:no|do[-_.]?not)[-_.]?reply(?:[-_.+]|$)/;
+function isNoReplySender(address) {
+  const s = normalizeAddress(address);
+  const at = s.lastIndexOf('@');
+  return at > 0 && NO_REPLY_LOCAL_RE.test(s.slice(0, at));
+}
+
 // Compute the thread_id for an incoming message.
 // Primary: RFC 5322 References / In-Reply-To header chain.
 // Fallback: subject normalization when headers are absent (e.g. Outlook RE: replies).
@@ -1749,10 +1823,24 @@ export async function computeThreadId(accountId, messageId, inReplyTo, reference
   // A reply from the other party still matches, because that party sent one message and
   // received the other. Two senders who merely wrote to the same address do not.
   //
+  // Even a shared correspondent is not enough when it is the same sender (#649). A shop's
+  // receipts ("Order Confirmation for ... from ...") or a provider's sign-in alerts arrive
+  // from one address with one subject, so each new one joined the last and a single thread
+  // collected every receipt for months. A message from the same sender therefore joins only
+  // when its subject carries a reply or forward prefix, as a reply to one's own earlier
+  // message does. A message from the other side of an exchange joins with or without one.
+  //
+  // Bulk mail and no-reply senders never use the fallback: they are exactly the mail that
+  // repeats a subject, and nobody's message is an answer to them unless it was sent to them.
+  // So a bulk or no-reply candidate holds a thread together only for a message addressed to
+  // its sender, such as our own header-less "RE:" to a survey or a mailing-list post.
+  //
   // Candidates are scanned oldest first and capped. Finding no match simply starts a new
   // thread, which is the safe direction to fail in: a thread that did not merge is a much
   // smaller problem than unrelated mail merged together.
+  if (participants?.isBulk === true || isNoReplySender(participants?.fromEmail)) return messageId;
   const normalized = normalizeSubject(subject);
+  const replyPrefix = hasReplyPrefix(subject);
   const own = normalized && participants
     ? await ownAddressesFor(accountId, participants.own)
     : new Set();
@@ -1760,7 +1848,7 @@ export async function computeThreadId(accountId, messageId, inReplyTo, reference
   // Nothing to match on when the only party is the account itself.
   if (normalized && (mine.sender || mine.recipients.size > 0)) {
     const candidates = await query(
-      `SELECT thread_id, from_email, to_addresses, cc_addresses FROM messages
+      `SELECT thread_id, from_email, to_addresses, cc_addresses, is_bulk FROM messages
        WHERE account_id = $1
          AND is_deleted = false
          AND message_id IS DISTINCT FROM $2
@@ -1777,7 +1865,11 @@ export async function computeThreadId(accountId, messageId, inReplyTo, reference
         to: parseAddressColumn(row.to_addresses),
         cc: parseAddressColumn(row.cc_addresses),
       }, own);
-      if (sharesCorrespondent(mine, theirs)) return row.thread_id;
+      if (row.is_bulk === true || isNoReplySender(row.from_email)) {
+        if (isExchange(mine, theirs) && mine.recipients.has(theirs.sender)) return row.thread_id;
+        continue;
+      }
+      if (isExchange(mine, theirs) || (replyPrefix && sameSender(mine, theirs))) return row.thread_id;
     }
   }
 
@@ -1810,16 +1902,25 @@ function messageParties(msg, ownAddresses) {
   return { sender: sender && !ownAddresses.has(sender) ? sender : '', recipients };
 }
 
-// Whether two messages are part of the same correspondence: same sender, or one wrote to the
-// other's sender.
+// The two ways two messages can be part of the same correspondence: the same sender, or an
+// exchange, where one wrote to the other's sender. The subject fallback accepts an exchange
+// alone but the same sender only with a reply prefix (#649).
+//
+// An exchange needs two different senders. Bulk senders often address a message to
+// themselves and BCC everyone, and without this every such message would count as answering
+// the one before it.
 //
 // A shared RECIPIENT deliberately does not count. Two unrelated senders writing to the same
 // third-party address have that address in common, and that happens constantly: mail
 // forwarded from an old address, a catch-all domain, a mailing list, anything BCC'd. Treating
 // it as a link is what let four unrelated "storage full" notices, all addressed to the same
 // forwarded address, stay in one thread even after #468 was supposedly fixed.
-function sharesCorrespondent(a, b) {
-  if (a.sender && b.sender && a.sender === b.sender) return true;
+function sameSender(a, b) {
+  return Boolean(a.sender) && a.sender === b.sender;
+}
+
+function isExchange(a, b) {
+  if (a.sender === b.sender) return false;
   if (a.sender && b.recipients.has(a.sender)) return true;
   if (b.sender && a.recipients.has(b.sender)) return true;
   return false;
@@ -4520,7 +4621,8 @@ export class ImapManager {
             const inReplyTo = sanitizeStr(parsed.inReplyTo);
             const refs = sanitizeStr(parsed.references);
             const threadId = await computeThreadId(account.id, msgId, inReplyTo, refs, sanitizeStr(parsed.subject),
-              { fromEmail: parsed.fromEmail, to: parsed.to, cc: parsed.cc, own: account.email_address });
+              { fromEmail: parsed.fromEmail, to: parsed.to, cc: parsed.cc, own: account.email_address,
+                isBulk: parsed.isBulk });
 
             // Upsert only this server UID. Shared Message-IDs do not prove a move,
             // including self-mail and duplicate deliveries within one mailbox.
@@ -5272,7 +5374,8 @@ export class ImapManager {
                 const bfReplyTo  = sanitizeStr(parsed.inReplyTo);
                 const bfRefs     = sanitizeStr(parsed.references);
                 const bfThreadId = await computeThreadId(account.id, bfMsgId, bfReplyTo, bfRefs, sanitizeStr(parsed.subject),
-                  { fromEmail: parsed.fromEmail, to: parsed.to, cc: parsed.cc, own: account.email_address });
+                  { fromEmail: parsed.fromEmail, to: parsed.to, cc: parsed.cc, own: account.email_address,
+                    isBulk: parsed.isBulk });
 
                 let bfCategory = null;
                 if (account.categorization_enabled || await getGlobalCategorizationEnabled(account.user_id)) {
@@ -6115,7 +6218,7 @@ export class ImapManager {
     walkStructure(msg.bodyStructure, structure);
     const threadId = await computeThreadId(account.id, parsed.messageId, parsed.inReplyTo,
       parsed.references, parsed.subject, { fromEmail: parsed.fromEmail, to: parsed.to,
-        cc: parsed.cc, own: account.email_address });
+        cc: parsed.cc, own: account.email_address, isBulk: parsed.isBulk });
     const uidValidity = String(client.mailbox?.uidValidity || '');
     const validIdentity = Boolean(parsed.messageId) && headerIds(parsed.messageId)[0] === parsed.messageId;
     const sameIdentity = `messages.message_id = EXCLUDED.message_id AND $19
@@ -6288,7 +6391,7 @@ export class ImapManager {
         const { html, text, attachments, cidsComplete } = await this.fetchMessageBody(
           account, msg.uid, msg.folder || 'INBOX'
         );
-        const safeHtml = html ? sanitizeEmail(html) : null;
+        const safeHtml = (html && sanitizeEmail(html)) || null;
         if (safeHtml || text) {
           const snip = snippetFromBody(text, safeHtml || html);
           await query(
@@ -6296,7 +6399,7 @@ export class ImapManager {
              SET body_html = $1, body_text = $2, attachments = $3,
                  snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
              WHERE id = $4`,
-            // Settled when its cid: references can never resolve (utils/cidRefs.js, #595).
+            // Marked when fetched completely, so it is not fetched again for its images (utils/cidRefs.js).
             [sanitizeStr(settleCids(safeHtml, cidsComplete)), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
           );
         }
@@ -6350,7 +6453,7 @@ export class ImapManager {
         if (existing.rows.length) continue;
 
         const { html, text, attachments, cidsComplete } = await this.fetchMessageBody(account, msg.uid, msg.folder);
-        const safeHtml = html ? sanitizeEmail(html) : null;
+        const safeHtml = (html && sanitizeEmail(html)) || null;
         if (safeHtml || text) {
           const snip = snippetFromBody(text, safeHtml || html);
           await query(
@@ -6358,7 +6461,7 @@ export class ImapManager {
              SET body_html = $1, body_text = $2, attachments = $3,
                  snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
              WHERE id = $4`,
-            // Settled when its cid: references can never resolve (utils/cidRefs.js, #595).
+            // Marked when fetched completely, so it is not fetched again for its images (utils/cidRefs.js).
             [sanitizeStr(settleCids(safeHtml, cidsComplete)), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
           );
         }
@@ -6591,7 +6694,7 @@ export class ImapManager {
             for await (const msg of client.fetch(uidStr, { uid: true, bodyParts: unlocated.map(c => `${c.part}.MIME`) }, { uid: true })) {
               for (const c of unlocated) {
                 const location = contentLocationFromMimeHeader(msg.bodyParts?.get(`${c.part}.mime`) || msg.bodyParts?.get(`${c.part}.MIME`));
-                if (location) c.relatedNames.unshift(location);
+                if (location) c.names.unshift(location);
               }
             }
           } catch { /* matched by file name alone */ }
@@ -6616,7 +6719,8 @@ export class ImapManager {
         // contain escaped HTML/QP text and leak quoted-message garbage.
         for (const part of inlineImages) {
           const existing = prefetched.get(part.part);
-          if (!looksLikeTextPayload(existing)) continue;
+          // A quoted-printable image reads like QP text; its magic number shows it is an image.
+          if (!looksLikeTextPayload(existing) || sniffedImageType(existing, part.encoding)) continue;
           try {
             for await (const msg of client.fetch(uidStr, { uid: true, bodyParts: [part.part] }, { uid: true })) {
               const v = msg.bodyParts?.get(part.part);
@@ -6641,18 +6745,38 @@ export class ImapManager {
           // The image whose bytes each Content-ID in dataUris carries.
           const owners = new Map();
           const missingImages = new Set();
+          // Parts named like images whose bytes are not one (an HTML page, an SVG, a PDF): files.
+          const notImages = [];
           for (const img of inlineImages) {
             if (!img.cid) continue;
             const key = img.cid.toLowerCase();
             if (dataUris.has(key)) continue;
             const buf = prefetched.get(img.part);
-            if (!buf || looksLikeTextPayload(buf)) { missingImages.add(key); continue; }
+            if (!buf) { missingImages.add(key); continue; }
+            const sniffed = buf.length ? sniffedImageType(buf, img.encoding) : '';
+            const type = img.sniff ? sniffed : img.type;
+            if (!type) { notImages.push(img); continue; }
+            // Text where an image should be, still so once the part was fetched on its own above:
+            // what the server holds, so the body is not fetched again for it. An image's magic
+            // number overrules the text check, which quoted-printable bytes always meet.
+            if (!sniffed && looksLikeTextPayload(buf)) continue;
             const enc = (img.encoding || '').toLowerCase();
+            // The image's own bytes: quoted-printable decoded first, never its encoded text.
             const b64 = enc === 'base64'
               ? buf.toString('ascii').replace(/\s/g, '')
-              : buf.toString('base64');
-            dataUris.set(key, `data:${img.type};base64,${b64}`);
+              : decodeAttachmentBuffer(buf, enc).toString('base64');
+            dataUris.set(key, `data:${type};base64,${b64}`);
             owners.set(key, img);
+          }
+          // One listed already stays so; an inline part the HTML names is listed again.
+          for (const img of notImages) {
+            if (img.listed || img.delist || results.attachments.some(att => att.part === img.part)) continue;
+            results.attachments.push({ part: img.part, filename: img.filename || 'attachment', type: img.rawType || 'application/octet-stream', encoding: img.encoding, size: img.size, disposition: img.disposition });
+          }
+          // A related part named like an image leaves the list now its bytes show it is one.
+          const sniffedDelisted = new Set([...owners.values()].filter(img => img.delist).map(img => img.delist));
+          for (let i = results.attachments.length - 1; i >= 0; i--) {
+            if (sniffedDelisted.has(results.attachments[i])) results.attachments.splice(i, 1);
           }
           if (dataUris.size > 0) {
             let repeatBudget = INLINE_IMAGE_REPEAT_BUDGET;

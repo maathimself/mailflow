@@ -34,7 +34,7 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('Sent row Bcc (upsertSe
       message_id text, subject text, from_name text, from_email text, to_addresses jsonb, cc_addresses jsonb,
       bcc_addresses jsonb, date timestamptz, snippet text, is_read boolean, is_starred boolean,
       has_attachments boolean, flags jsonb, thread_id text, thread_key text, in_reply_to text,
-      thread_references text, normalized_subject text, is_deleted boolean DEFAULT false,
+      thread_references text, normalized_subject text, is_bulk boolean, is_deleted boolean DEFAULT false,
       UNIQUE (account_id, uid, folder))`);
     query.mockImplementation((sql, values) => database.query(sql, values));
   });
