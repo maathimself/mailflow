@@ -1,5 +1,5 @@
 // Feather icons (MIT), one per GTD state. Drawn in currentColor so the picker tints them like
-// FolderIcon; GTD's state colours are deliberately not used here.
+// FolderIcon; GTD's state colors are deliberately not used here.
 const PATHS = {
   todo: <circle cx="12" cy="12" r="10"/>,
   delegated: <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>,

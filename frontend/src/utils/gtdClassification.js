@@ -114,6 +114,7 @@ export async function classifyManyWithUndo(messages, state, { api, store, t }) {
   const undoTokens = [];
   const undoScopes = [];
   let tagged = 0;
+  let irreversible = false;
 
   for (const message of unique) {
     const messageId = message.id;
@@ -131,6 +132,8 @@ export async function classifyManyWithUndo(messages, state, { api, store, t }) {
       if (result?.applied && result.undoToken) {
         undoTokens.push(result.undoToken);
         undoScopes.push(undoScope);
+      } else if (result?.applied || result?.switched) {
+        irreversible = true;
       }
     } catch (err) {
       console.error('GTD classify failed:', err);
@@ -162,7 +165,9 @@ export async function classifyManyWithUndo(messages, state, { api, store, t }) {
       : t('gtd.classifiedSome', { count: tagged, total, state: stateLabel }),
   };
 
-  if (undoTokens.length > 0) {
+  // A switch, or a copy without a token, cannot be undone, so Undo would revert only part of the
+  // selection while reading as if it reverted all of it. The single path shows no Undo then either.
+  if (undoTokens.length > 0 && !irreversible) {
     notification.gtdUndoScopes = undoScopes;
     let consumed = false;
     notification.onUndo = async () => {

@@ -368,6 +368,25 @@ describe('classifyManyWithUndo', () => {
     assert.equal(harness.notifications[0].onUndo, undefined);
   });
 
+  it('offers no Undo when one message switched state, since Undo could not restore it', async () => {
+    const harness = createManyHarness({
+      m1: { ok: true, applied: true, undoToken: null, switched: true, sourceRemoved: false },
+      m2: applied('m2'),
+    });
+    const result = await classifyManyWithUndo(messages.slice(0, 2), 'todo', harness);
+    assert.deepEqual(result, { tagged: 2, total: 2 });
+    assert.equal(harness.notifications.length, 1);
+    assert.equal(harness.notifications[0].title, 'gtd.classifiedMany');
+    assert.equal(harness.notifications[0].onUndo, undefined);
+    assert.equal(harness.notifications[0].gtdUndoScopes, undefined);
+  });
+
+  it('offers no Undo when one copy came back without an undo token', async () => {
+    const harness = createManyHarness({ m1: applied('m1'), m2: { ok: true, applied: true, undoToken: null } });
+    await classifyManyWithUndo(messages.slice(0, 2), 'watch', harness);
+    assert.equal(harness.notifications[0].onUndo, undefined);
+  });
+
   it('tags a message listed twice only once', async () => {
     const harness = createManyHarness({ m1: applied('m1'), m2: applied('m2') });
     const result = await classifyManyWithUndo([messages[0], messages[1], { ...messages[0] }], 'todo', harness);
