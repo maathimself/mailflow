@@ -286,6 +286,12 @@ router.post('/classify/undo', async (req, res) => {
 // other copies cannot be found, so it answers no. On Gmail it is always yes: a GTD folder is a
 // label, and removing it leaves the message in All Mail, which MailFlow does not sync.
 async function hasSurvivingCopy(account, msg, removing) {
+  return await findSurvivingCopy(account, msg, removing) === true;
+}
+
+// hasSurvivingCopy's check, answering null when no copy was confirmed but a check failed, so a
+// caller can tell "no other copy" from "could not verify".
+async function findSurvivingCopy(account, msg, removing) {
   if (isLabelStoreAccount(account)) return true;
   if (!msg.message_id) return false;
   const [drafts, trash, spam, copies] = await Promise.all([
@@ -295,6 +301,7 @@ async function hasSurvivingCopy(account, msg, removing) {
     getMessageCopyFolders(account.id, msg.message_id),
   ]);
   const unsafe = new Set([...removing, ...drafts, ...trash, ...spam]);
+  let unverified = false;
   for (const folder of copies) {
     if (unsafe.has(folder)) continue;
     const uid = await resolveLabelCopyUid(msg, folder);
@@ -303,9 +310,10 @@ async function hasSurvivingCopy(account, msg, removing) {
       if (await hasMessageCopy(account, uid, folder, msg.message_id)) return true;
     } catch (err) {
       console.warn(`GTD: could not confirm the copy in ${folder}: ${err.message}`);
+      unverified = true;
     }
   }
-  return false;
+  return unverified ? null : false;
 }
 
 // Whether a copy about to be archived still reads as unread. The archive primitive moves no
@@ -313,8 +321,7 @@ async function hasSurvivingCopy(account, msg, removing) {
 // tell a failed DB fan-out from a failed \Seen push, and the thread's rows can miss a copy filed
 // under another thread key, so the copy itself is read back by id. A failed read counts as unread
 // and keeps the copy where it is. A row that is gone has nothing to move; the archive's guarded
-// write then applies nothing. This is the live check on main; callers also honour fanOutFailed
-// when markThreadRead provides it (PR #662).
+// write then applies nothing.
 async function copyStillUnread(account, copy) {
   try {
     const row = await loadOwnedMessage(account.user_id, copy.id);
@@ -322,24 +329,6 @@ async function copyStillUnread(account, copy) {
   } catch (err) {
     console.warn(`GTD done: could not confirm a copy in ${copy.folder || 'INBOX'} was marked read: ${err.message}`);
     return true;
-  }
-}
-
-// Done marks the whole thread read, but the acted message's mark-read only reaches its own copies.
-// Mark another message read after its copy is deleted, so the deleted copy gets no read writes
-// (removeMessageCopy already counts its unread), and before its copy is archived, since the
-// archive primitive moves no unread. A failure only leaves the counts to the next recompute.
-// With `verify` (before an archive), returns { fanOutFailed } when this copy was not marked read,
-// a throw included: markThreadRead throws only from its lookup, before any read write.
-async function markOtherMessageRead(account, copy, { verify = false } = {}) {
-  try {
-    const result = await markThreadRead(account, copy);
-    if (result.error) console.warn(`GTD done: mark-read for a thread copy in ${copy.folder} degraded: ${result.error.message}`);
-    if (!verify) return {};
-    return { fanOutFailed: result.fanOutFailed === true || await copyStillUnread(account, copy) };
-  } catch (err) {
-    console.warn(`GTD done: mark-read for a thread copy in ${copy.folder} failed: ${err.message}`);
-    return { fanOutFailed: true };
   }
 }
 
@@ -369,8 +358,9 @@ async function copyIsGone(account, copy) {
 // message the user never acted on and may be its only copy. It is deleted only once the server
 // confirms the cached copy is that message and that another copy keeps it; with none, it is
 // archived. A copy that cannot be verified, or has no Message-ID to verify, is left where it is.
-// Returns { cleared }; a copy left behind keeps the thread in its section, which the caller
-// reports as threadRemains. On Gmail the message stays in All Mail, as in hasSurvivingCopy, but
+// Its read state is left as it is: an unread reply the user has not opened stays unread, also
+// once archived. Returns { cleared }; a copy left behind keeps the thread in its section, which
+// the caller reports as threadRemains. On Gmail the message stays in All Mail, as in hasSurvivingCopy, but
 // the uid must still carry the message's Message-ID.
 async function clearOtherThreadCopy(account, copy, removing) {
   if (!copy.message_id) {
@@ -390,22 +380,17 @@ async function clearOtherThreadCopy(account, copy, removing) {
   }
   if (isLabelStoreAccount(account)) {
     const { removed } = await removeExactLabelCopy(copy, copy.folder, copy.uid);
-    await markOtherMessageRead(account, copy);
     return { cleared: removed || await copyIsGone(account, copy), removed };
   }
-  if (await hasSurvivingCopy(account, copy, removing)) {
-    const { removed } = await removeLabel(copy, copy.folder);
-    await markOtherMessageRead(account, copy);
-    return { cleared: removed || await copyIsGone(account, copy), removed };
-  }
-  // The archive moves no unread, so a copy the DB never marked read stays in its folder.
-  if ((await markOtherMessageRead(account, copy, { verify: true })).fanOutFailed) {
-    console.error(`GTD done: the only copy of a thread message was not marked read, leaving it in ${copy.folder}`);
+  const survivor = await findSurvivingCopy(account, copy, removing);
+  if (survivor === null) {
+    console.warn(`GTD done: could not verify another copy of a thread message in ${copy.folder}, leaving it`);
     return { cleared: false };
   }
-  // The archived copy becomes the durable one, so it takes the \Seen flag too.
-  const { error: seenError } = await markCopySeen(account, copy);
-  if (seenError) console.warn(`GTD done: \\Seen for a thread copy in ${copy.folder} degraded: ${seenError.message}`);
+  if (survivor) {
+    const { removed } = await removeLabel(copy, copy.folder);
+    return { cleared: removed || await copyIsGone(account, copy), removed };
+  }
   try {
     const { archived, noArchiveFolder } = await archiveInboxCopy(account, copy, copy.folder);
     if (noArchiveFolder) {
@@ -419,19 +404,18 @@ async function clearOtherThreadCopy(account, copy, removing) {
   }
 }
 
-// Archive INBOX rows of a message already marked read, which the archive primitive's counts rely
-// on. `flaggedId` is the row markThreadRead resolved and flagged \Seen. The message can have more
-// INBOX rows under the same Message-ID; each of those is moved only once the server confirms it,
-// and takes \Seen here so it does not sync back unread from the archive. A row not marked read
-// (`readFailed`, markThreadRead's fanOutFailed when it provides one as in PR #662, or
-// copyStillUnread, the live check) stays. One row failing does not stop the rest.
-// Returns { archived } when any row moved, { failed } when one was left behind, and
+// Archive INBOX rows of a message. Every row other than `flaggedId`, the row markThreadRead
+// resolved and flagged \Seen, is moved only once the server confirms it. With `markRead` (the
+// acted message, which done marks read) a row not marked read stays, and a confirmed row takes
+// \Seen here so it does not sync back unread from the archive. Without it (another message in
+// the conversation) the row moves with its read state as it is. One row failing does not stop
+// the rest. Returns { archived } when any row moved, { failed } when one was left behind, and
 // { noArchiveFolder }.
-async function archiveInboxRows(account, rows, flaggedId, readFailed) {
+async function archiveInboxRows(account, rows, flaggedId, { markRead = true } = {}) {
   const outcome = { archived: false, failed: false, noArchiveFolder: false };
   for (const row of rows) {
     try {
-      if (readFailed || await copyStillUnread(account, row)) {
+      if (markRead && await copyStillUnread(account, row)) {
         console.warn('GTD done: an INBOX copy was not marked read, leaving it');
         outcome.failed = true;
         continue;
@@ -448,8 +432,10 @@ async function archiveInboxRows(account, rows, flaggedId, readFailed) {
           outcome.failed = true;
           continue;
         }
-        const { error } = await markCopySeen(account, { ...row, folder: 'INBOX' });
-        if (error) console.warn(`GTD done: \\Seen for a thread copy in INBOX degraded: ${error.message}`);
+        if (markRead) {
+          const { error } = await markCopySeen(account, { ...row, folder: 'INBOX' });
+          if (error) console.warn(`GTD done: \\Seen for a thread copy in INBOX degraded: ${error.message}`);
+        }
       }
       const result = await archiveInboxCopy(account, row, 'INBOX');
       if (result.archived) outcome.archived = true;
@@ -466,31 +452,15 @@ async function archiveInboxRows(account, rows, flaggedId, readFailed) {
 }
 
 // Archive another thread message's INBOX rows, so done takes the whole conversation out of the
-// Inbox. markThreadRead marks the message read first and resolves a live INBOX row; with none,
-// the thread's rows are stale and nothing is moved. A headerless copy cannot be resolved by
+// Inbox. Each row is confirmed on the server first, and keeps its read state: a reply the user
+// has not opened stays unread in the archive. A headerless copy cannot be confirmed by
 // Message-ID, so it stays. Returns as archiveInboxRows.
-async function archiveOtherInboxCopies(account, copy, rows) {
-  if (!copy.message_id) {
+async function archiveOtherInboxCopies(account, rows) {
+  if (!rows[0].message_id) {
     console.warn('GTD done: a thread copy in INBOX has no Message-ID to resolve, leaving it');
     return { failed: true };
   }
-  let inboxCopy;
-  try {
-    const result = await markThreadRead(account, copy);
-    inboxCopy = result.inboxCopy;
-    if (result.error) console.warn(`GTD done: mark-read for a thread copy in INBOX degraded: ${result.error.message}`);
-    // The DB never marked it read, so the archive's zero unread move would leave INBOX's count off.
-    // Honoured when markThreadRead provides it (PR #662); archiveInboxRows checks each row live.
-    if (result.fanOutFailed === true) {
-      console.error('GTD done: a thread message was not marked read, leaving its INBOX copy');
-      return { failed: true };
-    }
-  } catch (err) {
-    console.error('GTD done: INBOX lookup for a thread copy failed:', err.message);
-    return { failed: true };
-  }
-  if (!inboxCopy) return {};
-  return archiveInboxRows(account, [inboxCopy, ...rows.filter(row => row.id !== inboxCopy.id)], inboxCopy.id, false);
+  return archiveInboxRows(account, rows, null, { markRead: false });
 }
 
 // DELETE /api/gtd/classify { messageId, state } — remove a GTD label by deleting
@@ -539,9 +509,9 @@ router.delete('/classify', async (req, res) => {
 // the archive step resolves the INBOX copy from the shared Message-ID rather than acting on
 // `id` directly. In one round trip this: (a) strips the thread's GTD label copies named in
 // `states` — a merged Waiting row passes both watch+delegated — leaving any GTD labels in OTHER
-// sections intact; (b) marks the whole thread read (DB fan-out across the surviving sibling
-// copies, \Seen on the INBOX copy so it rides the archive move); (c) archives every INBOX copy
-// in the thread (reusing resolveArchiveFolder + moveMessage, snooze's in-place UPDATE).
+// sections intact; (b) marks the acted message read (DB fan-out across its surviving copies,
+// \Seen on the INBOX copy so it rides the archive move); (c) archives its INBOX copy and, from
+// the sidebar, every other INBOX copy in the thread, whose read state is left as it is.
 // One terminal gtd_sections_updated broadcast makes the row disappear cleanly on refetch.
 router.post('/done', async (req, res) => {
   const { id, states } = req.body || {};
@@ -558,14 +528,15 @@ router.post('/done', async (req, res) => {
   // for this thread; the GTD sidebar's explicit-states path is untouched. Only look copies up when
   // we'll use them (enabled + all-states); resolveDoneFolders still owns the gtd_enabled gate.
   const allStates = states == null || states === 'all';
-  const threadCopies = enabled && msg.thread_key
+  // Only a GTD section row (explicit states) stands for a whole conversation, so only it clears
+  // and archives the other messages. The inbox checkmark acts on one message: in the flat list
+  // its thread-mates are rows of their own, which the user may not have seen.
+  const threadCopies = enabled && !allStates && msg.thread_key
     ? await getMessagesByThreadKeys(msg.account_id, [msg.thread_key])
     : [];
   const copyFolders = enabled ? await getMessageCopyFolders(msg.account_id, msg.message_id) : [];
   let existing;
-  if (allStates && enabled) {
-    existing = [...copyFolders, ...threadCopies.map(copy => copy.folder)];
-  }
+  if (allStates && enabled) existing = copyFolders;
   const target = allStates
     ? resolveDoneFolders({ enabled, folders, states: 'all', existing })
     : resolveDoneFolders({ enabled, folders, states });
@@ -602,6 +573,15 @@ router.post('/done', async (req, res) => {
     if (!stripOrder.includes(msg.folder)) {
       return res.status(409).json({ error: 'This is the only copy of the message. Archive or move it instead.', onlyCopy: true });
     }
+    // The kept copy is what makes deleting the others safe, so it has to be on the server, not
+    // only in the cache: another client may have moved the message into a folder done strips.
+    let keptLive = false;
+    try {
+      keptLive = await hasMessageCopy(account, msg.uid, msg.folder, msg.message_id);
+    } catch (err) {
+      console.warn(`GTD done: could not confirm the kept copy of ${id}: ${err.message}`);
+    }
+    if (!keptLive) return res.status(409).json({ error: 'This is the only copy of the message. Archive or move it instead.', onlyCopy: true });
     keepActed = true;
   }
 
@@ -624,18 +604,12 @@ router.post('/done', async (req, res) => {
       threadRemains = true;
     }
   }
-  // The acted message can have more than one copy in a folder; removeLabel resolves only one, so
-  // the others go first, each by its exact uid and Message-ID, and only when another copy outside
-  // the stripped folders keeps the message (not the keepActed path).
-  const actedDuplicates = keepActed ? [] : threadCopies.filter(copy => copy.message_id === msg.message_id
-    && stripOrder.includes(copy.folder) && copy.id !== msg.id);
+  // removeLabel removes one copy per folder. A second row with the acted Message-ID in a stripped
+  // folder stays: some senders reuse a Message-ID for different mail, so it may not be a duplicate
+  // at all. The re-check below reports it as threadRemains.
   try {
     for (const folder of stripOrder) {
       if (keepActed && folder === msg.folder) continue;
-      for (const copy of actedDuplicates.filter(dup => dup.folder === folder)) {
-        const { removed: didRemove } = await removeExactLabelCopy(msg, folder, copy.uid);
-        if (didRemove && !removed.includes(folder)) removed.push(folder);
-      }
       const { removed: didRemove } = await removeLabel(msg, folder);
       if (didRemove && !removed.includes(folder)) removed.push(folder);
     }
@@ -658,7 +632,7 @@ router.post('/done', async (req, res) => {
     threadRemains = true;
   }
 
-  // (b) Mark the whole thread read, after the strips so the deleted copies get no read writes.
+  // (b) Mark the acted message read, after the strips so the deleted copies get no read writes.
   // The DB fan-out (by Message-ID) covers every surviving sibling copy, the kept acted copy
   // included, and adjusts each folder's unread count; \Seen is set on the durable INBOX copy
   // only (it rides the archive move; Gmail propagates message-wide) — the same per-copy
@@ -671,7 +645,6 @@ router.post('/done', async (req, res) => {
   // unread it no longer holds. Retry once; if that fails too the copy stays where it is.
   let inboxCopy = null;
   let inboxLookupFailed = false;
-  let fanOutFailed = false;
   const attempts = keepActed && !msg.is_read ? 2 : 1;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
@@ -679,8 +652,6 @@ router.post('/done', async (req, res) => {
       inboxCopy = result.inboxCopy;
       inboxLookupFailed = false;
       if (result.error) console.warn(`GTD done: mark-read for ${id} degraded:`, result.error.message);
-      // Honoured when markThreadRead provides it (PR #662); copyStillUnread is the live check.
-      fanOutFailed = result.fanOutFailed === true;
       break;
     } catch (err) {
       console.error(`GTD done: INBOX lookup for ${id} failed:`, err.message);
@@ -700,14 +671,14 @@ router.post('/done', async (req, res) => {
   if (keepActed && inboxCopy) threadRemains = true;
   // Likewise a kept copy the DB never marked read: the archive would move no unread.
   const keptUnmarked = keepActed && !inboxCopy
-    && (fanOutFailed || await copyStillUnread(account, msg));
+    && await copyStillUnread(account, msg);
   if (keptUnmarked) {
     console.error(`GTD done: ${id} was not marked read, leaving its only copy in ${msg.folder}`);
     archiveFailed = true;
     threadRemains = true;
   }
   // An INBOX copy whose message the DB never marked read stays: the archive moves no unread.
-  const inboxUnmarked = Boolean(inboxCopy) && (fanOutFailed || await copyStillUnread(account, { ...inboxCopy, folder: 'INBOX' }));
+  const inboxUnmarked = Boolean(inboxCopy) && await copyStillUnread(account, { ...inboxCopy, folder: 'INBOX' });
   if (inboxUnmarked) {
     console.error(`GTD done: ${id} was not marked read, leaving its INBOX copy`);
     archiveFailed = true;
@@ -756,14 +727,15 @@ router.post('/done', async (req, res) => {
     }
   }
 
-  // Done archives the whole conversation: the acted message's other INBOX rows (a duplicate under
-  // the same Message-ID; markThreadRead resolved only one), then every other message's.
+  // Done on a section row archives the whole conversation: the acted message's other INBOX rows (a
+  // duplicate under the same Message-ID; markThreadRead resolved only one), then every other
+  // message's. The inbox checkmark loaded no thread rows, so it archives only the acted message.
   const inboxRows = threadCopies
     .filter(copy => copy.folder === 'INBOX')
     .map(copy => ({ ...copy, account_id: msg.account_id }));
   const actedExtras = inboxRows.filter(copy => copy.message_id === msg.message_id && copy.id !== inboxCopy?.id);
   if (inboxCopy && actedExtras.length) {
-    const result = await archiveInboxRows(account, actedExtras, inboxCopy.id, fanOutFailed);
+    const result = await archiveInboxRows(account, actedExtras, inboxCopy.id);
     if (result.failed) archiveFailed = true;
     if (result.noArchiveFolder) noArchiveFolder = true;
     if (result.archived) archived = true;
@@ -776,7 +748,7 @@ router.post('/done', async (req, res) => {
     otherMessages.get(key).push(copy);
   }
   for (const rows of otherMessages.values()) {
-    const result = await archiveOtherInboxCopies(account, rows[0], rows);
+    const result = await archiveOtherInboxCopies(account, rows);
     if (result.failed) archiveFailed = true;
     if (result.noArchiveFolder) noArchiveFolder = true;
     if (result.archived) archived = true;

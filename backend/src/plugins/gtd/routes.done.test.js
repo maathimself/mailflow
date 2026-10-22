@@ -362,7 +362,7 @@ describe('POST /api/gtd/done — a GTD folder holding the only copy', () => {
   // A row can outlive its message for a while after another client moves it.
   it('archives instead of stripping when the server does not confirm the other copy', async () => {
     stubQueries({ inbox: null, copies: ['Watch', 'Receipts'] });
-    imapManager.hasMessageCopy.mockResolvedValue(false);
+    imapManager.hasMessageCopy.mockImplementation(async (_account, _uid, folder) => folder === 'Watch');
     imapManager.moveMessage.mockResolvedValue(91);
     await done({ id: MSG_ID, states: ['watch'] });
     expect(imapManager.hasMessageCopy).toHaveBeenCalledWith(expect.anything(), 10, 'Receipts', '<m@x>');
@@ -372,7 +372,10 @@ describe('POST /api/gtd/done — a GTD folder holding the only copy', () => {
 
   it('treats a failed confirmation as no copy', async () => {
     stubQueries({ inbox: null, copies: ['Watch', 'Receipts'] });
-    imapManager.hasMessageCopy.mockRejectedValue(new Error('connection refused'));
+    imapManager.hasMessageCopy.mockImplementation(async (_account, _uid, folder) => {
+      if (folder === 'Watch') return true;
+      throw new Error('connection refused');
+    });
     imapManager.moveMessage.mockResolvedValue(91);
     await done({ id: MSG_ID, states: ['watch'] });
     expect(imapManager.removeMessageCopy).not.toHaveBeenCalled();
@@ -573,11 +576,12 @@ describe('POST /api/gtd/done — strips every copy in the thread', () => {
       }
       if (sql.startsWith('DELETE FROM messages')) {
         movedIds.add(params[0]);
-        return { rowCount: 1 };
+        return { rowCount: 1, rows: rows.filter(r => r.id === params[0]).map(r => ({ is_read: r.is_read })) };
       }
       if (sql.startsWith('UPDATE messages SET folder')) {
-        movedIds.add(params[params.length - 2]);
-        return { rowCount: 1 };
+        const movedId = params[params.length - 2];
+        movedIds.add(movedId);
+        return { rowCount: 1, rows: rows.filter(r => r.id === movedId).map(r => ({ is_read: r.is_read })) };
       }
       return { rows: [] };
     });
@@ -615,17 +619,55 @@ describe('POST /api/gtd/done — strips every copy in the thread', () => {
     expect(imapManager.moveMessage).toHaveBeenCalledWith(expect.anything(), 5, 'Watch', 'Archive');
   });
 
-  it('strips every GTD folder any thread copy is in when done from the inbox', async () => {
+  // The inbox checkmark acts on one message: in the flat list its thread-mates are rows of their own.
+  it('strips only the acted message\'s GTD folders when done from the inbox', async () => {
     const acted = row(77, 'INBOX', B, { id: MSG_ID });
     stubThread([row(5, 'Delegated', A), row(15, 'Receipts', A), row(6, 'Watch', B), acted], acted);
     imapManager.moveMessage.mockResolvedValue(88);
     const res = await done({ id: MSG_ID });
     expect(res.status).toBe(200);
-    expect(removedCopies()).toEqual(expect.arrayContaining([[5, 'Delegated'], [6, 'Watch']]));
-    expect(removedCopies()).toHaveLength(2);
+    expect(removedCopies()).toEqual([[6, 'Watch']]);
   });
 
-  it('does not delete another message whose surviving copy cannot be confirmed, and says so', async () => {
+  it('leaves an unread thread-mate in the Inbox when the checkmark acts on one message', async () => {
+    const acted = row(20, 'INBOX', B, { id: MSG_ID });
+    stubThread([row(10, 'INBOX', A, { is_read: false }), acted], acted);
+    imapManager.moveMessage.mockResolvedValue(99);
+    const res = await done({ id: MSG_ID });
+    expect(res.status).toBe(200);
+    expect(imapManager.moveMessage.mock.calls.map(c => c[1])).toEqual([20]);
+    expect(imapManager.setFlag).not.toHaveBeenCalledWith(expect.anything(), 10, 'INBOX', '\\Seen', true);
+  });
+
+  it('keeps a thread-mate\'s Reference copy when the checkmark acts on another message', async () => {
+    const acted = row(20, 'INBOX', B, { id: MSG_ID });
+    stubThread([row(30, 'Archive', A), row(31, 'Reference', A), acted], acted);
+    imapManager.moveMessage.mockResolvedValue(99);
+    const res = await done({ id: MSG_ID });
+    expect(res.status).toBe(200);
+    expect(removedCopies()).toEqual([]);
+  });
+
+  // Another client moved the message from Watch to Delegated; the cache still has the Watch row, the section head.
+  it('does not expunge the only real copy when the kept GTD row is gone from the server', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const acted = row(6, 'Watch', B, { id: MSG_ID });
+      stubThread([acted, row(9, 'Delegated', B)], acted);
+      imapManager.hasMessageCopy.mockImplementation(async (_account, uid, folder) => !(folder === 'Watch' && Number(uid) === 6));
+      imapManager.moveMessage.mockResolvedValue(null);
+      const res = await done({ id: MSG_ID, states: ['watch', 'delegated'] });
+      expect(res.status).toBe(409);
+      expect(removedCopies()).toEqual([]);
+      expect(imapManager.moveMessage).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // A failed check is not proof that no other copy exists, so the copy is neither deleted nor
+  // archived beside a copy that may still be there.
+  it('leaves another message whose surviving copy cannot be confirmed, and says so', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const acted = row(6, 'Watch', B, { id: MSG_ID });
@@ -638,7 +680,8 @@ describe('POST /api/gtd/done — strips every copy in the thread', () => {
       const res = await done({ id: MSG_ID, states: ['watch'] });
       expect(res.status).toBe(200);
       expect(removedCopies()).toEqual([[6, 'Watch']]);
-      expect(imapManager.moveMessage).toHaveBeenCalledWith(expect.anything(), 5, 'Watch', 'Archive');
+      expect(imapManager.moveMessage.mock.calls.map(c => c[1])).toEqual([77]);
+      expect(await res.json()).toMatchObject({ ok: true, threadRemains: true });
       expect(warn.mock.calls.flat().join(' ')).toMatch(/Receipts/);
     } finally {
       warn.mockRestore();
@@ -756,48 +799,38 @@ describe('POST /api/gtd/done — strips every copy in the thread', () => {
     expect(await res.json()).toMatchObject({ ok: true, threadRemains: false });
   });
 
-  it('marks another message read before archiving its unread only copy', async () => {
+  // An unread reply the user has not opened stays unread, also once archived.
+  it('archives another message\'s unread only copy without marking it read', async () => {
     const acted = row(6, 'Watch', B, { id: MSG_ID });
     stubThread([row(5, 'Watch', A, { is_read: false }), acted, row(77, 'INBOX', B)], acted);
     imapManager.moveMessage.mockResolvedValue(88);
-    await done({ id: MSG_ID, states: ['watch'] });
-    const fanOutA = fanOutReadToSiblings.mock.calls.findIndex(c => c[1] === A);
-    expect(fanOutReadToSiblings.mock.calls[fanOutA]).toEqual([ACCT_ID, A, true]);
-    const seenA = imapManager.setFlag.mock.calls.findIndex(c => c[1] === 5);
-    expect(imapManager.setFlag.mock.calls[seenA]).toEqual([expect.anything(), 5, 'Watch', '\\Seen', true]);
-    const moveA = imapManager.moveMessage.mock.calls.findIndex(c => c[1] === 5);
-    expect(moveA).toBeGreaterThanOrEqual(0);
-    const moveOrder = imapManager.moveMessage.mock.invocationCallOrder[moveA];
-    expect(fanOutReadToSiblings.mock.invocationCallOrder[fanOutA]).toBeLessThan(moveOrder);
-    expect(imapManager.setFlag.mock.invocationCallOrder[seenA]).toBeLessThan(moveOrder);
+    const res = await done({ id: MSG_ID, states: ['watch'] });
+    expect(await res.json()).toMatchObject({ ok: true, threadRemains: false });
+    expect(imapManager.moveMessage).toHaveBeenCalledWith(expect.anything(), 5, 'Watch', 'Archive');
+    expect(fanOutReadToSiblings.mock.calls.filter(c => c[1] === A)).toEqual([]);
+    expect(imapManager.setFlag.mock.calls.filter(c => c[1] === 5)).toEqual([]);
+    expect(adjustFolderCounts).toHaveBeenCalledWith(ACCT_ID, 'Watch', -1, -1);
+    expect(adjustFolderCounts).toHaveBeenCalledWith(ACCT_ID, 'Archive', 1, 1);
   });
 
-  // The deleted copy gets no read write; removeMessageCopy already counts its unread.
-  it('marks another message read after deleting its copy', async () => {
+  it('deletes another message\'s copy without marking the message read', async () => {
     const acted = row(6, 'Watch', B, { id: MSG_ID });
     stubThread([row(5, 'Watch', A, { is_read: false }), row(15, 'Receipts', A, { is_read: false }), acted, row(77, 'INBOX', B)], acted);
     imapManager.moveMessage.mockResolvedValue(88);
     await done({ id: MSG_ID, states: ['watch'] });
-    const fanOutA = fanOutReadToSiblings.mock.calls.findIndex(c => c[1] === A);
-    expect(fanOutA).toBeGreaterThanOrEqual(0);
-    const removeA = imapManager.removeMessageCopy.mock.calls.findIndex(c => c[1] === 5);
-    expect(removeA).toBeGreaterThanOrEqual(0);
-    expect(fanOutReadToSiblings.mock.invocationCallOrder[fanOutA])
-      .toBeGreaterThan(imapManager.removeMessageCopy.mock.invocationCallOrder[removeA]);
+    expect(removedCopies()).toEqual([[5, 'Watch'], [6, 'Watch']]);
+    expect(fanOutReadToSiblings.mock.calls.filter(c => c[1] === A)).toEqual([]);
+    expect(imapManager.setFlag.mock.calls.filter(c => c[1] === 15)).toEqual([]);
   });
 
-  it('marks another message read after removing its Gmail label copy', async () => {
+  it('removes another message\'s Gmail label copy without marking the message read', async () => {
     const acted = row(6, 'Watch', B, { id: MSG_ID });
     stubThread([row(5, 'Watch', A, { is_read: false }), acted, row(77, 'INBOX', B)], acted);
     imapManager.isLabelStore.mockReturnValue(true);
     imapManager.moveMessage.mockResolvedValue(88);
     await done({ id: MSG_ID, states: ['watch'] });
-    const fanOutA = fanOutReadToSiblings.mock.calls.findIndex(c => c[1] === A);
-    expect(fanOutA).toBeGreaterThanOrEqual(0);
-    const removeA = imapManager.removeMessageCopy.mock.calls.findIndex(c => c[1] === 5);
-    expect(removeA).toBeGreaterThanOrEqual(0);
-    expect(fanOutReadToSiblings.mock.invocationCallOrder[fanOutA])
-      .toBeGreaterThan(imapManager.removeMessageCopy.mock.invocationCallOrder[removeA]);
+    expect(removedCopies()).toContainEqual([5, 'Watch']);
+    expect(fanOutReadToSiblings.mock.calls.filter(c => c[1] === A)).toEqual([]);
   });
 
   it('marks the acted message read after stripping its copies and before archiving', async () => {
@@ -830,30 +863,38 @@ describe('POST /api/gtd/done — strips every copy in the thread', () => {
     expect(removedCopies()).toEqual([[5, 'Watch'], [6, 'Watch']]);
   });
 
-  it('archives every INBOX copy in the thread when done from the inbox', async () => {
+  it('archives only the acted message\'s INBOX copy when done from the inbox', async () => {
     const acted = row(77, 'INBOX', B, { id: MSG_ID });
     stubThread([row(55, 'INBOX', A), row(6, 'Watch', B), acted], acted);
     imapManager.moveMessage.mockResolvedValue(88);
     const res = await done({ id: MSG_ID });
     expect(await res.json()).toMatchObject({ ok: true, archived: true, archiveFailed: false });
-    const moves = imapManager.moveMessage.mock.calls.map(c => [c[1], c[2], c[3]]);
-    expect(moves).toEqual(expect.arrayContaining([[77, 'INBOX', 'Archive'], [55, 'INBOX', 'Archive']]));
-    expect(moves).toHaveLength(2);
+    expect(imapManager.moveMessage.mock.calls.map(c => [c[1], c[2], c[3]])).toEqual([[77, 'INBOX', 'Archive']]);
   });
 
-  it('marks another message read before archiving its INBOX copy', async () => {
+  it('archives an unread thread-mate\'s INBOX copy without \\Seen, keeping it unread', async () => {
     const acted = row(6, 'Watch', B, { id: MSG_ID });
     stubThread([row(55, 'INBOX', A, { is_read: false }), acted, row(77, 'INBOX', B)], acted);
     imapManager.moveMessage.mockResolvedValue(88);
+    const res = await done({ id: MSG_ID, states: ['watch'] });
+    expect(await res.json()).toMatchObject({ ok: true, archived: true, archiveFailed: false });
+    expect(imapManager.moveMessage.mock.calls.map(c => c[1])).toEqual([77, 55]);
+    expect(imapManager.hasMessageCopy).toHaveBeenCalledWith(expect.anything(), 55, 'INBOX', A);
+    expect(fanOutReadToSiblings.mock.calls.filter(c => c[1] === A)).toEqual([]);
+    expect(imapManager.setFlag.mock.calls.filter(c => c[1] === 55)).toEqual([]);
+    expect(adjustFolderCounts).toHaveBeenCalledWith(ACCT_ID, 'INBOX', -1, -1);
+    expect(adjustFolderCounts).toHaveBeenCalledWith(ACCT_ID, 'Archive', 1, 1);
+  });
+
+  it('still marks the acted message read when an unread thread-mate is archived unread', async () => {
+    const acted = row(6, 'Watch', B, { id: MSG_ID, is_read: false });
+    stubThread([row(55, 'INBOX', A, { is_read: false }), acted, row(77, 'INBOX', B, { is_read: false })], acted);
+    imapManager.moveMessage.mockResolvedValue(88);
     await done({ id: MSG_ID, states: ['watch'] });
-    const fanOutA = fanOutReadToSiblings.mock.calls.findIndex(c => c[1] === A);
-    expect(fanOutA).toBeGreaterThanOrEqual(0);
-    const seenA = imapManager.setFlag.mock.calls.findIndex(c => c[1] === 55);
-    expect(imapManager.setFlag.mock.calls[seenA]).toEqual([expect.anything(), 55, 'INBOX', '\\Seen', true]);
-    const moveA = imapManager.moveMessage.mock.calls.findIndex(c => c[1] === 55);
-    const moveOrder = imapManager.moveMessage.mock.invocationCallOrder[moveA];
-    expect(fanOutReadToSiblings.mock.invocationCallOrder[fanOutA]).toBeLessThan(moveOrder);
-    expect(imapManager.setFlag.mock.invocationCallOrder[seenA]).toBeLessThan(moveOrder);
+    expect(fanOutReadToSiblings).toHaveBeenCalledWith(ACCT_ID, B, true);
+    expect(imapManager.setFlag).toHaveBeenCalledWith(expect.anything(), 77, 'INBOX', '\\Seen', true);
+    expect(imapManager.setFlag.mock.calls.filter(c => c[1] === 55)).toEqual([]);
+    expect(adjustFolderCounts).toHaveBeenCalledWith(ACCT_ID, 'INBOX', -1, 0);
   });
 
   it('reports archiveFailed when another message\'s INBOX copy fails to archive, still archiving the rest', async () => {
@@ -895,26 +936,6 @@ describe('POST /api/gtd/done — strips every copy in the thread', () => {
     const res = await done({ id: MSG_ID, states: ['watch'] });
     expect(await res.json()).toMatchObject({ ok: true, archived: false, noArchiveFolder: true, archiveFailed: false });
     expect(imapManager.moveMessage).not.toHaveBeenCalled();
-  });
-
-  // Archiving moves no unread, so a copy whose message the DB never marked read stays.
-  it('keeps another message\'s only copy in place when its read fan-out fails', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const acted = row(6, 'Watch', B, { id: MSG_ID });
-      stubThread([row(5, 'Watch', A, { is_read: false }), acted, row(77, 'INBOX', B)], acted);
-      rejectFanOutFor(A);
-      imapManager.moveMessage.mockResolvedValue(88);
-      const res = await done({ id: MSG_ID, states: ['watch'] });
-      expect(await res.json()).toMatchObject({ ok: true, archived: true, threadRemains: true });
-      expect(imapManager.moveMessage.mock.calls.map(c => c[1])).toEqual([77]);
-      expect(removedCopies()).toEqual([[6, 'Watch']]);
-      expect(warn.mock.calls.flat().join(' ')).toMatch(/db down/);
-    } finally {
-      error.mockRestore();
-      warn.mockRestore();
-    }
   });
 
   it('keeps the acted message\'s only copy in place when its read fan-out fails', async () => {
@@ -960,11 +981,7 @@ describe('POST /api/gtd/done — strips every copy in the thread', () => {
     const moves = imapManager.moveMessage.mock.calls.map(c => c[1]);
     expect(moves).toEqual(expect.arrayContaining([55, 56, 77]));
     expect(moves).toHaveLength(3);
-    const fanOutA = fanOutReadToSiblings.mock.calls.findIndex(c => c[1] === A);
-    for (const uid of [55, 56]) {
-      const move = imapManager.moveMessage.mock.calls.findIndex(c => c[1] === uid);
-      expect(fanOutReadToSiblings.mock.invocationCallOrder[fanOutA]).toBeLessThan(imapManager.moveMessage.mock.invocationCallOrder[move]);
-    }
+    expect(imapManager.setFlag.mock.calls.filter(c => c[1] === 55 || c[1] === 56)).toEqual([]);
   });
 
   it('reports archived when only another message\'s INBOX copy was archived', async () => {
@@ -1100,23 +1117,6 @@ describe('POST /api/gtd/done — strips every copy in the thread', () => {
     }
   });
 
-  it('keeps every INBOX row of another message when its read fan-out fails', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const acted = row(6, 'Watch', B, { id: MSG_ID });
-      stubThread([row(55, 'INBOX', A, { is_read: false }), row(56, 'INBOX', A, { is_read: false }), acted, row(77, 'INBOX', B)], acted);
-      rejectFanOutFor(A);
-      imapManager.moveMessage.mockResolvedValue(88);
-      const res = await done({ id: MSG_ID, states: ['watch'] });
-      expect(await res.json()).toMatchObject({ ok: true, archived: true, archiveFailed: true });
-      expect(imapManager.moveMessage.mock.calls.map(c => c[1])).toEqual([77]);
-    } finally {
-      error.mockRestore();
-      warn.mockRestore();
-    }
-  });
-
   it('leaves a duplicate INBOX row the server does not confirm', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
@@ -1137,43 +1137,14 @@ describe('POST /api/gtd/done — strips every copy in the thread', () => {
     }
   });
 
-  // The archive moves no unread, so a row whose message was never marked read in the DB stays.
-  const failFanOutFor = (messageId, inboxRow, flag) => {
-    markThreadRead.mockImplementation(async (engine, account, message) => {
-      if (message.message_id !== messageId) return actualLabels.markThreadRead(engine, account, message);
-      return { inboxCopy: inboxRow, error: new Error('db down'), ...(flag ? { fanOutFailed: true } : {}) };
-    });
-  };
-
-  // PR #662 reports a failed fan-out directly; the field alone is enough.
-  it('keeps the acted message\'s INBOX copy when markThreadRead reports fanOutFailed', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const acted = row(6, 'Watch', B, { id: MSG_ID });
-      stubThread([acted, row(77, 'INBOX', B)], acted);
-      failFanOutFor(B, { id: 'row-77', uid: 77, is_read: false }, true);
-      imapManager.moveMessage.mockResolvedValue(88);
-      const res = await done({ id: MSG_ID, states: ['watch'] });
-      expect(await res.json()).toMatchObject({ ok: true, archived: false, archiveFailed: true });
-      expect(imapManager.moveMessage).not.toHaveBeenCalled();
-      expect(removedCopies()).toEqual([[6, 'Watch']]);
-    } finally {
-      error.mockRestore();
-      warn.mockRestore();
-    }
-  });
-
-  it('still archives the INBOX copy when mark-read degrades without a failed fan-out', async () => {
+  it('still archives the INBOX copy when marking the acted message read degrades', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const acted = row(6, 'Watch', B, { id: MSG_ID });
       stubThread([row(55, 'INBOX', A), acted, row(77, 'INBOX', B)], acted);
-      failFanOutFor(B, { id: 'row-77', uid: 77, is_read: true }, false);
-      const actedOnly = markThreadRead.getMockImplementation();
       markThreadRead.mockImplementation(async (engine, account, message) => {
-        if (message.message_id === A) return { inboxCopy: { id: 'row-55', uid: 55, is_read: true }, error: new Error('STORE failed') };
-        return actedOnly(engine, account, message);
+        if (message.message_id !== B) return actualLabels.markThreadRead(engine, account, message);
+        return { inboxCopy: { id: 'row-77', uid: 77, is_read: true }, error: new Error('STORE failed') };
       });
       imapManager.moveMessage.mockResolvedValue(88);
       const res = await done({ id: MSG_ID, states: ['watch'] });
@@ -1184,63 +1155,24 @@ describe('POST /api/gtd/done — strips every copy in the thread', () => {
     }
   });
 
-  const throwMarkReadFor = (messageId) => {
-    markThreadRead.mockImplementation(async (engine, account, message) => {
-      if (message.message_id === messageId) throw new Error('db down');
-      return actualLabels.markThreadRead(engine, account, message);
-    });
-  };
-
-  it('keeps another message\'s only copy in place when marking it read throws', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const acted = row(6, 'Watch', B, { id: MSG_ID });
-      stubThread([row(5, 'Watch', A), acted, row(77, 'INBOX', B)], acted);
-      throwMarkReadFor(A);
-      imapManager.moveMessage.mockResolvedValue(88);
-      const res = await done({ id: MSG_ID, states: ['watch'] });
-      expect(await res.json()).toMatchObject({ ok: true, archived: true, threadRemains: true });
-      expect(imapManager.moveMessage.mock.calls.map(c => c[1])).toEqual([77]);
-      expect(removedCopies()).toEqual([[6, 'Watch']]);
-    } finally {
-      error.mockRestore();
-      warn.mockRestore();
-    }
-  });
-
-  it('keeps another message\'s INBOX copy in place when marking it read throws', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-    try {
-      const acted = row(6, 'Watch', B, { id: MSG_ID });
-      stubThread([row(55, 'INBOX', A), acted, row(77, 'INBOX', B)], acted);
-      throwMarkReadFor(A);
-      imapManager.moveMessage.mockResolvedValue(88);
-      const res = await done({ id: MSG_ID, states: ['watch'] });
-      expect(await res.json()).toMatchObject({ ok: true, archived: true, archiveFailed: true });
-      expect(imapManager.moveMessage.mock.calls.map(c => c[1])).toEqual([77]);
-    } finally {
-      error.mockRestore();
-    }
-  });
-
-  // One message can sit in a GTD folder twice; the thread stays in the section while either does.
-  it('removes every copy of the acted message in its own GTD folder, its own row last', async () => {
+  // Some senders reuse a Message-ID for different mail, so a second row under it may be another
+  // email whose only copy is here. It stays, and the thread is reported as remaining.
+  it('leaves a second row with the acted Message-ID in its own GTD folder', async () => {
     const acted = row(6, 'Watch', B, { id: MSG_ID });
     stubThread([acted, row(7, 'Watch', B), row(77, 'INBOX', B)], acted);
     imapManager.moveMessage.mockResolvedValue(88);
     const res = await done({ id: MSG_ID, states: ['watch'] });
-    expect(await res.json()).toMatchObject({ ok: true, removed: ['Watch'], threadRemains: false });
-    expect(removedCopies()).toEqual([[7, 'Watch'], [6, 'Watch']]);
+    expect(await res.json()).toMatchObject({ ok: true, removed: ['Watch'], threadRemains: true });
+    expect(removedCopies()).toEqual([[6, 'Watch']]);
   });
 
-  it('removes every copy of the acted message in another GTD folder', async () => {
+  it('removes one copy of the acted message in another GTD folder and leaves a second row', async () => {
     const acted = row(6, 'Watch', B, { id: MSG_ID });
     stubThread([acted, row(8, 'Delegated', B), row(9, 'Delegated', B), row(77, 'INBOX', B)], acted);
     imapManager.moveMessage.mockResolvedValue(88);
     const res = await done({ id: MSG_ID, states: ['watch', 'delegated'] });
-    expect(await res.json()).toMatchObject({ ok: true, threadRemains: false });
-    expect(removedCopies()).toEqual([[8, 'Delegated'], [9, 'Delegated'], [6, 'Watch']]);
+    expect(await res.json()).toMatchObject({ ok: true, threadRemains: true });
+    expect(removedCopies()).toEqual([[8, 'Delegated'], [6, 'Watch']]);
   });
 
   it('says the thread remains when a duplicate of the acted message cannot be removed', async () => {
