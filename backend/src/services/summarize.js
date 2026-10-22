@@ -1,4 +1,5 @@
-import { completeText, getAiStatus } from './aiProvider.js';
+import { completeText } from './aiProvider.js';
+import { aiFeatureEnabled, getUserAiAccess } from './aiAccess.js';
 
 // Generic "summarize a message into one line" capability (v3.0 plugin platform).
 //
@@ -52,23 +53,27 @@ export function sanitizeSummaryLine(raw, maxLen = SUMMARY_MAX_LEN) {
   return s || null;
 }
 
-// Is summarization available right now? Checks provider availability through the shared adapter
-// and respects the summarize feature gate. Fails closed so a caller never fails just because AI
-// is down. Callers that batch should gate on this ONCE before doing per-message work.
-export async function summarizeAvailable() {
+// Is summarization available right now, for this user? Checks provider availability through the
+// shared adapter, the summarize feature gate, and the user's own AI access (#644), which also
+// denies a missing userId. Fails closed so a caller never fails just because AI is down. Callers
+// that batch should gate on this ONCE before doing per-message work.
+export async function summarizeAvailable(userId) {
   try {
-    const status = await getAiStatus();
-    return status.enabled === true && status.features?.summarize !== false;
+    const { status, allowed } = await getUserAiAccess(userId);
+    return allowed && aiFeatureEnabled(status, 'summarize');
   } catch {
     return false;
   }
 }
 
-// Summarize one message into a sanitised ≤maxLen line, or null when the output is unusable or
-// the provider errors. Never throws. Does NOT check summarizeAvailable() itself — a batching
-// caller should gate once up front; a one-off caller can call summarizeAvailable() first.
-export async function summarizeMessage({ subject, from, content, maxLen = SUMMARY_MAX_LEN } = {}) {
+// Summarize one message into a sanitised ≤maxLen line for this user, or null when AI is not
+// available to them (the same check as summarizeAvailable, so a plugin cannot skip the gate,
+// #644), the output is unusable, or the provider errors. Never throws. A batching caller should
+// still gate on summarizeAvailable() once up front, so a user without access costs no per-message
+// work.
+export async function summarizeMessage({ userId, subject, from, content, maxLen = SUMMARY_MAX_LEN } = {}) {
   try {
+    if (!await summarizeAvailable(userId)) return null;
     const response = await completeText(
       [{ role: 'user', content: buildSummaryPrompt({ subject, from, content, maxLen }) }],
       { maxTokens: maxLen }

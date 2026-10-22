@@ -189,7 +189,10 @@
       "aiApply": "Applica",
       "aiDismiss": "Ignora",
       "aiGenerating": "Generazione in corso…",
-      "aiError": "Errore IA: {{message}}"
+      "aiError": "Errore IA: {{message}}",
+      "aiTooLong": "questa bozza ha {{count}} caratteri, più dei {{max}} che l'IA può gestire. Accorciala o rimuovi il testo citato, poi riprova.",
+      "aiNotAllowed": "il tuo amministratore ha disattivato l'IA per il tuo account.",
+      "aiFeatureOff": "il tuo amministratore ha disattivato l'assistente di redazione IA."
     },
     "priority": "Priorità",
     "priorityHigh": "Alta priorità",
@@ -221,6 +224,9 @@
     "noContent": "Nessun contenuto trovato nel messaggio.",
     "remoteImagesBlocked": "Le immagini remote sono state bloccate.",
     "loadImages": "Carica immagini",
+    "trackersBlocked_one": "{{count}} tracker bloccato",
+    "trackersBlocked_other": "{{count}} tracker bloccati",
+    "trackersBlockedHint": "Le immagini che segnalano al mittente l'apertura di questa email non sono state caricate.",
     "allowSender": "Consenti sempre da {{email}}",
     "allowDomain": "Consenti sempre da @{{domain}}",
     "downloading": "Download in corso…",
@@ -241,6 +247,9 @@
     "delete": "Elimina",
     "downloadEml": "Scarica come .eml",
     "print": "Stampa",
+    "showDark": "Mostra in colori scuri",
+    "showOriginal": "Mostra i colori originali",
+    "cannotShowDark": "Questa email non può essere mostrata scura senza rendere il testo difficile da leggere",
     "printConversation": "Stampa conversazione",
     "preparingPrint": "Preparazione della stampa…",
     "more": "Altro",
@@ -250,10 +259,13 @@
     "aiActions": "Azioni IA",
     "manageAiActions": "Gestisci azioni…",
     "aiRegenerate": "Rigenera",
+    "aiTruncated": "Basato sul primo {{percent}}% di questa email. Il resto era troppo lungo per essere inviato all'IA.",
     "aiExpand": "Espandi",
     "aiCollapse": "Comprimi",
     "aiCopy": "Copia",
     "aiCopied": "Copiato",
+    "aiNotAllowed": "il tuo amministratore ha disattivato l'IA per il tuo account.",
+    "aiFeatureOff": "il tuo amministratore ha disattivato i riepiloghi e le azioni IA.",
     "previousMessage": "Messaggio precedente",
     "nextMessage": "Messaggio successivo",
     "archived": {
@@ -262,19 +274,26 @@
       "failBody": "Impossibile archiviare il messaggio.",
       "noFolderTitle": "Nessuna cartella di archivio",
       "noFolderBody": "Nessuna cartella di archivio configurata per questo account. Impostane una in Impostazioni → Account → Mappatura cartelle.",
-      "conversationTitle": "Conversazione archiviata"
+      "conversationTitle": "Conversazione archiviata",
+      "nothingFromAccount": "Nessun messaggio di questo account da archiviare in questa conversazione",
+      "otherAccountMessage": "Non è stato archiviato nulla: il messaggio aperto appartiene a un altro account",
+      "otherAccountDraft": "Non è stato archiviato nulla: la bozza aperta appartiene a un altro account"
     },
     "moved": {
       "title": "Messaggio spostato",
       "failTitle": "Spostamento fallito",
       "failBody": "Impossibile spostare il messaggio.",
-      "conversationTitle": "Conversazione spostata"
+      "conversationTitle": "Conversazione spostata",
+      "nothingFromAccount": "Nessun messaggio di questo account da spostare in questa conversazione",
+      "otherAccountDraft": "Non è stato spostato nulla: la bozza aperta appartiene a un altro account"
     },
     "snoozed": {
       "title": "Messaggio posticipato",
       "failTitle": "Posticipa fallito",
       "failBody": "Impossibile posticipare questo messaggio.",
-      "conversationTitle": "Conversazione posticipata"
+      "conversationTitle": "Conversazione posticipata",
+      "nothingFromAccount": "Nessun messaggio di questo account da posticipare in questa conversazione",
+      "nothingInConversation": "Nessun messaggio da posticipare in questa conversazione"
     },
     "whitelistFail": {
       "title": "Impossibile salvare la preferenza",
@@ -313,6 +332,16 @@
       "passwordLabel": "Password del PDF",
       "passwordSubmit": "Apri",
       "passwordIncorrect": "Password errata. Riprova."
+    },
+    "unsnoozed": {
+      "title": "Posticipo annullato",
+      "failTitle": "Impossibile annullare il posticipo",
+      "failBody": "Resta posticipato. Riprova."
+    },
+    "snoozeChanged": {
+      "title": "Posticipato fino a {{when}}",
+      "failTitle": "Impossibile cambiare l'orario",
+      "failBody": "Resta l'orario precedente. Riprova."
     }
   },
   "messageList": {
@@ -356,7 +385,8 @@
       "body": "Spostato nel Cestino.",
       "failTitle": "Eliminazione fallita",
       "failBody": "Impossibile eliminare il messaggio.",
-      "conversationTitle": "Conversazione eliminata"
+      "conversationTitle": "Conversazione eliminata",
+      "nothingFromAccount": "Nessun messaggio di questo account da eliminare in questa conversazione"
     },
     "draftBcc": {
       "failTitle": "Bozza aperta in sola lettura",
@@ -396,6 +426,7 @@
     "pullToSync": "Trascina per sincronizzare",
     "releaseToSync": "Rilascia per sincronizzare",
     "noSearchResults": "Nessun risultato trovato",
+    "searching": "Ricerca in corso…",
     "noSearchResultsDesc": "Nessun risultato per {{query}}",
     "searchFailed": "Ricerca non riuscita",
     "clearSearch": "Cancella ricerca",
@@ -453,7 +484,10 @@
         "label": "Divisione verticale",
         "description": "Elenco messaggi sopra il riquadro di lettura"
       }
-    }
+    },
+    "snoozedUntil": "Posticipato fino a {{when}}",
+    "snoozedEmpty": "Niente posticipato",
+    "snoozedEmptyDesc": "Le email posticipate aspettano qui finché non tornano."
   },
   "lockScreen": {
     "subtitle": "Inserisci il PIN per sbloccare",
@@ -511,7 +545,8 @@
     "emptying": "Svuotamento di \"{{name}}\"…",
     "emptied": "Cartella svuotata",
     "backToAccounts": "Torna agli account",
-    "updateAvailable": "Aggiornamento disponibile: v{{version}}"
+    "updateAvailable": "Aggiornamento disponibile: v{{version}}",
+    "snoozed": "Posticipati"
   },
   "contextMenu": {
     "find": "Trova",
@@ -533,7 +568,9 @@
       "threeHours": "Tra 3 ore",
       "tomorrowMorning": "Domani mattina",
       "nextWeek": "La settimana prossima",
-      "custom": "Personalizzato..."
+      "custom": "Personalizzato...",
+      "change": "Cambia l'orario",
+      "unsnooze": "Annulla posticipo"
     },
     "categorize": "Categorizza come…",
     "categoryAlwaysSender": "Sempre per questo mittente",
@@ -776,6 +813,11 @@
     },
     "title": "Impostazioni",
     "close": "Chiudi",
+    "behavior": {
+      "reading": "Lettura",
+      "writing": "Scrittura",
+      "sync": "Sincronizzazione"
+    },
     "tabs": {
       "cleanup": "Pulizia",
       "accounts": "Account",
@@ -795,10 +837,11 @@
       "aiActions": "Azioni IA",
       "antispam": "Antispam",
       "categories": "Categorie",
-      "groupAccountMail": "Account e posta",
-      "groupDisplay": "Schermo",
-      "groupSecurityIntegrations": "Sicurezza e integrazioni",
+      "groupMail": "Posta",
+      "groupPreferences": "Preferenze",
+      "groupAiExtensions": "IA ed estensioni",
       "groupAdmin": "Amministrazione",
+      "behavior": "Comportamento",
       "plugins": "Plugin",
       "backup": "Backup"
     },
@@ -842,6 +885,8 @@
       "actionForward": "Inoltra a",
       "actionForwardPlaceholder": "destinatario@example.com",
       "actionSetCategory": "Imposta categoria",
+      "actionNotify": "Avvisami",
+      "actionNotifyHint": "Avvisami anche se la regola sposta l'email o la segna come letta.",
       "actionSetCategorySelect": "Seleziona una categoria…",
       "actionMovePlaceholder": "Nome cartella",
       "stopProcessing": "Interrompi l'elaborazione delle regole successive se questa corrisponde",
@@ -886,6 +931,10 @@
       "editTitle": "Modifica account",
       "addTitle": "Aggiungi account",
       "color": "Colore account",
+      "icon": "Icona",
+      "iconNone": "Nessuna (punto colorato)",
+      "iconCustom": "Oppure digita un'emoji",
+      "iconHint": "Mostrata al posto del punto colorato.",
       "displayName": "Nome visualizzato",
       "displayNamePh": "es. Gmail Lavoro",
       "email": "Indirizzo email",
@@ -989,6 +1038,8 @@
     "appearance": {
       "title": "Aspetto",
       "description": "Scegli un tema colore per l'interfaccia",
+      "darkEmailBodies": "Corpo delle email scuro",
+      "darkEmailBodiesDesc": "Con un tema scuro, mostra in colori scuri anche le email HTML: con il design scuro del mittente se c'è, altrimenti ricolorate da MailFlow. Un'email resta come inviata quando lo chiede o quando mostrarla scura renderebbe il testo difficile da leggere. Ogni messaggio può essere cambiato singolarmente.",
       "typography": "Tipografia",
       "typographyDescription": "Scegli una combinazione di font per l'interfaccia",
       "typographyLoading": "Caricamento font…",
@@ -1255,6 +1306,12 @@
       "adminBadge": "Admin",
       "makeAdmin": "Rendi amministratore",
       "removeAdmin": "Rimuovi amministratore",
+      "aiOn": "IA attiva",
+      "aiOff": "IA disattivata",
+      "aiAccessLabel": "IA per {{username}}",
+      "aiOnHint": "Questo utente può usare l'assistente IA. Disattivala per rifiutare le sue richieste IA: assistente di redazione, riepiloghi, azioni IA e categorizzazione con IA.",
+      "aiOffHint": "Questo utente non può usare l'assistente IA. Attivala per consentirlo.",
+      "aiToggleFailed": "Impossibile modificare l'accesso all'IA di {{username}}",
       "disable2fa": "Disabilita 2FA",
       "deleteUser": "Elimina utente",
       "registrationOpen": "Registrazione aperta",
@@ -1317,6 +1374,9 @@
       "features": "Funzionalità",
       "featureCompose": "Assistente di redazione (bozza e miglioramento)",
       "featureSummarize": "Riepilogo email",
+      "access": "Accesso",
+      "newUsersEnabled": "Consenti l'IA ai nuovi utenti",
+      "newUsersEnabledHint": "Si applica agli account creati da ora in poi. Gli utenti esistenti mantengono la propria impostazione, che puoi modificare nell'elenco utenti.",
       "saved": "Configurazione IA salvata.",
       "testOk": "Connesso con successo.",
       "testFail": "Connessione fallita",
@@ -1774,7 +1834,9 @@
     "noRulesFired": "Nessuna regola attivata",
     "mlTokensTitle": "Token principali",
     "noMlTokens": "Nessun token ML",
-    "conversationMovedToSpam": "Conversazione spostata in Spam"
+    "conversationMovedToSpam": "Conversazione spostata in Spam",
+    "nothingFromAccount": "Nessun messaggio di questo account da segnalare come spam in questa conversazione",
+    "nothingInConversation": "Nessun messaggio da segnalare come spam in questa conversazione"
   },
   "contacts": {
     "title": "Contatti",

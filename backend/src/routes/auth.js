@@ -20,6 +20,7 @@ import { sanitizeRightSidebarPrefs } from '../utils/rightSidebarPrefs.js';
 import { redisClient } from '../services/redis.js';
 import { destroyUserSessions } from '../services/userSessions.js';
 import { touchLastSeen } from '../services/lastSeen.js';
+import { aiEnabledForNewUser } from '../services/aiNewUsers.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 
 const router = Router();
@@ -163,8 +164,8 @@ router.post('/register', authLimiter, async (req, res) => {
     }
 
     const result = await client.query(
-      'INSERT INTO users (username, password_hash, is_admin) VALUES ($1, $2, $3) RETURNING id, username, is_admin',
-      [username.toLowerCase().trim(), hash, isFirstUser]
+      'INSERT INTO users (username, password_hash, is_admin, ai_enabled) VALUES ($1, $2, $3, $4) RETURNING id, username, is_admin',
+      [username.toLowerCase().trim(), hash, isFirstUser, await aiEnabledForNewUser(client)]
     );
     const newUser = result.rows[0];
 
@@ -769,9 +770,12 @@ export async function patchPreferences(req, res) {
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
           folderOrder, senderFavicons, showMessagePreviews, defaultSender,
-          conversationMode, hoverActionSet, autoOpenReplyDrafts, afterRemove } = req.body;
+          conversationMode, hoverActionSet, autoOpenReplyDrafts, afterRemove, darkEmailBodies } = req.body;
   if (autoOpenReplyDrafts !== undefined && typeof autoOpenReplyDrafts !== 'boolean') {
     return res.status(400).json({ error: 'autoOpenReplyDrafts must be a boolean' });
+  }
+  if (darkEmailBodies !== undefined && typeof darkEmailBodies !== 'boolean') {
+    return res.status(400).json({ error: 'darkEmailBodies must be a boolean' });
   }
   // GTD content and generic right-sidebar layout preferences are independent flat
   // top-level keys with separate allow-lists. gtdEnabled is intentionally NOT a user
@@ -888,6 +892,7 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $44::jsonb IS NOT NULL THEN jsonb_build_object('hoverActionSet', $44::jsonb) ELSE '{}'::jsonb END
       || CASE WHEN $45::boolean IS NOT NULL THEN jsonb_build_object('autoOpenReplyDrafts', $45::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $46::text IS NOT NULL THEN jsonb_build_object('afterRemove', $46::text) ELSE '{}'::jsonb END
+      || CASE WHEN $47::boolean IS NOT NULL THEN jsonb_build_object('darkEmailBodies', $47::boolean) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -899,7 +904,7 @@ export async function patchPreferences(req, res) {
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
       showMessagePreviews ?? null, defaultSenderVal, conversationModeVal, hoverActionSetJson, autoOpenReplyDrafts ?? null,
-      afterRemoveVal]);
+      afterRemoveVal, darkEmailBodies ?? null]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

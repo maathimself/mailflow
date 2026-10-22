@@ -10,6 +10,7 @@ import nodemailer from 'nodemailer';
 import { query } from './db.js';
 import { createAccountSmtpTransport } from './smtpTransport.js';
 import { parseRawHeaders } from './messageParser.js';
+import { sanitizeEmail } from './emailSanitizer.js';
 import {
   buildForwardMessage,
   forwardRuleMessage,
@@ -149,6 +150,22 @@ describe('buildForwardMessage', () => {
 
     expect(mail.text).toContain('Hello there');
     expect(mail.text).toContain('Second line');
+  });
+
+  // #228: the sanitizer keeps a sender's dark CSS for MailFlow's reader, switched off. A forward
+  // leaves MailFlow, where a mail client ignoring media="not all" would apply it on a light page.
+  it("leaves the sender's switched-off dark CSS out of a forward", () => {
+    const mail = buildForwardMessage({
+      row: { subject: 'Styled', from_name: 'S', from_email: 'sender@example.com', to_addresses: [], cc_addresses: [], date: null },
+      account,
+      recipient: 'recipient@example.com',
+      text: '',
+      html: '<style>.a{color:#111}@media (prefers-color-scheme: dark){.a{color:#eee}}</style><p class="a">Hi</p>',
+      attachments: [],
+    });
+    expect(mail.html).toContain('class="a"');
+    expect(mail.html).not.toContain('data-mf-dark-scheme');
+    expect(mail.html).not.toContain('#eee');
   });
 
   it('preserves a text-only body without adding an HTML alternative', () => {
@@ -475,6 +492,109 @@ describe('forwardRuleMessage', () => {
     }));
   });
 
+  // #640: an image the body shows as a data: URI goes out once, inline.
+  it('does not attach again an image the fetched body shows inline', async () => {
+    const pdf = Buffer.from('pdfdata');
+    const header = { part: '5', filename: 'header.png', type: 'image/png', encoding: 'base64', size: 3 };
+    const row = {
+      ...messageRow,
+      body_text: '',
+      body_html: null,
+      // The list stored at sync time, before the body showed the header is part of the page.
+      attachments: [header, storedAttachments[0]],
+    };
+    imapManager.fetchMessageBody.mockResolvedValue({
+      text: 'News',
+      html: '<p>News<img src="data:image/png;base64,QUJD"></p>',
+      attachments: [storedAttachments[0]],
+      inlineParts: ['5'],
+    });
+    imapManager.fetchMultipleAttachments.mockResolvedValue(new Map([['2', pdf]]));
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'delivery-1' }] })
+      .mockResolvedValueOnce({ rows: [row] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(forwardRuleMessage(input)).resolves.toBe('sent');
+
+    expect(imapManager.fetchMultipleAttachments).toHaveBeenCalledWith(
+      account, messageRow.uid, messageRow.folder, [storedAttachments[0]]);
+    const mail = transport.sendMail.mock.calls[0][0];
+    expect(mail.attachments.map(a => a.filename)).toEqual(['image-0.png', 'invoice.pdf']);
+  });
+
+  // A background is not carried as an image part (embedInlineDataImages converts <img src> only),
+  // and mail clients drop CSS data: URIs: a photo shown only that way still goes as a file.
+  it('still attaches a listed photo the body shows only as a background', async () => {
+    const photo = { part: '3', filename: 'photo.jpg', type: 'image/jpeg', encoding: 'base64', size: 3 };
+    const jpeg = Buffer.from('JPEG');
+    imapManager.fetchMessageBody.mockResolvedValue({
+      text: 'Look',
+      html: '<table background="data:image/jpeg;base64,SlBFRw=="><tr><td>Look</td></tr></table>',
+      attachments: [photo],
+      inlineParts: [],
+    });
+    imapManager.fetchMultipleAttachments.mockResolvedValue(new Map([['3', jpeg]]));
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'delivery-1' }] })
+      .mockResolvedValueOnce({ rows: [{ ...messageRow, body_text: '', body_html: null, attachments: [photo] }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(forwardRuleMessage(input)).resolves.toBe('sent');
+    expect(transport.sendMail.mock.calls[0][0].attachments.map(a => a.filename)).toEqual(['photo.jpg']);
+  });
+
+  it('does not attach again a listed photo the stored body shows inline, but does without HTML', async () => {
+    const photo = { part: '3', filename: 'photo.jpg', type: 'image/jpeg', encoding: 'base64', size: 3, shownInline: true };
+    const jpeg = Buffer.from('JPEG');
+    imapManager.fetchMultipleAttachments.mockResolvedValue(new Map([['3', jpeg]]));
+    const send = async (row) => {
+      query
+        .mockResolvedValueOnce({ rows: [{ id: 'delivery-1' }] })
+        .mockResolvedValueOnce({ rows: [row] })
+        .mockResolvedValueOnce({ rows: [] });
+      await expect(forwardRuleMessage(input)).resolves.toBe('sent');
+      return transport.sendMail.mock.calls.at(-1)[0].attachments.map(a => a.filename);
+    };
+
+    expect(await send({ ...messageRow, body_html: '<p>Look<img src="data:image/jpeg;base64,SlBFRw=="></p>', attachments: [photo] }))
+      .toEqual(['image-0.jpg']);
+    expect(await send({ ...messageRow, body_text: 'Look', body_html: null, attachments: [photo] }))
+      .toEqual(['photo.jpg']);
+  });
+
+  it('forwards an application/octet-stream image the stored body shows once, with the real file and no cache marker', async () => {
+    const logo = { part: '2', filename: 'logo.png', type: 'application/octet-stream', encoding: 'base64', size: 3, disposition: 'attachment', shownInline: true };
+    const data = { part: '3', filename: 'data.bin', type: 'application/octet-stream', encoding: 'base64', size: 3, disposition: 'attachment' };
+    imapManager.fetchMultipleAttachments.mockResolvedValue(new Map([['3', Buffer.from('BIN')]]));
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'delivery-1' }] })
+      .mockResolvedValueOnce({ rows: [{ ...messageRow, body_html: '<p>Hi<img src="data:image/png;base64,QUJD"></p><!--mf-cids-settled:3-->', attachments: [logo, data] }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(forwardRuleMessage(input)).resolves.toBe('sent');
+    const mail = transport.sendMail.mock.calls[0][0];
+    expect(mail.attachments.map(a => a.filename)).toEqual(['image-0.png', 'data.bin']);
+    expect(mail.html).not.toContain('mf-cids-settled');
+  });
+
+  it('forwards a PDF named like an image as the file it is, not as an inline image', async () => {
+    const scan = { part: '2', filename: 'scan.png', type: 'application/octet-stream', encoding: 'base64', size: 3, disposition: 'attachment' };
+    const pdf = Buffer.from('%PDF');
+    // What fetchMessageBody gives for it: the HTML's reference left unresolved, nothing shown inline.
+    imapManager.fetchMessageBody.mockResolvedValue({
+      text: 'Scan', html: '<p>Scan<img src="cid:part-2-000000000000@mailflow.invalid"></p>', attachments: [scan], inlineParts: [],
+    });
+    imapManager.fetchMultipleAttachments.mockResolvedValue(new Map([['2', pdf]]));
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'delivery-1' }] })
+      .mockResolvedValueOnce({ rows: [{ ...messageRow, body_text: '', body_html: null, attachments: [scan] }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(forwardRuleMessage(input)).resolves.toBe('sent');
+    expect(transport.sendMail.mock.calls[0][0].attachments).toEqual([expect.objectContaining({ filename: 'scan.png', content: pdf })]);
+  });
+
   it('rejects attachments larger than 25 MiB before SMTP delivery', async () => {
     const row = {
       ...messageRow,
@@ -725,5 +845,33 @@ describe('forwardRuleMessage', () => {
     await expect(forward(input)).rejects.toThrow(/ENCRYPTION_KEY/);
     expect(freshQuery).not.toHaveBeenCalled();
     expect(freshSmtp).not.toHaveBeenCalled();
+  });
+});
+
+// The stored body is already sanitized and ends with the sender's dark CSS switched off
+// (media="not all"). Sanitized again on the way out, the switch was dropped, so a forward of an
+// email with a dark design went out with its dark rules on: white text for the recipient.
+describe('forwarding a stored body', () => {
+  it("leaves the sender's dark design off", async () => {
+    vi.clearAllMocks();
+    query.mockReset();
+    const transport = { sendMail: vi.fn().mockResolvedValue({ accepted: true }) };
+    createAccountSmtpTransport.mockResolvedValue({ account, transport });
+    const stored = sanitizeEmail('<style>.x{color:#333} @media (prefers-color-scheme: dark){ .x{color:#fff !important} body{background:#000 !important} }</style><p class="x">Hello</p>');
+    expect(stored).toContain('media="not all"'); // as sync stores it
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'delivery-1' }] })
+      .mockResolvedValueOnce({ rows: [{ ...messageRow, body_html: stored }] })
+      .mockResolvedValueOnce({ rows: [] });
+    await expect(forwardRuleMessage({
+      ruleId: 'rule-1', message: { id: messageRow.id }, account,
+      imapManager: { fetchMessageBody: vi.fn(), fetchMultipleAttachments: vi.fn().mockResolvedValue(new Map()) },
+      recipient: 'recipient@example.com',
+    })).resolves.toBe('sent');
+    const { html } = transport.sendMail.mock.calls[0][0];
+    expect(html).toContain('Hello');
+    expect(html).toContain('.x{color:#333}');
+    expect(html).not.toContain('#fff');
+    expect(html).not.toContain('background:#000');
   });
 });

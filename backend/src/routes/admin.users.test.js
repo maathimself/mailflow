@@ -38,13 +38,14 @@ describe('GET /admin/users', () => {
     query
       .mockResolvedValueOnce({ rows: [{
         id: USER, username: 'maria', is_admin: false, totp_enabled: false, created_at: seen,
-        last_seen_at: seen, recovery_email: 'maria@example.com', has_password: true,
+        last_seen_at: seen, recovery_email: 'maria@example.com', has_password: true, ai_enabled: false,
       }] })
       .mockResolvedValueOnce({ rows: [{ total: '1' }] });
     const res = reply();
     await listUsers({ query: {} }, res);
     const [user] = res.json.mock.calls[0][0].users;
-    expect(user).toMatchObject({ lastSeenAt: seen, recoveryEmail: 'maria@example.com', hasPassword: true });
+    expect(user).toMatchObject({ lastSeenAt: seen, recoveryEmail: 'maria@example.com', hasPassword: true, aiEnabled: false });
+    expect(query.mock.calls[0][0]).toMatch(/\bai_enabled\b/);
     expect(JSON.stringify(user)).not.toMatch(/password_hash|\$2[aby]\$/);
     expect(query.mock.calls[0][0]).not.toMatch(/SELECT[^;]*\bpassword_hash\b\s*,/);
   });
@@ -91,6 +92,29 @@ describe('PATCH /admin/users/:id', () => {
     await updateUser(request({ id: USER }, { isAdmin: true }), reply());
     const update = query.mock.calls.find(([sql]) => sql.startsWith('UPDATE users'));
     expect(update).toEqual(['UPDATE users SET is_admin = $1 WHERE id = $2', [true, USER]]);
+  });
+
+  // #644: the per-user AI switch. Admins can turn it off for themselves too.
+  it('turns AI access on or off, for another user or for the admin themselves', async () => {
+    for (const [id, aiEnabled] of [[USER, false], [USER, true], [ADMIN, false]]) {
+      query.mockClear();
+      const res = reply();
+      await updateUser(request({ id }, { aiEnabled }), res);
+      const update = query.mock.calls.find(([sql]) => sql.startsWith('UPDATE users'));
+      expect(update).toEqual(['UPDATE users SET ai_enabled = $1 WHERE id = $2', [aiEnabled, id]]);
+      expect(res.json).toHaveBeenCalledWith({ ok: true });
+    }
+  });
+
+  it('rejects an aiEnabled that is not a boolean before touching the database', async () => {
+    for (const aiEnabled of ['false', 0, 1, null, {}]) {
+      query.mockClear();
+      const res = reply();
+      await updateUser(request({ id: USER }, { aiEnabled }), res);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: 'aiEnabled must be true or false' });
+      expect(query).not.toHaveBeenCalled();
+    }
   });
 
   it('answers 404 for a user that does not exist', async () => {
@@ -210,6 +234,13 @@ describe('the security log records admin changes and who made them', () => {
     users();
     await updateUser(request({ id: USER }, { username: 'Maria.Silva' }), reply());
     expectEvent('admin_user_update', 'maria.silva');
+  });
+
+  it('AI access turned off for a user (#644)', async () => {
+    users();
+    await updateUser(request({ id: USER }, { aiEnabled: false }), reply());
+    expect(sqls()).toContain('UPDATE users SET ai_enabled = $1 WHERE id = $2');
+    expectEvent('admin_user_update', 'maria');
   });
 
   it('2FA turned off by an admin', async () => {

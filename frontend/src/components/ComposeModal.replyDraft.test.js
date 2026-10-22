@@ -597,7 +597,9 @@ test('a mounted draft save response cannot update a different signed-in owner', 
     await React.act(async () => { saving = useStore.getState().prepareComposeSwitch(); await Promise.resolve(); });
     await React.act(async () => useStore.getState().setUser({ id: 'new-owner' }));
     await React.act(async () => { finish({ uid: 6, folder: 'Drafts' }); assert.equal(await saving, false); });
-    assert.equal(useStore.getState().composeData.persistedKey, 'account-1:Drafts:5');
+    // The identity change closed the old owner's composer (store setUser); the late save must
+    // neither reopen nor update it.
+    assert.equal(useStore.getState().composeData, null);
     assert.equal(useStore.getState().replyDraftRevision, 0);
   } finally { await React.act(async () => root.unmount()); api.saveDraft = original; }
 });

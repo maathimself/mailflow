@@ -2,10 +2,10 @@ const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, shell, dialog, Not
 const { execFileSync, spawn, spawnSync } = require('child_process');
 const { createHash } = require('crypto');
 const fs = require('fs');
-const http = require('http');
 const https = require('https');
 const path = require('path');
 const { pathToFileURL } = require('url');
+const { sendMailFlowApiRequest } = require('./mailApi.cjs');
 const {
   createNavigationPolicy,
   hasMatchingMacTeam,
@@ -14,6 +14,10 @@ const {
   macTeamIdentifier,
   normalizeHost,
 } = require('./security.cjs');
+const { createNotificationRetainer } = require('./notificationRetainer.cjs');
+
+// New-mail notifications stay referenced while they can be clicked (#587).
+const newMailNotifications = createNotificationRetainer();
 
 const CONFIG_FILE = 'mailflow-host.json';
 const UPDATE_STATUS_CHANNEL = 'mailflow:updates:status';
@@ -565,33 +569,9 @@ function cleanNotificationText(value, fallback = '') {
   return `${text.slice(0, NEW_MAIL_NOTIFICATION_MAX_LENGTH - 1)}…`;
 }
 
-function requestMailFlowApi(url, { method, body } = {}) {
+function requestMailFlowApi(url, options) {
   return session.defaultSession.cookies.get({ url: readHost() })
-    .then((cookies) => new Promise((resolve, reject) => {
-      const parsedUrl = new URL(url);
-      const request = (parsedUrl.protocol === 'http:' ? http : https).request(parsedUrl, {
-        method,
-        headers: {
-          Accept: 'application/json',
-          Cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; '),
-          ...(body ? { 'Content-Type': 'application/json' } : {}),
-        },
-      }, (response) => {
-        response.resume();
-        response.on('end', () => {
-          if (response.statusCode >= 200 && response.statusCode < 300) {
-            resolve();
-            return;
-          }
-
-          reject(new Error(`Mail action failed with status ${response.statusCode}`));
-        });
-      });
-
-      request.on('error', reject);
-      if (body) request.write(JSON.stringify(body));
-      request.end();
-    }));
+    .then((cookies) => sendMailFlowApiRequest(url, { ...options, cookies }));
 }
 
 function runBackgroundMailAction(action, messageId) {
@@ -670,6 +650,7 @@ function showNewMailNotification({ title, body, count, messageId, accountId, fol
     runBackgroundMailAction(action, messageId)
       .catch((error) => console.error(`Could not ${action} from desktop notification:`, error));
   });
+  newMailNotifications.retain(notification);
   notification.show();
 
   return { shown: true };

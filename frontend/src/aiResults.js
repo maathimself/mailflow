@@ -3,7 +3,8 @@
 // action output) reappears when you navigate back to a message. Bounded by an
 // LRU cap on the number of messages so the store can't grow without limit.
 //
-// Shape: { order: [messageId, ...oldest→newest], data: { [messageId]: { [actionKey]: { text, at, label } } } }
+// Shape: { order: [messageId, ...oldest→newest], data: { [messageId]: { [actionKey]: { text, at, label, truncated? } } } }
+// truncated is { shown, total } when only the start of a long email was sent (#633).
 
 const KEY = 'mailflow_ai_results';
 const MSG_CAP = 200;
@@ -23,18 +24,18 @@ function write(store) {
   catch { /* quota exceeded or storage disabled — cache is best-effort */ }
 }
 
-// Returns { [actionKey]: { text, at, label } } for a message (empty if none).
+// Returns { [actionKey]: { text, at, label, truncated? } } for a message (empty if none).
 export function getResults(messageId) {
   if (!messageId) return {};
   return read().data[messageId] || {};
 }
 
 // Persist a completed action result, marking the message as most-recently-used.
-export function saveResult(messageId, actionKey, text, label) {
+export function saveResult(messageId, actionKey, text, label, truncated = null) {
   if (!messageId || !actionKey) return;
   const store = read();
   if (!store.data[messageId]) store.data[messageId] = {};
-  store.data[messageId][actionKey] = { text, at: Date.now(), label };
+  store.data[messageId][actionKey] = { text, at: Date.now(), label, ...(truncated ? { truncated } : {}) };
   store.order = store.order.filter(id => id !== messageId);
   store.order.push(messageId);
   while (store.order.length > MSG_CAP) {

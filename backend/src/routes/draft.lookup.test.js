@@ -9,6 +9,7 @@ import express from 'express';
 import routes from './draft.js';
 import { query } from '../services/db.js';
 import { savedDraftToComposeData } from '../../../frontend/src/utils/openSavedDraft.js';
+import { remoteImageRefs } from '../services/emailSanitizer.js';
 
 const ID = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT = { id: '22222222-2222-4222-8222-222222222222', enabled: true, include_in_unified_inbox: true, folder_mappings: { drafts: 'Custom' } };
@@ -36,6 +37,7 @@ beforeEach(() => {
     if (sql.includes('FROM folders')) return { rows: [{ account_id: ACCOUNT.id, path: 'Custom', special_use: null }, { account_id: ACCOUNT.id, path: 'ServerDrafts', special_use: '\\Drafts' }] };
     if (sql.includes('draft_candidates')) return { rows: [candidate] };
     if (sql.includes('FROM messages')) return { rows: [{ ...selected, account: ACCOUNT }] };
+    if (sql.includes('UPDATE messages')) return { rows: [] };
     throw new Error(`Unexpected query: ${sql}`);
   });
   imapManager.findReplyDrafts.mockResolvedValue([candidate]);
@@ -99,6 +101,44 @@ describe('GET /messages/:id/reply-draft', () => {
     expect(imapManager.fetchMessageBody).toHaveBeenCalledWith(ACCOUNT, candidate.uid, candidate.folder);
     expect(imapManager.findReplyDrafts).toHaveBeenCalledTimes(1);
     expect(imapManager.confirmReplyDraft).toHaveBeenCalledWith(ACCOUNT, candidate);
+  });
+
+  it('stores the opened draft and serves its remote images through the proxy, never from their senders', async () => {
+    const stored = [];
+    const base = query.getMockImplementation();
+    query.mockImplementation(async (sql, params) => {
+      if (sql.includes('UPDATE messages')) { stored.push(params); return { rows: [] }; }
+      return base(sql, params);
+    });
+    imapManager.fetchMessageBody.mockResolvedValue({ text: 'reply', attachments: [], cidsComplete: true,
+      html: '<p>Reply</p><div data-mailflow-signature="1"><img src="https://me.example/sig.png"></div><blockquote><img src="https://img.example/logo.png?x=1&amp;y=2"><div style="background:url(https://img.example/bg.png)">Quoted</div></blockquote>' });
+    const payload = await (await lookup(ID, '?open=true')).json();
+
+    expect(stored).toHaveLength(1);
+    const [storedHtml, , , storedId] = stored[0];
+    expect(storedId).toBe(candidate.id);
+    expect(payload.body.html).not.toMatch(/(?:src="|url\()https?:/);
+    const proxied = [...payload.body.html.matchAll(/\/api\/mail\/messages\/([0-9a-f-]{36})\/image\?u=([^"')&]+)/g)];
+    expect(proxied).toHaveLength(3);
+    // Each reference is one the image proxy serves for this draft: it is in the stored body.
+    const refs = remoteImageRefs(storedHtml);
+    for (const [, id, encoded] of proxied) {
+      expect(id).toBe(candidate.id);
+      expect(refs.has(decodeURIComponent(encoded))).toBe(true);
+    }
+    expect(savedDraftToComposeData(payload.draft, payload.body).signature).toContain(`/api/mail/messages/${candidate.id}/image?u=`);
+  });
+
+  it('still opens the draft when storing its body fails', async () => {
+    const base = query.getMockImplementation();
+    query.mockImplementation(async (sql, params) => {
+      if (sql.includes('UPDATE messages')) throw new Error('db down');
+      return base(sql, params);
+    });
+    imapManager.fetchMessageBody.mockResolvedValue({ text: 'reply', attachments: [], html: '<p>Reply</p>' });
+    const response = await lookup(ID, '?open=true');
+    expect(response.status).toBe(200);
+    expect((await response.json()).body.html).toContain('Reply');
   });
 
   it('sanitizes raw HTML before signature extraction and preserves text and attachments', async () => {

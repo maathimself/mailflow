@@ -6,7 +6,7 @@
 import crypto from 'crypto';
 import { query } from './db.js';
 import { decrypt } from './encryption.js';
-import { parseVCard } from '../utils/vcard.js';
+import { parseVCard, generateVCard } from '../utils/vcard.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { discoverAddressBooks, fetchAddressBookCards } from './carddavClient.js';
 
@@ -97,21 +97,86 @@ async function upsertCardavContact(bookId, userId, c) {
 }
 
 // Enrich an existing contact (in another book) with the vCard's descriptive
-// fields. We deliberately leave primary_email/emails untouched to avoid churning
-// that book's per-book email-uniqueness index.
-async function mergeIntoExisting(id, c) {
-  const etag = crypto.createHash('md5').update(c.vcard).digest('hex');
-  await query(`
+// fields. Values the card lacks are kept rather than cleared: MailFlow cannot tell
+// a value the user entered from one an earlier sync copied from the card. A contact
+// that an earlier book already merged this sync only has its gaps filled, so two
+// books that disagree settle instead of rewriting it on every sync.
+// We deliberately leave primary_email/emails untouched to avoid churning that
+// book's per-book email-uniqueness index.
+async function mergeIntoExisting(id, c, fillOnly) {
+  const cur = await query(
+    `SELECT address_book_id, uid, vcard, etag, primary_email, display_name, first_name, last_name,
+            emails, phones, organization, notes, photo_data
+     FROM contacts WHERE id = $1`,
+    [id],
+  );
+  const row = cur.rows[0];
+  // Deleted, or given another address, since syncBook matched it to this card.
+  if (!row || row.primary_email?.toLowerCase() !== c.primaryEmail) return null;
+  const own = {
+    uid: row.uid, displayName: row.display_name, firstName: row.first_name, lastName: row.last_name,
+    emails: row.emails, phones: row.phones, organization: row.organization, notes: row.notes,
+  };
+  // A display name that is only the email address is not a name, on either side:
+  // contactFromVCard falls back to the address when a card has no FN, and MailFlow
+  // names a contact it adds from mail after its address.
+  const nameOf = name => (name?.toLowerCase() === c.primaryEmail ? null : name);
+  const card = { ...c, displayName: nameOf(c.displayName) };
+  const mine = { ...own, displayName: nameOf(own.displayName) };
+  const [preferred, fallback] = fillOnly ? [mine, card] : [card, mine];
+  const pick = field => preferred[field] || fallback[field];
+  // The contact editor saves a number as typed; parseVCard trims the card's.
+  const numberOf = p => (p.value || '').trim();
+  const ownNumbers = new Set(own.phones.map(numberOf));
+  // Each card entry stands in for at most one of the contact's, and the entries left
+  // over are added after them, so a number the card lists twice keeps both types. A TEL
+  // without TYPE, which parseVCard reads as 'other', keeps the contact's type. A later
+  // book only adds the numbers the contact does not have.
+  const unmatched = fillOnly ? card.phones.filter(p => !ownNumbers.has(p.value)) : [...card.phones];
+  const fromCard = p => {
+    const i = unmatched.findIndex(cp => cp.value === numberOf(p));
+    if (i < 0) return p;
+    const [match] = unmatched.splice(i, 1);
+    return match.type === 'other' ? { ...match, type: p.type } : match;
+  };
+  // In the contact's own order, so a client that reorders its numbers does not cause a
+  // rewrite.
+  const ownPhones = fillOnly ? own.phones : own.phones.map(fromCard);
+  const merged = {
+    ...own,
+    // A contact named after its address keeps that name while no card has a real one.
+    displayName: pick('displayName') || own.displayName,
+    firstName: pick('firstName'),
+    lastName: pick('lastName'),
+    phones: [...ownPhones, ...unmatched],
+    organization: pick('organization'),
+    notes: pick('notes'),
+  };
+  const photoData = fillOnly && row.photo_data ? null : c.photoData;
+  const vcard = generateVCard(merged);
+  // Regenerating the card drops what a client stored that MailFlow does not model
+  // (ADR, BDAY, ...), so an unchanged contact is left alone unless its stored card
+  // is missing or is the remote card an earlier merge copied in.
+  const storedUid = parseVCard(row.vcard).uid;
+  const replaceCard = storedUid !== row.uid && (!storedUid || storedUid === c.uid);
+  // The generated FN falls back to the first and last name, so compare the display name too.
+  const sameName = (merged.displayName || null) === (own.displayName || null);
+  if (vcard === generateVCard(own) && sameName && (!photoData || photoData === row.photo_data)
+      && !replaceCard) return null;
+  const etag = crypto.createHash('md5').update(vcard).digest('hex');
+  // Only if the contact is unchanged since it was read: an edit made meanwhile wins.
+  const r = await query(`
     UPDATE contacts SET
       display_name = $2, first_name = $3, last_name = $4,
       phones = $5::jsonb, organization = $6, notes = $7,
       photo_data = COALESCE($8, photo_data), vcard = $9, etag = $10, updated_at = NOW()
-    WHERE id = $1
-  `, [id, c.displayName, c.firstName, c.lastName, JSON.stringify(c.phones),
-      c.organization, c.notes, c.photoData, c.vcard, etag]);
+    WHERE id = $1 AND etag = $11
+  `, [id, merged.displayName, merged.firstName, merged.lastName, JSON.stringify(merged.phones),
+      merged.organization, merged.notes, photoData, vcard, etag, row.etag]);
+  return r.rowCount ? row.address_book_id : null;
 }
 
-async function syncBook(userId, book, dupMode, creds) {
+async function syncBook(userId, book, dupMode, creds, mergedIds) {
   const bookId = await ensureCardavBook(userId, book);
   const rawCards = await fetchAddressBookCards({ ...book, ...creds });
   const cards = rawCards.map(rc => contactFromVCard(rc.vcard, rc.href));
@@ -152,12 +217,19 @@ async function syncBook(userId, book, dupMode, creds) {
     [bookId, presentUids.length ? presentUids : ['']],
   );
   for (const c of toUpsert) await upsertCardavContact(bookId, userId, c);
-  for (const m of toMerge) await mergeIntoExisting(m.id, m.contact);
+  const changedBooks = new Set([bookId]);
+  for (const m of toMerge) {
+    const mergedBook = await mergeIntoExisting(m.id, m.contact, mergedIds.has(m.id));
+    mergedIds.add(m.id);
+    if (mergedBook) changedBooks.add(mergedBook);
+  }
 
-  await query(
-    "UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1",
-    [bookId],
-  );
+  for (const id of changedBooks) {
+    await query(
+      "UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1",
+      [id],
+    );
+  }
   return { bookId, count: presentUids.length };
 }
 
@@ -174,8 +246,9 @@ export async function syncUser(userId) {
     const books = await discoverAddressBooks({ serverUrl: config.serverUrl, ...creds });
     let contactCount = 0;
     const seenUrls = [];
+    const mergedIds = new Set();
     for (const book of books) {
-      const { count } = await syncBook(userId, book, config.dupMode || 'separate', creds);
+      const { count } = await syncBook(userId, book, config.dupMode || 'separate', creds, mergedIds);
       contactCount += count;
       seenUrls.push(book.url);
     }

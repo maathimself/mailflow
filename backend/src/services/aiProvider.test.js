@@ -31,22 +31,30 @@ function completionEvent(delta) {
 }
 
 function memorySettings(initial) {
-  let stored = initial == null ? null : JSON.stringify(initial);
+  const rows = new Map(initial == null ? [] : [['ai_config', JSON.stringify(initial)]]);
+  // ai_config is named in the SQL; other keys (ai_new_users_enabled) come as the first parameter.
+  const keyOf = (sql, params) => (sql.includes("'ai_config'") ? 'ai_config' : params[0]);
   const queryFn = vi.fn(async (sql, params = []) => {
     if (/SELECT value FROM system_settings/i.test(sql)) {
-      return { rows: stored == null ? [] : [{ value: stored }] };
+      const value = rows.get(keyOf(sql, params));
+      return { rows: value == null ? [] : [{ value }] };
     }
     if (/INSERT INTO system_settings/i.test(sql)) {
-      stored = params[0];
+      const key = keyOf(sql, params);
+      rows.set(key, key === 'ai_config' ? params[0] : params[1]);
       return { rows: [], rowCount: 1 };
     }
-    if (/DELETE FROM system_settings/i.test(sql)) {
-      stored = null;
+    if (/DELETE FROM system_settings WHERE key = 'ai_config'/i.test(sql)) {
+      rows.delete('ai_config');
       return { rows: [], rowCount: 1 };
     }
     throw new Error(`Unexpected SQL: ${sql}`);
   });
-  return { queryFn, read: () => stored == null ? null : JSON.parse(stored) };
+  return {
+    queryFn,
+    read: () => (rows.has('ai_config') ? JSON.parse(rows.get('ai_config')) : null),
+    value: (key) => rows.get(key) ?? null,
+  };
 }
 
 function factory({ initial, ...overrides } = {}) {
@@ -110,6 +118,52 @@ describe('normalizeAiConfig', () => {
       chatgptConfig: { model: 'gpt-5.4' },
       features: { compose: true, summarize: true },
     });
+  });
+});
+
+// #644: "Allow AI for new users" has its own setting, so neither an older admin tab's save nor
+// removing the AI configuration turns it back on.
+describe('Allow AI for new users', () => {
+  const API = {
+    enabled: true,
+    provider: AI_PROVIDER_API_KEY,
+    apiKeyConfig: { baseUrl: 'https://api.example/v1', model: 'api-model' },
+  };
+
+  it('is on until saved off, and is returned with the configuration', async () => {
+    const { provider, settings } = factory();
+    expect(await provider.getAiNewUsersEnabled()).toBe(true);
+    const saved = await provider.saveAiConfig({ ...API, newUsersEnabled: false });
+    expect(saved.newUsersEnabled).toBe(false);
+    expect(settings.value('ai_new_users_enabled')).toBe('false');
+    expect(settings.read()).not.toHaveProperty('newUsersEnabled');
+    expect((await provider.getAdminAiConfig()).newUsersEnabled).toBe(false);
+    await provider.saveAiConfig({ ...API, newUsersEnabled: true });
+    expect(await provider.getAiNewUsersEnabled()).toBe(true);
+  });
+
+  it('keeps the stored value when a save leaves it out or sends a non-boolean', async () => {
+    const { provider } = factory();
+    await provider.saveAiConfig({ ...API, newUsersEnabled: false });
+    for (const newUsersEnabled of [undefined, 'true', 1, null]) {
+      const saved = await provider.saveAiConfig({ ...API, newUsersEnabled });
+      expect(saved.newUsersEnabled).toBe(false);
+    }
+    expect(await provider.getAiNewUsersEnabled()).toBe(false);
+  });
+
+  it('survives removing the AI configuration', async () => {
+    const { provider } = factory();
+    await provider.saveAiConfig({ ...API, newUsersEnabled: false });
+    await provider.deleteAiConfig();
+    expect(await provider.getAdminAiConfig()).toBeNull();
+    expect(await provider.getAiNewUsersEnabled()).toBe(false);
+  });
+
+  it('is not changed by a save that fails validation', async () => {
+    const { provider } = factory();
+    await expect(provider.saveAiConfig({ ...API, apiKeyConfig: {}, newUsersEnabled: false })).rejects.toThrow(/required/);
+    expect(await provider.getAiNewUsersEnabled()).toBe(true);
   });
 });
 
@@ -347,6 +401,45 @@ describe('API-key provider regression', () => {
     controller.abort();
     await expect(iterator.next()).rejects.toThrow(/aborted/i);
     expect(cancelled).toBe(true);
+  });
+
+  // The base URL's host is checked when it is saved; a redirect would reach one never checked.
+  it('does not follow a redirect from the provider', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 307, headers: { Location: 'http://10.0.0.5/v1/chat/completions' } }));
+    const { provider } = factory({ initial: legacy, fetchFn });
+    const err = await provider.completeText([{ role: 'user', content: 'Hi' }]).catch((e) => e);
+    expect(fetchFn.mock.calls[0][1].redirect).toBe('manual');
+    expect(err.status).toBe(502);
+    expect(err.expose).toBe(true);
+    expect(err.message).toMatch(/redirected the request \(307\)/);
+    const streamFn = vi.fn().mockResolvedValue(new Response(null, { status: 302, headers: { Location: 'http://10.0.0.5/' } }));
+    const streaming = factory({ initial: legacy, fetchFn: streamFn }).provider;
+    await expect(collect(streaming.streamChat([{ role: 'user', content: 'Hi' }]))).rejects.toThrow(/redirected the request \(302\)/);
+    expect(streamFn.mock.calls[0][1].redirect).toBe('manual');
+  });
+
+  it("never reaches a redirect's target with Node's own fetch", async () => {
+    const http = await import('node:http');
+    const hits = [];
+    const target = http.createServer((req, res) => { hits.push(req.headers.authorization); res.end('{}'); });
+    await new Promise(r => target.listen(0, '127.0.0.1', r));
+    const origin = http.createServer((req, res) => {
+      res.writeHead(307, { Location: `http://127.0.0.1:${target.address().port}/v1/chat/completions` });
+      res.end();
+    });
+    await new Promise(r => origin.listen(0, '127.0.0.1', r));
+    try {
+      const { provider } = factory({
+        initial: { ...legacy, baseUrl: `http://127.0.0.1:${origin.address().port}/v1` },
+        fetchFn: (...args) => fetch(...args),
+      });
+      const err = await provider.completeText([{ role: 'user', content: 'Hi' }]).catch((e) => e);
+      expect(err.message).toMatch(/redirected the request \(307\)/);
+      expect(hits).toEqual([]);
+    } finally {
+      origin.close();
+      target.close();
+    }
   });
 
   it('bounds non-2xx provider errors without exposing the configured key', async () => {

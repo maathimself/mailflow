@@ -21,6 +21,7 @@ import ReadingPane from './ReadingPane.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.jsx';
+import { takePendingDeepLink, watchPendingDeepLink } from '../utils/pendingDeepLink.js';
 
 const ContactsPage = lazy(() => import('./ContactsPage.jsx'));
 const WindowLayer  = lazy(() => import('./WindowLayer.jsx'));
@@ -28,34 +29,6 @@ const WindowLayer  = lazy(() => import('./WindowLayer.jsx'));
 const ComposeModal = lazy(() => import('./ComposeModal.jsx'));
 const AdminPanel   = lazy(() => import('./AdminPanel.jsx'));
 const ElectronNotificationBridge = lazy(() => import('./ElectronNotificationBridge.jsx'));
-
-// Read + atomically clear the deep-link the service worker persisted on a
-// notification tap (shared IndexedDB store 'mailflow-nav'). Fully guarded so any
-// storage error resolves to null instead of throwing.
-function takePendingDeepLink() {
-  return new Promise((resolve) => {
-    let settled = false;
-    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
-    try {
-      const open = indexedDB.open('mailflow-nav', 1);
-      open.onupgradeneeded = () => { try { open.result.createObjectStore('kv'); } catch { /* store already exists */ } };
-      open.onerror = () => done(null);
-      open.onblocked = () => done(null);
-      open.onsuccess = () => {
-        try {
-          const db = open.result;
-          const tx = db.transaction('kv', 'readwrite');
-          const store = tx.objectStore('kv');
-          const getReq = store.get('pending_deeplink');
-          getReq.onsuccess = () => { if (getReq.result != null) store.delete('pending_deeplink'); };
-          tx.oncomplete = () => { const v = getReq.result ?? null; db.close(); done(v); };
-          tx.onerror = () => { db.close(); done(null); };
-          tx.onabort = () => { db.close(); done(null); };
-        } catch { done(null); }
-      };
-    } catch { done(null); }
-  });
-}
 
 const lazyFallback = (
   <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
@@ -106,12 +79,6 @@ export default function MailApp() {
 
   const scale = fontSize / 100;
   const hasNativeBridge = Boolean(window.mailflowNative || window.Capacitor?.isNativePlatform?.());
-  const [vpSize, setVpSize] = useState({ w: window.innerWidth, h: window.innerHeight });
-  useEffect(() => {
-    const update = () => setVpSize({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, []);
 
   useEffect(() => {
     const onVisible = () => {
@@ -333,15 +300,15 @@ export default function MailApp() {
   // Consume the deep-link the SW persisted on a notification tap: read+clear it,
   // then open the message. IndexedDB is the reliable channel on iOS (postMessage can
   // be missed on a focus-with-reload, openWindow's URL is ignored on cold launch).
-  const consumePendingDeepLink = useCallback(() => {
-    takePendingDeepLink().then((url) => {
-      if (!url) return;
-      try {
-        const id = new URL(url, window.location.origin).searchParams.get('m');
-        if (id) openDeepLinkMessage(id);
-      } catch { /* ignore a malformed persisted deep-link */ }
-    });
+  const openPendingDeepLink = useCallback((url) => {
+    try {
+      const id = new URL(url, window.location.origin).searchParams.get('m');
+      if (id) openDeepLinkMessage(id);
+    } catch { /* ignore a malformed persisted deep-link */ }
   }, [openDeepLinkMessage]);
+  const consumePendingDeepLink = useCallback(() => {
+    takePendingDeepLink().then((url) => { if (url) openPendingDeepLink(url); });
+  }, [openPendingDeepLink]);
 
   // On load: open a deep-linked message from ?m= (Chromium honors openWindow) or a
   // stored id, plus any target the SW persisted for a notification tap.
@@ -357,10 +324,17 @@ export default function MailApp() {
   }, [openDeepLinkMessage, consumePendingDeepLink]);
 
   // A notification tap that returns to a backgrounded app (the achievable iOS case)
-  // fires visibilitychange; the SW also nudges via postMessage. Both just consume the
-  // persisted target — read+clear is atomic, so whichever runs first wins.
+  // fires visibilitychange; the SW also nudges via postMessage. Both consume the
+  // persisted target — read+clear is atomic, so whichever runs first wins. iOS can bring
+  // the app forward before the SW has stored the target, so coming to the front keeps
+  // checking for a few seconds (watchPendingDeepLink, #589).
   useEffect(() => {
-    const onVisible = () => { if (document.visibilityState === 'visible') consumePendingDeepLink(); };
+    let stopWatch = null;
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      stopWatch?.();
+      stopWatch = watchPendingDeepLink({ open: openPendingDeepLink });
+    };
     document.addEventListener('visibilitychange', onVisible);
     let onSwMessage;
     if ('serviceWorker' in navigator) {
@@ -370,10 +344,11 @@ export default function MailApp() {
       navigator.serviceWorker.addEventListener('message', onSwMessage);
     }
     return () => {
+      stopWatch?.();
       document.removeEventListener('visibilitychange', onVisible);
       if (onSwMessage) navigator.serviceWorker.removeEventListener('message', onSwMessage);
     };
-  }, [consumePendingDeepLink]);
+  }, [consumePendingDeepLink, openPendingDeepLink]);
 
   // PWA mailto: handler (manifest protocol_handlers → /?mailto=<encoded mailto: URL>).
   // Parse the mailto and open a pre-filled compose window. Runs once on mount; a no-op
@@ -755,12 +730,13 @@ export default function MailApp() {
     }}>
     <div style={{
       display: 'flex',
-      width: scale !== 1 ? `${(vpSize.w / scale).toFixed(2)}px` : '100%',
-      height: scale !== 1 ? `${(vpSize.h / scale).toFixed(2)}px` : '100%',
+      // Sized in CSS from the 100dvh parent: an innerHeight read on resize is stale during
+      // a rotation in an iOS home-screen app, and the sidebar's bottom fell off screen.
+      width: scale !== 1 ? `calc(100% / ${scale})` : '100%',
+      height: scale !== 1 ? `calc(100% / ${scale})` : '100%',
       ...(scale !== 1 && {
         transform: `scale(${scale})`,
         transformOrigin: 'top left',
-        '--app-height': `${(vpSize.h / scale).toFixed(2)}px`,
       }),
       overflow: 'hidden',
       background: 'var(--bg-primary)',
@@ -833,6 +809,8 @@ export default function MailApp() {
             flex: 1, display: 'flex', overflow: 'hidden',
             minWidth: 0, flexDirection: currentLayout.direction,
             height: '100%',
+            // A standalone PWA draws under the status bar; the sidebar header already clears it.
+            paddingTop: 'var(--sat)',
           }}>
             {/* Keep all three mounted so scroll/state survive navigation. */}
             <div style={{ display: showContacts ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
@@ -996,7 +974,7 @@ function ShortcutHelpOverlay({ shortcuts, onClose }) {
           width: '100%', maxWidth: 680,
           maxHeight: '80vh', overflow: 'auto',
           padding: '24px 28px',
-          animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) both',
+          animation: 'modal-enter var(--motion-normal) var(--ease-emphasized) backwards',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>

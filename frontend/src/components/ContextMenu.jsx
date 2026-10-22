@@ -5,6 +5,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { getContextMenuPolicy, resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
 import { downloadEml } from '../utils/downloadEml.js';
+import { isSnoozed } from '../utils/snoozeActions.js';
 import { usePluginCollected } from '../plugins/PluginSlot.jsx';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
@@ -44,6 +45,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   const [moveFolders, setMoveFolders] = useState(null);
   const [moveFoldersLoading, setMoveFoldersLoading] = useState(defaultMoveView);
   const [snoozeView, setSnoozeView] = useState(defaultSnoozeView);
+  // The snooze picker snoozes, or for a message already snoozed changes when it comes back (#269).
+  const snoozeAction = isSnoozed(message) ? 'changeSnooze' : 'snooze';
   const [customSnoozeView, setCustomSnoozeView] = useState(false);
   const [customDate, setCustomDate] = useState('');
   const [customTime, setCustomTime] = useState('09:00');
@@ -244,12 +247,24 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>,
           action: () => onAction('archive'),
         }]),
-        ...(message.folder !== 'Snoozed' && menuPolicy.snooze ? [{
+        ...(!isSnoozed(message) && menuPolicy.snooze ? [{
           label: t('contextMenu.snooze.label'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
           action: () => setSnoozeView(true),
           keepOpen: true,
           hasSubmenu: true,
+        }] : []),
+        // A snoozed message (#269): change when it comes back, with the same picker, or bring it back now.
+        ...(isSnoozed(message) && menuPolicy.snooze ? [{
+          label: t('contextMenu.snooze.change'),
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+          action: () => setSnoozeView(true),
+          keepOpen: true,
+          hasSubmenu: true,
+        }, {
+          label: t('contextMenu.snooze.unsnooze'),
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>,
+          action: () => onAction('unsnooze'),
         }] : []),
         ...(categorizationActive && menuPolicy.categorize ? [{
           label: t('contextMenu.categorize'),
@@ -556,7 +571,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                   onClick={() => {
                     const d = new Date(`${customDate}T${customTime}`);
                     if (isNaN(d.getTime())) return;
-                    onAction('snooze', d.toISOString());
+                    onAction(snoozeAction, d.toISOString());
                     onClose();
                   }}
                   style={{
@@ -587,7 +602,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <polyline points="15 18 9 12 15 6"/>
                 </svg>
-                {t('contextMenu.snooze.label')}
+                {t(snoozeAction === 'changeSnooze' ? 'contextMenu.snooze.change' : 'contextMenu.snooze.label')}
               </div>
               {[
                 {
@@ -605,7 +620,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
               ].map(({ label, getDate }) => (
                 <div
                   key={label}
-                  onClick={() => { onAction('snooze', getDate().toISOString()); onClose(); }}
+                  onClick={() => { onAction(snoozeAction, getDate().toISOString()); onClose(); }}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}

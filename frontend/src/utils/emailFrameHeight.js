@@ -143,3 +143,68 @@ export function forceEagerImages(doc) {
   }
   return changed;
 }
+
+/**
+ * Pins the frame's html and body to their content's height.
+ *
+ * Some marketing emails have inline styles on their <body> tag (e.g. overflow:auto,
+ * height:100%) that the HTML parser merges into the iframe's outer <body>. Our
+ * injected <style> with !important can't win against inline !important rules.
+ * Setting the properties via JS style.setProperty(...,'important') writes them as
+ * inline !important, which always beats any same-property inline value from the email.
+ */
+export function pinFrameRoot(doc) {
+  for (const el of [doc.body, doc.documentElement]) {
+    if (!el) continue;
+    el.style.setProperty('height', 'auto', 'important');
+    el.style.setProperty('min-height', '0', 'important');
+    el.style.setProperty('overflow-y', 'hidden', 'important');
+  }
+}
+
+/**
+ * Returns a function that expands the frame's nested scroll containers.
+ *
+ * Expand any nested scroll containers so their full content is visible
+ * without internal scrolling. Marketing emails sometimes apply overflow:auto
+ * plus a fixed height to inner divs/tds, which makes iOS scroll that element
+ * instead of the outer pane container — leaving the sender card pinned like a
+ * sticky header.
+ *
+ * Process in REVERSE document order (deepest elements first) so that when we
+ * expand an inner scroll container, the outer container's scrollHeight already
+ * reflects the expanded child when we evaluate it — preventing missed outer
+ * containers in a single pass.
+ *
+ * expandedEls tracks which elements we've already expanded so that subsequent
+ * calls from image load handlers can re-check and grow them as lazy images add
+ * height (an element that was 1 000 px after the first pass may be 3 000 px
+ * once all images are loaded).
+ */
+export function createScrollExpander(doc) {
+  const expandedEls = new Set();
+  const dv = doc.defaultView;
+  // The elements styled to scroll, found on the first pass, deepest first. Later passes (one per
+  // image that loads) look at these alone: reading every element's computed style again on each
+  // image load cost up to a millisecond or so, dozens of times over in an email full of images.
+  let candidates = null;
+  return () => {
+    if (!dv) return;
+    if (!candidates) {
+      candidates = Array.from(doc.querySelectorAll('*')).reverse().filter(el => {
+        const oy = dv.getComputedStyle(el).overflowY;
+        return oy === 'auto' || oy === 'scroll';
+      });
+    }
+    candidates.forEach(el => {
+      const isScrollContainer = !expandedEls.has(el) && el.scrollHeight > el.clientHeight + 2;
+      const grewAfterExpansion = expandedEls.has(el) && el.scrollHeight > el.clientHeight + 2;
+      if (isScrollContainer || grewAfterExpansion) {
+        expandedEls.add(el);
+        el.style.setProperty('overflow-y', 'hidden', 'important');
+        el.style.setProperty('max-height', 'none', 'important');
+        el.style.setProperty('height', el.scrollHeight + 'px', 'important');
+      }
+    });
+  };
+}

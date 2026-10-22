@@ -57,7 +57,7 @@ Everything a plugin may do, grouped:
 - **Labels (write):** `applyLabel`, `removeLabel`, `markThreadRead`, `markCopySeen`, `ensureLabelFolders`, `resolveLabelCopyUid`
 - **Archive:** `archiveInboxCopy`
 - **Realtime:** `broadcast` (scoped to one user)
-- **Summarize:** `summarizeMessage`, `summarizeAvailable` (fails closed when the AI provider is off)
+- **Summarize:** `summarizeMessage({ userId, … })`, `summarizeAvailable(userId)` (both fail closed when the AI provider or summaries are off, or AI is turned off for that user)
 - **Per-plugin storage:** `storage.*` (the `plugin_data` table — KV + blobs, owner-scoped, cascade-cleaned)
 - **Per-account plugin config:** `getAccountConfig`, `setAccountConfig` (the `plugin_account_config` table)
 - **Per-message annotations:** `getMessageAnnotations`, `setMessageAnnotation` (namespaced `messages.plugin_annotations`)

@@ -73,7 +73,10 @@ public class MailFlowNativePlugin extends Plugin {
     private static final String PREF_UPDATE_VERSION = "update_version";
     private static final String PREF_UPDATE_RELEASE_NAME = "update_release_name";
     private static final String PREF_UPDATE_DIGEST = "update_digest";
-    private static final String SETUP_URL = "file:///android_asset/public/index.html";
+    // Served by Capacitor's local server (bridge.getLocalUrl()), as on first launch: a file:// copy
+    // of the setup page has no Capacitor bridge, so a host entered there was opened in the
+    // browser and never saved.
+    private static final String SETUP_PATH = "/index.html";
     private static final String UPDATE_RELEASE_URL = "https://api.github.com/repos/maathimself/mailflow/releases/latest";
     
     /* Old dev fork url
@@ -135,24 +138,56 @@ public class MailFlowNativePlugin extends Plugin {
 
     private void persistHost(PluginCall call, String normalizedHost) {
         getPrefs(getContext()).edit().putString(PREF_HOST, normalizedHost).apply();
-        if (getActivity() instanceof MainActivity) {
-            ((MainActivity) getActivity()).configureNativeMessageBridge(normalizedHost);
-        }
         MailFlowBackgroundSync.schedule(getContext());
 
+        boolean opensHost = getActivity() instanceof MainActivity;
         JSObject result = new JSObject();
         result.put("host", normalizedHost);
+        result.put("navigating", opensHost);
         call.resolve(result);
+
+        // The app opens the host itself rather than leaving it to the setup page (#621). Adding
+        // the bridge's WebMessageListener to the WebView while the setup page is open stops
+        // Capacitor's replies to that page on newer WebView builds (145 on Android 17), so the
+        // setup page never heard back from saveHost and stayed put. Whether or not the reply
+        // above arrives, the host loads, with the listener in place for it.
+        if (opensHost) {
+            MainActivity activity = (MainActivity) getActivity();
+            activity.runOnUiThread(() -> activity.openConfiguredHost(normalizedHost));
+        }
     }
 
     @PluginMethod
     public void resetHost(PluginCall call) {
         getPrefs(getContext()).edit().remove(PREF_HOST).apply();
-        if (getActivity() instanceof MainActivity) {
-            ((MainActivity) getActivity()).configureNativeMessageBridge(null);
-        }
-        getActivity().runOnUiThread(() -> getBridge().getWebView().loadUrl(SETUP_URL));
+        getActivity().runOnUiThread(() -> {
+            if (getActivity() instanceof MainActivity) {
+                ((MainActivity) getActivity()).configureNativeMessageBridge(null);
+            }
+            getBridge().getWebView().loadUrl(getBridge().getLocalUrl() + SETUP_PATH);
+        });
         call.resolve();
+    }
+
+    @PluginMethod
+    public void openOidcLogout(PluginCall call) {
+        call.resolve(openOidcLogout(call.getString("url", "")));
+    }
+
+    private JSObject openOidcLogout(String url) {
+        JSObject result = new JSObject();
+        String host = getSavedHost(getContext());
+        Uri target = Uri.parse(url);
+        if (host == null || target.getHost() == null
+            || !("https".equalsIgnoreCase(target.getScheme()) || "http".equalsIgnoreCase(target.getScheme()))
+            || !(getActivity() instanceof MainActivity) || getActivity().isFinishing()) {
+            result.put("handled", false);
+            return result;
+        }
+        MainActivity activity = (MainActivity) getActivity();
+        activity.runOnUiThread(() -> MailFlowOidcLogin.open(activity, getBridge().getWebView(), host, url, true));
+        result.put("handled", true);
+        return result;
     }
 
     @PluginMethod
@@ -508,6 +543,7 @@ public class MailFlowNativePlugin extends Plugin {
             + "var call=function(method,args,fallback){var p=plugin();if(!p||typeof p[method]!=='function')return Promise.resolve(fallback||null);return p[method](args||{}).catch(function(){return fallback||null;});};"
             + "window.mailflowNative=window.mailflowNative||{};"
             + "window.mailflowNative.platform='android';"
+            + "window.mailflowNative.openOidcLogout=function(url){return nativeCall('openOidcLogout',{url:url},{handled:false});};"
             + "window.mailflowNative.updates=window.mailflowNative.updates||{};"
             + "window.mailflowNative.updates.check=function(verbose){return call('checkForUpdates',{verbose:!!verbose});};"
             + "window.mailflowNative.updates.installDownloaded=function(){return nativeCall('installDownloadedUpdate',{},null).then(function(result){return result||call('installDownloadedUpdate',{}, {installed:false,reason:'unavailable'});});};"
@@ -1257,6 +1293,10 @@ public class MailFlowNativePlugin extends Plugin {
             JSObject result = new JSObject();
             result.put("shown", true);
             return result;
+        }
+
+        if ("openOidcLogout".equals(method) && instance != null) {
+            return instance.openOidcLogout(args == null ? "" : args.optString("url", ""));
         }
 
         if ("installDownloadedUpdate".equals(method) && instance != null) {

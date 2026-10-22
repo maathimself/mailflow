@@ -4,11 +4,12 @@ import { query } from '../services/db.js';
 import {
   deleteAiConfig,
   getAdminAiConfig,
-  getAiStatus,
+  getAiNewUsersEnabled,
   saveAiConfig,
   streamChat,
   testAiProvider,
 } from '../services/aiProvider.js';
+import { AI_FEATURES, aiFeatureEnabled, getUserAiAccess } from '../services/aiAccess.js';
 import {
   cancelDeviceFlow,
   disconnectCodex,
@@ -42,9 +43,12 @@ export function aiLanguageInstruction(language) {
 }
 
 function serviceError(res, error, fallback = 'Request failed') {
-  const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 600
+  let status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 600
     ? error.status
     : 500;
+  // A 401 from a service is the AI provider rejecting its stored credential, not the
+  // MailFlow session, and the frontend signs the user out on any 401 outside /auth/.
+  if (status === 401) status = 409;
   // Client errors (4xx) and provider errors explicitly marked safe to expose
   // carry their real message; other 5xx fall back to a generic message. Always
   // log server-side on 5xx so the reason is recoverable even when it's hidden.
@@ -74,7 +78,9 @@ function flowInput(req, res) {
 
 router.get('/admin/ai', requireAdmin, async (_req, res) => {
   try {
-    res.json({ config: await getAdminAiConfig() });
+    // newUsersEnabled rides along on its own too: it is kept when no provider is configured.
+    const [config, newUsersEnabled] = await Promise.all([getAdminAiConfig(), getAiNewUsersEnabled()]);
+    res.json({ config, newUsersEnabled });
   } catch (error) {
     serviceError(res, error, 'Failed to load AI configuration');
   }
@@ -155,9 +161,26 @@ router.delete('/admin/ai/codex', requireAdmin, async (_req, res) => {
 
 // ── Authenticated: AI status (used by compose & message pane) ─────────────────
 
-router.get('/ai/status', requireAuth, async (_req, res) => {
+// A user without AI access sees AI as off, so the client hides its AI controls. Only admins see
+// the ChatGPT connection, which names the account the subscription belongs to.
+function statusForUser({ status, allowed, isAdmin }) {
+  if (!allowed) {
+    return {
+      enabled: false,
+      provider: status.provider,
+      features: { compose: false, summarize: false },
+      reconnectRequired: false,
+    };
+  }
+  if (isAdmin) return status;
+  const shown = { ...status };
+  delete shown.connection;
+  return shown;
+}
+
+router.get('/ai/status', requireAuth, async (req, res) => {
   try {
-    res.json(await getAiStatus());
+    res.json(statusForUser(await getUserAiAccess(req.session.userId)));
   } catch (error) {
     serviceError(res, error, 'Failed to load AI status');
   }
@@ -179,18 +202,42 @@ router.post('/ai/chat', requireAuth, async (req, res) => {
   const messages = req.body?.messages;
   const validationError = validateMessages(messages);
   if (validationError) return res.status(400).json({ error: validationError });
+  // Which instance switch the request falls under: the writing assistant, or summaries, which
+  // also cover AI actions on a message. A tab opened before the update sends no purpose; it is
+  // served only while both switches are on, since it could be either.
+  const purpose = req.body?.purpose;
+  if (purpose !== undefined && !AI_FEATURES.includes(purpose)) {
+    return res.status(400).json({ error: `purpose must be one of: ${AI_FEATURES.join(', ')}` });
+  }
 
-  let status;
+  let access;
   try {
-    status = await getAiStatus();
+    access = await getUserAiAccess(req.session.userId);
   } catch (error) {
     return serviceError(res, error, 'Failed to load AI status');
   }
+  const { status } = access;
   if (!status.enabled) {
     const error = status.reconnectRequired
       ? 'AI provider requires reconnection'
       : 'AI provider is disabled or unavailable';
     return res.status(503).json({ error });
+  }
+  // The code tells the client which refusal it is: this user's AI access, or a switch that is
+  // off for everyone.
+  if (!access.allowed) {
+    return res.status(403).json({
+      error: 'AI is not enabled for your account. Ask your administrator.',
+      code: 'ai_user_disabled',
+    });
+  }
+  const features = purpose === undefined ? AI_FEATURES : [purpose];
+  const off = features.find(feature => !aiFeatureEnabled(status, feature));
+  if (off) {
+    const error = off === 'compose'
+      ? 'The AI writing assistant is turned off by your administrator.'
+      : 'AI summaries and actions are turned off by your administrator.';
+    return res.status(403).json({ error, code: 'ai_feature_disabled', feature: off });
   }
 
   let language = 'en';

@@ -14,7 +14,7 @@ vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./spamPipeline.js', () => ({ classifyAndTagMessage: vi.fn() }));
 vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }));
 
-import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, computeThreadId, noteDraftsChanged } from './imapManager.js';
+import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, contentLocationFromMimeHeader, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, computeThreadId, noteDraftsChanged } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -701,9 +701,9 @@ describe('ensureMailbox — namespace + already-exists matrix', () => {
 // ── ensureMailbox — case-insensitive casing resolution ────────────────────────
 // On a case-insensitive server an existing "TODO" satisfies a "Todo" CREATE, but imapflow's
 // already-exists result echoes the REQUESTED casing. Persisting that (planGtdFolderPersist)
-// never case-matches the synced rows' folder value. With resolvePath set (only /folders/ensure,
-// which persists), the already-exists branches resolve the real casing from the folder LIST;
-// classify/snooze leave it off so they skip the extra round-trip.
+// never case-matches the synced rows' folder value. With resolvePath set (by the callers that
+// persist the path), the already-exists branches resolve the real casing from the folder LIST;
+// classify leaves it off so it skips the extra round-trip.
 describe('ensureMailbox — case-insensitive casing resolution', () => {
   it('ALREADYEXISTS return + resolvePath: resolves the server casing from LIST', async () => {
     const client = {
@@ -734,6 +734,15 @@ describe('ensureMailbox — case-insensitive casing resolution', () => {
     const res = await ensureMailbox(client, 'Todo');
     expect(res).toEqual({ path: 'Todo', created: false });
     expect(client.list).not.toHaveBeenCalled();
+  });
+
+  it('prefers an exact match to a case variant listed before it (case-sensitive server)', async () => {
+    const client = {
+      mailboxCreate: vi.fn().mockResolvedValue({ path: 'INBOX.Snoozed', created: false }),
+      list: vi.fn().mockResolvedValue([{ path: 'INBOX' }, { path: 'INBOX.snoozed' }, { path: 'INBOX.Snoozed' }]),
+    };
+    const res = await ensureMailbox(client, 'Snoozed', { resolvePath: true });
+    expect(res).toEqual({ path: 'INBOX.Snoozed', created: false });
   });
 
   it('falls back to the known path when the LIST has no case-insensitive match', async () => {
@@ -1498,6 +1507,19 @@ describe('_syncSpamFolder — periodic spam poll guards', () => {
   });
 });
 
+// A plain-text message with a photo that is disposed inline and has a Content-ID:
+// there is no HTML body to reference it.
+const textWithInlinePhoto = {
+  type: 'multipart/mixed',
+  childNodes: [
+    { part: '1', type: 'text/plain', encoding: '7bit', parameters: { charset: 'utf-8' } },
+    {
+      part: '2', type: 'image/jpeg', encoding: 'base64', id: '<x@apple>', size: 40000,
+      disposition: 'inline', dispositionParameters: { filename: 'IMG_0001.jpeg' },
+    },
+  ],
+};
+
 describe('walkStructure attachment classification', () => {
   const walk = (node) => {
     const results = { textParts: [], attachments: [] };
@@ -1816,6 +1838,802 @@ describe('calendar-only messages', () => {
   });
 });
 
+// The body route caches the list fetchMessageBody returns, and every download route
+// resolves parts from that cache, so a part missing from it cannot be opened at all.
+// Most of these drive the real fetchMessageBody and fetchAttachment through the pool
+// against a fake server holding one message; the synced-body cases call
+// extractBodyFromMsg, which lists the same parts.
+describe('inline images the body never shows are listed as attachments', () => {
+  let seq = 700;
+  function serve(structure, parts) {
+    const account = { id: `acct-parts-${++seq}`, user_id: 'u1', imap_host: 'imap.example.test', email_address: 'p@example.test', auth_user: 'p', auth_pass: 'enc' };
+    const requested = [];
+    ImapFlow.mockImplementation(function () {
+      const client = new EventEmitter();
+      client.usable = true;
+      client.connect = vi.fn(() => Promise.resolve());
+      client.logout = vi.fn(() => Promise.resolve());
+      client.close = vi.fn();
+      client.getMailboxLock = vi.fn(async () => ({ release() {} }));
+      client.fetch = vi.fn(async function* (range, fetchQuery) {
+        requested.push(...(fetchQuery.bodyParts || []));
+        yield {
+          uid: 42,
+          bodyStructure: fetchQuery.bodyStructure ? structure : undefined,
+          bodyParts: fetchQuery.bodyParts
+            ? new Map(fetchQuery.bodyParts.filter(p => p in parts).map(p => [p, Buffer.from(parts[p])]))
+            : undefined,
+        };
+      });
+      return client;
+    });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    return { mgr: new ImapManager({ clients: new Set() }), account, requested };
+  }
+
+  it('lists an inline photo in a plain-text message', async () => {
+    const { mgr, account } = serve(textWithInlinePhoto, { '1': 'here is the photo', '2': '/9j/4AAQ' });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body.text).toBe('here is the photo');
+    expect(body.attachments).toEqual([{
+      part: '2', filename: 'IMG_0001.jpeg', type: 'image/jpeg', encoding: 'base64', size: 40000, disposition: 'inline',
+    }]);
+  });
+
+  it('lists only the inline images the HTML does not reference', async () => {
+    // Hand-picked Content-IDs, as PHPMailer allows: the HTML references logo-dark in angle
+    // brackets and another case, logo is a prefix of it but is not referenced, and the
+    // third image has an empty Content-ID, which nothing can reference.
+    const image = (part, id, filename) => ({
+      part, type: 'image/png', encoding: 'base64', id, size: 12,
+      disposition: 'inline', dispositionParameters: { filename },
+    });
+    const { mgr, account } = serve({
+      type: 'multipart/related',
+      childNodes: [
+        { part: '1', type: 'text/html', encoding: '7bit', parameters: { charset: 'utf-8' } },
+        image('2', '<logo-dark>', 'logo-dark.png'),
+        image('3', '<logo>', 'logo.png'),
+        image('4', '<>', 'spacer.png'),
+      ],
+    }, { '1': '<p>hi</p><img src="cid:<LOGO-DARK>">', '2': 'iVBORw0KGgo=', '3': 'AAAA', '4': 'BBBB' });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body.html).toBe('<p>hi</p><img src="data:image/png;base64,iVBORw0KGgo=">');
+    expect(body.attachments.map(a => a.filename)).toEqual(['logo.png', 'spacer.png']);
+  });
+
+  // #595: whether a cid: reference left in the HTML could resolve on another fetch.
+  const related = (...images) => ({
+    type: 'multipart/related',
+    childNodes: [
+      { part: '1', type: 'text/html', encoding: '7bit', parameters: { charset: 'utf-8' } },
+      ...images.map(([part, id]) => ({ part, type: 'image/png', encoding: 'base64', id, size: 12, disposition: 'inline', dispositionParameters: { filename: `${part}.png` } })),
+    ],
+  });
+
+  it('is complete when a reference names a Content-ID no part has: it can never resolve', async () => {
+    const { mgr, account } = serve(related(['2', '<logo@x>']), { '1': '<img src="cid:logo@x"><img src="cid:missing@x">', '2': 'iVBORw0KGgo=' });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body.html).toBe('<img src="data:image/png;base64,iVBORw0KGgo="><img src="cid:missing@x">');
+    expect(body.cidsComplete).toBe(true);
+  });
+
+  it('is not complete when an image the HTML references did not arrive: another fetch may get it', async () => {
+    const { mgr, account } = serve(related(['2', '<logo@x>']), { '1': '<img src="cid:logo@x">' });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body.html).toBe('<img src="cid:logo@x">');
+    expect(body.cidsComplete).toBe(false);
+  });
+
+  it('is complete when every referenced image was embedded', async () => {
+    const { mgr, account } = serve(related(['2', '<logo@x>']), { '1': '<img src="cid:logo@x">', '2': 'iVBORw0KGgo=' });
+    expect((await mgr.fetchMessageBody(account, 42, 'INBOX')).cidsComplete).toBe(true);
+  });
+
+  it('lists an inline photo when the body is read from a synced message', () => {
+    const body = extractBodyFromMsg({
+      bodyStructure: textWithInlinePhoto,
+      bodyParts: new Map([['1', Buffer.from('here is the photo')]]),
+    });
+    expect(body.text).toBe('here is the photo');
+    expect(body.attachments.map(a => a.filename)).toEqual(['IMG_0001.jpeg']);
+  });
+
+  it('names an unnamed inline image after its type', () => {
+    const body = extractBodyFromMsg({
+      bodyStructure: {
+        type: 'multipart/mixed',
+        childNodes: [
+          { part: '1', type: 'text/plain', encoding: '7bit' },
+          { part: '2', type: 'image/jpeg', encoding: 'base64', id: '<a@x>' },
+          { part: '3', type: 'image/svg+xml', encoding: '7bit', id: '<b@x>' },
+        ],
+      },
+      bodyParts: new Map([['1', Buffer.from('two pictures')]]),
+    });
+    expect(body.attachments.map(a => a.filename)).toEqual(['image.jpg', 'image.svg']);
+  });
+
+  it('downloads a listed inline image with its own transfer encoding', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"/>';
+    const { mgr, account } = serve({
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'text/plain', encoding: '7bit' },
+        {
+          part: '2', type: 'image/svg+xml', encoding: '7bit', id: '<s@x>',
+          disposition: 'inline', dispositionParameters: { filename: 'logo.svg' },
+        },
+      ],
+    }, { '1': 'logo attached', '2': svg });
+    const buf = await mgr.fetchAttachment(account, 42, 'INBOX', '2');
+    expect(buf.toString()).toBe(svg);
+  });
+
+  // #640: newsletters whose layout images are marked as attachments, or referenced inside a
+  // multipart/related by Content-Location or file name rather than cid:. Each structure mirrors
+  // a synthetic .eml: an HTML body with a header image and two badges, and a genuine attachment.
+  describe('images the HTML shows though marked as attachments (#640)', () => {
+    const PNG = 'iVBORw0KGgo=';
+    const html = (part = '1') => ({ part, type: 'text/html', encoding: '7bit', parameters: { charset: 'utf-8' } });
+    const attachedImage = (part, extra) => ({
+      part, type: 'image/png', encoding: 'base64', size: 3000, disposition: 'attachment', ...extra,
+    });
+    const report = { part: '3', type: 'application/pdf', encoding: 'base64', size: 9000, disposition: 'attachment', dispositionParameters: { filename: 'invoice.pdf' } };
+
+    it('shows a cid: image marked Content-Disposition: attachment and drops it from the list', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/mixed',
+        childNodes: [
+          { type: 'multipart/related', childNodes: [
+            html('1.1'),
+            attachedImage('1.2', { id: '<Header@News.Example>', dispositionParameters: { filename: 'header.png' } }),
+            attachedImage('1.3', { id: 'badge%1@news.example', dispositionParameters: { filename: 'badge.png' } }),
+            attachedImage('1.4', { id: '<photo@news.example>', dispositionParameters: { filename: 'photo.png' } }),
+          ] },
+          { ...report, part: '2' },
+        ],
+      }, {
+        // Angle brackets and another case, and the RFC 2392 percent-encoding of a '%'.
+        '1.1': '<img src="cid:<header@news.example>"><img src="cid:badge%251@news.example">',
+        '1.2': PNG, '1.3': 'AAAA', '1.4': 'BBBB', '2': 'JVBERi0=',
+      });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe(`<img src="data:image/png;base64,${PNG}"><img src="data:image/png;base64,AAAA">`);
+      // The image the HTML never references is a genuine attachment and stays listed.
+      expect(body.attachments.map(a => a.filename)).toEqual(['photo.png', 'invoice.pdf']);
+      expect(body.cidsComplete).toBe(true);
+    });
+
+    it('shows images referenced by file name or Content-Location in a multipart/related', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/mixed',
+        childNodes: [
+          { type: 'multipart/alternative', childNodes: [
+            { part: '1.1', type: 'text/plain', encoding: '7bit' },
+            { type: 'multipart/related', childNodes: [
+              html('1.2.1'),
+              { part: '1.2.2', type: 'image/png', encoding: 'base64', size: 2000, parameters: { name: 'header.png' } },
+              // imapflow leaves out a Content-Location that ends the BODYSTRUCTURE, so it comes
+              // from the part's MIME header.
+              attachedImage('1.2.3', { dispositionParameters: { filename: 'app-store.png' } }),
+              { part: '1.2.4', type: 'image/gif', encoding: 'base64', size: 900 },
+              { part: '1.2.5', type: 'image/png', encoding: 'base64', size: 900, id: '<fb@news.example>', disposition: 'inline', location: 'fb.png', dispositionParameters: { filename: 'fb.png' } },
+            ] },
+          ] },
+          { ...report, part: '2' },
+        ],
+      }, {
+        '1.1': 'text',
+        '1.2.1': '<table background="header.png"><tr><td style="background:url( \'social.gif\' )">'
+          + '<img src="https://news.example/img/app-store.png?v=1&amp;w=2"><img src = fb.png></td></tr></table>',
+        '1.2.2': PNG, '1.2.3': 'AAAA', '1.2.4': 'R0lG', '1.2.5': 'CCCC', '2': 'JVBERi0=',
+        '1.2.3.MIME': 'Content-Type: image/png\r\nContent-Location:\r\n https://news.example/img/app-store.png?v=1&w=2\r\n\r\n',
+        '1.2.4.MIME': 'Content-Type: image/gif\r\nCONTENT-LOCATION: social.gif\r\n\r\n',
+      });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe(`<table background="data:image/png;base64,${PNG}"><tr><td style="background:url( 'data:image/gif;base64,R0lG' )">`
+        + '<img src="data:image/png;base64,AAAA"><img src = "data:image/png;base64,CCCC"></td></tr></table>');
+      expect(body.attachments.map(a => a.filename)).toEqual(['invoice.pdf']);
+      expect(body.cidsComplete).toBe(true);
+      // The sanitizer keeps an embedded raster background, or the adopted header vanished.
+      const { sanitizeEmail: realSanitize } = await vi.importActual('./emailSanitizer.js');
+      const shown = realSanitize(body.html);
+      expect(shown).toContain(`background="data:image/png;base64,${PNG}"`);
+      expect(shown).toContain('url(');
+      expect(shown).toContain('data:image/gif;base64,R0lG');
+    });
+
+    it('keeps a file name that is only text, a link or an alt as an attachment', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/related',
+        childNodes: [html(), attachedImage('2', { dispositionParameters: { filename: 'chart.png' } })],
+      }, { '1': '<p>See chart.png</p><a href="chart.png">chart</a><img alt="chart.png" src="https://x.example/chart.png.jpg">', '2': PNG });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).not.toContain('data:');
+      expect(body.attachments.map(a => a.filename)).toEqual(['chart.png']);
+    });
+
+    it('matches a Content-Location only inside a multipart/related', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/mixed',
+        childNodes: [html(), attachedImage('2', { location: 'photo.png', dispositionParameters: { filename: 'IMG_1.png' } })],
+      }, { '1': '<img src="photo.png">', '2': PNG });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe('<img src="photo.png">');
+      expect(body.attachments.map(a => a.filename)).toEqual(['IMG_1.png']);
+    });
+
+    it('ignores names written as text, in a comment or in a script', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/related',
+        childNodes: [html(), attachedImage('2', { dispositionParameters: { filename: 'chart.png' } })],
+      }, {
+        '1': '<p>Write src=chart.png or src="chart.png" in your template</p><!-- <img src="chart.png"> -->'
+          + '<script>var i = "<img src=\'chart.png\'>";</script><style>/* chart.png */</style>',
+        '2': PNG,
+      });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).not.toContain('data:');
+      expect(body.html).not.toContain('cid:');
+      expect(body.attachments.map(a => a.filename)).toEqual(['chart.png']);
+    });
+
+    it('matches a file name only on a part named like an image', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/related',
+        childNodes: [
+          html(),
+          attachedImage('2', { dispositionParameters: { filename: 'report.pdf' } }),
+          attachedImage('3', { dispositionParameters: { filename: 'LOGO' } }),
+        ],
+      }, { '1': '<img src="report.pdf"><img src="LOGO">', '2': PNG, '3': 'AAAA' });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe('<img src="report.pdf"><img src="data:image/png;base64,AAAA">');
+      expect(body.attachments.map(a => a.filename)).toEqual(['report.pdf']);
+    });
+
+    it('keeps an image past the size cap as an attachment', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/related',
+        childNodes: [html(), attachedImage('2', { id: '<big@x>', size: 6 * 1024 * 1024, dispositionParameters: { filename: 'big.png' } })],
+      }, { '1': '<img src="cid:big@x"><img src="big.png">', '2': PNG });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe('<img src="cid:big@x"><img src="big.png">');
+      expect(body.attachments.map(a => a.filename)).toEqual(['big.png']);
+    });
+
+    it('cannot be reached through a guessed MailFlow Content-ID', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/related',
+        childNodes: [html(), attachedImage('2', { dispositionParameters: { filename: 'secret.png' } })],
+      }, { '1': '<img src="cid:part-2@mailflow.invalid"><img src="cid:part-2-000000000000@mailflow.invalid">', '2': PNG });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).not.toContain('data:');
+      expect(body.attachments.map(a => a.filename)).toEqual(['secret.png']);
+    });
+
+    // A signature image and an attached photo sharing one Content-ID, as Outlook's image001.png@01D...
+    // numbering makes happen across a forward: the HTML's reference is the signature's.
+    it('adopts no second image for a Content-ID an inline image already has', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/mixed',
+        childNodes: [
+          { type: 'multipart/related', childNodes: [
+            html('1.1'),
+            { part: '1.2', type: 'image/png', encoding: 'base64', size: 900, id: '<image001.png@01D>', disposition: 'inline', dispositionParameters: { filename: 'image001.png' } },
+          ] },
+          { part: '2', type: 'image/jpeg', encoding: 'base64', size: 90000, id: '<image001.png@01D>', disposition: 'attachment', dispositionParameters: { filename: 'holiday.jpg' } },
+          { part: '3', type: 'image/jpeg', encoding: 'base64', size: 90000, id: '<image001.png@01D>', disposition: 'attachment', dispositionParameters: { filename: 'beach.jpg' } },
+        ],
+      }, { '1.1': '<p>Regards</p><img src="cid:image001.png@01D">', '1.2': PNG, '2': 'AAAA', '3': 'BBBB' });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe(`<p>Regards</p><img src="data:image/png;base64,${PNG}">`);
+      expect(body.attachments.map(a => a.filename)).toEqual(['holiday.jpg', 'beach.jpg']);
+    });
+
+    it('adopts only the first of two attached images with one Content-ID', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/related',
+        childNodes: [
+          html(),
+          attachedImage('2', { id: '<dup@x>', dispositionParameters: { filename: 'first.png' } }),
+          attachedImage('3', { id: '<dup@x>', dispositionParameters: { filename: 'second.png' } }),
+        ],
+      }, { '1': '<img src="cid:dup@x">', '2': PNG, '3': 'AAAA' });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe(`<img src="data:image/png;base64,${PNG}">`);
+      expect(body.attachments.map(a => a.filename)).toEqual(['second.png']);
+    });
+
+    it('shows a photo attached outside a multipart/related that the text cites, and keeps it listed', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/mixed',
+        childNodes: [
+          html(),
+          attachedImage('2', { id: '<photo@x>', type: 'image/jpeg', dispositionParameters: { filename: 'photo.jpg' } }),
+        ],
+      }, { '1': '<p>Here it is:</p><img src="cid:photo@x">', '2': '/9j/' });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe('<p>Here it is:</p><img src="data:image/jpeg;base64,/9j/">');
+      expect(body.attachments).toEqual([expect.objectContaining({ part: '2', filename: 'photo.jpg', shownInline: true })]);
+      expect(body.inlineParts).toEqual(['2']);
+    });
+
+    // sanitizeEmail drops <body> and keeps a data: background on table tags only, so an image named
+    // only there would leave the list and then vanish from the message.
+    it('does not adopt an image named only where the sanitizer drops it', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/related',
+        childNodes: [html(), attachedImage('2', { id: '<bg@x>', dispositionParameters: { filename: 'bg.png' } })],
+      }, {
+        '1': '<body background="cid:bg@x" style="background:url(cid:bg@x)"><div background="cid:bg@x"><iframe src="cid:bg@x"></iframe><p>Hi</p></div></body>',
+        '2': PNG,
+      });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.attachments.map(a => a.filename)).toEqual(['bg.png']);
+      expect(body.inlineParts).toEqual([]);
+    });
+
+    it('ignores references inside raw-text and never-rendered elements, declarations and processing instructions', async () => {
+      const hidden = [
+        '<textarea><img src="cid:a@x"></textarea>',
+        '<title><img src="cid:a@x"></title>',
+        '<xmp><img src="cid:a@x"></xmp>',
+        '<noscript><img src="cid:a@x"></noscript>',
+        '<noembed><img src="cid:a@x"></noembed>',
+        '<noframes><img src="cid:a@x"></noframes>',
+        '<iframe srcdoc="x"><img src="cid:a@x"></iframe>',
+        '<!x <img src="cid:a@x">',
+        '<?php <img src="cid:a@x"> ?>',
+        '<plaintext></plaintext><img src="cid:a@x">',
+        '<TEXTAREA>a</textarea >b<img src="cid:b@x"></TEXTAREA><img src="cid:b@x">',
+      ];
+      for (const doc of hidden) {
+        const { mgr, account } = serve({
+          type: 'multipart/related',
+          childNodes: [html(), attachedImage('2', { id: '<a@x>', dispositionParameters: { filename: 'a.png' } })],
+        }, { '1': doc, '2': PNG });
+        const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+        expect(body.attachments.map(a => a.filename), doc).toEqual(['a.png']);
+      }
+      // After the raw text ends, markup counts again.
+      const { mgr, account } = serve({
+        type: 'multipart/related',
+        childNodes: [html(), attachedImage('2', { id: '<a@x>', dispositionParameters: { filename: 'a.png' } })],
+      }, { '1': '<textarea><img src="cid:a@x"></textarea><img src="cid:a@x">', '2': PNG });
+      expect((await mgr.fetchMessageBody(account, 42, 'INBOX')).attachments).toEqual([]);
+    });
+
+    it('marks a listed photo shown inline only where an <img> shows it, not a background', async () => {
+      const structure = (doc) => serve({
+        type: 'multipart/mixed',
+        childNodes: [html(), attachedImage('2', { id: '<photo@x>', type: 'image/jpeg', dispositionParameters: { filename: 'photo.jpg' } })],
+      }, { '1': doc, '2': '/9j/' });
+      let { mgr, account } = structure('<table background="cid:photo@x"><tr><td>Look</td></tr></table>');
+      let body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe('<table background="data:image/jpeg;base64,/9j/"><tr><td>Look</td></tr></table>');
+      expect(body.attachments).toEqual([expect.objectContaining({ filename: 'photo.jpg' })]);
+      expect(body.attachments[0].shownInline).toBeUndefined();
+      expect(body.inlineParts).toEqual([]);
+      ({ mgr, account } = structure('<table background="cid:photo@x"><tr><td><img src=" cid:photo@x"></td></tr></table>'));
+      body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.attachments[0].shownInline).toBe(true);
+      expect(body.inlineParts).toEqual(['2']);
+    });
+
+    it('caps by the size the server reports, not the size= the sender wrote', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/related',
+        childNodes: [
+          html(),
+          attachedImage('2', { size: 6 * 1024 * 1024, dispositionParameters: { filename: 'big.png', size: '1' } }),
+          attachedImage('3', { size: 900, dispositionParameters: { filename: 'small.png', size: '99999999' } }),
+        ],
+      }, { '1': '<img src="big.png"><img src="small.png">', '2': PNG, '3': 'AAAA' });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe('<img src="big.png"><img src="data:image/png;base64,AAAA">');
+      expect(body.attachments.map(a => a.filename)).toEqual(['big.png']);
+    });
+
+    it('adopts an image of unknown size only by cid: from inside its multipart/related', async () => {
+      const unsized = (part, extra) => ({ part, type: 'image/png', encoding: 'base64', disposition: 'attachment', ...extra });
+      const { mgr, account } = serve({
+        type: 'multipart/mixed',
+        childNodes: [
+          { type: 'multipart/related', childNodes: [
+            html('1.1'),
+            unsized('1.2', { id: '<logo@x>', dispositionParameters: { filename: 'logo.png' } }),
+            unsized('1.3', { dispositionParameters: { filename: 'badge.png' } }),
+          ] },
+          unsized('2', { id: '<photo@x>', dispositionParameters: { filename: 'photo.png' } }),
+        ],
+      }, { '1.1': '<img src="cid:logo@x"><img src="badge.png"><img src="cid:photo@x">', '1.2': PNG, '1.3': 'AAAA', '2': 'BBBB' });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe(`<img src="data:image/png;base64,${PNG}"><img src="badge.png"><img src="cid:photo@x">`);
+      expect(body.attachments.map(a => a.filename)).toEqual(['badge.png', 'photo.png']);
+    });
+
+    it('looks up malformed percent-encoded references quickly', () => {
+      const structure = {
+        type: 'multipart/related',
+        childNodes: [html(), attachedImage('2', { id: '<a@x>', dispositionParameters: { filename: 'a.png' } })],
+      };
+      // Against the same number of plain references on the same machine, not a fixed time: a busy
+      // CI runner is several times slower across the board. Decoding every reference made these
+      // about 40 times slower than plain ones.
+      const time = (doc) => {
+        const started = performance.now();
+        extractBodyFromMsg({ bodyStructure: structure, bodyParts: new Map([['1', Buffer.from(doc)]]) });
+        return performance.now() - started;
+      };
+      const plain = time('<img src="cid:zz@x">'.repeat(80_000));
+      for (const doc of ['<img src="cid:%E0%A4%A">'.repeat(80_000), Array.from({ length: 80_000 }, (_, i) => `<img src="cid:%E0%A4%41${i}">`).join('')]) {
+        expect(time(doc)).toBeLessThan(plain * 8 + 100);
+      }
+    });
+
+    it('fetches an attached image only once the HTML is known to show it', async () => {
+      const { mgr, account, requested } = serve({
+        type: 'multipart/related',
+        childNodes: [
+          html(),
+          attachedImage('7', { id: '<a@x>', dispositionParameters: { filename: 'a.png' } }),
+          attachedImage('8', { id: '<b@x>', dispositionParameters: { filename: 'b.png' } }),
+        ],
+      }, { '1': '<img src="cid:a@x">', '7': PNG, '8': 'AAAA' });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe(`<img src="data:image/png;base64,${PNG}">`);
+      expect(body.attachments.map(a => a.filename)).toEqual(['b.png']);
+      expect(requested).toContain('7');
+      expect(requested).not.toContain('8');
+    });
+
+    it('is not complete when an adopted image did not arrive', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/related',
+        childNodes: [html(), attachedImage('7', { location: 'a.png' })],
+      }, { '1': '<img src="a.png">' });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toMatch(/^<img src="cid:part-7-[0-9a-f]{12}@mailflow\.invalid">$/);
+      expect(body.cidsComplete).toBe(false);
+      expect(body.attachments).toEqual([]);
+    });
+
+    it('turns references by name into cid: in a synced body, so opening it embeds them', () => {
+      const body = extractBodyFromMsg({
+        bodyStructure: {
+          type: 'multipart/related',
+          childNodes: [
+            html(),
+            { part: '2', type: 'image/png', encoding: 'base64', size: 900, parameters: { name: 'logo.png' } },
+            attachedImage('3', { id: '<x@y>', dispositionParameters: { filename: 'x.png' } }),
+          ],
+        },
+        bodyParts: new Map([['1', Buffer.from('<img src="logo.png"><img src="cid:x@y">')]]),
+      });
+      expect(body.html).toMatch(/^<img src="cid:part-2-[0-9a-f]{12}@mailflow\.invalid"><img src="cid:x@y">$/);
+      expect(body.attachments).toEqual([]);
+    });
+
+    it('leaves a synced body whose related image has no known Content-Location to the body fetch', () => {
+      const structure = {
+        type: 'multipart/related',
+        childNodes: [html(), { part: '2', type: 'image/png', encoding: 'base64' }],
+      };
+      const body = extractBodyFromMsg({ bodyStructure: structure, bodyParts: new Map([['1', Buffer.from('<img src="https://x.example/a.png">')]]) });
+      expect(body.deferred).toBe(true);
+      const known = extractBodyFromMsg({
+        bodyStructure: { ...structure, childNodes: [html(), { part: '2', type: 'image/png', encoding: 'base64', size: 900, location: 'https://x.example/a.png' }] },
+        bodyParts: new Map([['1', Buffer.from('<img src="https://x.example/a.png">')]]),
+      });
+      expect(known.deferred).toBe(false);
+      expect(known.html).toMatch(/^<img src="cid:part-2-[0-9a-f]{12}@mailflow\.invalid">$/);
+      // Nothing for a Content-Location to answer: no image URL, or only resolved ones.
+      for (const doc of ['<p>No images</p>', '<img src="data:image/png;base64,AA"><img src="cid:x@y">', '<p>src="a.png"</p>']) {
+        expect(extractBodyFromMsg({ bodyStructure: structure, bodyParts: new Map([['1', Buffer.from(doc)]]) }).deferred).toBe(false);
+      }
+    });
+
+    it('reads a Content-Location from a MIME header, folded or not', () => {
+      expect(contentLocationFromMimeHeader(Buffer.from('Content-Type: image/png\r\ncontent-location:   a/b.png  \r\n\r\n'))).toBe('a/b.png');
+      expect(contentLocationFromMimeHeader(Buffer.from('Content-Location:\r\n\thttps://x.example/a.png\r\n'))).toBe('https://x.example/a.png');
+      expect(contentLocationFromMimeHeader(Buffer.from('Content-Type: image/png\r\n'))).toBe('');
+      expect(contentLocationFromMimeHeader(undefined)).toBe('');
+    });
+
+    it('leaves the sync-time attachment list as before: the body is not known there', () => {
+      const atts = attachmentsFromStructure({
+        bodyStructure: {
+          type: 'multipart/related',
+          childNodes: [html(), attachedImage('2', { id: '<x@y>', dispositionParameters: { filename: 'x.png' } })],
+        },
+      });
+      expect(atts.map(a => a.filename)).toEqual(['x.png']);
+    });
+
+    // Shapes still broken in 4.0.3 (#640): a layout image outside any multipart/related named by
+    // file name, sent as application/octet-stream or with no type, cited as cid: with its file
+    // name, or typed image/x-png or another alias.
+    it('shows an attached image outside a multipart/related that the HTML names by file name, and keeps it listed', async () => {
+      for (const extra of [{ disposition: 'attachment' }, { disposition: 'inline' }, { disposition: undefined }]) {
+        const { mgr, account } = serve({
+          type: 'multipart/mixed',
+          childNodes: [
+            html(),
+            attachedImage('2', { type: 'image/jpeg', ...extra, dispositionParameters: { filename: 'hdr.jpg' } }),
+            { ...report },
+          ],
+        }, { '1': '<table><tr><td background="hdr.jpg"><img src="HDR.JPG"><img src=hdr.jpg></td></tr></table>', '2': '/9j/', '3': 'JVBERi0=' });
+        const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+        // A file name is matched exactly, as a URL: HDR.JPG is another file.
+        expect(body.html).toBe('<table><tr><td background="data:image/jpeg;base64,/9j/"><img src="HDR.JPG"><img src="data:image/jpeg;base64,/9j/"></td></tr></table>');
+        expect(body.attachments).toEqual([
+          expect.objectContaining({ part: '2', filename: 'hdr.jpg', shownInline: true }),
+          expect.objectContaining({ filename: 'invoice.pdf' }),
+        ]);
+        expect(body.attachments[1].shownInline).toBeUndefined();
+        expect(body.inlineParts).toEqual(['2']);
+        expect(body.cidsComplete).toBe(true);
+      }
+    });
+
+    it('leaves an attached image the HTML outside a multipart/related never names listed and unshown', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/mixed',
+        childNodes: [html(), attachedImage('2', { type: 'image/jpeg', dispositionParameters: { filename: 'holiday.jpg' } })],
+      }, { '1': '<p>See holiday.jpg</p><img src="https://x.example/holiday.jpg">', '2': '/9j/' });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).not.toContain('data:');
+      expect(body.attachments).toEqual([expect.objectContaining({ filename: 'holiday.jpg' })]);
+      expect(body.attachments[0].shownInline).toBeUndefined();
+      expect(body.inlineParts).toEqual([]);
+    });
+
+    it('shows an application/octet-stream or untyped part named like an image, typed by its bytes', async () => {
+      const octet = (part, extra) => ({ part, type: 'application/octet-stream', encoding: 'base64', size: 3000, ...extra });
+      const { mgr, account } = serve({
+        type: 'multipart/mixed',
+        childNodes: [
+          { type: 'multipart/related', childNodes: [
+            html('1.1'),
+            // Inline, with a Content-ID: an inline image.
+            octet('1.2', { id: '<hdr@x>', disposition: 'inline', dispositionParameters: { filename: 'hdr.JPG' } }),
+            // Marked as an attachment, with a Content-ID.
+            octet('1.3', { id: '<badge@x>', disposition: 'attachment', dispositionParameters: { filename: 'badge.png' } }),
+            // No type at all.
+            octet('1.4', { type: '', id: '<icon@x>', disposition: 'attachment', parameters: { name: 'icon.gif' } }),
+          ] },
+          // A real file sent as application/octet-stream is still a file.
+          octet('2', { id: '<doc@x>', disposition: 'attachment', dispositionParameters: { filename: 'notes.bin' } }),
+          octet('3', { disposition: 'attachment', dispositionParameters: { filename: 'scan.webp' } }),
+        ],
+      }, {
+        '1.1': '<img src="cid:hdr@x"><table background="cid:badge@x"><tr><td style="background:url(cid:icon@x)"><img src="cid:doc@x"></td></tr></table>',
+        '1.2': '/9j/', '1.3': PNG, '1.4': 'R0lGODlh', '2': 'AAAA', '3': 'UklGRgAAAABXRUJQ',
+      });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe(`<img src="data:image/jpeg;base64,/9j/"><table background="data:image/png;base64,${PNG}">`
+        + '<tr><td style="background:url(data:image/gif;base64,R0lGODlh)"><img src="cid:doc@x"></td></tr></table>');
+      expect(body.attachments.map(a => a.filename)).toEqual(['notes.bin', 'scan.webp']);
+      expect(body.cidsComplete).toBe(true);
+      const { sanitizeEmail: realSanitize } = await vi.importActual('./emailSanitizer.js');
+      expect(realSanitize(body.html)).toContain(`background="data:image/png;base64,${PNG}"`);
+    });
+
+    it('lists an inline application/octet-stream image the HTML never references', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/mixed',
+        childNodes: [html(), { part: '2', type: 'application/octet-stream', encoding: 'base64', size: 3000, id: '<p@x>', disposition: 'inline', dispositionParameters: { filename: 'photo.jpeg' } }],
+      }, { '1': '<p>Hi</p>', '2': '/9j/' });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.attachments).toEqual([expect.objectContaining({ part: '2', filename: 'photo.jpeg', type: 'application/octet-stream' })]);
+    });
+
+    it('resolves a cid: that is an image part\'s file name rather than its Content-ID', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/mixed',
+        childNodes: [
+          { type: 'multipart/related', childNodes: [
+            html('1.1'),
+            // M: another Content-ID, inline.
+            { part: '1.2', type: 'image/jpeg', encoding: 'base64', size: 900, id: '<0123@mailer>', disposition: 'inline', dispositionParameters: { filename: 'hdr.jpg' } },
+            // M: another Content-ID, marked as an attachment.
+            attachedImage('1.3', { id: '<4567@mailer>', dispositionParameters: { filename: 'Badge.png' } }),
+            // N: no Content-ID.
+            { part: '1.4', type: 'image/gif', encoding: 'base64', size: 900, disposition: 'inline', dispositionParameters: { filename: 'spacer gif.gif' } },
+          ] },
+          // N, outside a multipart/related: shown and still listed.
+          attachedImage('2', { type: 'image/jpeg', dispositionParameters: { filename: 'photo.jpg' } }),
+        ],
+      }, {
+        // Case, angle brackets and percent-encoding as for a Content-ID.
+        '1.1': '<img src="cid:HDR.jpg"><img src="cid:<badge.png>"><img src="cid:spacer%20gif.gif"><img src="cid:photo.jpg">',
+        '1.2': '/9j/', '1.3': PNG, '1.4': 'R0lG', '2': 'BBBB',
+      });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe(`<img src="data:image/jpeg;base64,/9j/"><img src="data:image/png;base64,${PNG}">`
+        + '<img src="data:image/gif;base64,R0lG"><img src="data:image/jpeg;base64,BBBB">');
+      expect(body.attachments).toEqual([expect.objectContaining({ part: '2', filename: 'photo.jpg', shownInline: true })]);
+      expect(body.cidsComplete).toBe(true);
+    });
+
+    it('leaves a cid: file name two image parts share, or one a Content-ID answers, as it is', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/related',
+        childNodes: [
+          html(),
+          attachedImage('2', { id: '<a@x>', dispositionParameters: { filename: 'logo.png' } }),
+          attachedImage('3', { id: '<b@x>', dispositionParameters: { filename: 'LOGO.png' } }),
+          // Its Content-ID is another image's file name: the Content-ID wins.
+          attachedImage('4', { id: '<pic.png>', dispositionParameters: { filename: 'one.png' } }),
+          attachedImage('5', { id: '<c@x>', dispositionParameters: { filename: 'pic.png' } }),
+        ],
+      }, { '1': '<img src="cid:logo.png"><img src="cid:pic.png">', '2': PNG, '3': 'AAAA', '4': 'BBBB', '5': 'CCCC' });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe('<img src="cid:logo.png"><img src="data:image/png;base64,BBBB">');
+      expect(body.attachments.map(a => a.filename)).toEqual(['logo.png', 'LOGO.png', 'pic.png']);
+    });
+
+    it('builds a data: URI the sanitizer keeps from image/jpg, image/x-png and other aliases', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/related',
+        childNodes: [
+          html(),
+          { part: '2', type: 'IMAGE/JPG', encoding: 'base64', size: 900, id: '<a@x>', disposition: 'inline' },
+          { part: '3', type: 'image/x-png', encoding: 'base64', size: 900, id: '<b@x>' },
+          attachedImage('4', { type: 'image/pjpeg', id: '<c@x>', dispositionParameters: { filename: 'c.jpg' } }),
+          attachedImage('5', { type: 'image/x-ms-bmp', id: '<d@x>', dispositionParameters: { filename: 'd.bmp' } }),
+        ],
+      }, {
+        '1': '<table background="cid:a@x"><tr><td background="cid:b@x"></td><td background="cid:c@x"></td><th background="cid:d@x"></th></tr></table>',
+        '2': '/9j/', '3': PNG, '4': 'AAAA', '5': 'Qk0=',
+      });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      const { sanitizeEmail: realSanitize } = await vi.importActual('./emailSanitizer.js');
+      const shown = realSanitize(body.html);
+      for (const uri of ['data:image/jpeg;base64,/9j/', `data:image/png;base64,${PNG}`, 'data:image/jpeg;base64,AAAA', 'data:image/bmp;base64,Qk0=']) {
+        expect(shown).toContain(`background="${uri}"`);
+      }
+      expect(body.attachments).toEqual([]);
+    });
+
+    it('still matches a file name in a synced body outside a multipart/related only once its size is known', () => {
+      const structure = (size) => ({
+        type: 'multipart/mixed',
+        childNodes: [html(), { part: '2', type: 'application/octet-stream', encoding: 'base64', size, disposition: 'attachment', dispositionParameters: { filename: 'hdr.jpg' } }],
+      });
+      const doc = new Map([['1', Buffer.from('<img src="hdr.jpg">')]]);
+      expect(extractBodyFromMsg({ bodyStructure: structure(900), bodyParts: doc }).html).toMatch(/^<img src="cid:part-2-[0-9a-f]{12}@mailflow\.invalid">$/);
+      expect(extractBodyFromMsg({ bodyStructure: structure(0), bodyParts: doc }).html).toBe('<img src="hdr.jpg">');
+    });
+
+    // An HTML page, an SVG and a PDF, each sent as application/octet-stream (or untyped) and named
+    // like a PNG: what the HTML names them is not shown, and they stay files to download.
+    it('keeps a part named like an image whose bytes are not one a file, in a multipart/related or not', async () => {
+      const notImages = {
+        html: Buffer.from('<html><body>Hi</body></html>').toString('base64'),
+        svg: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>x()</script></svg>').toString('base64'),
+        pdf: Buffer.from('%PDF-1.4\n%x\n').toString('base64'),
+      };
+      const octet = (part, name, extra) => ({ part, type: 'application/octet-stream', encoding: 'base64', size: 900, disposition: 'attachment', dispositionParameters: { filename: name }, ...extra });
+      for (const [kind, bytes] of Object.entries(notImages)) {
+        for (const related of [true, false]) {
+          const parts = [
+            html(related ? '1.1' : '1'),
+            octet(related ? '1.2' : '2', 'scan.png'),
+            octet(related ? '1.3' : '3', 'logo.png', { id: '<logo@x>' }),
+            // Inline with a Content-ID: walked as an inline image, so it is listed again.
+            octet(related ? '1.4' : '4', 'icon.png', { id: '<icon@x>', disposition: 'inline', type: '' }),
+          ];
+          const n = (p) => (related ? `1.${p}` : String(p));
+          const { mgr, account } = serve(related ? { type: 'multipart/related', childNodes: parts } : { type: 'multipart/mixed', childNodes: parts }, {
+            [n(1)]: '<img src="scan.png"><img src="cid:logo@x"><img src="cid:icon@x">',
+            [n(2)]: bytes, [n(3)]: bytes, [n(4)]: bytes,
+          });
+          const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+          const label = `${kind} ${related ? 'related' : 'mixed'}`;
+          expect(body.html, label).not.toContain('data:');
+          expect(body.attachments.map(a => a.filename).sort(), label).toEqual(['icon.png', 'logo.png', 'scan.png']);
+          expect(body.attachments.every(a => !a.shownInline && a.type === 'application/octet-stream'), label).toBe(true);
+          expect(body.inlineParts, label).toEqual([]);
+          // A part that will never be an image is no reason to fetch the body again.
+          expect(body.cidsComplete, label).toBe(true);
+        }
+      }
+    });
+
+    it('drops a related part named like an image from the list only once its bytes are one', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/related',
+        childNodes: [html(), { part: '2', type: 'application/octet-stream', encoding: 'base64', size: 900, disposition: 'attachment', dispositionParameters: { filename: 'hdr.png' } }, report],
+      }, { '1': '<img src="hdr.png">', '2': 'R0lGODlhAQABAAAAACw=', '3': 'JVBERi0=' });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      // Named .png, but a GIF: shown as what it is.
+      expect(body.html).toBe('<img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">');
+      expect(body.attachments.map(a => a.filename)).toEqual(['invoice.pdf']);
+    });
+
+    // Quoted-printable image bytes read like QP text (=3D, =D0), which counted the image as missing:
+    // the body was never marked settled and every view fetched it again.
+    it('embeds a quoted-printable image as its decoded bytes, and counts the fetch complete', async () => {
+      const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.from('=\u00d0\u00d1 rest of a picture')]);
+      const qp = [...png].map(b => (b >= 33 && b <= 126 && b !== 61 ? String.fromCharCode(b) : `=${b.toString(16).toUpperCase().padStart(2, '0')}`)).join('');
+      for (const type of ['image/png', 'application/octet-stream']) {
+        const { mgr, account } = serve({
+          type: 'multipart/related',
+          childNodes: [html(), { part: '2', type, encoding: 'quoted-printable', size: 900, id: '<q@x>', disposition: 'inline', dispositionParameters: { filename: 'q.png' } }],
+        }, { '1': '<img src="cid:q@x">', '2': qp });
+        const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+        expect(body.html, type).toBe(`<img src="data:image/png;base64,${png.toString('base64')}">`);
+        expect(body.cidsComplete, type).toBe(true);
+        expect(body.attachments, type).toEqual([]);
+      }
+    });
+
+    it('settles a body whose image part holds text, rather than fetching it again on every view', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/related',
+        childNodes: [html(), { part: '2', type: 'image/svg+xml', encoding: 'quoted-printable', size: 900, id: '<s@x>', disposition: 'inline' }],
+      }, { '1': '<img src="cid:s@x">', '2': '<svg xmlns=3D"http://www.w3.org/2000/svg"></svg>' });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.html).toBe('<img src="cid:s@x">');
+      expect(body.cidsComplete).toBe(true);
+    });
+
+    it('lists an unreferenced inline part named like an image but holding a PDF once', async () => {
+      const { mgr, account } = serve({
+        type: 'multipart/mixed',
+        childNodes: [html(), { part: '2', type: 'application/octet-stream', encoding: 'base64', size: 900, id: '<s@x>', disposition: 'inline', dispositionParameters: { filename: 'scan.png' } }],
+      }, { '1': '<p>Scan attached</p>', '2': Buffer.from('%PDF-1.4').toString('base64') });
+      const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+      expect(body.attachments.map(a => a.filename)).toEqual(['scan.png']);
+    });
+
+    it('stays fast on cid: file name references', () => {
+      const structure = {
+        type: 'multipart/mixed',
+        childNodes: [html(), ...Array.from({ length: 200 }, (_, i) => attachedImage(String(i + 2), { dispositionParameters: { filename: `${'n'.repeat(2000)}${i}.png` } }))],
+      };
+      const time = (doc) => {
+        const started = performance.now();
+        extractBodyFromMsg({ bodyStructure: structure, bodyParts: new Map([['1', Buffer.from(doc)]]) });
+        return performance.now() - started;
+      };
+      // Against plain image URLs of the same size on the same machine.
+      const plain = time('<img src="https://x.example/a.png">'.repeat(10_000));
+      for (const doc of [
+        '<img src="cid:nnnnnnnnnnnnnnnnnnnnnnnnn.png">'.repeat(10_000),
+        `<img src="cid:${'%41'.repeat(100_000)}">`,
+        Array.from({ length: 10_000 }, (_, i) => `<img src="cid:${i}.png">`).join(''),
+        `<img src="cid:${' '.repeat(300_000)}`,
+      ]) {
+        expect(time(doc)).toBeLessThan(plain * 8 + 100);
+      }
+    });
+
+    it('stays fast on hostile HTML and names', () => {
+      const names = Array.from({ length: 200 }, (_, i) => `${'a'.repeat(2000)}${i}`);
+      const structure = {
+        type: 'multipart/related',
+        childNodes: [html(), ...names.map((name, i) => attachedImage(String(i + 2), { location: `b${'a'.repeat(1999)}`, dispositionParameters: { filename: name } }))],
+      };
+      const hostile = [
+        'a'.repeat(1_000_000),
+        `src=${' '.repeat(500_000)}"${'a'.repeat(500_000)}`,
+        `src="${'src="'.repeat(200_000)}`,
+        `url(${'('.repeat(500_000)}`,
+      ];
+      for (const doc of hostile) {
+        const started = performance.now();
+        extractBodyFromMsg({ bodyStructure: structure, bodyParts: new Map([['1', Buffer.from(doc)]]) });
+        expect(performance.now() - started).toBeLessThan(2000);
+      }
+    });
+  });
+});
+
 // ── _shouldAutoBackfillOnConnect — auto-backfill gate (#354) ──────────────────
 // The gate itself was always correct; #354 was the connect flow evaluating it
 // AFTER the initial INBOX sync inserted rows. These lock the gate contract:
@@ -1902,6 +2720,31 @@ describe("connectAccount attaches 'error' before connect (#360)", () => {
     expect(ImapFlow).toHaveBeenCalledTimes(1);
     expect(errorListenersAtConnect).toBeGreaterThanOrEqual(1);
     expect(emitThrew).toBe(false);
+  });
+});
+
+// A host the address check refuses (or an OAuth refresh that fails) used to throw before the
+// try that releases the in-progress lock: the account stayed "connecting" until a restart.
+describe('connectAccount when the host is refused', () => {
+  it('releases the lock and records the error, so the next attempt runs', async () => {
+    resolveForConnection.mockReset().mockRejectedValue(new Error('Host cannot be a private or reserved IP address'));
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false, allowInsecureTls: false });
+    query.mockReset().mockResolvedValue({ rows: [] });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const mgr = new ImapManager(null);
+    clearInterval(mgr._healthCheckTimer);
+    clearInterval(mgr._snippetSchedulerTimer);
+    mgr.disconnectAccount = vi.fn(() => Promise.resolve());
+    mgr.broadcast = vi.fn();
+    const acct = { id: 'acct-refused', user_id: 'u1', imap_host: '2130706433', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'enc' };
+
+    expect(await mgr.connectAccount(acct)).toBe(false);
+    expect(mgr.connectingAccounts.has(acct.id)).toBe(false);
+    expect(query.mock.calls.some(([sql, params]) => /SET sync_error/.test(sql) && /private or reserved/.test(params[0]))).toBe(true);
+    // Not "Already connecting": the second attempt reaches the host check again.
+    expect(await mgr.connectAccount(acct)).toBe(false);
+    expect(resolveForConnection).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -3014,7 +3857,7 @@ describe('computeThreadId subject fallback requires a shared correspondent (#468
       ],
     });
 
-    const id = await computeThreadId(ACCOUNT, '<y@partner.com>', ...noHeaders, 'Status', {
+    const id = await computeThreadId(ACCOUNT, '<y@partner.com>', ...noHeaders, 'Re: Status', {
       fromEmail: 'anna@partner.com',
       to: [{ email: OWNER }],
       cc: [],
@@ -3029,7 +3872,7 @@ describe('computeThreadId subject fallback requires a shared correspondent (#468
       rows: [{ thread_id: 't', from_email: 'Anna@Partner.com', to_addresses: [{ email: OWNER }], cc_addresses: [] }],
     });
 
-    const id = await computeThreadId(ACCOUNT, '<z@partner.com>', ...noHeaders, 'Status', {
+    const id = await computeThreadId(ACCOUNT, '<z@partner.com>', ...noHeaders, 'Re: Status', {
       fromEmail: 'anna@PARTNER.COM', to: [], cc: [], own: OWNER.toUpperCase(),
     });
 
@@ -3046,7 +3889,7 @@ describe('computeThreadId subject fallback requires a shared correspondent (#468
       }],
     });
 
-    const id = await computeThreadId(ACCOUNT, '<w@partner.com>', ...noHeaders, 'Status', {
+    const id = await computeThreadId(ACCOUNT, '<w@partner.com>', ...noHeaders, 'Re: Status', {
       fromEmail: 'anna@partner.com', to: [], cc: [], own: OWNER,
     });
 
@@ -3148,6 +3991,280 @@ describe('computeThreadId subject fallback requires a shared correspondent (#468
     });
 
     expect(id).toBe('header-thread');
+  });
+});
+
+describe('computeThreadId subject fallback needs evidence of a reply (#649)', () => {
+  const ACCOUNT = 'acct-649';
+  const OWNER = 'me@example.com';
+  const noHeaders = [null, null];
+  const SUBJECT = 'Order Confirmation for Eldridge from King David';
+
+  beforeEach(() => {
+    query.mockReset();
+    getAccountAddresses.mockReset();
+    getAccountAddresses.mockResolvedValue([OWNER]);
+  });
+
+  it('starts a new thread for the same sender and subject without a reply prefix', async () => {
+    // The report: every receipt for the same restaurant joined the one before it. A sender
+    // that is not obviously no-reply, so this is the same-sender rule on its own.
+    query.mockResolvedValueOnce({
+      rows: [{ thread_id: 'first-receipt', from_email: 'orders@shop.example', to_addresses: [{ email: OWNER }], cc_addresses: [] }],
+    });
+
+    const id = await computeThreadId(ACCOUNT, '<receipt-2@shop.example>', ...noHeaders, SUBJECT, {
+      fromEmail: 'orders@shop.example', to: [{ email: OWNER }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('<receipt-2@shop.example>');
+  });
+
+  it('still joins the same sender when the subject carries a reply prefix', async () => {
+    // Someone following up on their own earlier message from a client that drops headers.
+    query.mockResolvedValueOnce({
+      rows: [{ thread_id: 'anna-thread', from_email: 'anna@partner.com', to_addresses: [{ email: OWNER }], cc_addresses: [] }],
+    });
+
+    const id = await computeThreadId(ACCOUNT, '<again@partner.com>', ...noHeaders, 'AW: Lunch on Friday', {
+      fromEmail: 'anna@partner.com', to: [{ email: OWNER }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('anna-thread');
+  });
+
+  it('joins an exchange between two parties even without a prefix', async () => {
+    // Bob answers a message he was copied on, keeping the subject as it was.
+    query.mockResolvedValueOnce({
+      rows: [{
+        thread_id: 'numbers-thread',
+        from_email: 'anna@partner.com',
+        to_addresses: [{ email: OWNER }],
+        cc_addresses: [{ email: 'bob@partner.com' }],
+      }],
+    });
+
+    const id = await computeThreadId(ACCOUNT, '<bob@partner.com>', ...noHeaders, 'Quarterly numbers', {
+      fromEmail: 'bob@partner.com', to: [{ email: 'anna@partner.com' }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('numbers-thread');
+  });
+
+  it('does not count a sender addressing its own mail to itself as an exchange', async () => {
+    // Bulk senders often put their own address in To and BCC everyone. That made each such
+    // message look like an answer to the one before it.
+    query.mockResolvedValueOnce({
+      rows: [{ thread_id: 'digest-1', from_email: 'digest@news.example', to_addresses: [{ email: 'digest@news.example' }], cc_addresses: [] }],
+    });
+
+    const id = await computeThreadId(ACCOUNT, '<digest-2@news.example>', ...noHeaders, 'Your weekly digest', {
+      fromEmail: 'digest@news.example', to: [{ email: 'digest@news.example' }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('<digest-2@news.example>');
+  });
+
+  it('never uses the fallback for bulk mail, even with a reply prefix', async () => {
+    const id = await computeThreadId(ACCOUNT, '<list-2@lists.example>', ...noHeaders, 'Re: Weekly update', {
+      fromEmail: 'anna@partner.com', to: [{ email: OWNER }], cc: [], own: OWNER, isBulk: true,
+    });
+
+    expect(id).toBe('<list-2@lists.example>');
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'no-reply@doordash.com',
+    'noreply@example.com',
+    'NoReply@Example.com',
+    'donotreply@bank.example',
+    'do-not-reply@bank.example',
+    'do_not_reply@bank.example',
+    'no-reply-orders@shop.example',
+    'noreply+alerts@shop.example',
+  ])('never uses the fallback for a no-reply sender (%s)', async (from) => {
+    const id = await computeThreadId(ACCOUNT, '<alert-2@example.com>', ...noHeaders, `Re: ${SUBJECT}`, {
+      fromEmail: from, to: [{ email: OWNER }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('<alert-2@example.com>');
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('does not mistake an address that merely contains "reply" for a no-reply one', async () => {
+    query.mockResolvedValueOnce({
+      rows: [{ thread_id: 'reply-thread', from_email: 'replyteam@partner.com', to_addresses: [{ email: OWNER }], cc_addresses: [] }],
+    });
+
+    const id = await computeThreadId(ACCOUNT, '<r2@partner.com>', ...noHeaders, 'RE: Contract', {
+      fromEmail: 'replyteam@partner.com', to: [{ email: OWNER }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('reply-thread');
+  });
+
+  it('does not count bulk or no-reply mail sent to a sender as an exchange with that sender', async () => {
+    // Anna writes without a prefix. A newsletter and a no-reply notice were addressed to her,
+    // which would pass for an exchange, but they are not something she answers. The third
+    // candidate, Bob's message to her, is an ordinary exchange.
+    query.mockResolvedValueOnce({
+      rows: [
+        { thread_id: 'bulk', from_email: 'news@shop.example', to_addresses: [{ email: 'anna@partner.com' }], cc_addresses: [], is_bulk: true },
+        { thread_id: 'no-reply', from_email: 'no-reply@shop.example', to_addresses: [{ email: 'anna@partner.com' }], cc_addresses: [], is_bulk: false },
+        { thread_id: 'bob', from_email: 'bob@partner.com', to_addresses: [{ email: 'anna@partner.com' }], cc_addresses: [], is_bulk: null },
+      ],
+    });
+
+    const id = await computeThreadId(ACCOUNT, '<anna@partner.com>', ...noHeaders, 'Order question', {
+      fromEmail: 'anna@partner.com', to: [{ email: OWNER }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('bob');
+    expect(query.mock.calls[0][0]).toContain('is_bulk');
+  });
+
+  it('starts a new thread when the only exchange is bulk mail sent to the sender', async () => {
+    query.mockResolvedValueOnce({
+      rows: [{ thread_id: 'bulk', from_email: 'news@shop.example', to_addresses: [{ email: 'anna@partner.com' }], cc_addresses: [], is_bulk: true }],
+    });
+
+    const id = await computeThreadId(ACCOUNT, '<anna2@partner.com>', ...noHeaders, 'Order question', {
+      fromEmail: 'anna@partner.com', to: [{ email: OWNER }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('<anna2@partner.com>');
+  });
+
+  it.each([
+    ['bulk', 'team@vendor.example', true],
+    ['no-reply', 'no-reply@vendor.example', false],
+  ])('still threads a header-less reply sent to a %s sender', async (_kind, from, isBulk) => {
+    // Our "RE: Survey" from a client that drops headers, sent to the address the survey came
+    // from. Also the shape of a header-less reply to a mailing-list post.
+    query.mockResolvedValueOnce({
+      rows: [{ thread_id: 'survey', from_email: from, to_addresses: [{ email: OWNER }], cc_addresses: [], is_bulk: isBulk }],
+    });
+
+    const id = await computeThreadId(ACCOUNT, `<re-${_kind}@example.com>`, ...noHeaders, 'RE: Survey', {
+      fromEmail: OWNER, to: [{ email: from }], cc: [], own: OWNER,
+    });
+
+    expect(id).toBe('survey');
+  });
+
+  it('leaves header threading alone, even for bulk mail from a no-reply sender', async () => {
+    query.mockResolvedValueOnce({ rows: [{ message_id: '<order@doordash.com>', thread_id: 'order-thread' }] });
+
+    const id = await computeThreadId(ACCOUNT, '<update@doordash.com>', '<order@doordash.com>', '<order@doordash.com>', SUBJECT, {
+      fromEmail: 'no-reply@doordash.com', to: [{ email: OWNER }], cc: [], own: OWNER, isBulk: true,
+    });
+
+    expect(id).toBe('order-thread');
+  });
+});
+
+// The ingest paths have to hand computeThreadId the parsed bulk flag, or bulk mail without
+// threading headers would still reach the subject fallback (#649). Each path is driven with a
+// header-less message from an ordinary sender, so the only thing that keeps the fallback's
+// candidate query from running is the flag.
+describe('ingest paths pass isBulk to computeThreadId (#649)', () => {
+  const subjectFallbackRan = () => query.mock.calls.some(([sql]) => String(sql).includes('normalized_subject = $3'));
+  const parsedMessage = (isBulk) => ({
+    uid: 5, messageId: `<digest-${isBulk}@news.example>`, subject: 'Weekly digest',
+    fromName: 'News', fromEmail: 'news@news.example', to: [{ email: 'me@example.com' }], cc: [], replyTo: [],
+    inReplyTo: null, references: null, date: new Date('2026-10-01T10:00:00Z'), snippet: 'hi',
+    isRead: true, isStarred: false, hasAttachments: false, flags: ['\\Seen'], isBulk, parsedHeaders: {},
+  });
+  let seq = 0;
+  const freshAccount = () => ({
+    id: `acct-649-wiring-${++seq}`, user_id: 'user-1', email_address: 'me@example.com', enabled: true,
+    gtd_enabled: false, categorization_enabled: false, imap_host: 'imap.example.com', imap_port: 993,
+    imap_tls: true, auth_user: 'me', auth_pass: 'enc',
+  });
+
+  beforeEach(() => {
+    query.mockReset();
+    parseMessage.mockReset();
+    getAccountAddresses.mockReset();
+    getAccountAddresses.mockResolvedValue(['me@example.com']);
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it.each([true, false])('sync (isBulk %s)', async (isBulk) => {
+    const account = freshAccount();
+    invalidateGtdConfigCache(account.id);
+    const client = {
+      noop: vi.fn(async () => true),
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      mailbox: { exists: 1, uidValidity: 100, highestModseq: 500n },
+      fetch: vi.fn(async function* () { yield { uid: 5 }; }),
+    };
+    query.mockImplementation(async (sql) => {
+      if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) return { rows: [{ uid_validity: 100, highest_modseq: '500' }] };
+      if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return { rows: [{ n: 0 }] };
+      if (sql.includes('COALESCE(MAX(uid), 0)')) return { rows: [{ max_uid: 0 }] };
+      if (sql.includes('SELECT gtd_enabled, gtd_folders FROM email_accounts')) return { rows: [{ gtd_enabled: false, gtd_folders: {} }] };
+      if (sql.includes("preferences->>'categorizationEnabled'")) return { rows: [{ val: false }] };
+      if (sql.includes('INSERT INTO messages')) return { rows: [{ id: 'msg-1', is_new: true }] };
+      return { rows: [] };
+    });
+    parseMessage.mockResolvedValue(parsedMessage(isBulk));
+
+    await ImapManager.prototype.syncMessages.call({ maybeClassifyNewMessage: vi.fn() }, account, client, 'Watch', 50, false, true);
+
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT INTO messages'))).toBe(true);
+    expect(subjectFallbackRan()).toBe(!isBulk);
+  });
+
+  it.each([true, false])('backfill (isBulk %s)', async (isBulk) => {
+    const account = freshAccount();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    ImapFlow.mockImplementation(function () {
+      const client = new EventEmitter();
+      client.usable = true;
+      client.connect = vi.fn(() => Promise.resolve());
+      client.logout = vi.fn(() => Promise.resolve());
+      client.close = vi.fn();
+      client.noop = vi.fn(() => Promise.resolve());
+      client.mailbox = { exists: 1, uidValidity: 7 };
+      client.getMailboxLock = vi.fn(async () => ({ release: vi.fn() }));
+      client.search = vi.fn(async () => [5]);
+      client.fetch = vi.fn(async function* () { yield { uid: 5 }; });
+      return client;
+    });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    query.mockImplementation(async (sql) => {
+      if (sql.includes('FROM email_accounts WHERE id = $1')) return { rows: [account] };
+      if (sql.includes('COUNT(*) as count')) return { rows: [{ count: '0', max_uid: 0 }] };
+      if (sql.includes("preferences->>'categorizationEnabled'")) return { rows: [{ val: false }] };
+      if (sql.includes('INSERT INTO messages')) return { rows: [{ id: 'msg-1', is_new: true }] };
+      return { rows: [] };
+    });
+    parseMessage.mockResolvedValue(parsedMessage(isBulk));
+
+    const mgr = new ImapManager({ clients: new Set() });
+    mgr.maybeClassifyNewMessage = vi.fn();
+    await mgr.backfillMessages(account, 'INBOX');
+
+    expect(error).not.toHaveBeenCalled();
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT INTO messages'))).toBe(true);
+    expect(subjectFallbackRan()).toBe(!isBulk);
+  });
+
+  it.each([true, false])('reply draft ingest (isBulk %s)', async (isBulk) => {
+    const account = freshAccount();
+    parseMessage.mockResolvedValue(parsedMessage(isBulk));
+    query.mockImplementation(async () => ({ rows: [{ id: 'row-1' }] }));
+
+    await Object.create(ImapManager.prototype)._ingestDraftUidWithClient(account, 'Drafts', 5,
+      { mailbox: { uidValidity: 9n } }, { headers: Buffer.from('headers'), bodyStructure: { type: 'text/plain' } });
+
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT INTO messages'))).toBe(true);
+    expect(subjectFallbackRan()).toBe(!isBulk);
   });
 });
 

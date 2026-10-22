@@ -17,7 +17,7 @@ async function callNative(method, args, fallback = null) {
     const MailFlowNative = getPlugin();
     return await MailFlowNative[method](args);
   } catch (error) {
-    if (String(error?.message || error).includes('not implemented')) {
+    if (method !== 'openOidcLogout' && String(error?.message || error).includes('not implemented')) {
       pluginUnavailable = true;
     }
     return fallback;
@@ -49,6 +49,7 @@ export async function installCapacitorNativeBridge() {
         return result?.host || host;
       },
       resetHost: async () => callNative('resetHost'),
+      openOidcLogout: async (url) => callNative('openOidcLogout', { url }, { handled: false }),
       badges: {
         ...existingBridge.badges,
         setUnreadCount: async (count) => callNative('setUnreadCount', { count }),

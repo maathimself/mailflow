@@ -2,7 +2,7 @@ import { createHmac } from 'crypto';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { query } from './db.js';
 import { deriveKey } from './encryption.js';
-import { sanitizeEmail } from './emailSanitizer.js';
+import { sanitizeEmail, withoutDarkScheme } from './emailSanitizer.js';
 import { createAccountSmtpTransport } from './smtpTransport.js';
 import { MAILER_ID } from './mailerIdentity.js';
 
@@ -156,7 +156,7 @@ export function buildForwardMessage({
       `<strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}<br>`),
     '</div><br>',
   ].join('');
-  const safeHtml = html ? sanitizeEmail(html) : html;
+  const safeHtml = forwardableHtml(html);
   const plainBody = text || htmlToPlainText(safeHtml);
 
   return {
@@ -189,10 +189,19 @@ function ensureAttachmentLimit(attachments) {
   }
 }
 
+// The email as it leaves MailFlow. `html` is either raw from the server or the stored body, which is
+// already sanitized and ends with the sender's dark CSS switched off (media="not all"). Sanitizing
+// that again drops the switch, since <style> keeps no attributes, and the dark rules would go out
+// active; so a stored dark block is taken off first, and the one sanitizing makes is taken off after.
+function forwardableHtml(html) {
+  return html ? withoutDarkScheme(sanitizeEmail(withoutDarkScheme(html))) : html;
+}
+
 async function loadForwardContent({ row, account, imapManager }) {
   let text = row.body_text;
   let html = row.body_html;
   let fetchedParts = [];
+  let inlineParts = [];
   if (!text && !html) {
     const fetched = await imapManager.fetchMessageBody(
       account,
@@ -202,8 +211,13 @@ async function loadForwardContent({ row, account, imapManager }) {
     text = fetched.text;
     html = fetched.html;
     fetchedParts = parseAttachments(fetched.attachments);
+    inlineParts = fetched.inlineParts || [];
   }
 
+  // An image the HTML shows as a data: URI goes out inline (embedInlineDataImages below), so it is
+  // not attached again: one the stored list still names from sync time, before the body showed it
+  // was part of the page, and an attached file the HTML also shows, marked shownInline (#640).
+  const shownInline = new Set(html ? inlineParts.map(String) : []);
   const storedParts = [];
   const seenParts = new Set();
   for (const attachment of [
@@ -219,6 +233,7 @@ async function loadForwardContent({ row, account, imapManager }) {
       continue;
     }
     const partKey = String(attachment.part);
+    if (shownInline.has(partKey) || (html && attachment.shownInline)) continue;
     if (seenParts.has(partKey)) continue;
     seenParts.add(partKey);
     storedParts.push(attachment);
@@ -255,7 +270,7 @@ async function loadForwardContent({ row, account, imapManager }) {
     });
   }
 
-  const safeHtml = html ? sanitizeEmail(html) : html;
+  const safeHtml = forwardableHtml(html);
   const embedded = embedInlineDataImages(safeHtml);
   const attachments = [
     ...embedded.attachments,

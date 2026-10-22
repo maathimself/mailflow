@@ -142,7 +142,7 @@
           },
           saveHost: async (host) => {
             const result = await plugin.saveHost({ host });
-            return result?.host || host;
+            return { host: result?.host || host, navigating: result?.navigating === true };
           },
           checkNotificationPermission: async () => {
             const result = await plugin.checkNotificationPermission();
@@ -214,8 +214,11 @@
           const host = normalizeHost(input.value);
 
           if (window.mailflowNative) {
-            const savedHost = await window.mailflowNative.saveHost(host);
-            loadHost(savedHost || host);
+            // The desktop app answers with the host; the Android app with { host, navigating }
+            // when it opens the host itself (#621).
+            const saved = await window.mailflowNative.saveHost(host);
+            if (saved?.navigating) return;
+            loadHost(saved?.host || saved || host);
           } else {
             localStorage.setItem(STORAGE_KEY, host);
             loadHost(host);

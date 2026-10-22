@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dark audit harness</title>
+<!-- The page the audit renders each email in (#228): an email frame set up as the reader's
+     (MessageBodyView), driven by the reader's own modules. audit.mjs serves this page and those
+     modules from the repo and blocks every other request. -->
+<style>
+  html, body { margin: 0; background: #0f0f11; }
+  iframe { display: block; border: 0; width: 720px; height: 300px; }
+</style>
+</head>
+<body>
+<iframe id="frame" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
+<script type="module">
+import { buildFrameDoc, DARK_DEFAULTS, SCALE_WRAPPER } from '/frontend/src/utils/emailFrameDoc.js';
+import { applyDarkBody, restoreBody } from '/frontend/src/utils/darkBody.js';
+import { measureTextContrast } from '/frontend/src/utils/emailContrast.js';
+import { measureContentHeight, forceEagerImages, pinFrameRoot, createScrollExpander } from '/frontend/src/utils/emailFrameHeight.js';
+
+const frame = document.getElementById('frame');
+const MAX_HEIGHT = 1400;
+const doc = () => frame.contentDocument;
+
+// The frame sized to its email, as the reader sizes it, up to MAX_HEIGHT for the screenshot.
+function fitHeight() {
+  const d = doc();
+  const wrapper = d.getElementById(SCALE_WRAPPER);
+  const h = measureContentHeight({
+    wrapperOffsetHeight: wrapper?.offsetHeight, wrapperOffsetTop: wrapper?.offsetTop,
+    bodyScrollHeight: d.body?.scrollHeight, bodyOffsetHeight: d.body?.offsetHeight,
+  });
+  frame.style.height = `${Math.max(1, Math.min(MAX_HEIGHT, Math.ceil(h)))}px`;
+  return Math.ceil(h);
+}
+
+// Loads an email as the reader does: its frame document, then the same layout fixes
+// MessageBodyView makes before showing it (scale-to-fit for wide emails aside).
+async function load(html, darkCss, remoteImagesBlocked = false, remoteImagesProxied = false) {
+  const loaded = new Promise(resolve => frame.addEventListener('load', resolve, { once: true }));
+  frame.srcdoc = buildFrameDoc({ html, palette: DARK_DEFAULTS, darkCss, remoteImagesBlocked, remoteImagesProxied });
+  await loaded;
+  const d = doc();
+  if (!d.getElementById(SCALE_WRAPPER)) throw new Error('frame document did not load');
+  forceEagerImages(d);
+  pinFrameRoot(d);
+  createScrollExpander(d)();
+  return fitHeight();
+}
+
+const light = () => measureTextContrast(doc(), { samples: true });
+
+function show(mode) {
+  const result = applyDarkBody(doc(), { palette: DARK_DEFAULTS, mode, samples: true });
+  return { ...result, height: fitHeight() };
+}
+
+function restore() {
+  restoreBody(doc());
+  return fitHeight();
+}
+
+// Share of an image's pixels that are bright (relative luminance above 0.6).
+async function brightShare(b64) {
+  const img = new Image();
+  img.src = `data:image/png;base64,${b64}`;
+  await img.decode();
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const g = canvas.getContext('2d');
+  g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, canvas.width, canvas.height).data;
+  const lin = (c) => { const s = c / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+  let bright = 0;
+  let n = 0;
+  for (let i = 0; i < d.length; i += 16) {
+    if (0.2126 * lin(d[i]) + 0.7152 * lin(d[i + 1]) + 0.0722 * lin(d[i + 2]) > 0.6) bright += 1;
+    n += 1;
+  }
+  return Math.round((bright / n) * 1000) / 1000;
+}
+
+// Diagnostics, for an email the audit flagged: facts about the i-th piece of visible text (as
+// utils/emailContrast.js numbers them) and what is painted behind it, never the text itself.
+const SKIP_PARENTS = new Set(['STYLE', 'SCRIPT', 'TEMPLATE', 'TITLE', 'HEAD']);
+function textNode(i) {
+  const d = doc();
+  const walker = d.createTreeWalker(d.body, 4);
+  let n = -1;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const el = node.parentElement;
+    if (!el || SKIP_PARENTS.has(el.tagName) || !node.nodeValue.replace(/\s+/g, ' ').trim()) continue;
+    n += 1;
+    if (n === i) return node;
+  }
+  return null;
+}
+function describe(i) {
+  const node = textNode(i);
+  if (!node) return null;
+  const win = doc().defaultView;
+  const chain = [];
+  for (let el = node.parentElement; el; el = el.parentElement) {
+    const s = win.getComputedStyle(el);
+    chain.push({
+      tag: el.tagName.toLowerCase(),
+      color: s.color, fill: s.webkitTextFillColor, background: s.backgroundColor,
+      backgroundImage: s.backgroundImage === 'none' ? 'none' : s.backgroundImage.startsWith('url') ? 'url' : 'gradient',
+      opacity: s.opacity, filter: s.filter, blend: s.mixBlendMode, visibility: s.visibility,
+      position: s.position, transition: s.transitionProperty + ' ' + s.transitionDuration,
+      animation: s.animationName, inlineColor: el.style.getPropertyValue('color'),
+      inlineBackground: el.style.getPropertyValue('background-color'),
+      animations: el.getAnimations ? el.getAnimations().length : null,
+    });
+  }
+  return { chars: node.nodeValue.replace(/\s+/g, ' ').trim().length, chain };
+}
+const settle = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+window.harness = { load, light, show, restore, brightShare, describe, settle };
+window.harnessReady = true;
+</script>
+</body>
+</html>

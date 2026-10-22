@@ -4,6 +4,7 @@ import { api } from '../utils/api.js';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
+import { formatDay } from '../utils/formatDate.js';
 
 // Deterministic avatar color from a string
 function avatarColor(str) {
@@ -639,7 +640,7 @@ function ContactDetail({ contact: c, confirmDelete, saving, error, onEdit, onDel
           )}
           {c.last_sent && (
             <DetailRow label={t('contacts.fields.lastContacted')}>
-              {new Date(c.last_sent).toLocaleDateString()}
+              {formatDay(c.last_sent)}
             </DetailRow>
           )}
         </DetailSection>

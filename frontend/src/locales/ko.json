@@ -175,6 +175,9 @@
       "aiWriteDraft": "초안 작성",
       "aiAssist": "AI 어시스트",
       "aiError": "AI 오류: {{message}}",
+      "aiTooLong": "이 초안은 {{count}}자로, AI가 받을 수 있는 {{max}}자를 넘습니다. 내용을 줄이거나 인용된 텍스트를 지운 뒤 다시 시도하세요.",
+      "aiNotAllowed": "관리자가 이 계정에서 AI를 사용할 수 없도록 설정했습니다.",
+      "aiFeatureOff": "관리자가 AI 작성 도우미를 껐습니다.",
       "moreFormatting": "추가 서식 지정",
       "aiPanelTitle": "AI 제안"
     },
@@ -223,6 +226,9 @@
     "loadingError": "메시지 본문을 로드할 수 없습니다.",
     "allowSender": "항상 {{email}}에서 허용",
     "loadImages": "이미지 로드",
+    "trackersBlocked_one": "추적기 {{count}}개 차단됨",
+    "trackersBlocked_other": "추적기 {{count}}개 차단됨",
+    "trackersBlockedHint": "보낸 사람에게 이 이메일을 열었음을 알리는 이미지를 불러오지 않았습니다.",
     "attachmentRisk": {
       "warn": "주의가 필요한 파일 형식 (.{{ext}}) — 매크로나 가짜 로그인 페이지가 포함되어 있을 수 있습니다",
       "block": "위험한 파일 형식 (.{{ext}}) — 컴퓨터에서 코드를 실행할 위험이 있습니다",
@@ -242,6 +248,9 @@
     "replyAll": "전체 답장",
     "more": "더 보기",
     "print": "인쇄",
+    "showDark": "어두운 색으로 보기",
+    "showOriginal": "원래 색으로 보기",
+    "cannotShowDark": "텍스트를 읽기 어렵게 만들지 않고는 이 이메일을 어둡게 표시할 수 없습니다",
     "summarize": "요약",
     "summary": "요약",
     "aiActions": "AI 액션",
@@ -250,9 +259,12 @@
     "aiExpand": "펼치기",
     "aiCollapse": "접기",
     "aiCopied": "복사됨",
+    "aiNotAllowed": "관리자가 이 계정에서 AI를 사용할 수 없도록 설정했습니다.",
+    "aiFeatureOff": "관리자가 AI 요약 및 AI 액션을 껐습니다.",
     "aiCopy": "복사",
     "previousMessage": "이전 메시지",
     "aiRegenerate": "재생성",
+    "aiTruncated": "이 이메일의 처음 {{percent}}%만 사용했습니다. 나머지는 너무 길어 AI에 보내지 않았습니다.",
     "manageAiActions": "작업 관리…",
     "nextMessage": "다음 메시지",
     "summaryDismiss": "요약 닫기",
@@ -262,12 +274,17 @@
       "noFolderBody": "이 계정에 대해 구성된 보관 폴더가 없습니다. 설정 → 계정 → 폴더 매핑에서 설정하세요.",
       "failBody": "메시지를 보관처리할 수 없습니다.",
       "conversationTitle": "대화가 보관되었습니다.",
+      "nothingFromAccount": "이 대화에는 보관할 이 계정의 메일이 없습니다.",
+      "otherAccountMessage": "아무것도 보관하지 않았습니다. 열린 메시지는 다른 계정의 메시지입니다.",
+      "otherAccountDraft": "아무것도 보관하지 않았습니다. 열린 초안은 다른 계정의 초안입니다.",
       "noFolderTitle": "보관 폴더 없음"
     },
     "moved": {
       "failTitle": "이동 실패",
       "title": "메시지가 이동되었습니다.",
       "conversationTitle": "대화가 이동되었습니다.",
+      "nothingFromAccount": "이 대화에는 이동할 이 계정의 메일이 없습니다.",
+      "otherAccountDraft": "아무것도 이동하지 않았습니다. 열린 초안은 다른 계정의 초안입니다.",
       "failBody": "메시지를 이동할 수 없습니다."
     },
     "whitelistFail": {
@@ -283,6 +300,8 @@
     },
     "snoozed": {
       "conversationTitle": "대화 다시 알림이 설정되었습니다.",
+      "nothingFromAccount": "이 대화에는 다시 알림을 설정할 이 계정의 메일이 없습니다.",
+      "nothingInConversation": "이 대화에는 다시 알림을 설정할 메일이 없습니다.",
       "failTitle": "다시 알림 실패",
       "title": "메시지 다시 알림이 설정되었습니다.",
       "failBody": "이 메시지의 다시 알림을 설정할 수 없습니다."
@@ -313,6 +332,16 @@
       "passwordLabel": "PDF 비밀번호",
       "passwordSubmit": "열기",
       "passwordIncorrect": "비밀번호가 올바르지 않습니다. 다시 시도하세요."
+    },
+    "unsnoozed": {
+      "title": "되돌렸습니다",
+      "failTitle": "되돌리지 못했습니다",
+      "failBody": "아직 다시 알림 대기 중입니다. 다시 시도하세요."
+    },
+    "snoozeChanged": {
+      "title": "{{when}}까지 다시 알림 대기",
+      "failTitle": "다시 알림 시간을 변경하지 못했습니다",
+      "failBody": "이전 시간이 유지됩니다. 다시 시도하세요."
     }
   },
   "messageList": {
@@ -351,7 +380,8 @@
       "title": "메시지가 삭제되었습니다.",
       "failBody": "메시지를 삭제할 수 없습니다.",
       "failTitle": "삭제 실패",
-      "conversationTitle": "대화가 삭제되었습니다."
+      "conversationTitle": "대화가 삭제되었습니다.",
+      "nothingFromAccount": "이 대화에는 삭제할 이 계정의 메일이 없습니다."
     },
     "draftBcc": {
       "failTitle": "임시 보관 메일을 읽기 전용으로 열었습니다",
@@ -396,6 +426,7 @@
     "pullToSync": "당겨서 동기화",
     "releaseToSync": "동기화하려면 손을 떼세요",
     "noSearchResults": "검색결과가 없습니다",
+    "searching": "검색 중…",
     "clearSearch": "검색 지우기",
     "noSearchResultsDesc": "{{query}}에 대한 결과가 없습니다.",
     "searchHelp": {
@@ -453,7 +484,10 @@
       }
     },
     "noAccountsDesc": "시작하려면 이메일 계정을 추가하세요",
-    "changeLayout": "레이아웃 변경"
+    "changeLayout": "레이아웃 변경",
+    "snoozedUntil": "{{when}}까지 다시 알림 대기",
+    "snoozedEmpty": "다시 알림 대기 중인 메일 없음",
+    "snoozedEmptyDesc": "다시 알림으로 미룬 메일은 돌아올 때까지 여기에서 기다립니다."
   },
   "lockScreen": {
     "unlockButton": "잠금 해제",
@@ -511,7 +545,8 @@
     "confirmEmpty": "\"{{name}}\" 폴더를 비우시겠습니까? 이 폴더의 모든 메시지가 영구적으로 삭제됩니다.",
     "emptied": "폴더가 비었습니다",
     "updateAvailable": "사용 가능한 업데이트: v{{version}}",
-    "backToAccounts": "계정으로 돌아가기"
+    "backToAccounts": "계정으로 돌아가기",
+    "snoozed": "다시 알림"
   },
   "contextMenu": {
     "openInNewWindow": "새 창에서 열기",
@@ -531,7 +566,9 @@
       "nextWeek": "다음 주",
       "custom": "사용자 지정...",
       "tomorrowMorning": "내일 아침",
-      "threeHours": "3시간 후"
+      "threeHours": "3시간 후",
+      "change": "다시 알림 시간 변경",
+      "unsnooze": "지금 되돌리기"
     },
     "star": "별표 표시",
     "replyAll": "전체 답장",
@@ -775,6 +812,11 @@
       "tier1Title": "대량 메일 발신자 상위 목록"
     },
     "title": "설정",
+    "behavior": {
+      "reading": "읽기",
+      "writing": "작성",
+      "sync": "동기화"
+    },
     "tabs": {
       "cleanup": "정리",
       "accounts": "계정",
@@ -791,15 +833,16 @@
       "ai": "AI 어시스턴트",
       "theme": "테마",
       "categories": "카테고리",
-      "groupDisplay": "화면",
+      "groupPreferences": "환경설정",
       "antispam": "스팸방지",
       "aiActions": "AI 액션",
       "fontsAndLanguage": "언어 및 글꼴",
-      "groupAccountMail": "계정 및 메일",
+      "groupMail": "메일",
       "groupAdmin": "관리",
+      "behavior": "동작",
       "plugins": "플러그인",
       "backup": "백업",
-      "groupSecurityIntegrations": "보안 및 연동"
+      "groupAiExtensions": "AI 및 확장"
     },
     "close": "닫기",
     "rules": {
@@ -848,6 +891,8 @@
       "opEndsWith": "다음으로 끝남",
       "actionForwardPlaceholder": "수신자@example.com",
       "actionSetCategory": "카테고리 지정",
+      "actionNotify": "알림 받기",
+      "actionNotifyHint": "규칙이 메일을 이동하거나 읽음으로 표시해도 알림을 받습니다.",
       "actionSetCategorySelect": "카테고리 선택…",
       "saving": "저장 중…",
       "actionMovePlaceholder": "정확한 IMAP 폴더 경로(예: 직장 또는 INBOX/직장)",
@@ -890,6 +935,10 @@
       "lastSync": "마지막 동기화",
       "displayNamePh": "예를 들어 직장 Gmail",
       "color": "계정 색상",
+      "icon": "아이콘",
+      "iconNone": "없음 (색상 점)",
+      "iconCustom": "또는 이모지 입력",
+      "iconHint": "색상 점 대신 표시됩니다.",
       "passwordPhEdit": "현재 값을 유지하려면 비워 두세요.",
       "password": "비밀번호/앱 비밀번호",
       "senderName": "보낸 사람 이름",
@@ -1006,6 +1055,8 @@
       "customCssPlaceholder": ":root {\n  --accent: #e74c3c;\n}",
       "customCssDescription": "활성 테마 뒤에 추가 CSS를 삽입합니다. CSS 사용자 정의 속성(예: --accent, --bg-primary)을 사용하여 테마 값을 재정의하거나 자신만의 규칙을 추가하세요. 모든 사용자에게 적용됩니다.",
       "description": "인터페이스의 색상 테마를 선택하세요",
+      "darkEmailBodies": "어두운 메일 본문",
+      "darkEmailBodiesDesc": "어두운 테마에서 HTML 메일도 어두운 색으로 표시합니다. 보낸 사람의 어두운 디자인이 있으면 그것을, 없으면 MailFlow가 색을 바꿔 표시합니다. 메일이 원래대로 표시를 요청하거나 어둡게 표시하면 텍스트를 읽기 어려워지는 경우에는 보낸 그대로 표시됩니다. 각 메일을 따로 전환할 수 있습니다.",
       "typographyDescription": "인터페이스에 대한 글꼴 페어링 선택"
     },
     "messageList": {
@@ -1261,6 +1312,12 @@
       "registrationOpen": "공개등록",
       "registrationIsOpen": "등록이 시작되었습니다",
       "removeAdmin": "관리자 권한 해제",
+      "aiOn": "AI 켜짐",
+      "aiOff": "AI 꺼짐",
+      "aiAccessLabel": "{{username}}의 AI",
+      "aiOnHint": "이 사용자는 AI 어시스턴트를 사용할 수 있습니다. 끄면 이 사용자의 AI 요청(작성 도우미, 요약, AI 액션, AI 분류)이 거부됩니다.",
+      "aiOffHint": "이 사용자는 AI 어시스턴트를 사용할 수 없습니다. 켜면 허용됩니다.",
+      "aiToggleFailed": "{{username}}의 AI 접근 권한을 변경할 수 없습니다",
       "deleteUser": "사용자 삭제",
       "inviteSending": "보내는 중…",
       "inviteTitle": "사용자 초대",
@@ -1319,6 +1376,9 @@
       "modelPh": "예: llama3, gpt-4o",
       "testFail": "연결 실패",
       "featureSummarize": "이메일 요약",
+      "access": "접근 권한",
+      "newUsersEnabled": "새 사용자에게 AI 허용",
+      "newUsersEnabledHint": "지금부터 만들어지는 계정에 적용됩니다. 기존 사용자는 각자의 설정을 유지하며, 사용자 목록에서 변경할 수 있습니다.",
       "saved": "AI 구성이 저장되었습니다.",
       "connectionMethod": "연결 방법",
       "testing": "테스트 중…",
@@ -1774,6 +1834,8 @@
     "badgeTitle": "스팸으로 자동 분류됨 - 자세한 내용을 보려면 클릭하세요.",
     "explainTitle": "스팸으로 분류된 이유",
     "conversationMovedToSpam": "대화가 스팸함으로 이동되었습니다.",
+    "nothingFromAccount": "이 대화에는 스팸으로 표시할 이 계정의 메일이 없습니다.",
+    "nothingInConversation": "이 대화에는 스팸으로 표시할 메일이 없습니다.",
     "noMlTokens": "ML 토큰 없음"
   },
   "contacts": {

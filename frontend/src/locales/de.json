@@ -189,7 +189,10 @@
       "aiApply": "Übernehmen",
       "aiDismiss": "Verwerfen",
       "aiGenerating": "Wird erstellt…",
-      "aiError": "KI-Fehler: {{message}}"
+      "aiError": "KI-Fehler: {{message}}",
+      "aiTooLong": "Dieser Entwurf hat {{count}} Zeichen, mehr als die {{max}}, die die KI verarbeiten kann. Kürzen Sie ihn oder entfernen Sie den zitierten Text und versuchen Sie es erneut.",
+      "aiNotAllowed": "Ihr Administrator hat KI für Ihr Konto ausgeschaltet.",
+      "aiFeatureOff": "Ihr Administrator hat den KI-Schreibassistenten ausgeschaltet."
     },
     "priority": "Priorität",
     "priorityHigh": "Hohe Priorität",
@@ -221,6 +224,9 @@
     "noContent": "Kein Nachrichteninhalt gefunden.",
     "remoteImagesBlocked": "Externe Bilder wurden blockiert.",
     "loadImages": "Bilder laden",
+    "trackersBlocked_one": "{{count}} Tracker blockiert",
+    "trackersBlocked_other": "{{count}} Tracker blockiert",
+    "trackersBlockedHint": "Bilder, die dem Absender das Öffnen dieser E-Mail melden, wurden nicht geladen.",
     "allowSender": "Immer erlauben von {{email}}",
     "allowDomain": "Immer erlauben von @{{domain}}",
     "downloading": "Wird heruntergeladen…",
@@ -241,6 +247,9 @@
     "delete": "Löschen",
     "downloadEml": "Als .eml herunterladen",
     "print": "Drucken",
+    "showDark": "Dunkel anzeigen",
+    "showOriginal": "Originalfarben anzeigen",
+    "cannotShowDark": "Diese E-Mail kann nicht dunkel angezeigt werden, ohne dass Text schwer lesbar wird",
     "printConversation": "Unterhaltung drucken",
     "preparingPrint": "Druck wird vorbereitet…",
     "more": "Mehr",
@@ -250,10 +259,13 @@
     "aiActions": "KI-Aktionen",
     "manageAiActions": "Aktionen verwalten…",
     "aiRegenerate": "Neu generieren",
+    "aiTruncated": "Basiert auf den ersten {{percent}} % dieser E-Mail. Der Rest war zu lang für die KI.",
     "aiExpand": "Erweitern",
     "aiCollapse": "Einklappen",
     "aiCopy": "Kopieren",
     "aiCopied": "Kopiert",
+    "aiNotAllowed": "Ihr Administrator hat KI für Ihr Konto ausgeschaltet.",
+    "aiFeatureOff": "Ihr Administrator hat KI-Zusammenfassungen und -Aktionen ausgeschaltet.",
     "previousMessage": "Vorherige Nachricht",
     "nextMessage": "Nächste Nachricht",
     "archived": {
@@ -262,19 +274,26 @@
       "failBody": "Nachricht konnte nicht archiviert werden.",
       "noFolderTitle": "Kein Archivordner",
       "noFolderBody": "Kein Archivordner für dieses Konto konfiguriert. In Einstellungen → Konten → Ordnerzuordnungen festlegen.",
-      "conversationTitle": "Konversation archiviert"
+      "conversationTitle": "Konversation archiviert",
+      "nothingFromAccount": "In dieser Konversation gibt es nichts von diesem Konto zu archivieren",
+      "otherAccountMessage": "Nichts archiviert: Die geöffnete Nachricht gehört zu einem anderen Konto",
+      "otherAccountDraft": "Nichts archiviert: Der geöffnete Entwurf gehört zu einem anderen Konto"
     },
     "moved": {
       "title": "Nachricht verschoben",
       "failTitle": "Verschieben fehlgeschlagen",
       "failBody": "Nachricht konnte nicht verschoben werden.",
-      "conversationTitle": "Konversation verschoben"
+      "conversationTitle": "Konversation verschoben",
+      "nothingFromAccount": "In dieser Konversation gibt es nichts von diesem Konto zu verschieben",
+      "otherAccountDraft": "Nichts verschoben: Der geöffnete Entwurf gehört zu einem anderen Konto"
     },
     "snoozed": {
       "title": "Nachricht zurückgestellt",
       "failTitle": "Zurückstellen fehlgeschlagen",
       "failBody": "Diese Nachricht konnte nicht zurückgestellt werden.",
-      "conversationTitle": "Konversation zurückgestellt"
+      "conversationTitle": "Konversation zurückgestellt",
+      "nothingFromAccount": "In dieser Konversation gibt es nichts von diesem Konto zurückzustellen",
+      "nothingInConversation": "In dieser Konversation gibt es nichts zurückzustellen"
     },
     "whitelistFail": {
       "title": "Einstellung konnte nicht gespeichert werden",
@@ -313,6 +332,16 @@
       "passwordLabel": "PDF-Passwort",
       "passwordSubmit": "Öffnen",
       "passwordIncorrect": "Falsches Passwort. Versuchen Sie es erneut."
+    },
+    "unsnoozed": {
+      "title": "Zurückgeholt",
+      "failTitle": "Zurückholen fehlgeschlagen",
+      "failBody": "Die E-Mail bleibt zurückgestellt. Bitte erneut versuchen."
+    },
+    "snoozeChanged": {
+      "title": "Zurückgestellt bis {{when}}",
+      "failTitle": "Zeitpunkt konnte nicht geändert werden",
+      "failBody": "Der bisherige Zeitpunkt bleibt. Bitte erneut versuchen."
     }
   },
   "messageList": {
@@ -356,7 +385,8 @@
       "body": "In den Papierkorb verschoben.",
       "failTitle": "Löschen fehlgeschlagen",
       "failBody": "Nachricht konnte nicht gelöscht werden.",
-      "conversationTitle": "Konversation gelöscht"
+      "conversationTitle": "Konversation gelöscht",
+      "nothingFromAccount": "In dieser Konversation gibt es nichts von diesem Konto zu löschen"
     },
     "draftBcc": {
       "failTitle": "Entwurf schreibgeschützt geöffnet",
@@ -396,6 +426,7 @@
     "pullToSync": "Zum Synchronisieren ziehen",
     "releaseToSync": "Loslassen zum Synchronisieren",
     "noSearchResults": "Keine Ergebnisse gefunden",
+    "searching": "Suche läuft…",
     "noSearchResultsDesc": "Keine Treffer für {{query}}",
     "searchFailed": "Suche fehlgeschlagen",
     "clearSearch": "Suche löschen",
@@ -453,7 +484,10 @@
         "label": "Vertikale Teilung",
         "description": "Nachrichtenliste über dem Lesebereich"
       }
-    }
+    },
+    "snoozedUntil": "Zurückgestellt bis {{when}}",
+    "snoozedEmpty": "Nichts zurückgestellt",
+    "snoozedEmptyDesc": "Zurückgestellte E-Mails warten hier, bis sie wiederkommen."
   },
   "lockScreen": {
     "subtitle": "Gib deine PIN zum Entsperren ein",
@@ -511,7 +545,8 @@
     "emptying": "„{{name}}” wird geleert…",
     "emptied": "Ordner geleert",
     "backToAccounts": "Zurück zu Konten",
-    "updateAvailable": "Update verfügbar: v{{version}}"
+    "updateAvailable": "Update verfügbar: v{{version}}",
+    "snoozed": "Zurückgestellt"
   },
   "contextMenu": {
     "find": "Suchen",
@@ -533,7 +568,9 @@
       "threeHours": "In 3 Stunden",
       "tomorrowMorning": "Morgen früh",
       "nextWeek": "Nächste Woche",
-      "custom": "Benutzerdefiniert..."
+      "custom": "Benutzerdefiniert...",
+      "change": "Zeitpunkt ändern",
+      "unsnooze": "Zurückholen"
     },
     "copySubject": "Betreff kopieren",
     "copySender": "Absenderadresse kopieren",
@@ -776,6 +813,11 @@
     },
     "title": "Einstellungen",
     "close": "Schließen",
+    "behavior": {
+      "reading": "Lesen",
+      "writing": "Schreiben",
+      "sync": "Synchronisierung"
+    },
     "tabs": {
       "cleanup": "Aufräumen",
       "accounts": "Konten",
@@ -795,10 +837,11 @@
       "antispam": "Antispam",
       "categories": "Kategorien",
       "rules": "Regeln",
-      "groupAccountMail": "Konto und Mail",
-      "groupDisplay": "Anzeige",
-      "groupSecurityIntegrations": "Sicherheit und Integrationen",
+      "groupMail": "Mail",
+      "groupPreferences": "Präferenzen",
+      "groupAiExtensions": "KI und Erweiterungen",
       "groupAdmin": "Administration",
+      "behavior": "Verhalten",
       "plugins": "Plugins",
       "backup": "Sicherung"
     },
@@ -813,6 +856,10 @@
       "editTitle": "Konto bearbeiten",
       "addTitle": "Konto hinzufügen",
       "color": "Kontofarbe",
+      "icon": "Symbol",
+      "iconNone": "Keins (Farbpunkt)",
+      "iconCustom": "Oder ein Emoji eingeben",
+      "iconHint": "Wird anstelle des Farbpunkts angezeigt.",
       "displayName": "Anzeigename",
       "displayNamePh": "z. B. Privates Gmail",
       "senderName": "Absendername",
@@ -916,6 +963,8 @@
     "appearance": {
       "title": "Darstellung",
       "description": "Ein Farbdesign für die Oberfläche auswählen",
+      "darkEmailBodies": "Dunkle E-Mail-Inhalte",
+      "darkEmailBodiesDesc": "In einem dunklen Design auch HTML-E-Mails dunkel anzeigen: mit dem eigenen dunklen Design des Absenders, wenn es eines gibt, sonst von MailFlow umgefärbt. Eine E-Mail bleibt wie gesendet, wenn sie das verlangt oder wenn Text dunkel schwer lesbar würde. Jede Nachricht lässt sich einzeln umschalten.",
       "typography": "Typografie",
       "typographyDescription": "Eine Schriftpaarung für die Oberfläche auswählen",
       "typographyLoading": "Schriften werden geladen…",
@@ -1182,6 +1231,12 @@
       "adminBadge": "Admin",
       "makeAdmin": "Zum Admin machen",
       "removeAdmin": "Admin-Rechte entfernen",
+      "aiOn": "KI an",
+      "aiOff": "KI aus",
+      "aiAccessLabel": "KI für {{username}}",
+      "aiOnHint": "Dieser Benutzer kann den KI-Assistenten verwenden. Ausgeschaltet werden seine KI-Anfragen abgelehnt: Schreibassistent, Zusammenfassungen, KI-Aktionen und KI-Kategorisierung.",
+      "aiOffHint": "Dieser Benutzer kann den KI-Assistenten nicht verwenden. Einschalten, um es zu erlauben.",
+      "aiToggleFailed": "KI-Zugriff für {{username}} konnte nicht geändert werden",
       "disable2fa": "2FA deaktivieren",
       "deleteUser": "Benutzer löschen",
       "registrationOpen": "Offene Registrierung",
@@ -1244,6 +1299,9 @@
       "features": "Funktionen",
       "featureCompose": "Schreibassistent (Entwurf & Verbesserung)",
       "featureSummarize": "E-Mail-Zusammenfassung",
+      "access": "Zugriff",
+      "newUsersEnabled": "KI für neue Benutzer erlauben",
+      "newUsersEnabledHint": "Gilt für Konten, die ab jetzt erstellt werden. Bestehende Benutzer behalten ihre eigene Einstellung, die Sie in der Benutzerliste ändern können.",
       "saved": "KI-Konfiguration gespeichert.",
       "testOk": "Erfolgreich verbunden.",
       "testFail": "Verbindung fehlgeschlagen",
@@ -1601,6 +1659,8 @@
       "actionForward": "Weiterleiten an",
       "actionForwardPlaceholder": "empfaenger@example.com",
       "actionSetCategory": "Kategorie festlegen",
+      "actionNotify": "Benachrichtigen",
+      "actionNotifyHint": "Auch benachrichtigen, wenn die Regel die E-Mail verschiebt oder als gelesen markiert.",
       "actionSetCategorySelect": "Kategorie auswählen…",
       "nameLabel": "Regelname",
       "editButton": "Bearbeiten",
@@ -1774,7 +1834,9 @@
     "noRulesFired": "Keine Regeln ausgelöst",
     "mlTokensTitle": "Wichtigste Token",
     "noMlTokens": "Keine ML-Token",
-    "conversationMovedToSpam": "Konversation in Spam verschoben"
+    "conversationMovedToSpam": "Konversation in Spam verschoben",
+    "nothingFromAccount": "In dieser Konversation gibt es nichts von diesem Konto als Spam zu markieren",
+    "nothingInConversation": "In dieser Konversation gibt es nichts als Spam zu markieren"
   },
   "contacts": {
     "title": "Kontakte",

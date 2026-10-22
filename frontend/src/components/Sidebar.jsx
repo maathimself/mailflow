@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import AccountMark from './AccountMark.jsx';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { unreadBadge } from '../utils/unreadBadge.js';
@@ -6,7 +7,7 @@ import { api } from '../utils/api.js';
 import { signOut } from '../utils/signOut.js';
 import { resolveThreadMessages } from '../utils/threadActions.js';
 import { keepDraftsApart } from '../utils/conversationActions.js';
-import { folderDisplayName } from '../utils/folderDisplay.js';
+import { folderDisplayName, folderDisplayNameForPath } from '../utils/folderDisplay.js';
 import {
   activateOnKey,
   buildFolderTree,
@@ -21,8 +22,14 @@ import { useMobile } from '../hooks/useMobile.js';
 import LogoMark from './LogoMark.jsx';
 import ProfileModal from './ProfileModal.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
+import { SNOOZED_FOLDER } from '../utils/snoozeActions.js';
 
 const ICONS = {
+  snoozed: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+    </svg>
+  ),
   inbox: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
       <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
@@ -512,6 +519,7 @@ export default function Sidebar() {
   const handleLogout = () => signOut({ setUser });
 
   const isUnified = selectedAccountId === null;
+  const snoozedCount = useStore(s => s.snoozedCount);
 
   // Focus rename/create inputs when they appear
   useEffect(() => {
@@ -587,9 +595,7 @@ export default function Sidebar() {
 
   const handleDeleteFolder = (accountId, folderPath) => {
     const account = accounts.find(a => a.id === accountId);
-    const accountFolders = folders[accountId] || [];
-    const delimiter = accountFolders.find(f => f.delimiter)?.delimiter || '/';
-    const name = folderPath.split(delimiter).pop();
+    const name = folderDisplayNameForPath(folderPath, t, account?.folder_mappings, folders[accountId]);
     const accountLabel = account?.name || account?.email_address || '';
     setConfirmDialog({
       message: t('sidebar.confirmDelete', { name }),
@@ -611,9 +617,9 @@ export default function Sidebar() {
 
   const handleEmptyFolder = (accountId, folderPath) => {
     const account = accounts.find(a => a.id === accountId);
-    const accountFolders = folders[accountId] || [];
-    const delimiter = accountFolders.find(f => f.delimiter)?.delimiter || '/';
-    const name = folderPath.split(delimiter).pop();
+    // The name the folder has in the sidebar, so emptying the "Deleted Items" it labels Trash
+    // asks about and reports Trash (#623).
+    const name = folderDisplayNameForPath(folderPath, t, account?.folder_mappings, folders[accountId]);
     const accountLabel = account?.name || account?.email_address || '';
     setConfirmDialog({
       message: t('sidebar.confirmEmpty', { name }),
@@ -834,7 +840,7 @@ export default function Sidebar() {
       {/* Header */}
       <div style={{
         paddingTop: 'calc(var(--sat) + 16px)',
-        paddingBottom: 16, paddingLeft: 12, paddingRight: 12,
+        paddingBottom: 'calc(16px - var(--sat-trim))', paddingLeft: 12, paddingRight: 12,
         display: 'flex', alignItems: 'center',
         justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)',
         minHeight: 56, flexShrink: 0,
@@ -916,11 +922,25 @@ export default function Sidebar() {
             mailboxRow
             icon={ICONS.inbox}
             label={t('sidebar.allInboxes')}
-            active={isUnified && !showContacts}
+            active={isUnified && selectedFolder !== SNOOZED_FOLDER && !showContacts}
             collapsed={sidebarCollapsed}
             badge={unreadCounts.total}
             badgeStale={!unreadCounts.complete}
             onClick={() => setSelectedAccount(null, 'INBOX')}
+          />
+        )}
+
+        {/* Snoozed (#269): every account's snoozed mail in one place, soonest back first. Shown
+            while something is snoozed, and while it is open, so unsnoozing the last message does
+            not pull it away from under the reader. */}
+        {(snoozedCount > 0 || (isUnified && selectedFolder === SNOOZED_FOLDER)) && (
+          <NavItem
+            mailboxRow
+            icon={ICONS.snoozed}
+            label={t('sidebar.snoozed')}
+            active={isUnified && selectedFolder === SNOOZED_FOLDER && !showContacts}
+            collapsed={sidebarCollapsed}
+            onClick={() => setSelectedAccount(null, SNOOZED_FOLDER)}
           />
         )}
 
@@ -1094,7 +1114,7 @@ export default function Sidebar() {
                       />
                     ) : (
                       <span style={{ fontSize: 13, fontWeight: isActive ? 500 : 400, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {label || (folderObj ? folderDisplayName(folderObj, t, account.folder_mappings) : (path.split('/').pop() || path))}
+                        {label || (folderObj ? folderDisplayName(folderObj, t, account.folder_mappings, accountFolders) : (path.split('/').pop() || path))}
                       </span>
                     )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
@@ -1103,7 +1123,7 @@ export default function Sidebar() {
                           {favBadge.text}
                         </span>
                       )}
-                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: account.color, flexShrink: 0 }} />
+                      <AccountMark accountId={account.id} color={account.color} size={6} />
                     </div>
                   </div>
                 );
@@ -1202,9 +1222,7 @@ export default function Sidebar() {
                     {(account.name || account.email_address || '?').charAt(0).toUpperCase()}
                   </div>
                 ) : (
-                  <div style={{
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: account.color, flexShrink: 0,
+                  <AccountMark accountId={account.id} color={account.color} size={8} style={{
                     boxShadow: account.sync_error ? '0 0 0 2px rgba(248,113,113,0.4)' : 'none',
                   }} />
                 )}
@@ -1490,7 +1508,7 @@ export default function Sidebar() {
                             fontSize: 12, color: 'var(--text-secondary)',
                             flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}>
-                            {folderDisplayName(folder, t, account.folder_mappings)}
+                            {folderDisplayName(folder, t, account.folder_mappings, accountFolders)}
                           </span>
                         )}
 

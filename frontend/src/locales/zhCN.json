@@ -189,7 +189,10 @@
       "aiApply": "应用",
       "aiDismiss": "关闭",
       "aiGenerating": "生成中…",
-      "aiError": "AI 错误：{{message}}"
+      "aiError": "AI 错误：{{message}}",
+      "aiTooLong": "此草稿有 {{count}} 个字符，超过 AI 可接受的 {{max}} 个。请缩短内容或删除引用的文字后重试。",
+      "aiNotAllowed": "管理员已为您的账户关闭 AI。",
+      "aiFeatureOff": "管理员已关闭 AI 写作助手。"
     },
     "priority": "优先级",
     "priorityHigh": "高优先级",
@@ -221,6 +224,9 @@
     "noContent": "未找到邮件内容。",
     "remoteImagesBlocked": "已阻止加载远程图片。",
     "loadImages": "加载图片",
+    "trackersBlocked_one": "已拦截 {{count}} 个跟踪器",
+    "trackersBlocked_other": "已拦截 {{count}} 个跟踪器",
+    "trackersBlockedHint": "未加载会向发件人报告你已打开此邮件的图片。",
     "allowSender": "始终允许来自 {{email}} 的图片",
     "allowDomain": "始终允许来自 @{{domain}} 的图片",
     "downloading": "下载中…",
@@ -241,6 +247,9 @@
     "delete": "删除",
     "downloadEml": "下载为 .eml",
     "print": "打印",
+    "showDark": "以深色显示",
+    "showOriginal": "显示原始颜色",
+    "cannotShowDark": "无法以深色显示此邮件，否则文字将难以阅读",
     "printConversation": "打印会话",
     "preparingPrint": "正在准备打印…",
     "more": "更多",
@@ -250,10 +259,13 @@
     "aiActions": "AI 操作",
     "manageAiActions": "管理操作…",
     "aiRegenerate": "重新生成",
+    "aiTruncated": "仅基于此邮件的前 {{percent}}%。其余内容过长，未发送给 AI。",
     "aiExpand": "展开",
     "aiCollapse": "收起",
     "aiCopy": "复制",
     "aiCopied": "已复制",
+    "aiNotAllowed": "管理员已为您的账户关闭 AI。",
+    "aiFeatureOff": "管理员已关闭 AI 摘要和 AI 操作。",
     "previousMessage": "上一封邮件",
     "nextMessage": "下一封邮件",
     "archived": {
@@ -262,19 +274,26 @@
       "failBody": "无法归档此邮件。",
       "noFolderTitle": "未设置归档文件夹",
       "noFolderBody": "此账户未配置归档文件夹。请前往「设置 → 账户 → 文件夹映射」中设置。",
-      "conversationTitle": "会话已归档"
+      "conversationTitle": "会话已归档",
+      "nothingFromAccount": "此会话中没有此账户的邮件可归档",
+      "otherAccountMessage": "未归档任何邮件：打开的邮件属于其他账户",
+      "otherAccountDraft": "未归档任何邮件：打开的草稿属于其他账户"
     },
     "moved": {
       "title": "邮件已移动",
       "failTitle": "移动失败",
       "failBody": "无法移动此邮件。",
-      "conversationTitle": "会话已移动"
+      "conversationTitle": "会话已移动",
+      "nothingFromAccount": "此会话中没有此账户的邮件可移动",
+      "otherAccountDraft": "未移动任何邮件：打开的草稿属于其他账户"
     },
     "snoozed": {
       "title": "邮件已稍后提醒",
       "failTitle": "稍后提醒失败",
       "failBody": "无法对此邮件设置稍后提醒。",
-      "conversationTitle": "会话已稍后提醒"
+      "conversationTitle": "会话已稍后提醒",
+      "nothingFromAccount": "此会话中没有此账户的邮件可设置稍后提醒",
+      "nothingInConversation": "此会话中没有邮件可设置稍后提醒"
     },
     "whitelistFail": {
       "title": "无法保存偏好设置",
@@ -313,6 +332,16 @@
       "passwordLabel": "PDF 密码",
       "passwordSubmit": "打开",
       "passwordIncorrect": "密码错误，请重试。"
+    },
+    "unsnoozed": {
+      "title": "已恢复",
+      "failTitle": "无法恢复",
+      "failBody": "邮件仍处于暂停状态。请重试。"
+    },
+    "snoozeChanged": {
+      "title": "暂停至 {{when}}",
+      "failTitle": "无法更改提醒时间",
+      "failBody": "保留原来的时间。请重试。"
     }
   },
   "messageList": {
@@ -356,7 +385,8 @@
       "body": "已移至废件箱。",
       "failTitle": "删除失败",
       "failBody": "无法删除此邮件。",
-      "conversationTitle": "会话已删除"
+      "conversationTitle": "会话已删除",
+      "nothingFromAccount": "此会话中没有此账户的邮件可删除"
     },
     "draftBcc": {
       "failTitle": "草稿已以只读方式打开",
@@ -396,6 +426,7 @@
     "pullToSync": "下拉以同步",
     "releaseToSync": "松开以同步",
     "noSearchResults": "未找到结果",
+    "searching": "正在搜索…",
     "noSearchResultsDesc": "未找到与 {{query}} 相关的结果",
     "searchFailed": "搜索失败",
     "clearSearch": "清除搜索",
@@ -453,7 +484,10 @@
         "label": "上下分栏",
         "description": "邮件列表位于阅读窗格上方"
       }
-    }
+    },
+    "snoozedUntil": "暂停至 {{when}}",
+    "snoozedEmpty": "没有暂停的邮件",
+    "snoozedEmptyDesc": "暂停的邮件会在这里等待，直到恢复。"
   },
   "lockScreen": {
     "subtitle": "输入 PIN 码以解锁",
@@ -511,7 +545,8 @@
     "emptying": "正在清空「{{name}}」…",
     "emptied": "文件夹已清空",
     "backToAccounts": "返回账户列表",
-    "updateAvailable": "有可用更新：v{{version}}"
+    "updateAvailable": "有可用更新：v{{version}}",
+    "snoozed": "已暂停"
   },
   "contextMenu": {
     "find": "查找",
@@ -533,7 +568,9 @@
       "threeHours": "3 小时后",
       "tomorrowMorning": "明天上午",
       "nextWeek": "下周",
-      "custom": "自定义……"
+      "custom": "自定义……",
+      "change": "更改提醒时间",
+      "unsnooze": "立即恢复"
     },
     "categorize": "分类为…",
     "categoryAlwaysSender": "始终用于此发件人",
@@ -776,6 +813,11 @@
     },
     "title": "设置",
     "close": "关闭",
+    "behavior": {
+      "reading": "阅读",
+      "writing": "撰写",
+      "sync": "同步"
+    },
     "tabs": {
       "cleanup": "清理",
       "accounts": "账户",
@@ -795,10 +837,11 @@
       "aiActions": "AI 操作",
       "antispam": "反垃圾邮件",
       "categories": "分类",
-      "groupAccountMail": "账户与邮件",
-      "groupDisplay": "显示",
-      "groupSecurityIntegrations": "安全与集成",
+      "groupMail": "邮件",
+      "groupPreferences": "偏好设置",
+      "groupAiExtensions": "AI 与扩展",
       "groupAdmin": "管理",
+      "behavior": "行为",
       "plugins": "插件",
       "backup": "备份"
     },
@@ -842,6 +885,8 @@
       "actionForward": "转发至",
       "actionForwardPlaceholder": "shoujianren@example.com",
       "actionSetCategory": "设置分类",
+      "actionNotify": "通知我",
+      "actionNotifyHint": "即使规则移动此邮件或将其标为已读，也通知我。",
       "actionSetCategorySelect": "选择分类…",
       "actionMovePlaceholder": "文件夹名称",
       "actionMoveSelectFolder": "选择文件夹…",
@@ -886,6 +931,10 @@
       "editTitle": "编辑账户",
       "addTitle": "添加账户",
       "color": "账户颜色",
+      "icon": "图标",
+      "iconNone": "无（颜色圆点）",
+      "iconCustom": "或输入一个表情符号",
+      "iconHint": "显示在颜色圆点的位置。",
       "displayName": "显示名称",
       "displayNamePh": "例如：工作 Gmail",
       "senderName": "发件人姓名",
@@ -989,6 +1038,8 @@
     "appearance": {
       "title": "外观",
       "description": "为界面选择一种配色主题",
+      "darkEmailBodies": "深色邮件正文",
+      "darkEmailBodiesDesc": "在深色主题中，也以深色显示 HTML 邮件：若发件人提供深色设计则使用它，否则由 MailFlow 重新着色。如果邮件要求保持原样，或深色显示会使文字难以阅读，则保持原样。每封邮件都可以单独切换。",
       "typography": "字体排版",
       "typographyDescription": "为界面选择一种字体搭配方案",
       "typographyLoading": "加载字体中…",
@@ -1255,6 +1306,12 @@
       "adminBadge": "管理员",
       "makeAdmin": "设为管理员",
       "removeAdmin": "撤销管理员",
+      "aiOn": "AI 已开启",
+      "aiOff": "AI 已关闭",
+      "aiAccessLabel": "{{username}} 的 AI",
+      "aiOnHint": "此用户可以使用 AI 助手。关闭后将拒绝其 AI 请求：写作助手、摘要、AI 操作和 AI 分类。",
+      "aiOffHint": "此用户无法使用 AI 助手。开启即可允许。",
+      "aiToggleFailed": "无法更改 {{username}} 的 AI 访问权限",
       "disable2fa": "停用双重验证",
       "deleteUser": "删除用户",
       "registrationOpen": "开放注册",
@@ -1317,6 +1374,9 @@
       "features": "功能",
       "featureCompose": "写作助手（起草和改进邮件）",
       "featureSummarize": "邮件摘要",
+      "access": "访问权限",
+      "newUsersEnabled": "允许新用户使用 AI",
+      "newUsersEnabledHint": "适用于今后创建的账户。现有用户保留各自的设置，您可以在用户列表中更改。",
       "saved": "AI 配置已保存。",
       "testOk": "连接成功。",
       "testFail": "连接失败",
@@ -1774,7 +1834,9 @@
     "noRulesFired": "没有规则触发",
     "mlTokensTitle": "主要贡献词",
     "noMlTokens": "无 ML 词汇",
-    "conversationMovedToSpam": "会话已移至垃圾邮件"
+    "conversationMovedToSpam": "会话已移至垃圾邮件",
+    "nothingFromAccount": "此会话中没有此账户的邮件可标记为垃圾邮件",
+    "nothingInConversation": "此会话中没有邮件可标记为垃圾邮件"
   },
   "contacts": {
     "title": "联系人",

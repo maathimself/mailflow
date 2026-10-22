@@ -5,6 +5,7 @@ import { validateHost } from './hostValidation.js';
 import { createRequestSignal, parseJson, readLimited, readSseData, sanitizeText } from './aiHttp.js';
 import { completeCodexText, streamCodexResponses } from './openaiCodexResponses.js';
 import { getCodexAccess, getCodexStatus } from './openaiCodexAuth.js';
+import { aiEnabledForNewUser, setAiEnabledForNewUser } from './aiNewUsers.js';
 
 export const AI_PROVIDER_API_KEY = 'api-key';
 export const AI_PROVIDER_CHATGPT = 'chatgpt';
@@ -99,15 +100,28 @@ function providerRequestError(error, request, callerSignal) {
   );
 }
 
+// Redirects are not followed. The base URL's host is checked against the private-host policy when
+// it is saved (saveConfig); a redirect would send the request, with a 307 its body (the email text
+// being summarized or drafted) too, to a host that was never checked, one the policy forbids among
+// them. fetch drops the API key on a redirect to another origin.
 async function openProviderRequest(fetchFn, url, init, { signal, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const request = createRequestSignal(signal, timeoutMs, 'AI request timed out');
+  let response;
   try {
-    const response = await fetchFn(url, { ...init, signal: request.signal });
-    return { ...request, response };
+    response = await fetchFn(url, { ...init, redirect: 'manual', signal: request.signal });
   } catch (error) {
     request.cleanup();
     throw providerRequestError(error, request, signal);
   }
+  if (response.status >= 300 && response.status < 400) {
+    request.cleanup();
+    response.body?.cancel().catch(() => {});
+    throw new AiProviderError(
+      `AI provider redirected the request (${response.status}); set the API base URL to the address it redirects to`,
+      { status: 502, expose: true },
+    );
+  }
+  return { ...request, response };
 }
 
 async function* parseChatCompletionsSse(response, { signal, secrets } = {}) {
@@ -154,8 +168,18 @@ export function createAiProvider({
     return parsed ? normalizeAiConfig(parsed) : null;
   }
 
+  // "Allow AI for new users" (#644) is stored apart from the provider configuration (see
+  // aiNewUsers.js) and shown with it.
+  async function getAiNewUsersEnabled() {
+    return aiEnabledForNewUser({ query: queryFn });
+  }
+
+  async function withNewUsersEnabled(config) {
+    return config ? { ...publicConfig(config), newUsersEnabled: await getAiNewUsersEnabled() } : null;
+  }
+
   async function getAdminAiConfig() {
-    return publicConfig(await loadAiConfig());
+    return withNewUsersEnabled(await loadAiConfig());
   }
 
   async function saveAiConfig(input = {}) {
@@ -196,7 +220,11 @@ export function createAiProvider({
        ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
       [JSON.stringify(config)],
     );
-    return publicConfig(config);
+    // Only a boolean changes it, so a save from an admin tab that predates the setting keeps it.
+    if (typeof input.newUsersEnabled === 'boolean') {
+      await setAiEnabledForNewUser(input.newUsersEnabled, { query: queryFn });
+    }
+    return withNewUsersEnabled(config);
   }
 
   async function deleteAiConfig() {
@@ -375,6 +403,7 @@ export function createAiProvider({
   return {
     loadAiConfig,
     getAdminAiConfig,
+    getAiNewUsersEnabled,
     saveAiConfig,
     deleteAiConfig,
     getAiStatus,
@@ -388,6 +417,7 @@ const defaultProvider = createAiProvider();
 
 export const loadAiConfig = defaultProvider.loadAiConfig;
 export const getAdminAiConfig = defaultProvider.getAdminAiConfig;
+export const getAiNewUsersEnabled = defaultProvider.getAiNewUsersEnabled;
 export const saveAiConfig = defaultProvider.saveAiConfig;
 export const deleteAiConfig = defaultProvider.deleteAiConfig;
 export const getAiStatus = defaultProvider.getAiStatus;

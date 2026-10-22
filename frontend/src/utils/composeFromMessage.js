@@ -1,4 +1,5 @@
 import { pickReplyAlias } from './replyAlias.js';
+import { api } from './api.js';
 
 export function initialComposeFocus({ isReply = false, isForward = false } = {}) {
   return isReply && !isForward ? 'editor' : 'to';
@@ -15,6 +16,14 @@ function parseAddressField(raw) {
     return arr.map(a => a.name ? `${a.name} <${a.email}>` : a.email).filter(Boolean).join(', ');
   } catch { return ''; }
 }
+
+// The quote header of a reply or forward is HTML, and the names, addresses and subject in it
+// come from the message, which the sender wrote. Unescaped, "Ann <ann@x.com>" lost its address
+// (read as a tag), and a display name could carry markup, such as a remote image that loaded in
+// the composer and travelled on in the reply. The plain-text quote keeps them as written.
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[c]));
 
 export async function openReplyFromMessage(message, { accounts, openCompose, getMessageBody, replyAll = false }) {
   const replyToArr = Array.isArray(message.reply_to)
@@ -70,8 +79,10 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
   const quotedText = replyBody?.text
     ? `\n\n---\nOn ${replyDate}, ${replyFromStr} wrote:\n${replyBody.text.split('\n').map(l => '> ' + l).join('\n')}`
     : '';
+  // Quoted as shown, images through MailFlow's proxy, so opening the composer never loads them
+  // from the sender; ComposeModal puts the email's own references back when it saves or sends.
   const quotedBodyHtml = replyBody?.html
-    ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${replyDate}, ${replyFromStr} wrote:</p>${replyBody.html}</div>`
+    ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${escapeHtml(replyDate)}, ${escapeHtml(replyFromStr)} wrote:</p>${replyBody.html}</div>`
     : null;
 
   openCompose({
@@ -94,7 +105,11 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
 }
 
 export async function openForwardFromMessage(message, { openCompose, getMessageBody }) {
-  const fwdBody = await getMessageBody(message.id).catch(() => null);
+  let fwdBody = await getMessageBody(message.id).catch(() => null);
+  // Large inline images are fitted for reading; a recipient gets them as they were sent.
+  if (fwdBody?.inlineImagesFitted) {
+    fwdBody = await api.getMessageBody(message.id, Boolean(fwdBody.remoteImagesProxied), { original: true }).catch(() => fwdBody);
+  }
   const fwdDate = message.date ? new Date(message.date).toLocaleString() : '';
   const fwdSafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
   const fwdFromStr = fwdSafeName
@@ -106,7 +121,7 @@ export async function openForwardFromMessage(message, { openCompose, getMessageB
 
   const fwdText = `\n\n---------- Forwarded message ----------\nFrom: ${fwdFromStr}\nDate: ${fwdDate}\nSubject: ${safeSubject}${toStr ? `\nTo: ${toStr}` : ''}${ccStr ? `\nCc: ${ccStr}` : ''}\n\n${fwdBody?.text || ''}`;
   const fwdHtml = fwdBody?.html
-    ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">---------- Forwarded message ----------<br>From: ${fwdFromStr}<br>Date: ${fwdDate}<br>Subject: ${safeSubject}${toStr ? `<br>To: ${toStr}` : ''}${ccStr ? `<br>Cc: ${ccStr}` : ''}</p>${fwdBody.html}</div>`
+    ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">---------- Forwarded message ----------<br>From: ${escapeHtml(fwdFromStr)}<br>Date: ${escapeHtml(fwdDate)}<br>Subject: ${escapeHtml(safeSubject)}${toStr ? `<br>To: ${escapeHtml(toStr)}` : ''}${ccStr ? `<br>Cc: ${escapeHtml(ccStr)}` : ''}</p>${fwdBody.html}</div>`
     : null;
 
   openCompose({
@@ -116,7 +131,9 @@ export async function openForwardFromMessage(message, { openCompose, getMessageB
     quotedBodyHtml: fwdHtml,
     accountId: message.account_id,
     isForward: true,
-    forwardedAttachments: (fwdBody?.attachments || []).map(att => ({
+    // A file the HTML also shows (#640) travels in the quoted body, which the server sends as an
+    // inline image, so it is not attached a second time. A text-only forward still attaches it.
+    forwardedAttachments: (fwdBody?.attachments || []).filter(att => !(fwdBody?.html && att?.shownInline)).map(att => ({
       messageId: message.id,
       part: att.part,
       filename: att.filename || 'attachment',

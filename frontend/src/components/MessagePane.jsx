@@ -1,16 +1,23 @@
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from 'react';
+import AccountMark from './AccountMark.jsx';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
-import { format } from 'date-fns';
+import { formatMessageDateTime } from '../utils/formatDate.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { canHandlePaneShortcut } from '../utils/shortcutApplicability.js';
 import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/defaultShortcuts.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { useSwipeBack } from '../hooks/useSwipeBack.js';
+import SwipePager from './SwipePager.jsx';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
-import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.js';
+import { pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
 import { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } from '../utils/markRead.js';
-import { advanceSelectionAfterRemoval } from '../utils/listSelection.js';
+import { advanceSelectionAfterRemoval, adjacentRow, openAdjacentRow } from '../utils/listSelection.js';
+import { selectListedMessage } from '../utils/conversation.js';
+import { bodyCache, prefetchBody as prefetchCachedBody } from '../utils/bodyCache.js';
+import { unsnooze, changeSnooze, refreshCounts } from '../utils/snoozeActions.js';
+import { isDarkTheme, canShowDark, showDark } from '../utils/darkScheme.js';
 import { markMessageUnread } from '../utils/messageHotkeys.js';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFromMessage } from '../utils/composeFromMessage.js';
@@ -21,17 +28,13 @@ import { folderMatchesQuery, favoriteMoveTargets, recentMoveTargets } from '../u
 import FolderPathLabel from './FolderPathLabel.jsx';
 import SpamBadge from './SpamBadge.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
-import { classifyAttachmentRisk } from '../utils/attachmentRisk.js';
 import { downloadEml } from '../utils/downloadEml.js';
 import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/printMessage.js';
 import AiResultBox from './AiResultBox.jsx';
 import { useAiActions } from '../hooks/useAiActions.js';
-import { previewKind } from '../utils/attachmentPreview.js';
-import AttachmentViewer from './AttachmentViewer.jsx';
+import AttachmentStrip from './AttachmentStrip.jsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
-// riskArmed value for the "Download all" link. A Symbol, so no attachment part can ever equal it.
-const DOWNLOAD_ALL = Symbol('downloadAll');
 
 // Module-level regex so the spam-name heuristic isn't recompiled on every
 // render — same heuristic as ContextMenu.jsx, both files read this constant.
@@ -61,42 +64,6 @@ function linkifyText(text) {
   return escaped.replace(
     /https?:\/\/[^\s<>"']+/g,
     url => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:inherit">${url}</a>`
-  );
-}
-
-function formatBytes(bytes) {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function fileIcon(type) {
-  const t = (type || '').toLowerCase();
-  const p = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75 };
-  if (t.startsWith('image/')) return (
-    <svg {...p}><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-  );
-  if (t === 'application/pdf') return (
-    <svg {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-  );
-  if (t.includes('word') || t.includes('document')) return (
-    <svg {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-  );
-  if (t.includes('sheet') || t.includes('excel') || t.includes('csv')) return (
-    <svg {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="10" y1="13" x2="10" y2="17"/><line x1="8" y1="15" x2="12" y2="15"/></svg>
-  );
-  if (t.includes('zip') || t.includes('compressed') || t.includes('archive')) return (
-    <svg {...p}><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="11" x2="16" y2="11"/></svg>
-  );
-  if (t.startsWith('video/')) return (
-    <svg {...p}><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-  );
-  if (t.startsWith('audio/')) return (
-    <svg {...p}><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-  );
-  return (
-    <svg {...p}><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
   );
 }
 
@@ -134,46 +101,21 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     return mod ? `${modCompactLabel(mod.mod)}${mod.bare.toUpperCase()}` : k.toUpperCase();
   };
   // Navigate to a message and mark it as read in one shot.
-  // Arrow buttons and swipe gestures bypass handleSelect in MessageList, so they
-  // must duplicate the mark-as-read logic here to keep state consistent.
+  // The arrow buttons bypass handleSelect in MessageList, so they must pick the row as it
+  // does and duplicate the mark-as-read logic here to keep state consistent.
   const selectAndMarkRead = useCallback((msg) => {
     window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
     api.getMessageBody(msg.id).catch(() => {});
-    setSelectedMessage(msg.id);
+    selectListedMessage(useStore, msg.id);
     cancelScheduledMarkRead(autoMarkReadTimerRef.current);
     autoMarkReadTimerRef.current = scheduleMarkRead(msg);
-  }, [setSelectedMessage]);
+  }, []);
 
   const paneRef = useRef(null);
-  const mountedRef = useRef(true);
-  const swipeBackTimerRef = useRef(null);
   const autoMarkReadTimerRef = useRef(null);
   useEffect(() => () => {
-    mountedRef.current = false;
-    if (swipeBackTimerRef.current) clearTimeout(swipeBackTimerRef.current);
     cancelScheduledMarkRead(autoMarkReadTimerRef.current);
   }, []);
-
-  const resetPaneSwipeStyles = useCallback(() => {
-    const el = paneRef.current;
-    if (!el) return;
-    el.style.transition = '';
-    el.style.transform = '';
-  }, []);
-
-  // The mobile swipe-back gesture writes transform/transition inline for the
-  // dismiss animation. MessagePane stays mounted while hidden, so clear those
-  // inline styles before painting the next selected email. Also cancel the
-  // swipe-back timer so it can't fire history.back() after a new email has
-  // already been selected (race: user selects email B within the 220ms window).
-  useLayoutEffect(() => {
-    if (!isMobile || !selectedMessageId) return;
-    if (swipeBackTimerRef.current) {
-      clearTimeout(swipeBackTimerRef.current);
-      swipeBackTimerRef.current = null;
-    }
-    resetPaneSwipeStyles();
-  }, [isMobile, selectedMessageId, resetPaneSwipeStyles]);
 
   // Reset scroll position and iframe height synchronously before the browser
   // paints the new message, so the user never sees stale blank space from the
@@ -215,6 +157,12 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // Mirrors the heuristic in ContextMenu.jsx so the toolbar matches the menu.
   const account = accounts.find(a => a.id === message?.account_id);
   const accountFolders = useStore(s => s.folders[message?.account_id] || []);
+  // Dark email bodies (#228): the setting, and each message's own choice made with the toggle.
+  const theme = useStore(s => s.theme);
+  const darkEmailBodies = useStore(s => s.darkEmailBodies);
+  const [darkChoice, setDarkChoice] = useState({});
+  // What the frame last showed, for which message (see MessageBodyView onDarkResult).
+  const [darkResult, setDarkResult] = useState(null);
   const spamFolderPaths = (() => {
     const mapped = account?.folder_mappings?.spam;
     if (mapped) return new Set([mapped]);
@@ -271,7 +219,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [bodyError, setBodyError] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
   const [loadingBody, setLoadingBody] = useState(false);
-  const [downloadingPart, setDownloadingPart] = useState(null);
   const [showReplyMenu, setShowReplyMenu] = useState(false);
   const [savingAllow, setSavingAllow] = useState(false);
   const [paneScrolled, setPaneScrolled] = useState(false);
@@ -293,7 +240,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [aiStatus, setAiStatus] = useState(null);
   // Per-action results for the current message: { [actionKey]: { status, text, label } }.
   // status: 'loading' | 'done' | 'error'. Restored from localStorage on message change.
-  const ai = useAiActions(selectedMessageId, body);
+  const ai = useAiActions(selectedMessageId, body, message?.subject);
   const aiResults = ai.results;
   const [showAiMenu, setShowAiMenu] = useState(false);
   const [aiClassifying, setAiClassifying] = useState(false);
@@ -317,8 +264,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const outerRef = useRef(null);
   const scaleRef = useRef(null);
   const innerRef = useRef(null);
-  const bodyCache = useRef({}); // messageId -> body, so revisiting is instant (capped at 50)
-  const bodyCacheOrder = useRef([]); // insertion-order keys for LRU eviction
   // Session-scoped set of message IDs where the user has clicked "Load images once"
   const imagesRequestedRef = useRef(new Set());
   // Ref holding the latest pane action handlers so shortcut subscriptions ([] deps) never go stale
@@ -410,26 +355,16 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
     let evicted = false;
     if (tightened) {
-      for (const id of Object.keys(bodyCache.current)) {
-        if (!bodyCache.current[id]?.hasBlockedRemoteImages) {
-          delete bodyCache.current[id];
-          imagesRequestedRef.current.delete(id); // clear "load once" so policy is respected
-          evicted = true;
-        }
-      }
+      evicted = bodyCache.evict((cached, id) => {
+        if (cached.hasBlockedRemoteImages) return false;
+        imagesRequestedRef.current.delete(id); // clear "load once" so policy is respected
+        return true;
+      }) || evicted;
     }
     if (loosenedGlobally || loosenedViaWhitelist) {
-      for (const id of Object.keys(bodyCache.current)) {
-        if (bodyCache.current[id]?.hasBlockedRemoteImages) {
-          delete bodyCache.current[id];
-          evicted = true;
-        }
-      }
+      evicted = bodyCache.evict(cached => cached.hasBlockedRemoteImages) || evicted;
     }
-    if (evicted) {
-      bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
-      setRetryKey(k => k + 1);
-    }
+    if (evicted) setRetryKey(k => k + 1);
   }, [blockRemoteImages, imageWhitelist]);
 
   useLayoutEffect(() => {
@@ -444,7 +379,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     // Skip the cache (or clear a stale blocked entry) when the user has explicitly
     // requested images for this message so we re-fetch with ?remoteImages=1.
     const wantsImages = imagesRequestedRef.current.has(selectedMessageId);
-    const cached = bodyCache.current[selectedMessageId];
+    const cached = bodyCache.get(selectedMessageId);
     if (cached && (cached.html || cached.text)) {
       if (!wantsImages || !cached.hasBlockedRemoteImages) {
         setBody(cached);
@@ -453,7 +388,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         return;
       }
       // Cache has the blocked version but user wants images — evict and re-fetch
-      delete bodyCache.current[selectedMessageId];
+      bodyCache.delete(selectedMessageId);
     }
 
     // Clear previous content immediately so stale body never shows for a new message
@@ -485,16 +420,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     fetchWithRetry(selectedMessageId)
       .then(data => {
         if (cancelled) return;
-        // Only cache if there's real content — empty results can be retried
-        if (data.html || data.text) {
-          bodyCache.current[selectedMessageId] = data;
-          bodyCacheOrder.current.push(selectedMessageId);
-          // Evict oldest entry when cache exceeds 50 messages
-          if (bodyCacheOrder.current.length > 50) {
-            const evicted = bodyCacheOrder.current.shift();
-            delete bodyCache.current[evicted];
-          }
-        }
+        // Only real content is cached (bodyCache.set): empty results can be retried
+        bodyCache.set(selectedMessageId, data);
         setBody(data);
       })
       .catch(err => {
@@ -632,8 +559,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     };
   }, [prepared]);
 
-  // Fade in pane content when switching messages on desktop
-  useEffect(() => {
+  // Fade in pane content when switching messages on desktop. Before the paint: started after it,
+  // the new message showed at full opacity for a frame, then blinked out and faded back in.
+  useLayoutEffect(() => {
     if (isMobile || !selectedMessageId || !paneRef.current) return;
     const el = paneRef.current;
     el.style.animation = 'none';
@@ -641,124 +569,33 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     el.style.animation = 'pane-fade-in 0.15s ease';
   }, [selectedMessageId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Swipe-back gesture: right-swipe from left edge returns to message list on mobile
+  // A neighbor's body, loaded ahead into the cache this pane reads first, so a swipe opens a
+  // message that is ready to show (#229).
+  const prefetchBody = useCallback((row) => {
+    if (row) prefetchCachedBody(row.id, imagesRequestedRef.current.has(row.id));
+  }, []);
+
+  // On a desktop too, the next and previous messages are loaded once this one has shown, so j/k
+  // and opening the next after a delete show a message at once instead of waiting on the server
+  // (on a phone the swipe pager does this). Briefly deferred, so a run of j presses does not
+  // fetch every message it passes.
   useEffect(() => {
-    if (!isMobile) return;
-    const el = paneRef.current;
-    if (!el) return;
+    if (isMobile || !body || !selectedMessageId) return undefined;
+    const timer = setTimeout(() => {
+      prefetchBody(adjacentRow('next'));
+      prefetchBody(adjacentRow('prev'));
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [body, selectedMessageId, isMobile, prefetchBody]);
 
-    let startX = 0, startY = 0, dir = null, active = false, fromEdge = false;
-
-    const onStart = (e) => {
-      const t = e.touches[0];
-      startX = t.clientX; startY = t.clientY;
-      fromEdge = t.clientX <= 32;
-      dir = null; active = false;
-    };
-
-    const onMove = (e) => {
-      const t = e.touches[0];
-      const dx = t.clientX - startX;
-      const dy = t.clientY - startY;
-      if (!dir) {
-        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
-        dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
-      }
-      if (dir === 'v') return;
-      if (fromEdge) {
-        if (dx < 0) return;
-        e.preventDefault();
-        active = true;
-        el.style.transition = 'none';
-        el.style.transform = `translateX(${dx}px)`;
-      } else {
-        if (Math.abs(dx) < 5) return;
-        e.preventDefault();
-        active = true;
-      }
-    };
-
-    const onEnd = (e) => {
-      if (!active) return;
-      active = false;
-      const dx = e.changedTouches[0].clientX - startX;
-      if (fromEdge) {
-        // Prevent the synthesized click that fires ~300ms after touchend.
-        // After swipe-back the pane hides and the list is visible at the same
-        // coordinates — the phantom click would ghost-select a list row.
-        e.preventDefault();
-        if (dx > 80) {
-          el.style.transition = 'transform 0.22s ease';
-          el.style.transform = `translateX(${window.innerWidth}px)`;
-          if (swipeBackTimerRef.current) clearTimeout(swipeBackTimerRef.current);
-          swipeBackTimerRef.current = setTimeout(() => {
-            swipeBackTimerRef.current = null;
-            resetPaneSwipeStyles();
-            if (mountedRef.current) history.back();
-          }, 220);
-        } else {
-          el.style.transition = 'transform 0.25s ease';
-          el.style.transform = 'translateX(0)';
-        }
-      } else {
-        const { messages: msgs, searchResults: sr, searchQuery: sq, selectedMessageId: selId, setSelectedMessage: setSel, updateMessage: updMsg, decrementUnread: decUnread, incrementUnread: incUnread, adjustCategoryCount: adjCat } = useStore.getState();
-        const list = sq.trim() ? sr : msgs;
-        const idx = list.findIndex(m => m.id === selId);
-        let target = null;
-        if (dx < -60 && idx >= 0 && idx < list.length - 1) {
-          target = list[idx + 1];
-        } else if (dx > 60 && idx > 0) {
-          target = list[idx - 1];
-        }
-        if (target) {
-          window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
-          api.getMessageBody(target.id).catch(() => {});
-          setSel(target.id);
-          cancelScheduledMarkRead(autoMarkReadTimerRef.current);
-          autoMarkReadTimerRef.current = null;
-          if (!target.is_read) {
-            const { markReadBehavior, markReadDelay } = useStore.getState();
-            if (markReadBehavior !== 'manual') {
-              const doMarkRead = () => {
-                updMsg(target.id, { is_read: true });
-                decUnread(target.account_id);
-                adjCat(target.category, -1);
-                setPending(target.id, target.account_id);
-                api.bulkRead([target.id], true)
-                  .then(() => {
-                    pendingMarkReadMap.delete(target.id);
-                    completedMarkReadMap.set(target.id, target.account_id);
-                    setTimeout(() => completedMarkReadMap.delete(target.id), 10000);
-                  })
-                  .catch(e => {
-                    console.error('markRead failed:', e.message);
-                    updMsg(target.id, { is_read: false });
-                    incUnread(target.account_id);
-                    adjCat(target.category, 1);
-                    pendingMarkReadMap.delete(target.id);
-                  });
-              };
-              if (markReadBehavior === 'delay') {
-                autoMarkReadTimerRef.current = setTimeout(doMarkRead, (markReadDelay || 1) * 1000);
-              } else {
-                doMarkRead();
-              }
-            }
-          }
-        }
-      }
-    };
-
-    el.addEventListener('touchstart', onStart, { passive: true });
-    el.addEventListener('touchmove', onMove, { passive: false });
-    // Non-passive so onEnd can call e.preventDefault() to suppress the phantom click.
-    el.addEventListener('touchend', onEnd, { passive: false });
-    return () => {
-      el.removeEventListener('touchstart', onStart);
-      el.removeEventListener('touchmove', onMove);
-      el.removeEventListener('touchend', onEnd);
-    };
-  }, [isMobile, setSelectedMessage, resetPaneSwipeStyles]);
+  // Swiping on a phone (#229): from the left edge back to the list (hooks/useSwipeBack.js); left and
+  // right for the next and previous message is the SwipePager around the content below.
+  useSwipeBack({
+    enabled: isMobile && !windowMode,
+    rootRef: paneRef,
+    navKey: selectedMessageId,
+    onBack: () => history.back(),
+  });
 
   // Both drafts are built by the shared util, so replying from the list, from the
   // reading pane, from a conversation and from GTD triage all produce the same draft.
@@ -776,11 +613,19 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     openForwardFromMessage(message, { openCompose, getMessageBody: loadedBody });
   };
 
+  // The star fills at once, as in the list: the server answers only once the mail server has
+  // the flag, which takes seconds on Gmail. Put back, with a notice, if that fails.
   const handleStarToggle = async () => {
     if (!message) return;
+    const { id } = message;
     const newVal = !message.is_starred;
-    await api.markStarred(message.id, newVal);
-    updateMessage(message.id, { is_starred: newVal });
+    updateMessage(id, { is_starred: newVal });
+    try {
+      await api.markStarred(id, newVal);
+    } catch (err) {
+      updateMessage(id, { is_starred: !newVal });
+      addNotification({ type: 'error', title: t('common.error', { message: err.message }) });
+    }
   };
 
   const handlePrint = () => {
@@ -872,36 +717,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     // and a run the user is still waiting for must survive that. Identity changes cancel runs
     // instead, from the store, where logout and account switch are actually known about.
   }, []);
-
-  // riskArmed: a risky attachment needs a second click to download; the first
-  // arms the button and shows why. Holds the attachment's part, or DOWNLOAD_ALL.
-  const [riskArmed, setRiskArmed] = useState(null);
-  // viewerStart: index into the previewable attachments the viewer opened on, or null.
-  const [viewerStart, setViewerStart] = useState(null);
-  useEffect(() => { setRiskArmed(null); setViewerStart(null); }, [selectedMessageId]);
-
-  const handleDownload = async (messageId, part, filename) => {
-    setDownloadingPart(part);
-    try {
-      const res = await fetch(`/api/mail/messages/${messageId}/attachments/${encodeURIComponent(part)}`, {
-        credentials: 'include'
-      });
-      if (!res.ok) throw new Error('Download failed');
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Download error:', err);
-    } finally {
-      setDownloadingPart(null);
-    }
-  };
 
   const handleOpenMovePicker = useCallback(async () => {
     if (!message) return;
@@ -1297,13 +1112,20 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           closeWindowIfWindowed();
           if (!snoozedMsg.is_read) decrementUnread(snoozedMsg.account_id);
           addNotification({ title: t('message.snoozed.title'), body: snoozedMsg.subject || t('common.noSubject') });
-          api.snoozeMessage(snoozedMsg.id, data).catch(err => {
+          api.snoozeMessage(snoozedMsg.id, data).then(refreshCounts).catch(err => {
             console.error('Snooze failed:', err.message);
             useStore.getState().restoreMessages([snoozedMsg]);
             if (!snoozedMsg.is_read) incrementUnread(snoozedMsg.account_id);
             addNotification({ title: t('message.snoozed.failTitle'), body: t('message.snoozed.failBody') });
           });
         }
+        break;
+      case 'unsnooze':
+        // Gone from the Snoozed view, so the next one there opens, as after any removal.
+        unsnooze(message, { t, before: (m) => { advanceSelectionAfterRemoval(m.id); closeWindowIfWindowed(); } });
+        break;
+      case 'changeSnooze':
+        if (data) changeSnooze(message, data, { t });
         break;
       case 'createRuleFromMessage': {
         const store = useStore.getState();
@@ -1355,7 +1177,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handleLoadImages = () => {
     imagesRequestedRef.current.add(selectedMessageId);
-    delete bodyCache.current[selectedMessageId];
+    bodyCache.delete(selectedMessageId);
     setRetryKey(k => k + 1);
   };
 
@@ -1366,10 +1188,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     try {
       await addToImageWhitelist({ type: 'address', value: senderEmail });
       // Evict all blocked cache entries so they re-fetch with images unblocked
-      for (const id of Object.keys(bodyCache.current)) {
-        if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
-      }
-      bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
+      bodyCache.evict(cached => cached.hasBlockedRemoteImages);
       setRetryKey(k => k + 1);
     } catch {
       addNotification({ title: t('message.whitelistFail.title'), body: t('message.whitelistFail.body') });
@@ -1439,10 +1258,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     try {
       await addToImageWhitelist({ type: 'domain', value: senderDomain });
       // Evict all blocked cache entries so they re-fetch with images unblocked
-      for (const id of Object.keys(bodyCache.current)) {
-        if (bodyCache.current[id]?.hasBlockedRemoteImages) delete bodyCache.current[id];
-      }
-      bodyCacheOrder.current = bodyCacheOrder.current.filter(id => bodyCache.current[id]);
+      bodyCache.evict(cached => cached.hasBlockedRemoteImages);
       setRetryKey(k => k + 1);
     } catch {
       addNotification({ title: t('message.whitelistFail.title'), body: t('message.whitelistFail.body') });
@@ -1467,25 +1283,38 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     } catch { return []; }
   })();
 
-  const attachments = body?.attachments || [];
-  const previewable = attachments.filter(att => previewKind(att));
-  // "Download all" hands over every file at once, so it asks first whenever one of them would. While
-  // it does, the link has no href, so a right-click "Save link as", a middle click or a long press has
-  // nothing to fetch; the confirming click starts the download itself.
-  const anyRiskyAttachment = attachments.some(att =>
-    ['block', 'warn'].includes(classifyAttachmentRisk(att.filename, att.type).level));
-  const downloadAllArmed = riskArmed === DOWNLOAD_ALL;
-  const downloadAllUrl = message ? `/api/mail/messages/${message.id}/attachments.zip` : '';
-  const confirmDownloadAll = () => {
-    if (!downloadAllArmed) { setRiskArmed(DOWNLOAD_ALL); return; }
-    setRiskArmed(null);
-    const a = document.createElement('a');
-    a.href = downloadAllUrl;
-    a.download = '';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  // Shown dark, and whether this message offers the toggle: only in a dark theme, and only for a
+  // body that can be shown dark (utils/darkScheme.js). The experimental div renderer does not
+  // apply a sender's dark design, so with it HTML stays as sent.
+  const darkCapable = Boolean(message) && !(USE_DIV_RENDER && body?.html);
+  const bodyDark = darkCapable && showDark({ body, themeKey: theme, setting: darkEmailBodies, override: darkChoice[message.id] });
+  const darkToggleShown = darkCapable && isDarkTheme(theme) && canShowDark(body);
+  // What the frame actually shows: HTML asked for dark is left as sent when showing it dark would
+  // make text unreadable (utils/darkBody.js). Until the frame says, it is taken as dark, so the
+  // card does not flash white.
+  const frameResult = darkResult?.id === selectedMessageId ? darkResult : null;
+  const darkRefused = Boolean(body?.html) && bodyDark && frameResult?.requested === true && frameResult.outcome === 'light';
+  const shownDark = bodyDark && !darkRefused;
+  const toggleDark = () => {
+    if (darkRefused) return;
+    setDarkChoice(choice => ({ ...choice, [message.id]: bodyDark ? 'original' : 'dark' }));
   };
+  const darkToggleLabel = darkRefused ? t('message.cannotShowDark') : shownDark ? t('message.showOriginal') : t('message.showDark');
+  // A sun to go back to the original colors, a moon to show it dark.
+  const darkToggleIcon = shownDark ? (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+      <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+    </svg>
+  ) : (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+      <path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/>
+    </svg>
+  );
+
+  // Only messages you sent (or drafts you saved) have a Bcc on record (#585).
+  const bccList = Array.isArray(body?.bccAddresses) ? body.bccAddresses : [];
+
+  const attachments = body?.attachments || [];
 
   return (
     <div
@@ -1503,7 +1332,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,
           paddingTop: 'calc(var(--sat) + 10px)',
-          paddingBottom: 10, paddingLeft: 14, paddingRight: 14,
+          paddingBottom: 'calc(10px - var(--sat-trim))', paddingLeft: 14, paddingRight: 14,
           borderBottom: '1px solid var(--border-subtle)',
           background: 'var(--bg-secondary)', flexShrink: 0,
           boxShadow: paneScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
@@ -1877,6 +1706,18 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                   </svg>
                   {t('message.print')}
                 </div>
+                {darkToggleShown && (
+                  <div
+                    onClick={() => { toggleDark(); setShowMoreMenu(false); }}
+                    aria-disabled={darkRefused || undefined}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: darkRefused ? 'default' : 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)', opacity: darkRefused ? 0.55 : 1 }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    {darkToggleIcon}
+                    {darkToggleLabel}
+                  </div>
+                )}
                 {/* Download the raw RFC 822 source as an .eml file (#381). */}
                 <div
                   onClick={() => {
@@ -1981,6 +1822,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                 <rect x="6" y="14" width="12" height="8"/>
               </svg>
             </PaneBtn>
+            {darkToggleShown && (
+              <PaneBtn onClick={toggleDark} title={darkToggleLabel} aria-label={darkToggleLabel} aria-pressed={shownDark} disabled={darkRefused}>
+                {darkToggleIcon}
+              </PaneBtn>
+            )}
             {aiStatus?.enabled && aiStatus?.features?.summarize && body && (
               <div style={{ position: 'relative' }} ref={aiMenuRef}>
                 <PaneBtn onClick={() => setShowAiMenu(v => !v)} title={t('message.aiActions')}
@@ -2025,6 +1871,16 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         </PaneBtn>
       </div>
 
+      {/* Swiping between messages on a phone (#229): the next and previous rows of the list, opened
+          as a click on them does (utils/listSelection.js openAdjacentRow). */}
+      <SwipePager
+        enabled={isMobile && !windowMode}
+        prev={isMobile && !windowMode ? adjacentRow('prev') : null}
+        next={isMobile && !windowMode ? adjacentRow('next') : null}
+        navKey={selectedMessageId}
+        onNavigate={(dir) => openAdjacentRow(dir)}
+        onPrefetch={prefetchBody}
+      >
       {/* Single scroll container — sender card + email body scroll together */}
       <div
         ref={scrollContainerRef}
@@ -2128,6 +1984,16 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                       </span>
                     </div>
                   )}
+                  {bccList.length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span>Bcc </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {bccList.map((r, i) => (
+                          <span key={i}>{r.name || r.email}{i < bccList.length - 1 ? ', ' : ''}</span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
@@ -2179,6 +2045,19 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                       </span>
                     </div>
                   )}
+                  {bccList.length > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                      <span>Bcc </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {bccList.map((r, i) => (
+                          <span key={i}>
+                            {r.name ? `${r.name} <${r.email}>` : r.email}
+                            {i < bccList.length - 1 ? ', ' : ''}
+                          </span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -2186,18 +2065,30 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
             {/* Date + account */}
             <div style={{ flexShrink: 0, textAlign: 'right' }}>
               <div style={{ fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
-                {message.date ? format(new Date(message.date), isMobile ? 'MMM d, h:mm a' : 'MMM d, yyyy h:mm a') : ''}
+                {formatMessageDateTime(message.date, { withYear: !isMobile })}
               </div>
               <div style={{
                 fontSize: 11, marginTop: 4,
                 display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end',
               }}>
-                <div style={{
-                  width: 6, height: 6, borderRadius: '50%',
-                  background: message.account_color || 'var(--accent)',
-                }} />
+                <AccountMark accountId={message.account_id} color={message.account_color || 'var(--accent)'} size={6} />
                 <span style={{ color: 'var(--text-tertiary)' }}>{message.account_name}</span>
               </div>
+              {/* With images allowed, open-tracking images are still never loaded (the backend's
+                  image proxy): how many, with the email's other facts. */}
+              {!body?.hasBlockedRemoteImages && body?.trackersBlocked > 0 && (
+                <div title={t('message.trackersBlockedHint')} style={{
+                  fontSize: 11, marginTop: 4, marginLeft: 'auto', maxWidth: 170,
+                  display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end',
+                  color: 'var(--text-tertiary)',
+                }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }} aria-hidden="true">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  </svg>
+                  <span>{t('message.trackersBlocked', { count: body.trackersBlocked })}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -2206,116 +2097,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         {/* Attachments */}
         {attachments.length > 0 && (
           <div style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>
-                {t('message.attachment', { count: attachments.length })}
-              </div>
-              {attachments.length > 1 && (
-                <a
-                  {...(anyRiskyAttachment ? {
-                    role: 'button',
-                    tabIndex: 0,
-                    onClick: confirmDownloadAll,
-                    onKeyDown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); confirmDownloadAll(); } },
-                  } : { href: downloadAllUrl, download: true })}
-                  style={{
-                    fontSize: 12, color: downloadAllArmed ? 'var(--red)' : 'var(--accent)', textDecoration: 'none',
-                    display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
-                  }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                  {downloadAllArmed
-                    ? t('message.attachmentRisk.armed', { label: t('message.downloadAll') })
-                    : t('message.downloadAll')}
-                </a>
-              )}
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {attachments.map((att, i) => {
-                const risk = classifyAttachmentRisk(att.filename, att.type);
-                const risky = risk.level === 'block' || risk.level === 'warn';
-                const riskColor = risk.level === 'block' ? 'var(--red)' : risk.level === 'warn' ? 'var(--amber)' : 'var(--text-tertiary)';
-                const armed = riskArmed === att.part;
-                const canPreview = previewable.includes(att);
-                const riskText = risk.level === 'ok' ? '' : risk.doubleExt
-                  ? t('message.attachmentRisk.doubleExt', { ext: risk.doubleExt })
-                  : t(`message.attachmentRisk.${risk.level}`, { ext: risk.ext });
-                return (
-                <button
-                  key={i}
-                  title={canPreview ? t('message.preview.open') : undefined}
-                  onClick={() => {
-                    if (risky && !armed) { setRiskArmed(att.part); return; }
-                    setRiskArmed(null);
-                    if (canPreview) { setViewerStart(previewable.indexOf(att)); return; }
-                    handleDownload(message.id, att.part, att.filename);
-                  }}
-                  disabled={downloadingPart === att.part}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '8px 12px', borderRadius: 8,
-                    background: 'var(--bg-secondary)',
-                    border: `1px solid ${risky ? riskColor : 'var(--border)'}`,
-                    cursor: downloadingPart === att.part ? 'wait' : 'pointer',
-                    color: 'var(--text-primary)',
-                    transition: 'background 0.1s',
-                    maxWidth: 240,
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
-                >
-                  <span style={{ display: 'flex', flexShrink: 0, color: 'var(--text-secondary)' }}>{fileIcon(att.type)}</span>
-                  <div style={{ minWidth: 0, textAlign: 'left' }}>
-                    <div style={{
-                      fontSize: 12, fontWeight: 500,
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>
-                      {att.filename}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                      {downloadingPart === att.part ? t('message.downloading') : formatBytes(att.size)}
-                    </div>
-                    {risk.level !== 'ok' && (
-                      <div style={{ fontSize: 11, color: riskColor, fontWeight: risk.level === 'block' ? 600 : 400, whiteSpace: 'normal' }}>
-                        {armed ? t('message.attachmentRisk.armed', { label: riskText }) : riskText}
-                      </div>
-                    )}
-                  </div>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                    stroke="var(--text-tertiary)" strokeWidth="2" style={{ flexShrink: 0 }}>
-                    {canPreview ? (
-                      <>
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                        <circle cx="12" cy="12" r="3"/>
-                      </>
-                    ) : (
-                      <>
-                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                        <polyline points="7 10 12 15 17 10"/>
-                        <line x1="12" y1="15" x2="12" y2="3"/>
-                      </>
-                    )}
-                  </svg>
-                </button>
-                );
-              })}
-            </div>
+            <AttachmentStrip key={message.id} messageId={message.id} attachments={attachments} />
           </div>
-        )}
-
-        {viewerStart !== null && message && previewable.length > 0 && (
-          <AttachmentViewer
-            key={`${message.id}:${viewerStart}`}
-            messageId={message.id}
-            attachments={previewable}
-            startIndex={viewerStart}
-            onClose={() => setViewerStart(null)}
-            onDownloadFallback={att => handleDownload(message.id, att.part, att.filename)}
-          />
         )}
 
         {/* AI action results — pinned boxes above the message (#204) */}
@@ -2370,7 +2153,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
               </div>
             </div>
             <button
-              onClick={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
+              onClick={() => { bodyCache.delete(selectedMessageId); setRetryKey(k => k + 1); }}
               style={{
                 background: 'var(--bg-secondary)', border: '1px solid var(--border)',
                 borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
@@ -2391,7 +2174,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
               {t('message.noContent')}
             </div>
             <button
-              onClick={() => { delete bodyCache.current[selectedMessageId]; setRetryKey(k => k + 1); }}
+              onClick={() => { bodyCache.delete(selectedMessageId); setRetryKey(k => k + 1); }}
               style={{
                 background: 'var(--bg-secondary)', border: '1px solid var(--border)',
                 borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
@@ -2513,9 +2296,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           <div className="msg-card" style={{
             position: 'relative',
             padding: '14px 16px 12px',
-            background: 'white',
+            // The frame's own background, so the card and the body read as one surface: the
+            // sender's dark background where their design sets one, otherwise the theme's.
+            background: shownDark ? (frameResult?.surface || 'var(--bg-primary)') : 'white',
             borderRadius: isMobile ? 0 : 10,
-            border: isMobile ? 'none' : '1px solid var(--border-subtle)',
+            border: isMobile || shownDark ? 'none' : '1px solid var(--border-subtle)',
             overflow: 'hidden',
             // contain:layout establishes a containing block for any position:fixed
             // descendants (including the inner email div if email CSS repositions it).
@@ -2551,6 +2336,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
               <MessageBodyView
                 iframeRef={iframeRef}
                 body={body}
+                dark={bodyDark}
+                onDarkResult={result => setDarkResult({ id: selectedMessageId, ...result })}
                 messageId={selectedMessageId}
                 emailScaleRef={emailScaleRef}
                 hasNativeContextTarget={hasNativeContextTarget}
@@ -2611,10 +2398,10 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           <div className="msg-card" style={{
             margin: 0, padding: '14px 16px 12px',
             whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-            fontSize: 14, color: '#1a1a1a', lineHeight: 1.7,
-            fontFamily: 'DM Sans, sans-serif', background: 'white',
+            fontSize: 14, color: bodyDark ? 'var(--text-primary)' : '#1a1a1a', lineHeight: 1.7,
+            fontFamily: 'DM Sans, sans-serif', background: bodyDark ? 'var(--bg-primary)' : 'white',
             borderRadius: isMobile ? 0 : 10,
-            border: isMobile ? 'none' : '1px solid var(--border-subtle)',
+            border: isMobile || bodyDark ? 'none' : '1px solid var(--border-subtle)',
             overflow: 'hidden',
           }}
             // <body> is translate="no" so a browser translator cannot break React's DOM (see
@@ -2627,6 +2414,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         </div>
       )}
       </div>{/* end single scroll container */}
+      </SwipePager>
 
       {/* Mobile move-to-folder bottom sheet */}
       {showMovePicker && isMobile && (
@@ -2904,12 +2692,17 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   );
 }
 
-function PaneBtn({ children, onClick, title, danger, style: extraStyle }) {
+// `disabled` is aria-disabled with the click ignored, not the native attribute, so the title still
+// shows on hover: it is what explains why.
+function PaneBtn({ children, onClick, title, danger, style: extraStyle, 'aria-label': ariaLabel, 'aria-pressed': ariaPressed, disabled = false }) {
   const [hov, setHov] = useState(false);
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
       title={title}
+      aria-label={ariaLabel}
+      aria-pressed={ariaPressed}
+      aria-disabled={disabled || undefined}
       className="btn-press"
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
@@ -2918,9 +2711,10 @@ function PaneBtn({ children, onClick, title, danger, style: extraStyle }) {
         border: '1px solid ' + (hov ? (danger ? 'rgba(248,113,113,0.3)' : 'var(--border)') : 'transparent'),
         borderRadius: 6, padding: '6px 8px',
         color: danger ? (hov ? 'var(--red)' : 'var(--text-tertiary)') : 'var(--text-secondary)',
-        cursor: 'pointer', fontSize: 13,
+        cursor: disabled ? 'default' : 'pointer', fontSize: 13,
         display: 'flex', alignItems: 'center', gap: 5,
         transition: 'all 0.1s',
+        opacity: disabled ? 0.45 : 1,
         ...extraStyle,
       }}
     >

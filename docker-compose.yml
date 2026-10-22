@@ -61,6 +61,11 @@ services:
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       IMAP_MAX_PERSISTENT_PER_HOST: ${IMAP_MAX_PERSISTENT_PER_HOST:-}
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-}
+      # The image proxy's cache of fitted images: per user, at most this many MB, kept for a month.
+      IMAGE_CACHE_DIR: /var/cache/mailflow/images
+      IMAGE_CACHE_MAX_MB: ${IMAGE_CACHE_MAX_MB:-512}
+    volumes:
+      - image_cache:/var/cache/mailflow/images
     depends_on:
       postgres:
         condition: service_healthy
@@ -145,6 +150,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  image_cache:
   caddy_data:
   caddy_config:
 

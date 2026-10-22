@@ -786,6 +786,17 @@ export function detectCategoryFromHeaders(h) {
   return null;
 }
 
+// messages keeps these in VARCHAR(500) columns. One oversized header (a sender name mis-encoded
+// over and over, a runaway Message-ID) made PostgreSQL reject the whole row, so the message never
+// imported and every backfill pass retried it (#584). Cut to 500 characters; JavaScript counts UTF-16
+// units, which is never fewer than PostgreSQL's characters, and the cut never splits a surrogate pair.
+export const MAX_HEADER_FIELD = 500;
+export function capHeaderField(value) {
+  if (typeof value !== 'string' || value.length <= MAX_HEADER_FIELD) return value;
+  const end = value.codePointAt(MAX_HEADER_FIELD - 1) > 0xffff ? MAX_HEADER_FIELD - 1 : MAX_HEADER_FIELD;
+  return value.slice(0, end);
+}
+
 export async function parseMessage(msg) {
   const envelope = msg.envelope || {};
   const flags = msg.flags ? [...msg.flags] : [];
@@ -875,14 +886,14 @@ export async function parseMessage(msg) {
 
   return {
     uid: msg.uid,
-    messageId: envelope.messageId || null,
+    messageId: capHeaderField(envelope.messageId || null),
     subject: resolveSubject(envelope.subject, parsedHeaders),
-    fromName,
-    fromEmail,
-    senderName: hasDistinctSender ? (senderAddr.name || '') : null,
-    senderEmail: hasDistinctSender ? senderEmail : null,
-    forwardedFromName: hasForwardedFrom ? (forwarded.originalName || '') : null,
-    forwardedFromEmail: hasForwardedFrom ? forwarded.originalEmail : null,
+    fromName: capHeaderField(fromName),
+    fromEmail: capHeaderField(fromEmail),
+    senderName: hasDistinctSender ? capHeaderField(senderAddr.name || '') : null,
+    senderEmail: hasDistinctSender ? capHeaderField(senderEmail) : null,
+    forwardedFromName: hasForwardedFrom ? capHeaderField(forwarded.originalName || '') : null,
+    forwardedFromEmail: hasForwardedFrom ? capHeaderField(forwarded.originalEmail) : null,
     forwardedVia: hasForwardedFrom ? forwarded.label : null,
     to: mapAddrs(envelope.to),
     cc: mapAddrs(envelope.cc),

@@ -59,6 +59,17 @@ function unfold(raw) {
   return raw.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '');
 }
 
+const PHOTO_MIME = { JPEG: 'image/jpeg', JPG: 'image/jpeg', PNG: 'image/png', GIF: 'image/gif', WEBP: 'image/webp' };
+const PHOTO_TYPES = new Set(Object.values(PHOTO_MIME));
+
+// /api/contacts/photo sends this as the Content-Type on the app origin, so SVG, HTML and
+// script types must never pass. Anything else becomes JPEG rather than being dropped: an
+// <img> picks its decoder from the bytes, so a real photo with an odd label still shows.
+export function photoContentType(declared) {
+  const type = (declared || '').trim().toLowerCase();
+  return PHOTO_TYPES.has(type) ? type : 'image/jpeg';
+}
+
 /**
  * Parse a vCard 3.0 string and return a plain object with the fields
  * MailFlow cares about. Unknown properties are silently ignored.
@@ -139,8 +150,8 @@ export function parseVCard(raw) {
         const v = value.trim();
         if (!v) break;
         if (v.startsWith('data:')) {
-          // vCard 4.0 inline data URI — store as-is.
-          result.photoData = v;
+          // vCard 4.0 inline data URI — store as-is apart from the type.
+          result.photoData = v.replace(/^data:([^;,]*)/, (_, declared) => `data:${photoContentType(declared)}`);
         } else if (/^https?:\/\//i.test(v)) {
           // External URL — skip to avoid privacy leak / fetch complexity.
           result.photoData = null;
@@ -148,8 +159,7 @@ export function parseVCard(raw) {
           // vCard 3.0 ENCODING=b raw base64 — derive MIME from TYPE param.
           const typeMatch = params.match(/TYPE=([^;]+)/i);
           const rawType = typeMatch ? typeMatch[1].replace(/["']/g, '').toUpperCase() : 'JPEG';
-          const mimeMap = { JPEG: 'image/jpeg', JPG: 'image/jpeg', PNG: 'image/png', GIF: 'image/gif', WEBP: 'image/webp' };
-          const mimeType = mimeMap[rawType] || 'image/jpeg';
+          const mimeType = PHOTO_MIME[rawType] || 'image/jpeg';
           result.photoData = `data:${mimeType};base64,${v}`;
         }
         break;

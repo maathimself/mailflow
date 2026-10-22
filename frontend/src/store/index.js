@@ -118,15 +118,45 @@ export const useStore = create((set, get) => ({
       // run that outlived a logout would finish and write the previous user's result into this
       // device's cache, under their message id, for whoever signs in next.
       aiRuns.abortAll();
+      // The message remembered for the lock screen is the leaving user's too. After a lockout,
+      // App.jsx clears the lock right after it clears the user, and setLocked(false) would
+      // restore that message for whoever signs in next.
+      if (get().user) localStorage.removeItem('mailflow_locked_message');
     }
     set(state => ({
       user,
       ...(state.user?.id !== user?.id ? {
         serverUnreadCounts: { total: 0, byAccount: {}, snapshots: {} }, pendingCounts: {},
         unreadCounts: { total: 0, byAccount: {}, snapshots: {}, complete: false },
+        snoozedCount: 0,
         senderFaviconsLoaded: false,
         senderFavicons: false,
         senderFaviconsSaving: false,
+      } : {}),
+      // An expired session signs out without reloading the page. Without this, the next user
+      // to sign in here would see the previous user's mail and open compose, and would have
+      // the previous user's settings until loadPreferences replaced them, or for the whole
+      // session where the new user has never saved their own. Only when a signed-in user
+      // leaves: a cold load has nothing to clear, and clearing there would drop the reading
+      // preferences seeded from localStorage until loadPreferences ran.
+      ...(state.user && state.user.id !== user?.id ? {
+        messages: [], searchResults: [], searchQuery: '', selectedMessageId: null,
+        threadMessages: {}, expandedThreadId: null,
+        accounts: [], accountsReady: false, folders: {},
+        notifications: [], backfillProgress: {},
+        gtdSections: null, categoryCounts: {}, activeGtdTab: null,
+        // Reply-draft lookups and handoffs still in flight stop on the user id, so the
+        // revision need not move.
+        replyDrafts: {},
+        composing: false, composeData: null, prepareComposeSwitch: null, messageWindows: [],
+        enabledPlugins: [], autoLockMinutes: 0, blockRemoteImages: true,
+        imageWhitelist: { addresses: [], domains: [] }, shortcuts: {}, aiActions: null,
+        hiddenFolders: {}, categorizationEnabled: false, gtdPetSlug: null,
+        autoOpenReplyDrafts: false, afterRemove: 'next', darkEmailBodies: true,
+        // Folder shortcuts name the previous user's accounts and folders. Left in place, the
+        // next user's first favorite saved them into that user's own preferences.
+        favoriteFolders: [], recentFolders: [], defaultSender: '',
+        collapsedFolders: [], expandedAccounts: {},
       } : {}),
     }));
   },
@@ -173,6 +203,7 @@ export const useStore = create((set, get) => ({
         accounts: [], accountsReady: false,
         folders: {}, selectedMessageId: null,
         unreadCounts: { total: 0, byAccount: {} },
+        snoozedCount: 0,
         notifications: [], threadMessages: {}, expandedThreadId: null,
         backfillProgress: {},
         gtdSections: null, categoryCounts: {}, activeGtdTab: null,
@@ -291,7 +322,11 @@ export const useStore = create((set, get) => ({
       const tid = m.thread_id || m.id;
       const subs = threadMessages[tid];
       if (!subs) return updated;
-      const unread_count = subs.filter(s => !s.is_read).length;
+      // In one account's view the list counts that account's copies only, and the row's actions
+      // take only those, but the cached conversation also holds other accounts' (#476). Counting
+      // them would let the echo of the reader's own mark-read flip the row back to unread.
+      const counted = state.selectedAccountId ? subs.filter(s => s.account_id === m.account_id) : subs;
+      const unread_count = counted.filter(s => !s.is_read).length;
       return { ...updated, unread_count, is_read: unread_count === 0 };
     });
     return { messages, searchResults: state.searchResults.map(apply), threadMessages };
@@ -347,6 +382,8 @@ export const useStore = create((set, get) => ({
   serverUnreadCounts: { total: 0, byAccount: {}, snapshots: {} },
   pendingCounts: {},
   unreadCounts: { total: 0, byAccount: {}, snapshots: {}, complete: false },
+  // How many messages are snoozed (#269), from the same server count as the badges.
+  snoozedCount: 0,
   setUnreadCounts: (counts) => set(state => {
     if (state.isLocked) return {};
     const server = mergeCountSnapshots(state.serverUnreadCounts, counts);
@@ -356,7 +393,8 @@ export const useStore = create((set, get) => ({
     const pending = settleCountPending(state.pendingCounts, server);
     if (!Object.keys(pending).length) { clearTimeout(pendingCountTimer); pendingCountTimer = null; }
     return { serverUnreadCounts: server, pendingCounts: pending,
-      unreadCounts: displayCountSnapshot(server, pending, state.accounts) };
+      unreadCounts: displayCountSnapshot(server, pending, state.accounts),
+      ...(typeof counts?.snoozed === 'number' ? { snoozedCount: counts.snoozed } : {}) };
   }),
   adjustUnread: (accountId, delta) => {
     set(state => {
@@ -528,8 +566,12 @@ export const useStore = create((set, get) => ({
           w.messageId === messageId ? { ...w, minimized: false, z: seq } : w),
       };
     }
-    const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
-    const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+    // The screen in the window's own pixels: MailApp scales the interface by the font size, so at
+    // 125% a screen-sized window in screen pixels opens a quarter taller than the screen, with its
+    // resize handle out of reach (#591).
+    const scale = (state.fontSize || 100) / 100;
+    const vw = (typeof window !== 'undefined' ? window.innerWidth : 1280) / scale;
+    const vh = (typeof window !== 'undefined' ? window.innerHeight : 800) / scale;
     const w = Math.min(660, Math.max(360, vw - 80));
     const h = Math.min(740, Math.max(280, vh - 80));
     // Cascade each new window down-right so they don't stack exactly on top.
@@ -737,6 +779,15 @@ export const useStore = create((set, get) => ({
     localStorage.setItem('mailflow_after_remove', val);
     set({ afterRemove: val });
     schedulePrefSave({ afterRemove: val });
+  },
+
+  // Show email bodies dark in a dark theme where that is safe (#228, utils/darkScheme.js). On by
+  // default; a light theme never darkens an email, and any message can be switched back on its own.
+  darkEmailBodies: localStorage.getItem('mailflow_dark_email_bodies') !== 'false',
+  setDarkEmailBodies: (value) => {
+    localStorage.setItem('mailflow_dark_email_bodies', String(Boolean(value)));
+    set({ darkEmailBodies: Boolean(value) });
+    schedulePrefSave({ darkEmailBodies: Boolean(value) });
   },
 
   markReadBehavior: localStorage.getItem('mailflow_mark_read_behavior') || 'immediate',
@@ -1292,6 +1343,10 @@ export const useStore = create((set, get) => ({
       if (prefs.replyDefault === 'reply' || prefs.replyDefault === 'replyAll') {
         localStorage.setItem('mailflow_reply_default', prefs.replyDefault);
         set({ replyDefault: prefs.replyDefault });
+      }
+      if (typeof prefs.darkEmailBodies === 'boolean') {
+        localStorage.setItem('mailflow_dark_email_bodies', String(prefs.darkEmailBodies));
+        set({ darkEmailBodies: prefs.darkEmailBodies });
       }
       if (['next', 'previous', 'list'].includes(prefs.afterRemove)) {
         localStorage.setItem('mailflow_after_remove', prefs.afterRemove);

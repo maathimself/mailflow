@@ -141,21 +141,26 @@ function evaluateRule(rule, msg) {
   return conditions.every(c => evaluateCondition(c, msg));
 }
 
-// Applies inbox rules to a batch of new INBOX messages. Returns { remaining, mutedIds }:
-//   remaining — messages still in INBOX after rules ran (moved/archived/deleted excluded)
-//   mutedIds  — IDs of remaining messages that had mark_read applied by a rule;
-//               the caller uses this to suppress sound/toast/push for silenced mail
+// Applies inbox rules to a batch of new INBOX messages. Returns { remaining, mutedIds, notifyMessages }:
+//   remaining      — messages still in INBOX after rules ran (moved/archived/deleted excluded)
+//   mutedIds       — IDs of remaining messages that had mark_read applied by a rule;
+//                    the caller uses this to suppress sound/toast/push for silenced mail
+//   notifyMessages — messages a rule with the "notify" action moved or archived out of the
+//                    Inbox (#588): filing mail used to make it silent, and these are alerted for
+//                    like inbox mail. Never mail a rule deleted. A notify rule also outranks a
+//                    mark_read rule's silencing for mail that stays in the Inbox.
 export async function applyInboxRules(messages, account, imapManager) {
-  if (!messages.length) return { remaining: messages, mutedIds: new Set() };
+  const none = () => ({ remaining: messages, mutedIds: new Set(), notifyMessages: [] });
+  if (!messages.length) return none();
 
   let rules;
   try {
     rules = await getRulesForAccount(account.user_id, account.id);
   } catch (err) {
     console.error('inboxRules: failed to load rules:', err.message);
-    return { remaining: messages, mutedIds: new Set() };
+    return none();
   }
-  if (!rules.length) return { remaining: messages, mutedIds: new Set() };
+  if (!rules.length) return none();
 
   // If any rule matches on body, batch-fetch body_text from DB (it's not on the
   // parsed message object — it was stored to DB during processMsg).
@@ -200,6 +205,9 @@ export async function applyInboxRules(messages, account, imapManager) {
   // IDs of remaining-in-INBOX messages that had mark_read applied by a rule.
   // Used by the caller to skip sound/toast/push for mail the user chose to silence.
   const mutedIds = new Set();
+  // Messages a matching rule asked to be notified about, and those a rule deleted (never alerted).
+  const notifyIds = new Set();
+  const deletedIds = new Set();
   const lastForwardRuleIndex = rules.reduce(
     (lastIndex, rule, index) =>
       Array.isArray(rule.actions) &&
@@ -224,6 +232,7 @@ export async function applyInboxRules(messages, account, imapManager) {
           resolverCache
         );
         if (isDest && acted) removedIds.add(msg.id);
+        if (action.type === 'delete' && acted) deletedIds.add(msg.id);
         // mark_read: add to mutedIds so caller suppresses sound/push.
         // star: intentionally NOT muted — a star-only rule should still alert.
         if (action.type === 'mark_read') mutedIds.add(msg.id);
@@ -295,6 +304,8 @@ export async function applyInboxRules(messages, account, imapManager) {
 
       let destSeen = false;
       for (const action of actions.filter(action => action.type !== 'forward')) {
+        // "Notify me" does nothing to the message; it only marks it for an alert.
+        if (action.type === 'notify') { notifyIds.add(msg.id); continue; }
         const isDest = action.type === 'move' || action.type === 'archive' || action.type === 'delete';
         if (isDest && destSeen) continue;
         // Skip destination actions for already-relocated messages — the source UID no
@@ -318,10 +329,21 @@ export async function applyInboxRules(messages, account, imapManager) {
     await flushDeferredDestinations();
   }
 
+  // Asked for explicitly, so a notify rule's alert wins over a mark_read rule's silence.
+  for (const id of notifyIds) mutedIds.delete(id);
   return {
     remaining: remaining.filter(m => !removedIds.has(m.id)),
     mutedIds,
+    notifyMessages: messages.filter(m => notifyIds.has(m.id) && removedIds.has(m.id) && !deletedIds.has(m.id)),
   };
+}
+
+// What a sync alerts for (push, toast, sound) after the rules ran: new Inbox mail no rule silenced
+// with mark_read, and mail a "Notify me" rule filed elsewhere (#588). `send` is whether there is
+// anything to tell the client at all: new Inbox mail to list, or an alert.
+export function newMailAlerts({ remaining, mutedIds = new Set(), notifyMessages = [] }) {
+  const alertMessages = [...remaining.filter(m => !mutedIds.has(m.id)), ...notifyMessages];
+  return { alertMessages, alertCount: alertMessages.length, send: remaining.length > 0 || notifyMessages.length > 0 };
 }
 
 // Moves messages from blocked senders to trash before inbox rules run.

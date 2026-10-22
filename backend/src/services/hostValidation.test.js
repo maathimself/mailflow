@@ -7,6 +7,7 @@ vi.mock('dns', () => ({
   promises: {
     resolve4: vi.fn().mockResolvedValue([]),
     resolve6: vi.fn().mockResolvedValue([]),
+    lookup: vi.fn().mockRejectedValue(Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' })),
   },
 }));
 
@@ -18,6 +19,29 @@ beforeEach(() => {
   dns.resolve6.mockClear();
   dns.resolve4.mockResolvedValue([]);
   dns.resolve6.mockResolvedValue([]);
+  dns.lookup.mockReset();
+  dns.lookup.mockRejectedValue(Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' }));
+});
+
+// A name only /etc/hosts knows: DNS has no answer, the system resolver (which the connection uses)
+// has loopback. It was let through unchecked.
+describe('names DNS does not know', () => {
+  it('are checked through the system resolver, as the connection would resolve them', async () => {
+    dns.lookup.mockResolvedValue([{ address: '::1', family: 6 }]);
+    expect(await validateHost('ip6-localhost')).toMatch(/private|reserved/i);
+    await expect(resolveForConnection('ip6-localhost')).rejects.toThrow(/private|reserved/i);
+  });
+
+  it('connect to the address the system resolver gave, pinned, when it is public', async () => {
+    dns.lookup.mockResolvedValue([{ address: '203.0.113.9', family: 4 }]);
+    const r = await resolveForConnection('mail.internal-alias');
+    expect(r).toMatchObject({ host: '203.0.113.9', servername: 'mail.internal-alias', addresses: ['203.0.113.9'] });
+  });
+
+  it('are left to fail at connect when no resolver knows them', async () => {
+    expect(await validateHost('nowhere.invalid')).toBeNull();
+    expect(await resolveForConnection('nowhere.invalid')).toEqual({ host: 'nowhere.invalid', servername: null });
+  });
 });
 
 // ── validateHostLiteral ────────────────────────────────────────────────────
@@ -47,6 +71,11 @@ describe('validateHostLiteral', () => {
     ['mail.local'],
     ['server.internal'],
     ['host.localhost'],
+    ['ｌｏｃａｌｈｏｓｔ'],  // fullwidth, which dns.lookup converts to localhost
+    ['localhost.'],     // fully qualified, the same name
+    ['foo.localhost.'],
+    ['mail.local.'],
+    ['metadata.google.internal.'],
   ])('blocks reserved hostname %s', host => {
     expect(validateHostLiteral(host)).toMatch(/local/i);
   });
@@ -81,6 +110,67 @@ describe('validateHostLiteral', () => {
     ['::ffff:10.0.0.1'],  // IPv4-mapped private
   ])('blocks private IPv6 %s', ip => {
     expect(validateHostLiteral(ip)).toMatch(/private|reserved/i);
+  });
+
+  // net.isIPv4 accepts only the dotted quad, but getaddrinfo reads these as IPv4 too.
+  it.each([
+    ['0'],                // 0.0.0.0
+    ['2130706433'],       // 127.0.0.1 as one decimal number
+    ['0x7f000001'],       // 127.0.0.1 in hex
+    ['0177.0.0.1'],       // octal part
+    ['127.1'],            // a.b shorthand
+    ['127.000.000.001'],  // zero-padded parts
+    ['0x0a000001'],       // 10.0.0.1
+    ['2852039166'],       // 169.254.169.254
+    // dns.lookup converts a non-ASCII host to ASCII before getaddrinfo reads it.
+    ['１２７.０.０.１'],  // fullwidth digits
+    ['127。0。0。1'],     // ideographic full stops
+    ['127.0.0.1\u00ad'],  // a trailing soft hyphen, which the conversion drops
+    ['０x7f000001'],      // a fullwidth 0 in the hex form
+  ])('blocks private IPv4 written as %s', host => {
+    expect(validateHostLiteral(host)).toMatch(/private|reserved/i);
+  });
+
+  it.each([
+    ['::'],                        // unspecified, connects to loopback
+    ['0:0:0:0:0:0:0:1'],           // ::1 uncompressed
+    ['::1%lo'],                    // ::1 with a zone ID
+    ['::1%a:b:c:d:e:f:g:h'],       // zone IDs may contain colons
+    ['::ffff:7f00:1'],             // IPv4-mapped 127.0.0.1 in hex
+    ['[::ffff:7f00:1]'],
+    ['0:0:0:0:0:ffff:127.0.0.1'],  // IPv4-mapped, uncompressed
+    ['::ffff:a9fe:a9fe'],          // IPv4-mapped 169.254.169.254
+    ['::7f00:1'],                  // IPv4-compatible 127.0.0.1
+    ['64:ff9b::a00:1'],            // NAT64 10.0.0.1
+    ['fe90::1'],                   // link-local is fe80::/10
+    ['2002:7f00::'],               // 6to4 127.0.0.0, compressed
+    ['2001::1'],                   // Teredo, compressed
+  ])('blocks private IPv6 written as %s', ip => {
+    expect(validateHostLiteral(ip)).toMatch(/private|reserved/i);
+  });
+
+  // dns.lookup converts these to ::1, but a hostname cannot hold a colon.
+  it.each([
+    ['::１'],       // a fullwidth 1
+    ['：：1'],      // fullwidth colons
+    ['::1\u00ad'],  // a trailing soft hyphen
+  ])('refuses the Unicode spelling %s of an IPv6 address', host => {
+    expect(validateHostLiteral(host)).toMatch(/not a valid hostname/i);
+  });
+
+  it.each([
+    ['134744072'],                  // 8.8.8.8 as one decimal number
+    ['deadbeef'],                   // a hostname, not a number
+    ['::ffff:808:808'],             // IPv4-mapped 8.8.8.8
+    ['64:ff9b::808:808'],           // NAT64 8.8.8.8, as DNS64 returns for a public server
+    ['2001:4860:4860::8888'],       // public, outside Teredo's 2001::/32
+    ['2002:808:808::1'],            // 6to4 8.8.8.8
+    ['2001:db8::1%a:b:c:d:e:f:1'],  // a zone ID with colons
+    ['８.８.８.８'],                // fullwidth digits
+    ['mail.münchen.de'],            // an internationalised name
+    ['mail.example.com.'],          // a fully qualified public name
+  ])('passes public address %s', host => {
+    expect(validateHostLiteral(host)).toBeNull();
   });
 
   // Bracket-wrapped IPv6
@@ -136,6 +226,11 @@ describe('validateHost', () => {
     expect(await validateHost('localhost')).not.toBeNull();
     expect(dns.resolve4).not.toHaveBeenCalled();
   });
+
+  it('blocks a private IPv4 in a spelling net.isIPv4 rejects, before DNS', async () => {
+    expect(await validateHost('0x7f000001')).toMatch(/private|reserved/i);
+    expect(dns.resolve4).not.toHaveBeenCalled();
+  });
 });
 
 // ── resolveForConnection ───────────────────────────────────────────────────
@@ -178,8 +273,20 @@ describe('resolveForConnection', () => {
     await expect(resolveForConnection('evil.attacker.com')).rejects.toThrow(/private|reserved/i);
   });
 
+  it('throws for a hostname whose AAAA record is the unspecified address', async () => {
+    dns.resolve6.mockResolvedValue(['::']);
+    await expect(resolveForConnection('evil.attacker.com')).rejects.toThrow(/private|reserved/i);
+  });
+
   it('throws for a literal private IP', async () => {
     await expect(resolveForConnection('10.0.0.1')).rejects.toThrow(/private|reserved/i);
+    expect(dns.resolve4).not.toHaveBeenCalled();
+  });
+
+  it('throws for other spellings of a private literal, before DNS', async () => {
+    await expect(resolveForConnection('2130706433')).rejects.toThrow(/private|reserved/i);
+    await expect(resolveForConnection('::')).rejects.toThrow(/private|reserved/i);
+    await expect(resolveForConnection('１２７.０.０.１')).rejects.toThrow(/private|reserved/i);
     expect(dns.resolve4).not.toHaveBeenCalled();
   });
 

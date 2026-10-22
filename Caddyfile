@@ -4,6 +4,7 @@
 }
 
 {$DOMAIN} {
+    encode zstd gzip
     reverse_proxy frontend:443 {
         transport http {
             tls_insecure_skip_verify

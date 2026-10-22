@@ -189,7 +189,10 @@
       "aiApply": "Appliquer",
       "aiDismiss": "Ignorer",
       "aiGenerating": "Génération en cours…",
-      "aiError": "Erreur IA : {{message}}"
+      "aiError": "Erreur IA : {{message}}",
+      "aiTooLong": "ce brouillon contient {{count}} caractères, plus que les {{max}} que l'IA peut traiter. Raccourcissez-le ou supprimez le texte cité, puis réessayez.",
+      "aiNotAllowed": "votre administrateur a désactivé l'IA pour votre compte.",
+      "aiFeatureOff": "votre administrateur a désactivé l'aide à la rédaction par IA."
     },
     "priority": "Priorité",
     "priorityHigh": "Haute priorité",
@@ -221,6 +224,9 @@
     "noContent": "Aucun contenu trouvé dans ce message.",
     "remoteImagesBlocked": "Les images distantes ont été bloquées.",
     "loadImages": "Charger les images",
+    "trackersBlocked_one": "{{count}} traceur bloqué",
+    "trackersBlocked_other": "{{count}} traceurs bloqués",
+    "trackersBlockedHint": "Les images qui signalent à l'expéditeur que vous avez ouvert cet e-mail n'ont pas été chargées.",
     "allowSender": "Toujours autoriser depuis {{email}}",
     "allowDomain": "Toujours autoriser depuis @{{domain}}",
     "downloading": "Téléchargement…",
@@ -241,6 +247,9 @@
     "delete": "Supprimer",
     "downloadEml": "Télécharger en .eml",
     "print": "Imprimer",
+    "showDark": "Afficher en couleurs sombres",
+    "showOriginal": "Afficher les couleurs d'origine",
+    "cannotShowDark": "Cet e-mail ne peut pas être affiché en sombre sans rendre le texte difficile à lire",
     "printConversation": "Imprimer la conversation",
     "preparingPrint": "Préparation de l'impression…",
     "more": "Plus",
@@ -250,10 +259,13 @@
     "aiActions": "Actions IA",
     "manageAiActions": "Gérer les actions…",
     "aiRegenerate": "Régénérer",
+    "aiTruncated": "Basé sur les premiers {{percent}} % de cet e-mail. La suite était trop longue pour être envoyée à l'IA.",
     "aiExpand": "Développer",
     "aiCollapse": "Réduire",
     "aiCopy": "Copier",
     "aiCopied": "Copié",
+    "aiNotAllowed": "votre administrateur a désactivé l'IA pour votre compte.",
+    "aiFeatureOff": "votre administrateur a désactivé les résumés et les actions IA.",
     "previousMessage": "Message précédent",
     "nextMessage": "Message suivant",
     "archived": {
@@ -262,19 +274,26 @@
       "failBody": "Impossible d'archiver le message.",
       "noFolderTitle": "Aucun dossier d'archive",
       "noFolderBody": "Aucun dossier d'archive configuré pour ce compte. Définissez-en un dans Paramètres → Comptes → Mappage des dossiers.",
-      "conversationTitle": "Conversation archivée"
+      "conversationTitle": "Conversation archivée",
+      "nothingFromAccount": "Aucun message de ce compte à archiver dans cette conversation",
+      "otherAccountMessage": "Rien n'a été archivé : le message ouvert provient d'un autre compte",
+      "otherAccountDraft": "Rien n'a été archivé : le brouillon ouvert provient d'un autre compte"
     },
     "moved": {
       "title": "Message déplacé",
       "failTitle": "Échec du déplacement",
       "failBody": "Impossible de déplacer le message.",
-      "conversationTitle": "Conversation déplacée"
+      "conversationTitle": "Conversation déplacée",
+      "nothingFromAccount": "Aucun message de ce compte à déplacer dans cette conversation",
+      "otherAccountDraft": "Rien n'a été déplacé : le brouillon ouvert provient d'un autre compte"
     },
     "snoozed": {
       "title": "Message mis en attente",
       "failTitle": "Échec de la mise en attente",
       "failBody": "Impossible de mettre ce message en attente.",
-      "conversationTitle": "Conversation mise en attente"
+      "conversationTitle": "Conversation mise en attente",
+      "nothingFromAccount": "Aucun message de ce compte à mettre en attente dans cette conversation",
+      "nothingInConversation": "Aucun message à mettre en attente dans cette conversation"
     },
     "whitelistFail": {
       "title": "Impossible d'enregistrer la préférence",
@@ -313,6 +332,16 @@
       "passwordLabel": "Mot de passe du PDF",
       "passwordSubmit": "Ouvrir",
       "passwordIncorrect": "Mot de passe incorrect. Réessayez."
+    },
+    "unsnoozed": {
+      "title": "Plus en attente",
+      "failTitle": "Impossible d'annuler la mise en attente",
+      "failBody": "Le message reste en attente. Réessayez."
+    },
+    "snoozeChanged": {
+      "title": "En attente jusqu'à {{when}}",
+      "failTitle": "Impossible de modifier l'heure de retour",
+      "failBody": "L'heure précédente est conservée. Réessayez."
     }
   },
   "messageList": {
@@ -356,7 +385,8 @@
       "body": "Déplacé vers la corbeille.",
       "failTitle": "Échec de la suppression",
       "failBody": "Impossible de supprimer le message.",
-      "conversationTitle": "Conversation supprimée"
+      "conversationTitle": "Conversation supprimée",
+      "nothingFromAccount": "Aucun message de ce compte à supprimer dans cette conversation"
     },
     "draftBcc": {
       "failTitle": "Brouillon ouvert en lecture seule",
@@ -396,6 +426,7 @@
     "pullToSync": "Tirer pour synchroniser",
     "releaseToSync": "Relâcher pour synchroniser",
     "noSearchResults": "Aucun résultat trouvé",
+    "searching": "Recherche en cours…",
     "noSearchResultsDesc": "Aucun résultat pour {{query}}",
     "searchFailed": "Échec de la recherche",
     "clearSearch": "Effacer la recherche",
@@ -453,7 +484,10 @@
         "label": "Division verticale",
         "description": "Liste des messages au-dessus du volet de lecture"
       }
-    }
+    },
+    "snoozedUntil": "En attente jusqu'à {{when}}",
+    "snoozedEmpty": "Rien en attente",
+    "snoozedEmptyDesc": "Les messages mis en attente patientent ici jusqu'à leur retour."
   },
   "lockScreen": {
     "subtitle": "Saisissez votre PIN pour déverrouiller",
@@ -511,7 +545,8 @@
     "emptying": "Vidage de « {{name}} »…",
     "emptied": "Dossier vidé",
     "backToAccounts": "Retour aux comptes",
-    "updateAvailable": "Mise à jour disponible : v{{version}}"
+    "updateAvailable": "Mise à jour disponible : v{{version}}",
+    "snoozed": "En attente"
   },
   "contextMenu": {
     "find": "Rechercher",
@@ -533,7 +568,9 @@
       "threeHours": "Dans 3 heures",
       "tomorrowMorning": "Demain matin",
       "nextWeek": "La semaine prochaine",
-      "custom": "Personnalisé..."
+      "custom": "Personnalisé...",
+      "change": "Modifier l'heure de retour",
+      "unsnooze": "Ne plus mettre en attente"
     },
     "categorize": "Catégoriser comme…",
     "categoryAlwaysSender": "Toujours pour cet expéditeur",
@@ -776,6 +813,11 @@
     },
     "title": "Paramètres",
     "close": "Fermer",
+    "behavior": {
+      "reading": "Lecture",
+      "writing": "Rédaction",
+      "sync": "Synchronisation"
+    },
     "tabs": {
       "cleanup": "Nettoyage",
       "accounts": "Comptes",
@@ -795,10 +837,11 @@
       "aiActions": "Actions IA",
       "antispam": "Antispam",
       "categories": "Catégories",
-      "groupAccountMail": "Compte et courrier",
-      "groupDisplay": "Affichage",
-      "groupSecurityIntegrations": "Sécurité et intégrations",
+      "groupMail": "Courrier",
+      "groupPreferences": "Préférences",
+      "groupAiExtensions": "IA et extensions",
       "groupAdmin": "Administration",
+      "behavior": "Comportement",
       "plugins": "Extensions",
       "backup": "Sauvegarde"
     },
@@ -842,6 +885,8 @@
       "actionForward": "Transférer à",
       "actionForwardPlaceholder": "destinataire@example.com",
       "actionSetCategory": "Définir la catégorie",
+      "actionNotify": "Me notifier",
+      "actionNotifyHint": "Me prévenir même si la règle déplace ce message ou le marque comme lu.",
       "actionSetCategorySelect": "Choisir une catégorie…",
       "actionMovePlaceholder": "Nom du dossier",
       "stopProcessing": "Arrêter le traitement des règles suivantes si celle-ci correspond",
@@ -886,6 +931,10 @@
       "editTitle": "Modifier le compte",
       "addTitle": "Ajouter un compte",
       "color": "Couleur du compte",
+      "icon": "Icône",
+      "iconNone": "Aucune (point de couleur)",
+      "iconCustom": "Ou saisissez un emoji",
+      "iconHint": "Affichée à la place du point de couleur.",
       "displayName": "Nom affiché",
       "displayNamePh": "ex. Gmail professionnel",
       "email": "Adresse e-mail",
@@ -989,6 +1038,8 @@
     "appearance": {
       "title": "Apparence",
       "description": "Choisissez un thème de couleur pour l'interface",
+      "darkEmailBodies": "Corps des e-mails sombres",
+      "darkEmailBodiesDesc": "Avec un thème sombre, afficher aussi les e-mails HTML en couleurs sombres : avec la version sombre de l'expéditeur s'il en a une, sinon recolorés par MailFlow. Un e-mail reste tel qu'envoyé s'il le demande ou si l'afficher en sombre rendrait le texte difficile à lire. Chaque message peut être basculé individuellement.",
       "typography": "Typographie",
       "typographyDescription": "Choisissez une combinaison de polices pour l'interface",
       "typographyLoading": "Chargement des polices…",
@@ -1255,6 +1306,12 @@
       "adminBadge": "Admin",
       "makeAdmin": "Rendre admin",
       "removeAdmin": "Retirer admin",
+      "aiOn": "IA activée",
+      "aiOff": "IA désactivée",
+      "aiAccessLabel": "IA pour {{username}}",
+      "aiOnHint": "Cet utilisateur peut utiliser l'assistant IA. Désactivez-la pour refuser ses requêtes IA : aide à la rédaction, résumés, actions IA et catégorisation par IA.",
+      "aiOffHint": "Cet utilisateur ne peut pas utiliser l'assistant IA. Activez-la pour l'autoriser.",
+      "aiToggleFailed": "Impossible de modifier l'accès à l'IA de {{username}}",
       "disable2fa": "Désactiver la 2FA",
       "deleteUser": "Supprimer l'utilisateur",
       "registrationOpen": "Inscription ouverte",
@@ -1317,6 +1374,9 @@
       "features": "Fonctionnalités",
       "featureCompose": "Aide à la rédaction (brouillon et amélioration)",
       "featureSummarize": "Résumé des e-mails",
+      "access": "Accès",
+      "newUsersEnabled": "Autoriser l'IA pour les nouveaux utilisateurs",
+      "newUsersEnabledHint": "S'applique aux comptes créés à partir de maintenant. Les utilisateurs existants gardent leur propre réglage, que vous pouvez modifier dans la liste des utilisateurs.",
       "saved": "Configuration IA enregistrée.",
       "testOk": "Connexion réussie.",
       "testFail": "Connexion échouée",
@@ -1774,7 +1834,9 @@
     "noRulesFired": "Aucune règle déclenchée",
     "mlTokensTitle": "Principaux tokens",
     "noMlTokens": "Aucun token ML",
-    "conversationMovedToSpam": "Conversation déplacée dans le dossier Spam"
+    "conversationMovedToSpam": "Conversation déplacée dans le dossier Spam",
+    "nothingFromAccount": "Aucun message de ce compte à marquer comme spam dans cette conversation",
+    "nothingInConversation": "Aucun message à marquer comme spam dans cette conversation"
   },
   "contacts": {
     "title": "Contacts",

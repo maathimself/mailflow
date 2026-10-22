@@ -34,4 +34,56 @@ describe('signOut (#523, #310)', () => {
     assert.equal(storage.getItem('mailflow_theme'), 'light');
     assert.ok(SIGN_OUT_CLEARED_KEYS.includes('mailflow_expanded_accounts'));
   });
+
+  it('clears the reading and reply-draft preferences, which the next sign-in would otherwise start from', async () => {
+    const storage = memoryStorage({ mailflow_after_remove: 'previous', mailflow_auto_open_reply_drafts: 'true', mailflow_dark_email_bodies: 'true', mailflow_theme: 'light' });
+    await signOut({ setUser: () => {}, storage, logout: async () => ({ ok: true }), navigate: () => {} });
+    assert.equal(storage.getItem('mailflow_after_remove'), null);
+    assert.equal(storage.getItem('mailflow_dark_email_bodies'), null);
+    assert.equal(storage.getItem('mailflow_auto_open_reply_drafts'), null);
+    assert.equal(storage.getItem('mailflow_theme'), 'light');
+  });
+
+  it("clears folder shortcuts and the sender to use, which name the previous user's accounts", async () => {
+    const keys = ['mailflow_favorite_folders', 'mailflow_recent_folders', 'mailflow_default_sender', 'mailflow_last_from_account'];
+    const storage = memoryStorage(Object.fromEntries(keys.map(k => [k, 'x'])));
+    await signOut({ setUser: () => {}, storage, logout: async () => ({ ok: true }), navigate: () => {} });
+    for (const key of keys) assert.equal(storage.getItem(key), null, key);
+  });
+});
+
+describe('Android provider logout', () => {
+  it('hands the provider logout URL to the app cookie jar after clearing local state', async () => {
+    const events = [];
+    await signOut({
+      logout: async () => ({ endSessionUrl: 'https://id.example.com/end?id_token_hint=test' }),
+      storage: { removeItem: () => {} }, setUser: user => events.push(['user', user]),
+      native: { platform: 'android', openOidcLogout: async url => { events.push(['native', url]); return { handled: true }; } },
+      navigate: url => events.push(['navigate', url]),
+    });
+    assert.deepEqual(events, [['user', null], ['native', 'https://id.example.com/end?id_token_hint=test']]);
+  });
+
+  it('keeps browser fallback for older clients, failed native calls and desktop', async () => {
+    let desktopCalls = 0;
+    for (const native of [undefined, { platform: 'android' },
+      { platform: 'android', openOidcLogout: async () => ({ handled: false }) },
+      { platform: 'android', openOidcLogout: async () => { throw new Error('unavailable'); } },
+      { platform: 'electron', openOidcLogout: async () => { desktopCalls++; return { handled: true }; } }]) {
+      let destination;
+      await signOut({ logout: async () => ({ endSessionUrl: 'https://id.example.com/end' }),
+        storage: { removeItem: () => {} }, setUser: () => {}, native,
+        navigate: url => { destination = url; } });
+      assert.equal(destination, 'https://id.example.com/end');
+    }
+    assert.equal(desktopCalls, 0);
+  });
+
+  it('does not open a provider window for local-only logout', async () => {
+    let destination;
+    await signOut({ logout: async () => ({}), storage: { removeItem: () => {} }, setUser: () => {},
+      native: { platform: 'android', openOidcLogout: () => assert.fail('no provider logout requested') },
+      navigate: url => { destination = url; } });
+    assert.equal(destination, '/login');
+  });
 });

@@ -155,3 +155,54 @@ describe('account form: automatic Cc and Bcc (#491)', () => {
     assert.equal(field('compose.bccPh').value, 'me');
   });
 });
+
+// #624: the icon picker changed the form, but Save left icon out of the update, so the server kept
+// the old value and the color dot came back.
+describe('account form: icon (#376, #624)', () => {
+  const sent = [];
+  let root;
+
+  before(() => {
+    api.admin.getSettings = async () => ({ settings: {} });
+    api.getUnreadCounts = async () => ({});
+    api.updateAccount = async (id, updates) => { sent.push({ id, updates }); return { ...ACCOUNT, ...updates }; };
+  });
+  afterEach(() => React.act(async () => root.unmount()));
+
+  const click = (el) => React.act(async () => { el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
+  const button = (text) => [...document.querySelectorAll('button')].find(b => b.textContent === text);
+
+  async function openEdit(account) {
+    sent.length = 0;
+    useStore.setState({ user: { id: 'u1' }, accounts: [account], adminTab: 'accounts' });
+    root = createRoot(document.getElementById('root'));
+    await React.act(async () => { root.render(React.createElement(AdminPanel)); });
+    await click(document.querySelector('button[title="common.edit"]'));
+  }
+
+  test('a picked icon is sent on Save and lands in the store', async () => {
+    await openEdit({ ...ACCOUNT, icon: null });
+    await click(button('🔒'));
+    await click(button('admin.accounts.saveChanges'));
+
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].updates.icon, '🔒');
+    assert.equal(useStore.getState().accounts[0].icon, '🔒');
+  });
+
+  test('choosing the color dot sends null, which clears a saved icon', async () => {
+    await openEdit({ ...ACCOUNT, icon: '💼' });
+    await click(document.querySelector('button[aria-label="admin.accounts.iconNone"]'));
+    await click(button('admin.accounts.saveChanges'));
+
+    assert.ok('icon' in sent[0].updates, 'icon is part of the update');
+    assert.equal(sent[0].updates.icon, null);
+  });
+
+  test('an unrelated edit keeps the saved icon', async () => {
+    await openEdit({ ...ACCOUNT, icon: '💼' });
+    await click(button('admin.accounts.saveChanges'));
+
+    assert.equal(sent[0].updates.icon, '💼');
+  });
+});

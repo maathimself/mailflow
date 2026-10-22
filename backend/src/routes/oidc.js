@@ -10,6 +10,7 @@ import { imapManager } from '../index.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { logAuthEvent } from '../services/authEvents.js';
+import { aiEnabledForNewUser } from '../services/aiNewUsers.js';
 
 // In-memory OIDC discovery cache keyed by issuerUrl
 const discoveryCache = new Map();
@@ -596,8 +597,8 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
           // be created through local registration.
           const isAdmin = adminFromClaim === true;
           const newUser = await client.query(
-            'INSERT INTO users (username, password_hash, is_admin) VALUES ($1, NULL, $2) RETURNING id, username, is_admin',
-            [email.toLowerCase(), isAdmin]
+            'INSERT INTO users (username, password_hash, is_admin, ai_enabled) VALUES ($1, NULL, $2, $3) RETURNING id, username, is_admin',
+            [email.toLowerCase(), isAdmin, await aiEnabledForNewUser(client)]
           );
           user = newUser.rows[0];
           if (isFirstUser) {

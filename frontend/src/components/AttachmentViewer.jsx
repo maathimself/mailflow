@@ -188,7 +188,14 @@ export default function AttachmentViewer({ messageId, attachments, startIndex = 
       }}
     >
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 8, padding: narrow ? '8px 8px 8px 12px' : '10px 12px 10px 18px',
+        display: 'flex', alignItems: 'center', gap: 8,
+        // The viewer covers the whole screen, so its bar pads itself by --sat like the app's
+        // other top bars (index.css): in a standalone PWA the status bar is drawn over the
+        // page, and the bar's own color fills that strip (--sat-trim off the bottom, per
+        // convention). Desktop keeps its old padding, where both variables are 0.
+        paddingTop: `calc(var(--sat) + ${narrow ? 8 : 10}px)`,
+        paddingBottom: `calc(${narrow ? 8 : 10}px - var(--sat-trim))`,
+        paddingLeft: narrow ? 12 : 18, paddingRight: narrow ? 8 : 12,
         background: CHROME.bar, borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0,
       }}>
         <div style={{ flex: 1, minWidth: 0 }}>

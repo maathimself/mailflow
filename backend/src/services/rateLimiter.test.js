@@ -7,11 +7,12 @@ vi.mock('./redis.js', () => ({
     async incr(k)        { if (rs.fail) throw new Error('down'); const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v++; rs.store.set(k, e); return e.v; },
     async pExpire(k, ms) { if (rs.fail) throw new Error('down'); const e = rs.store.get(k); if (e) e.exp = Date.now() + ms; return true; },
     async pTTL(k)        { if (rs.fail) throw new Error('down'); const e = rs.store.get(k); return e ? (e.exp - Date.now()) : -2; },
+    async decr(k)        { if (rs.fail) throw new Error('down'); const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v--; rs.store.set(k, e); return e.v; },
     async del(k)         { if (rs.fail) throw new Error('down'); rs.store.delete(k); return 1; },
   },
 }));
 
-const { consume, reset } = await import('./rateLimiter.js');
+const { consume, reset, release } = await import('./rateLimiter.js');
 
 describe('rateLimiter — Redis path', () => {
   beforeEach(() => { rs.fail = false; rs.store.clear(); });
@@ -35,6 +36,20 @@ describe('rateLimiter — Redis path', () => {
     await reset('k3');
     expect((await consume('k3', 1, 60000)).limited).toBe(false);
   });
+
+  it('release() hands back one hit', async () => {
+    await consume('k4', 2, 60000);
+    await consume('k4', 2, 60000);
+    await release('k4');
+    expect((await consume('k4', 2, 60000)).limited).toBe(false);
+    expect((await consume('k4', 2, 60000)).limited).toBe(true);
+  });
+
+  it('release() on an expired key does not leave a spare hit behind', async () => {
+    await release('k5');
+    expect((await consume('k5', 1, 60000)).limited).toBe(false);
+    expect((await consume('k5', 1, 60000)).limited).toBe(true);
+  });
 });
 
 describe('rateLimiter — in-memory fallback when Redis is down', () => {
@@ -53,5 +68,15 @@ describe('rateLimiter — in-memory fallback when Redis is down', () => {
     expect((await consume(key, 1, 60000)).limited).toBe(true);
     await reset(key);
     expect((await consume(key, 1, 60000)).limited).toBe(false);
+  });
+
+  it('release() hands back one in-memory hit, never below zero', async () => {
+    const key = 'mem-' + Math.random();
+    await release(key);
+    await consume(key, 1, 60000);
+    await release(key);
+    await release(key);
+    expect((await consume(key, 1, 60000)).limited).toBe(false);
+    expect((await consume(key, 1, 60000)).limited).toBe(true);
   });
 });

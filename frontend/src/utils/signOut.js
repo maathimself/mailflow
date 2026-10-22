@@ -11,6 +11,10 @@ export const SIGN_OUT_CLEARED_KEYS = [
   'mailflow_threaded_view', 'mailflow_plaintext_email',
   'mailflow_hover_quick_actions', 'mailflow_swipe_actions',
   'mailflow_expanded_accounts', 'mailflow_collapsed_folders',
+  // Reading preferences the store seeds from localStorage before loadPreferences runs.
+  'mailflow_auto_open_reply_drafts', 'mailflow_after_remove', 'mailflow_dark_email_bodies',
+  // Folder shortcuts and the sender to use: they name the previous user's accounts and folders.
+  'mailflow_favorite_folders', 'mailflow_recent_folders', 'mailflow_default_sender', 'mailflow_last_from_account',
 ];
 
 // Signing out from the sidebar and from the lock screen (#523). When the session signed in
@@ -20,9 +24,16 @@ export const SIGN_OUT_CLEARED_KEYS = [
 export async function signOut({
   setUser, storage = localStorage, logout = api.logout,
   navigate = (url) => { window.location.href = url; },
+  native = globalThis.window?.mailflowNative,
 }) {
   const res = await logout().catch(() => ({}));
   for (const key of SIGN_OUT_CLEARED_KEYS) storage.removeItem(key);
   setUser(null);
+  if (res?.endSessionUrl && native?.platform === 'android' && native.openOidcLogout) {
+    try {
+      const result = await native.openOidcLogout(res.endSessionUrl);
+      if (result?.handled) return;
+    } catch { /* Older native clients can still use browser logout. */ }
+  }
   navigate(res?.endSessionUrl || '/login');
 }

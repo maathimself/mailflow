@@ -58,6 +58,7 @@ export function normalizeActions(actions) {
   let destSeen = false;
   let forwardSeen = false;
   let categorySeen = false;
+  let notifySeen = false;
   return actions
     .filter(a => {
       if (!a || typeof a.type !== 'string') return false;
@@ -73,6 +74,11 @@ export function normalizeActions(actions) {
       if (a.type === 'set_category') {
         if (categorySeen) return false;
         categorySeen = true;
+      }
+      // "Notify me" (#588) is on or off; a second one means nothing more.
+      if (a.type === 'notify') {
+        if (notifySeen) return false;
+        notifySeen = true;
       }
       return true;
     })

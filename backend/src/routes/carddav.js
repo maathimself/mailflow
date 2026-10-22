@@ -15,7 +15,7 @@ import crypto from 'crypto';
 import { query } from '../services/db.js';
 import { parseVCard } from '../utils/vcard.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
-import { consume as rlConsume } from '../services/rateLimiter.js';
+import { consume as rlConsume, release as rlRelease } from '../services/rateLimiter.js';
 import { logAuthEvent } from '../services/authEvents.js';
 
 const router = Router();
@@ -57,6 +57,23 @@ function cardavRateLimit(req, res, next) {
 
 // ── HTTP Basic authentication middleware ──────────────────────────────────────
 
+// The server's sign-in policies that a password alone cannot satisfy: password login turned off
+// for SSO (internal_auth_disabled), and two-factor required for everyone (mfa_enforcement). Web
+// login applies both (routes/auth.js); CardDAV's HTTP Basic carries only a password, so under
+// either one it refuses instead, as it does for an account with TOTP.
+async function cardavPolicy() {
+  const r = await query(
+    "SELECT key, value FROM system_settings WHERE key IN ('internal_auth_disabled', 'mfa_enforcement')"
+  );
+  const settings = Object.fromEntries(r.rows.map(row => [row.key, row.value]));
+  return {
+    passwordLoginDisabled: settings.internal_auth_disabled === 'true',
+    mfaRequired: settings.mfa_enforcement === 'required',
+  };
+}
+
+const refuse = (res, reason) => res.status(403).set('Content-Type', 'text/plain').send(reason);
+
 async function cardavAuth(req, res, next) {
   const auth = req.headers['authorization'] || '';
   if (!auth.startsWith('Basic ')) {
@@ -75,18 +92,33 @@ async function cardavAuth(req, res, next) {
   const password = decoded.slice(colon + 1);
 
   try {
+    const policy = await cardavPolicy();
+    // Before the password is checked, as web login does: a server that takes no passwords must
+    // not say whether one is right.
+    if (policy.passwordLoginDisabled) {
+      return refuse(res, 'Password sign-in is turned off on this server (it signs in through SSO), so CardDAV is not available.');
+    }
     const r = await query(
       'SELECT id, password_hash, totp_enabled FROM users WHERE username = $1',
       [username]
     );
     const user = r.rows[0];
-    // Count CardDAV auth failures against the same per-IP limiter as login and log
-    // them to the audit trail — brute-force/visibility parity with the login path.
-    const authFail = async () => {
-      const { limited } = await rlConsume(`auth:${req.ip}`, authLimiterConfig.maxRequests, authLimiterConfig.windowMs);
+    // Take a slot from the login routes' per-IP budget before checking the password, so
+    // concurrent guesses can't overshoot it and no password is checked once it is spent.
+    // Only a wrong password keeps its slot, so a syncing client never uses the budget up.
+    const limitKey = `auth:${req.ip}`;
+    const { limited, resetMs } = await rlConsume(limitKey, authLimiterConfig.maxRequests, authLimiterConfig.windowMs);
+    if (limited) {
+      // A refused request keeps its slot only in the window's last seconds, where handing
+      // it back could land after the key expires and uncount a guess in the next window.
+      if (resetMs > 2000) await rlRelease(limitKey);
+      res.setHeader('Retry-After', Math.ceil(resetMs / 1000));
+      return res.status(429).end();
+    }
+    const authFail = () => {
       logAuthEvent('carddav_auth_fail', { username: username || null, ip: req.ip, success: false });
       res.setHeader('WWW-Authenticate', 'Basic realm="MailFlow CardDAV"');
-      return res.status(limited ? 429 : 401).end();
+      return res.status(401).end();
     };
     if (!user || !user.password_hash) {
       await bcrypt.compare(password, DUMMY_PASSWORD_HASH); // constant-time vs the real path
@@ -96,13 +128,17 @@ async function cardavAuth(req, res, next) {
     // indistinguishable regardless of whether the account exists or has 2FA.
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) return authFail();
+    await rlRelease(limitKey);
     // CardDAV HTTP Basic cannot satisfy a TOTP second factor.
     // Block access entirely for accounts with 2FA enabled until app-specific
     // passwords are implemented. Return 403 (not 401) so clients don't retry.
     if (user.totp_enabled) {
-      return res.status(403)
-        .set('Content-Type', 'text/plain')
-        .send('Two-factor authentication is enabled. CardDAV requires an app-specific password.');
+      return refuse(res, 'Two-factor authentication is enabled. CardDAV requires an app-specific password.');
+    }
+    // Web login asks a user without TOTP for an emailed code or enrolment when two-factor is
+    // required; CardDAV can ask for neither.
+    if (policy.mfaRequired) {
+      return refuse(res, 'Two-factor authentication is required on this server. CardDAV requires an app-specific password.');
     }
     req.cardavUserId = user.id;
     next();

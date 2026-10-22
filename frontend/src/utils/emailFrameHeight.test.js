@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { measureContentHeight, createHeightController, forceEagerImages } from './emailFrameHeight.js';
+import { measureContentHeight, createHeightController, forceEagerImages, pinFrameRoot, createScrollExpander } from './emailFrameHeight.js';
 
 describe('measureContentHeight', () => {
   test('uses the wrapper box, offset by where the wrapper starts', () => {
@@ -168,5 +168,45 @@ describe('forceEagerImages', () => {
     assert.equal(forceEagerImages(null), 0);
     assert.equal(forceEagerImages(undefined), 0);
     assert.equal(forceEagerImages({}), 0);
+  });
+});
+
+describe('pinFrameRoot', () => {
+  test("pins html and body to their content with inline !important, beating the email's own inline body styles", async () => {
+    const { JSDOM } = await import('jsdom');
+    const doc = new JSDOM('<!doctype html><html><body style="height:100% !important;overflow:auto"><p>x</p></body></html>').window.document;
+    pinFrameRoot(doc);
+    for (const el of [doc.body, doc.documentElement]) {
+      assert.equal(el.style.getPropertyValue('height'), 'auto');
+      assert.equal(el.style.getPropertyPriority('height'), 'important');
+      assert.equal(el.style.getPropertyValue('min-height'), '0px');
+      assert.equal(el.style.getPropertyValue('overflow-y'), 'hidden');
+      assert.equal(el.style.getPropertyPriority('overflow-y'), 'important');
+    }
+  });
+});
+
+// Scroll containers in an email are expanded so the frame shows all of it. Later passes, one per
+// image that loads, look only at the elements styled to scroll: reading every element's computed
+// style on each image load was the cost.
+describe('createScrollExpander', () => {
+  test('expands a scroll box, again when it grows, and reads styles once', async () => {
+    const { JSDOM } = await import('jsdom');
+    const doc = new JSDOM('<div id="box" style="overflow-y:auto;height:100px"><p>x</p></div><p id="plain">y</p>').window.document;
+    const box = doc.getElementById('box');
+    let content = 500;
+    Object.defineProperty(box, 'scrollHeight', { get: () => content });
+    Object.defineProperty(box, 'clientHeight', { get: () => Number.parseInt(box.style.height, 10) || 100 });
+    let reads = 0;
+    const real = doc.defaultView.getComputedStyle.bind(doc.defaultView);
+    doc.defaultView.getComputedStyle = (el) => { reads += 1; return real(el); };
+    const expand = createScrollExpander(doc);
+    expand();
+    assert.equal(box.style.height, '500px');
+    const firstPass = reads;
+    content = 800; // an image inside it loaded
+    expand();
+    assert.equal(box.style.height, '800px');
+    assert.equal(reads, firstPass, 'no computed styles read after the first pass');
   });
 });

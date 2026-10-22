@@ -9,9 +9,14 @@ const SENT = { accountId: 'acct', folder: 'Sent', messageId: '<abc@example.test>
 
 function makeStore() {
   return create(set => ({
-    selectedAccountId: null, selectedFolder: 'INBOX', selectedMessageId: null, messages: [],
+    selectedAccountId: null, selectedFolder: 'INBOX', selectedMessageId: null, messages: [], threadMessages: {},
     setSelectedAccount: (selectedAccountId, selectedFolder) => set({ selectedAccountId, selectedFolder, selectedMessageId: null, messages: [] }),
     setSelectedMessage: selectedMessageId => set({ selectedMessageId }),
+    clearThreadMessages: key => set(state => {
+      const threadMessages = { ...state.threadMessages };
+      delete threadMessages[key];
+      return { threadMessages };
+    }),
   }));
 }
 const timers = () => {
@@ -34,6 +39,18 @@ test('opens the Sent folder and then the message, once its copy is listed', () =
   store.setState({ messages: [{ id: 'm1', message_id: '<other@example.test>' }, { id: 'm2', message_id: '<abc@example.test>' }] });
   assert.equal(store.getState().selectedMessageId, 'm2');
   assert.equal(clock.pending.size, 0, 'and stops waiting');
+});
+
+test('picks the listed copy the way the list picks a row', () => {
+  // The real store's setSelectedAccount empties threadMessages, so no __dl_ entry a notification
+  // parked survives to this pick there; this store keeps them, to show the pick drops one.
+  const store = makeStore();
+  const copy = { id: 'm2', message_id: '<abc@example.test>' };
+  store.setState({ threadMessages: { '__dl_m2': [copy], 'thr-1': [copy] } });
+  openSentMessage(store, SENT, timers());
+  store.setState({ messages: [copy] });
+  assert.equal(store.getState().selectedMessageId, 'm2');
+  assert.deepEqual(Object.keys(store.getState().threadMessages), ['thr-1'], 'only the parked entry goes');
 });
 
 test('stops waiting once the user moves elsewhere', () => {

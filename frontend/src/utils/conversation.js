@@ -72,18 +72,36 @@ export const conversationRefreshKey = message => message?.thread_id
   : null;
 
 export function resolveConversationSelection({ selectedMessageId, pool = [], threadMessages = {} }) {
-  const selectedMessage = pool.find(message => message.id === selectedMessageId)
+  const listed = pool.find(message => message.id === selectedMessageId);
+  const selectedMessage = listed
     || Object.values(threadMessages).flat().find(message => message.id === selectedMessageId)
     || null;
   const conversationMessage = selectedMessage?.thread_id
     ? pool.find(message => message.thread_id === selectedMessage.thread_id) || selectedMessage
     : selectedMessage;
+  // A message opened from a notification, a link or the GTD sidebar is parked under __dl_<id>
+  // without switching account (MailApp, utils/gtd.js), so it is not a row of the list on screen.
+  const parked = !listed
+    && Boolean(threadMessages[`__dl_${selectedMessageId}`]?.some(message => message.id === selectedMessageId));
 
   return {
     selectedMessage,
     conversationMessage,
     refreshKey: conversationRefreshKey(conversationMessage),
+    listed: Boolean(listed),
+    parked,
   };
+}
+
+// A pick from the list, of a row or of a message under one, through the store given. A notification,
+// a link or the GTD sidebar parks the message it opens under __dl_<id>, and the entry outlives that
+// open: left in place, it would count this pick as parked (above) whenever the message is not a row
+// on screen, and the reading pane would act for the message's own account rather than the row's.
+export function selectListedMessage(store, id) {
+  const { threadMessages, clearThreadMessages, setSelectedMessage } = store.getState();
+  const parkedKey = `__dl_${id}`;
+  if (threadMessages[parkedKey]) clearThreadMessages(parkedKey);
+  setSelectedMessage(id);
 }
 
 export const shouldFallbackToSingleMessagePane = ({ loading, error, messages = [] }) =>

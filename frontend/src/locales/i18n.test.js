@@ -551,6 +551,19 @@ const SAME_VALUE_ALLOWED = {
   // "Editar" is the same word in Spanish and Portuguese.
   'admin.users.edit':      [['es', 'ptBR']],
   'admin.users.editTitle': [['es', 'ptBR']],
+
+  // ── Blocked trackers ──────────────────────────────────────────────────────
+  // "rastreador(es) bloqueado(s)" is spelled the same in Spanish and Portuguese.
+  'message.trackersBlocked_one':   [['es', 'ptBR']],
+  'message.trackersBlocked_other': [['es', 'ptBR']],
+
+  // ── Mailbox icon ──────────────────────────────────────────────────────────
+  // "Ikona" is the word in both Czech and Polish.
+  'admin.accounts.icon': [['cs', 'pl']],
+  // "Mail" is the usual German word too.
+  'admin.tabs.groupMail': [['de', 'en']],
+  // "Comportamento" is the word in both Italian and Portuguese.
+  'admin.tabs.behavior': [['it', 'ptBR']],
 };
 
 // Locale-specific plural forms are allowed per locale. A locale may add forms

@@ -3,6 +3,7 @@ import { createComposeSwitch } from '../utils/composeSwitch.js';
 import { shouldAutosave, isAutosaveDue } from '../utils/draftAutosave.js';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
+import { sanitizeEmailForApp } from '../utils/appEmailHtml.js';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
@@ -19,13 +20,20 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { ComposerLink } from '../utils/editorLink.js';
+import { PasteWithoutPageColors } from '../utils/editorPaste.js';
+import { pasteWithoutPageColors } from '../utils/contentEditablePaste.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { resolveInitialFrom } from '../utils/defaultSender.js';
 import { initialComposeFocus, isComposeSendShortcut } from '../utils/composeFromMessage.js';
+import { unproxyImages } from '../utils/imageProxy.js';
 import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } from '../utils/autoRecipients.js';
 import { resolveSignatureEnabled } from '../utils/composeSignature.js';
 import { UNDO_SEND_SECONDS, undoWindowMs, trackHeldSend, reopenCompose } from '../utils/heldSend.js';
 import { openSentMessage } from '../utils/openSentMessage.js';
+import { frameGeometry } from '../utils/frameGeometry.js';
+import { AI_MESSAGE_MAX_CHARS } from '../aiActions.js';
+import { stripTags } from '../utils/stripTags.js';
+import { aiTextToHtml } from '../utils/aiText.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -194,7 +202,7 @@ function resolveFrom(val) {
 }
 
 export default function ComposeModal() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { closeCompose, composeData, accounts, addNotification, plaintextEmail, setThreadMessages, setPrepareComposeSwitch, updateComposePersistedKey } = useStore();
   const composeSession = useRef(useStore.getState().composeSession).current;
   const composeOwner = useRef(useStore.getState().user?.id).current;
@@ -402,6 +410,7 @@ export default function ComposeModal() {
       FontFamily,
       BackgroundColor,
       FontSize,
+      PasteWithoutPageColors,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       ResizableImage.configure({ inline: true, allowBase64: true }),
       Table.configure({ resizable: false }),
@@ -557,15 +566,15 @@ export default function ComposeModal() {
     const captureEl = e.currentTarget;
     const pointerId = e.pointerId;
     captureEl.setPointerCapture(pointerId);
-    // Finish any entry animation so getBoundingClientRect reflects the final position.
+    // Finish any entry animation so the measured position is the final one.
     el.getAnimations().forEach(a => a.finish());
-    const rect = el.getBoundingClientRect();
+    // In layout pixels, not screen pixels: see utils/frameGeometry.js (#591).
+    const start = frameGeometry(el);
     const startMouseX = e.clientX;
     const startMouseY = e.clientY;
-    const startX = rect.left;
-    const startY = rect.top;
-    const w = rect.width;
-    const h = rect.height;
+    const startX = start.x;
+    const startY = start.y;
+    const { w, h } = start;
     // Immediately switch from bottom/right to top/left in the DOM — no re-render
     // needed, so there is no frame where the window jumps to a stale position.
     el.style.bottom = '';
@@ -581,8 +590,8 @@ export default function ComposeModal() {
     // Mutate the DOM directly during drag — avoids a React re-render on every
     // pointermove event, which was the source of lag and jerkiness.
     const onMove = (ev) => {
-      curX = Math.max(0, Math.min(window.innerWidth - w, startX + ev.clientX - startMouseX));
-      curY = Math.max(0, Math.min(Math.max(0, window.innerHeight - h), startY + ev.clientY - startMouseY));
+      curX = Math.max(0, Math.min(start.viewW - w, startX + (ev.clientX - startMouseX) / start.scale));
+      curY = Math.max(0, Math.min(Math.max(0, start.viewH - h), startY + (ev.clientY - startMouseY) / start.scale));
       el.style.left = curX + 'px';
       el.style.top = curY + 'px';
     };
@@ -619,24 +628,24 @@ export default function ComposeModal() {
     const pointerId = e.pointerId;
     captureEl.setPointerCapture(pointerId);
     el.getAnimations().forEach(a => a.finish());
-    const rect = el.getBoundingClientRect();
+    const start = frameGeometry(el);
     const startMouseX = e.clientX;
     const startMouseY = e.clientY;
-    const startWidth = rect.width;
-    const startHeight = rect.height;
+    const startWidth = start.w;
+    const startHeight = start.h;
     // Switch to top/left positioning if not already positioned.
     el.style.bottom = '';
     el.style.right = '';
-    if (!el.style.top) el.style.top = rect.top + 'px';
-    if (!el.style.left) el.style.left = rect.left + 'px';
-    setPos(prev => prev ?? { x: rect.left, y: rect.top });
+    if (!el.style.top) el.style.top = start.y + 'px';
+    if (!el.style.left) el.style.left = start.x + 'px';
+    setPos(prev => prev ?? { x: start.x, y: start.y });
     document.body.style.cursor = 'nwse-resize';
     document.body.style.userSelect = 'none';
     let curW = startWidth;
     let curH = startHeight;
     const onMove = (ev) => {
-      curW = Math.min(window.innerWidth - 16, Math.max(360, startWidth + ev.clientX - startMouseX));
-      curH = Math.min(window.innerHeight - 40, Math.max(200, startHeight + ev.clientY - startMouseY));
+      curW = Math.min(start.viewW - 16, Math.max(360, startWidth + (ev.clientX - startMouseX) / start.scale));
+      curH = Math.min(start.viewH - 40, Math.max(200, startHeight + (ev.clientY - startMouseY) / start.scale));
       el.style.width = curW + 'px';
       el.style.height = curH + 'px';
     };
@@ -746,7 +755,9 @@ export default function ComposeModal() {
     if (quotedHtmlRef.current && quotedBodyHtml) {
       // Strip <style> blocks — marketing emails use global rules like "div { margin: 0 !important }"
       // that leak out of contentEditable into the app UI. Inline style attributes are preserved.
-      quotedHtmlRef.current.innerHTML = DOMPurify.sanitize(quotedBodyHtml, { FORBID_TAGS: ['style'] });
+      // Images load only through MailFlow (utils/appEmailHtml.js): this is the app's page, not the
+      // email frame, and its CSP would let a sender's image through.
+      quotedHtmlRef.current.innerHTML = sanitizeEmailForApp(quotedBodyHtml, { FORBID_TAGS: ['style'] });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -790,8 +801,11 @@ export default function ComposeModal() {
     const controller = new AbortController();
     aiAbortRef.current = controller;
 
+    // One newline per paragraph, as the composer draws them: getText's default separator is a
+    // blank line, so a single Enter reached the model as one and came back from Apply as a new
+    // empty paragraph. This way a blank line from the model is one the user typed.
     const currentText = plaintextEmail ? body
-      : (htmlMode ? htmlSource.replace(/<[^>]+>/g, ' ') : (editor?.getText() ?? ''));
+      : (htmlMode ? stripTags(htmlSource) : (editor?.getText({ blockSeparator: '\n' }) ?? ''));
 
     const toStr = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])].join(', ');
     const PROMPTS = {
@@ -813,30 +827,42 @@ export default function ComposeModal() {
       },
     };
     const { system, user } = PROMPTS[action] || PROMPTS.draft;
+    // Improve, Shorten and Grammar replace the whole draft with their result (applyAiText), so
+    // a draft cut to fit the request lost everything past the cut on Apply. One too long is
+    // refused instead (#633).
+    if (user.length > AI_MESSAGE_MAX_CHARS) {
+      const fmt = new Intl.NumberFormat(i18n.language);
+      setAiPanel({ action, status: 'error', text: t('compose.toolbar.aiTooLong', { count: fmt.format(user.length), max: fmt.format(AI_MESSAGE_MAX_CHARS) }) });
+      return;
+    }
     const messages = [
       { role: 'system', content: system },
-      { role: 'user', content: user.slice(0, 16000) },
+      { role: 'user', content: user },
     ];
 
     setAiPanel({ action, status: 'generating', text: '' });
 
     try {
       const fullText = await api.ai.chat(messages, {
+        purpose: 'compose',
         signal: controller.signal,
         onDelta: (text) => setAiPanel(p => p ? { ...p, text } : p),
       });
       setAiPanel(p => p ? { ...p, status: 'done', text: fullText } : p);
     } catch (err) {
       if (err.name !== 'AbortError') {
-        setAiPanel(p => p ? { ...p, status: 'error', text: err.message } : p);
+        // Refused: AI is off for this user, or the writing assistant is off for everyone (#644).
+        const text = err.code === 'ai_user_disabled' ? t('compose.toolbar.aiNotAllowed')
+          : err.code === 'ai_feature_disabled' ? t('compose.toolbar.aiFeatureOff')
+            : err.message;
+        setAiPanel(p => p ? { ...p, status: 'error', text } : p);
       }
     }
   };
 
   const applyAiText = () => {
     if (!aiPanel?.text || !editor) return;
-    const html = '<p>' + aiPanel.text.trim().replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
-    editor.commands.setContent(html);
+    editor.commands.setContent(aiTextToHtml(aiPanel.text));
     setAiPanel(null);
   };
 
@@ -868,7 +894,7 @@ export default function ComposeModal() {
     if (!skipAttachWarn) {
       const composedText = plaintextEmail
         ? body
-        : (htmlMode ? htmlSource.replace(/<[^>]+>/g, ' ') : (editor?.getText() ?? ''));
+        : (htmlMode ? stripTags(htmlSource) : (editor?.getText() ?? ''));
       const keywords = t('compose.attachmentKeywords').split('|');
       const lower = composedText.toLowerCase();
       const hasAttachmentWord = keywords.some(kw => lower.includes(kw.toLowerCase()));
@@ -905,13 +931,14 @@ export default function ComposeModal() {
         cc: ccFinal,
         bcc: bccFinal,
         subject,
-        body: bodyToSend,
+        // Images shown through MailFlow's proxy go out as the email's own references.
+        body: plaintextEmail ? bodyToSend : unproxyImages(bodyToSend),
         bodyIsHtml: !plaintextEmail,
         ...(quotedBody ? { quotedBody } : {}),
-        ...(sentQuotedHtml != null ? { quotedBodyHtml: sentQuotedHtml } : {}),
+        ...(sentQuotedHtml != null ? { quotedBodyHtml: unproxyImages(sentQuotedHtml) } : {}),
         // Off sends an empty override, or the server would add the account's signature.
         ...(!signatureEnabled || signatureContentRef.current || fromSignature != null || composeData?.signature !== undefined
-          ? { editedSignature: !signatureEnabled ? '' : plaintextEmail ? plainSig : signatureContentRef.current }
+          ? { editedSignature: !signatureEnabled ? '' : plaintextEmail ? plainSig : unproxyImages(signatureContentRef.current) }
           : {}),
         inReplyTo: composeData?.inReplyTo,
         references: composeData?.references || undefined,
@@ -1118,12 +1145,14 @@ export default function ComposeModal() {
         includeIdentity: true,
         ...(aliasId ? { aliasId } : {}),
         to: value.to, cc: value.cc, bcc: value.bcc, subject: value.subject,
-        body: value.body, bodyIsHtml: value.bodyIsHtml,
+        // Images shown through MailFlow's proxy are saved as the email's own references.
+        body: value.bodyIsHtml ? unproxyImages(value.body) : value.body, bodyIsHtml: value.bodyIsHtml,
         ...(composeData?.inReplyTo ? { inReplyTo: composeData.inReplyTo } : {}),
         ...(composeData?.references ? { references: composeData.references } : {}),
         ...(value.quotedBody ? { quotedBody: value.quotedBody } : {}),
-        ...(value.bodyIsHtml && value.quotedBodyHtml ? { quotedBodyHtml: value.quotedBodyHtml } : {}),
-        ...(value.editedSignature || fromSignature != null || composeData?.signature !== undefined ? { editedSignature: value.editedSignature } : {}),
+        ...(value.bodyIsHtml && value.quotedBodyHtml ? { quotedBodyHtml: unproxyImages(value.quotedBodyHtml) } : {}),
+        ...(value.editedSignature || fromSignature != null || composeData?.signature !== undefined
+          ? { editedSignature: value.bodyIsHtml ? unproxyImages(value.editedSignature) : value.editedSignature } : {}),
         ...(pointer.uid != null && pointer.folder != null ? { existingUid: pointer.uid, existingFolder: pointer.folder, existingAccountId: pointer.accountId } : {}),
       });
       if (useStore.getState().user?.id !== composeOwner) return false;
@@ -1399,6 +1428,7 @@ export default function ComposeModal() {
         signatureContentRef.current = signatureRef.current?.innerHTML || '';
         setHasRichSignature(Boolean(signatureContentRef.current));
       }}
+      onPaste={pasteWithoutPageColors}
       style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, outline: 'none' }}
     />
   );
@@ -1862,6 +1892,7 @@ export default function ComposeModal() {
                 contentEditable
                 suppressContentEditableWarning
                 spellCheck={false}
+                onPaste={pasteWithoutPageColors}
                 style={{
                   padding: '10px 16px', borderTop: '1px solid var(--border-subtle)',
                   color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6,
@@ -2509,6 +2540,7 @@ export default function ComposeModal() {
               contentEditable
               suppressContentEditableWarning
               spellCheck={false}
+              onPaste={pasteWithoutPageColors}
               style={{
                 width: '100%', minHeight: 120,
                 padding: '10px 14px',

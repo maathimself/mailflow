@@ -214,6 +214,29 @@ describe('openForwardFromMessage', () => {
   });
 });
 
+describe('forwarding a photo the message also shows (#640)', () => {
+  const photo = { part: '2', filename: 'photo.jpg', type: 'image/jpeg', size: 10, shownInline: true };
+  const pdf = { part: '3', filename: 'a.pdf', type: 'application/pdf', size: 10 };
+
+  it('leaves it to the quoted HTML instead of attaching it again', async () => {
+    const h = harness({ text: 'BODY', html: '<p>BODY<img src="data:image/jpeg;base64,AA"></p>', attachments: [photo, pdf] });
+    await openForwardFromMessage(
+      { id: 'm1', account_id: 'a', subject: 'S', from_email: 'f@example.com' },
+      { openCompose: h.openCompose, getMessageBody: h.getMessageBody },
+    );
+    assert.deepEqual(h.payload().forwardedAttachments.map(a => a.filename), ['a.pdf']);
+  });
+
+  it('attaches it when the forward has no HTML to carry it', async () => {
+    const h = harness({ text: 'BODY', html: null, attachments: [photo, pdf] });
+    await openForwardFromMessage(
+      { id: 'm1', account_id: 'a', subject: 'S', from_email: 'f@example.com' },
+      { openCompose: h.openCompose, getMessageBody: h.getMessageBody },
+    );
+    assert.deepEqual(h.payload().forwardedAttachments.map(a => a.filename), ['photo.jpg', 'a.pdf']);
+  });
+});
+
 describe('malformed address fields fall back cleanly', () => {
   it('reply parses nothing and still emits a payload', async () => {
     const account = { id: 'a', email_address: 'me@example.com', aliases: [{ id: 'al1', email: 'alias@example.com' }] };
@@ -253,7 +276,7 @@ describe('quoted body templates', () => {
     assert.equal(h.payload().quotedBody, `\n\n---\nOn ${when}, Bad Actor <f@example.com> wrote:\n> line1\n> line2`);
     assert.equal(
       h.payload().quotedBodyHtml,
-      `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${when}, Bad Actor <f@example.com> wrote:</p><p>Hi</p></div>`,
+      `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${when}, Bad Actor &lt;f@example.com&gt; wrote:</p><p>Hi</p></div>`,
     );
   });
 
@@ -288,8 +311,29 @@ describe('quoted body templates', () => {
     );
     assert.equal(
       h.payload().quotedBodyHtml,
-      `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">---------- Forwarded message ----------<br>From: Ann <ann@example.com><br>Date: ${when}<br>Subject: Hello<br>To: Bob <bob@example.com><br>Cc: cc@example.com</p><p>body</p></div>`,
+      `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">---------- Forwarded message ----------<br>From: Ann &lt;ann@example.com&gt;<br>Date: ${when}<br>Subject: Hello<br>To: Bob &lt;bob@example.com&gt;<br>Cc: cc@example.com</p><p>body</p></div>`,
     );
+  });
+
+  // Proxied images (MailFlow's image proxy) go out as the email's own references: recipients cannot
+  // load MailFlow's proxy.
+  it('quotes images as shown, through the proxy, so the composer never loads them from the sender', async () => {
+    // ComposeModal puts the email's own references back when it saves or sends
+    // (ComposeModal.imageProxy.render.test.js).
+    const proxied = '<img src="/api/mail/messages/4d479e4f-9b21-4013-9c07-3fbc35f275b1/image?u=https%3A%2F%2Fimg.example%2Fa.png%3Fx%3D1%26amp%3By%3D2">';
+    const reply = harness({ html: proxied });
+    await openReplyFromMessage(
+      { account_id: 'a', date, from_email: 'f@example.com' },
+      { accounts: [], openCompose: reply.openCompose, getMessageBody: reply.getMessageBody },
+    );
+    assert.ok(reply.payload().quotedBodyHtml.endsWith(`${proxied}</div>`), reply.payload().quotedBodyHtml);
+    const forward = harness({ html: proxied });
+    await openForwardFromMessage(
+      { id: 'm1', date, from_email: 'ann@example.com', subject: 'Hello' },
+      { openCompose: forward.openCompose, getMessageBody: forward.getMessageBody },
+    );
+    assert.ok(forward.payload().quotedBodyHtml.endsWith(`${proxied}</div>`));
+    assert.doesNotMatch(forward.payload().quotedBodyHtml, /src="https?:/, 'no image points at the sender');
   });
 
   it('forward without html keeps the text scaffold', async () => {
@@ -332,4 +376,56 @@ describe('openForwardAsAttachmentFromMessage (#466)', () => {
     compose.openForwardAsAttachmentFromMessage({ id: 'm4', account_id: 'a', subject: 'Q3/Q4 figures' }, { openCompose: d => { opened = d; } });
     assert.equal(opened.forwardedAttachments[0].filename, 'Q3_Q4 figures.eml'); // as the server names the file
   });
+});
+
+// The quote header is HTML built from what the sender wrote: names, addresses, the subject.
+describe('quote headers escape what the sender wrote', () => {
+  const sender = { account_id: 'a', from_name: 'Ann <img src="https://t.example/x.gif">', from_email: 'ann@x.com',
+    subject: 'Hi <b>there</b>', date: '2026-10-12T10:00:00Z',
+    to_addresses: [{ name: 'Bo <i>', email: 'bo@x.com' }], cc_addresses: [] };
+  const body = { html: '<p>Original</p>', text: 'Original' };
+
+  it('in a reply: the address shows and no markup comes through, while the text quote keeps it as written', async () => {
+    const h = harness(body);
+    await openReplyFromMessage(sender, { accounts: [], openCompose: h.openCompose, getMessageBody: h.getMessageBody });
+    const html = h.payload().quotedBodyHtml;
+    assert.match(html, /Ann &lt;img src=&quot;https:\/\/t\.example\/x\.gif&quot;&gt; &lt;ann@x\.com&gt; wrote:/);
+    assert.doesNotMatch(html, /<img/);
+    assert.match(html, /<p>Original<\/p>/, 'the quoted body itself is untouched');
+    assert.match(h.payload().quotedBody, /Ann <img src="https:\/\/t\.example\/x\.gif"> <ann@x\.com> wrote:/);
+  });
+
+  it('in a forward: From, Subject and To are escaped too', async () => {
+    const h = harness(body);
+    await openForwardFromMessage(sender, { openCompose: h.openCompose, getMessageBody: h.getMessageBody });
+    const html = h.payload().quotedBodyHtml;
+    assert.match(html, /Subject: Hi &lt;b&gt;there&lt;\/b&gt;/);
+    assert.match(html, /To: Bo &lt;i&gt;/);
+    assert.doesNotMatch(html, /<img|<b>|<i>/);
+  });
+});
+
+// Large inline images are fitted for reading (backend services/inlineImageFit.js): a forward asks
+// for them as they were sent, so the recipient gets the original photo.
+describe('openForwardFromMessage and fitted inline images', () => {
+  const message = { id: 'm1', account_id: 'a', subject: 'Photos', from_email: 'f@example.com', to_addresses: [], cc_addresses: [] };
+  const withFetch = async (fn) => {
+    const asked = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = async (url) => { asked.push(String(url)); return { ok: true, status: 200, json: async () => ({ html: '<img src="data:image/jpeg;base64,ORIGINAL">', attachments: [] }) }; };
+    try { await fn(asked); } finally { globalThis.fetch = real; }
+  };
+
+  it('forwards the originals when what is shown was fitted', async () => withFetch(async (asked) => {
+    const h = harness({ html: '<img src="data:image/webp;base64,FITTED">', inlineImagesFitted: true, remoteImagesProxied: true, attachments: [] });
+    await openForwardFromMessage(message, { openCompose: h.openCompose, getMessageBody: h.getMessageBody });
+    assert.deepEqual(asked, ['/api/mail/messages/m1/body?remoteImages=1&original=1']);
+    assert.match(h.payload().quotedBodyHtml, /ORIGINAL/);
+  }));
+
+  it('asks for nothing more when nothing was fitted', async () => withFetch(async (asked) => {
+    const h = harness({ html: '<p>Hi</p>', attachments: [] });
+    await openForwardFromMessage(message, { openCompose: h.openCompose, getMessageBody: h.getMessageBody });
+    assert.deepEqual(asked, []);
+  }));
 });
