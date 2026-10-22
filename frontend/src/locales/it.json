@@ -1902,6 +1902,7 @@
     "show": "Mostra la barra laterale destra"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: età del messaggio più vecchio con questa etichetta (giorni): {{count}}",
     "title": "GTD",
     "inbox": "Posta in arrivo",
     "waiting": "In attesa",
@@ -1915,6 +1916,8 @@
     "tabEmpty": "Ancora niente qui",
     "removeFrom": "Rimuovi da {{state}}",
     "classified": "Etichetta applicata",
+    "classifiedMany": "{{count}} etichettati come {{state}}",
+    "classifiedSome": "{{count}} di {{total}} etichettati come {{state}}",
     "classifyFailed": "Impossibile applicare l'etichetta",
     "undoFailed": "Impossibile annullare l'etichetta",
     "removed": "Etichetta rimossa",

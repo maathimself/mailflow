@@ -1902,6 +1902,7 @@
     "show": "Mostrar la barra lateral derecha"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: antigüedad del mensaje más antiguo con esta etiqueta (días): {{count}}",
     "title": "GTD",
     "inbox": "Bandeja de entrada",
     "waiting": "En espera",
@@ -1915,6 +1916,8 @@
     "tabEmpty": "Nada aquí todavía",
     "removeFrom": "Quitar de {{state}}",
     "classified": "Etiqueta aplicada",
+    "classifiedMany": "{{count}} etiquetados como {{state}}",
+    "classifiedSome": "{{count}} de {{total}} etiquetados como {{state}}",
     "classifyFailed": "No se pudo aplicar la etiqueta",
     "undoFailed": "No se pudo deshacer la etiqueta",
     "removed": "Etiqueta eliminada",

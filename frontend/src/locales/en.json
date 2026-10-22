@@ -1902,6 +1902,7 @@
     "show": "Show right sidebar"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: oldest labeled message age (days): {{count}}",
     "title": "GTD",
     "inbox": "Inbox",
     "waiting": "Waiting",
@@ -1915,6 +1916,8 @@
     "tabEmpty": "Nothing here yet",
     "removeFrom": "Remove from {{state}}",
     "classified": "Label applied",
+    "classifiedMany": "Tagged {{count}} as {{state}}",
+    "classifiedSome": "Tagged {{count}} of {{total}} as {{state}}",
     "classifyFailed": "Couldn't apply label",
     "undoFailed": "Couldn't undo label",
     "removed": "Label removed",

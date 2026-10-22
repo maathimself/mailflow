@@ -1898,6 +1898,7 @@
     "priorityNormal": "우선순위 없음"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: 라벨이 있는 가장 오래된 메일의 경과 일수: {{count}}",
     "title": "GTD",
     "inbox": "받은편지함",
     "waiting": "대기 중",
@@ -1910,6 +1911,8 @@
     "allClearHint": "처리할 항목이 없습니다.",
     "classifyFailed": "라벨을 적용할 수 없습니다.",
     "classified": "라벨이 적용됨",
+    "classifiedMany": "{{count}}개를 {{state}}(으)로 지정함",
+    "classifiedSome": "{{total}}개 중 {{count}}개를 {{state}}(으)로 지정함",
     "toggleSection": "{{section}} 전환",
     "inboxZero": "받은 편지함 제로 ✓",
     "done": "완료로 표시",

@@ -1,6 +1,7 @@
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { doneGtdRow } from './gtdDone.js';
+import { getGtdMetadataRefreshGeneration } from '../plugins/gtd/metadataStore.js';
 import {
   clearGtdRemovalGuard,
   completedGtdRemovalMap,
@@ -138,4 +139,25 @@ describe('doneGtdRow', () => {
     assert.equal(pendingGtdRemovalMap.size, 0);
     assert.equal(completedGtdRemovalMap.size, 0);
   });
+});
+
+
+it('refreshes indicators after sidebar Done and uncertain failure', async () => {
+  const before = getGtdMetadataRefreshGeneration();
+  await doneGtdRow(thread, states, deps());
+  assert.equal(getGtdMetadataRefreshGeneration(), before + 1);
+  await doneGtdRow(thread, states, deps({ gtdDone: async () => { throw new Error('lost response'); } }));
+  assert.equal(getGtdMetadataRefreshGeneration(), before + 2);
+});
+
+it('refreshes indicators when the thread stays in its section or the archive partly fails', async () => {
+  const notes = [];
+  const before = getGtdMetadataRefreshGeneration();
+  await doneGtdRow(thread, ['watch', 'delegated'], deps({
+    gtdDone: async () => ({ ok: true, threadRemains: true, archiveFailed: true }),
+    addNotification: note => notes.push(note.title),
+  }));
+  assert.equal(getGtdMetadataRefreshGeneration(), before + 1);
+  assert.deepEqual(notes, ['gtd.doneArchiveFailed', 'gtd.doneThreadRemains']);
+  clearGtdRemovalGuard('x', ['watch', 'delegated']);
 });

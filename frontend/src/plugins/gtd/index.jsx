@@ -10,7 +10,14 @@ import GtdSidebarContent from '../../components/GtdSidebarContent.jsx';
 import GtdRuntime from './GtdRuntime.jsx';
 import GtdSettings from './GtdSettings.jsx';
 import GtdRowDone from './GtdRowDone.jsx';
+import GtdInboxIndicators from './GtdInboxIndicators.jsx';
+import { shouldShowInboxGtdMetadata } from './indicators.js';
+import { invalidateGtdMetadata } from './metadataStore.js';
 import { buildGtdContextItems } from './GtdContextMenu.jsx';
+import GtdStateIcon from './GtdStateIcon.jsx';
+import { buildGtdMovePickerSections } from './movePickerSections.js';
+import { classifyWithUndo, classifyManyWithUndo } from '../../utils/gtdClassification.js';
+import { api } from '../../utils/api.js';
 import { gtdActiveForContext } from '../../utils/gtd.js';
 import { accountAffectsUnifiedInbox } from '../../utils/unifiedInbox.js';
 import { useStore } from '../../store/index.js';
@@ -44,6 +51,19 @@ registerSlot('right-sidebar', {
 // where GTD used to sit. ctx: { message, account, variant, onAction, onClose, openSubmenu, t }.
 registerCollector('context-menu-actions', { pluginId: 'gtd', build: buildGtdContextItems });
 
+// Move-picker section: tag the picked messages with a GTD state, one undo per pick.
+// ctx: { account, messages, currentFolder, onClose, t }. messages are the selected rows as shown (a
+// thread row is its representative message, not every member), unlike core's bulk move, which
+// expands threads. A plugin that needs every member resolves them itself.
+registerCollector('move-picker-sections', {
+  pluginId: 'gtd',
+  build: (ctx) => buildGtdMovePickerSections(ctx, {
+    classifyOne: (m, s) => classifyWithUndo(m.id, s, { api, store: useStore, t: ctx.t, message: m }),
+    classifyMany: (ms, s) => classifyManyWithUndo(ms, s, { api, store: useStore, t: ctx.t }),
+    renderStateIcon: (state, size) => <GtdStateIcon state={state} size={size} />,
+  }),
+});
+
 // Row hover "done" checkmark on main-list rows of a GTD-active account (activation already gated by
 // the registry). ctx: { message }.
 registerSlot('row-hover-action', {
@@ -54,12 +74,23 @@ registerSlot('row-hover-action', {
   render: (ctx) => <GtdRowDone message={ctx.message} done={ctx.done} />,
 });
 
+registerSlot('message-row-meta', {
+  pluginId: 'gtd',
+  isActive: ctx => {
+    const store = useStore.getState();
+    return gtdActiveForContext(store.accounts, ctx.message.account_id, true)
+      && shouldShowInboxGtdMetadata(store);
+  },
+  render: ctx => <GtdInboxIndicators message={ctx.message} />,
+});
+
 // WS: a GTD label folder changed (tick / classify copy-remove / transition strip). Refetch the
 // rail+tab sections when the event's account is in the current rail scope (debounced in the store).
 registerWsHandler('gtd_sections_updated', {
   pluginId: 'gtd',
   handler: (data) => {
     const store = useStore.getState();
+    invalidateGtdMetadata();
     if (
       (store.selectedAccountId === null && accountAffectsUnifiedInbox(store.accounts, data.accountId)) ||
       store.selectedAccountId === data.accountId
@@ -76,6 +107,7 @@ registerReconnectHandler({
   pluginId: 'gtd',
   handler: () => {
     const { accounts, selectedAccountId, scheduleGtdSectionsFetch } = useStore.getState();
+    invalidateGtdMetadata();
     if (gtdActiveForContext(accounts, selectedAccountId, true)) scheduleGtdSectionsFetch();
   },
 });
