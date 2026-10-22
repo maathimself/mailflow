@@ -299,6 +299,21 @@ describe('Done route through plugin API and real mail engine', () => {
     expect(events).toEqual([['seen', 'Watch'], ['move', 'Watch', 'Archive']]);
     expect(wire).toHaveLength(1);
   });
+  // Done archives the INBOX copy whether or not copy selection vouches for it, so its Seen is
+  // written regardless; otherwise a sidebar Done files it into Archive unread.
+  const inboxCases = {
+    'the copies disagree on cc_addresses': () => { rows[0].cc_addresses = null; },
+    'INBOX holds a duplicate delivery': () => { rows.push(row(C, 'INBOX', 12)); },
+    'copy selection fails': () => { selectionError = true; },
+  };
+  for (const [name, setup] of Object.entries(inboxCases)) it(`marks the archived INBOX copy Seen on a sidebar Done when ${name}`, async () => {
+    setup(); const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect((await done(B)).status).toBe(200);
+      expect(events).toEqual([['seen', 'INBOX'], ['delete', 'Watch', '42'], ['move', 'INBOX', 'Archive']]);
+      expect(wire).toEqual([['INBOX', '11', true]]);
+    } finally { warning.mockRestore(); }
+  });
   it('passes concrete selection errors through the actual wrapper and still archives after the known write', async () => {
     selectionError = true; const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {

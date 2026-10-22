@@ -114,8 +114,8 @@ export async function markThreadRead(imapManager, account, message, { excludeFol
       try { eligible = await readCopyTargets(message.account_id, message.message_id, message); }
       catch (err) { error = err; }
     }
-    const eligibleIds = new Set(eligible.map(r => r.id));
-    if (inboxCopy && !inboxCopy.is_read && (!perCopy || inboxCopy.id === message.id || eligibleIds.has(inboxCopy.id))) {
+    // INBOX is written without the copy check: Done archives inboxCopy either way.
+    if (inboxCopy && !inboxCopy.is_read) {
       try {
         await imapManager.setFlag(account, inboxCopy.uid, 'INBOX', '\\Seen', true);
         pushedIds.push(inboxCopy.id);
