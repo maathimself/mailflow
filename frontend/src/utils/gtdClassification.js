@@ -1,4 +1,4 @@
-import { getGtdMetadataSessionGeneration, invalidateGtdMetadata, patchGtdMetadata, refreshGtdMetadata } from '../plugins/gtd/metadataStore.js';
+import { gtdRowSession, gtdRowLabeled, gtdRowChanged, gtdRowsSettled } from './gtdRowEvents.js';
 import { clearGtdRailSelection, beginGtdClassification, endGtdClassification } from './gtdHotkeys.js';
 
 function storeAccessor(store) {
@@ -43,19 +43,17 @@ export async function classifyWithUndo(messageId, state, {
   message,
 }) {
   if (!beginGtdClassification(messageId)) return null;
-  const metadataSession = getGtdMetadataSessionGeneration();
+  const metadataSession = gtdRowSession();
   const metadataMessage = message || messageId;
   const currentStore = storeAccessor(store);
   const undoScope = undoScopeFor(messageId, message);
   try {
     const result = await api.gtdClassify(messageId, state);
     const current = currentStore();
-    if (metadataSession === getGtdMetadataSessionGeneration()) {
-      if (result?.switched) refreshGtdMetadata(metadataMessage, metadataSession);
-      else {
-        patchGtdMetadata(metadataMessage, state, message?.date);
-        invalidateGtdMetadata();
-      }
+    if (result?.switched) gtdRowChanged(metadataMessage, metadataSession);
+    else {
+      gtdRowLabeled(metadataMessage, state, message?.date, metadataSession);
+      gtdRowsSettled(metadataSession);
     }
     current.scheduleGtdSectionsFetch();
     if (result?.switched) dismissThreadUndo(currentStore, undoScope);
@@ -78,11 +76,11 @@ export async function classifyWithUndo(messageId, state, {
         consumed = true;
         try {
           await api.gtdUndoClassify(result.undoToken);
-          refreshGtdMetadata(metadataMessage, metadataSession);
+          gtdRowChanged(metadataMessage, metadataSession);
           currentStore().scheduleGtdSectionsFetch();
           return true;
         } catch (err) {
-          refreshGtdMetadata(metadataMessage, metadataSession);
+          gtdRowChanged(metadataMessage, metadataSession);
           console.error('GTD classification undo failed:', err);
           currentStore().addNotification({
             pluginId: 'gtd',
@@ -98,7 +96,7 @@ export async function classifyWithUndo(messageId, state, {
     currentStore().addNotification(notification);
     return result;
   } catch (err) {
-    refreshGtdMetadata(metadataMessage, metadataSession);
+    gtdRowChanged(metadataMessage, metadataSession);
     console.error('GTD classify failed:', err);
     // API errors contain only a message, so even a clean rejection cannot be
     // distinguished from an uncertain mutation. End this thread's older GTD Undo.
@@ -122,7 +120,7 @@ export async function classifyManyWithUndo(messages, state, { api, store, t }) {
   const seen = new Set();
   const unique = messages.filter(message => !seen.has(message.id) && seen.add(message.id));
   if (unique.length === 0) return { tagged: 0, total: 0 };
-  const metadataSession = getGtdMetadataSessionGeneration();
+  const metadataSession = gtdRowSession();
   const currentStore = storeAccessor(store);
   const stateLabel = t(`gtd.state.${state}`);
   const undoTokens = [];
@@ -137,8 +135,8 @@ export async function classifyManyWithUndo(messages, state, { api, store, t }) {
     const undoScope = undoScopeFor(messageId, message);
     try {
       const result = await api.gtdClassify(messageId, state);
-      if (result?.switched) refreshGtdMetadata(message, metadataSession);
-      else if (metadataSession === getGtdMetadataSessionGeneration()) patchGtdMetadata(message, state, message.date);
+      if (result?.switched) gtdRowChanged(message, metadataSession);
+      else gtdRowLabeled(message, state, message.date, metadataSession);
       if (result?.switched) dismissThreadUndo(currentStore, undoScope);
       if (result?.sourceRemoved) {
         currentStore().removeMessage(messageId);
@@ -154,7 +152,7 @@ export async function classifyManyWithUndo(messages, state, { api, store, t }) {
         irreversible = true;
       }
     } catch (err) {
-      refreshGtdMetadata(message, metadataSession);
+      gtdRowChanged(message, metadataSession);
       console.error('GTD classify failed:', err);
       // Same uncertainty as the single path: the mutation may have happened.
       dismissThreadUndo(currentStore, undoScope);
@@ -164,7 +162,7 @@ export async function classifyManyWithUndo(messages, state, { api, store, t }) {
     }
   }
 
-  if (metadataSession === getGtdMetadataSessionGeneration()) invalidateGtdMetadata();
+  gtdRowsSettled(metadataSession);
   currentStore().scheduleGtdSectionsFetch();
   const total = unique.length;
 
@@ -202,7 +200,7 @@ export async function classifyManyWithUndo(messages, state, { api, store, t }) {
           failed = true;
         }
       }
-      for (const message of undoMessages) refreshGtdMetadata(message, metadataSession);
+      for (const message of undoMessages) gtdRowChanged(message, metadataSession);
       currentStore().scheduleGtdSectionsFetch();
       if (failed) {
         currentStore().addNotification({

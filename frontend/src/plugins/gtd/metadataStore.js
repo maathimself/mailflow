@@ -1,3 +1,4 @@
+import { setGtdRowListener } from '../../utils/gtdRowEvents.js';
 const STATE_ORDER = ['todo', 'watch', 'delegated', 'reference', 'someday'];
 const metadata = new Map();
 let visibleMessages = new Map();
@@ -164,3 +165,14 @@ export function patchGtdMetadata(message, state, date) {
   requestGeneration += 1;
   emit();
 }
+
+setGtdRowListener({
+  session: () => sessionGeneration,
+  labeled: (message, state, date, session) => {
+    if (session === sessionGeneration) patchGtdMetadata(message, state, date);
+  },
+  changed: refreshGtdMetadata,
+  settled: session => {
+    if (session === sessionGeneration) invalidateGtdMetadata();
+  },
+});

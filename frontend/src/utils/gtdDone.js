@@ -1,4 +1,4 @@
-import { getGtdMetadataSessionGeneration, refreshGtdMetadata } from '../plugins/gtd/metadataStore.js';
+import { gtdRowSession, gtdRowChanged } from './gtdRowEvents.js';
 import {
   clearGtdRemovalGuard,
   setCompletedGtdRemoval,
@@ -13,7 +13,7 @@ export async function doneGtdRow(thread, states, {
   scheduleGtdSectionsFetch,
   t,
 }) {
-  const metadataSession = getGtdMetadataSessionGeneration();
+  const metadataSession = gtdRowSession();
   const identity = thread.message_id || thread.id;
   setPendingGtdRemoval(identity, states);
   const snapshot = removeGtdThread(identity, states);
@@ -35,6 +35,6 @@ export async function doneGtdRow(thread, states, {
     scheduleGtdSectionsFetch();
     return null;
   } finally {
-    refreshGtdMetadata(thread, metadataSession);
+    gtdRowChanged(thread, metadataSession);
   }
 }

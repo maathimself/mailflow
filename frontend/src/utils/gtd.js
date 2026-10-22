@@ -1,4 +1,4 @@
-import { getGtdMetadataSessionGeneration, refreshGtdMetadata } from '../plugins/gtd/metadataStore.js';
+import { gtdRowSession, gtdRowChanged } from './gtdRowEvents.js';
 // Pure helpers for GTD display surfaces. Kept free of React/DOM so they can be
 // unit-tested under `node --test` at their pure seams.
 
@@ -689,7 +689,7 @@ export function pickThreadMessage(messages, messageId, accountId = null) {
 }
 
 export async function unclassifyThread(id, state, { gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t, message }) {
-  const metadataSession = getGtdMetadataSessionGeneration();
+  const metadataSession = gtdRowSession();
   try {
     await gtdUnclassify(id, state);
     scheduleGtdSectionsFetch();
@@ -699,7 +699,7 @@ export async function unclassifyThread(id, state, { gtdUnclassify, addNotificati
     // 409: the GTD folder holds the message's only copy, so removing the label would delete it.
     addNotification({ title: t('gtd.removeFailed'), body: err.status === 409 ? t('gtd.onlyCopy') : t(`gtd.state.${state}`) });
   } finally {
-    refreshGtdMetadata(message || id, metadataSession);
+    gtdRowChanged(message || id, metadataSession);
   }
 }
 
