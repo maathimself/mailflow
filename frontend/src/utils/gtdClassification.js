@@ -122,10 +122,12 @@ export async function classifyManyWithUndo(messages, state, { api, store, t }) {
   const seen = new Set();
   const unique = messages.filter(message => !seen.has(message.id) && seen.add(message.id));
   if (unique.length === 0) return { tagged: 0, total: 0 };
+  const metadataSession = getGtdMetadataSessionGeneration();
   const currentStore = storeAccessor(store);
   const stateLabel = t(`gtd.state.${state}`);
   const undoTokens = [];
   const undoScopes = [];
+  const undoMessages = [];
   let tagged = 0;
   let irreversible = false;
 
@@ -135,6 +137,8 @@ export async function classifyManyWithUndo(messages, state, { api, store, t }) {
     const undoScope = undoScopeFor(messageId, message);
     try {
       const result = await api.gtdClassify(messageId, state);
+      if (result?.switched) refreshGtdMetadata(message, metadataSession);
+      else if (metadataSession === getGtdMetadataSessionGeneration()) patchGtdMetadata(message, state, message.date);
       if (result?.switched) dismissThreadUndo(currentStore, undoScope);
       if (result?.sourceRemoved) {
         currentStore().removeMessage(messageId);
@@ -145,10 +149,12 @@ export async function classifyManyWithUndo(messages, state, { api, store, t }) {
       if (result?.applied && result.undoToken) {
         undoTokens.push(result.undoToken);
         undoScopes.push(undoScope);
+        undoMessages.push(message);
       } else if (result?.applied || result?.switched) {
         irreversible = true;
       }
     } catch (err) {
+      refreshGtdMetadata(message, metadataSession);
       console.error('GTD classify failed:', err);
       // Same uncertainty as the single path: the mutation may have happened.
       dismissThreadUndo(currentStore, undoScope);
@@ -158,6 +164,7 @@ export async function classifyManyWithUndo(messages, state, { api, store, t }) {
     }
   }
 
+  if (metadataSession === getGtdMetadataSessionGeneration()) invalidateGtdMetadata();
   currentStore().scheduleGtdSectionsFetch();
   const total = unique.length;
 
@@ -195,6 +202,7 @@ export async function classifyManyWithUndo(messages, state, { api, store, t }) {
           failed = true;
         }
       }
+      for (const message of undoMessages) refreshGtdMetadata(message, metadataSession);
       currentStore().scheduleGtdSectionsFetch();
       if (failed) {
         currentStore().addNotification({

@@ -496,3 +496,67 @@ describe('classifyManyWithUndo', () => {
     assert.deepEqual(harness.notifications.filter(n => n.id?.startsWith('old-')).map(n => n.id), ['old-t2']);
   });
 });
+
+describe('bulk classification metadata', () => {
+  const rows = [
+    { id: 'bulk-meta-1', account_id: 'a1', thread_key: 'bt1', date: '2026-09-01T00:00:00.000Z' },
+    { id: 'bulk-meta-2', account_id: 'a1', thread_key: 'bt2', date: '2026-09-02T00:00:00.000Z' },
+    { id: 'bulk-meta-3', account_id: 'a1', thread_key: 'bt3', date: '2026-09-03T00:00:00.000Z' },
+  ];
+  const harnessFor = results => {
+    const harness = createHarness();
+    harness.api.gtdClassify = async id => {
+      const result = results[id];
+      if (result instanceof Error) throw result;
+      return result;
+    };
+    return harness;
+  };
+  const applied = id => ({ applied: true, undoToken: { messageId: id } });
+
+  it('shows each tagged row\'s chip at once and refetches once after the run', async () => {
+    clearGtdMetadata();
+    const harness = harnessFor({ 'bulk-meta-1': applied('bulk-meta-1'), 'bulk-meta-2': new Error('offline'), 'bulk-meta-3': applied('bulk-meta-3') });
+    const before = getGtdMetadataRefreshGeneration();
+    await classifyManyWithUndo(rows, 'watch', harness);
+    assert.deepEqual(getGtdMetadata('bulk-meta-1'), { states: ['watch'], dates: { watch: rows[0].date }, date: rows[0].date });
+    assert.equal(getGtdMetadata('bulk-meta-2'), null, 'a failed tag invents no chip');
+    assert.deepEqual(getGtdMetadata('bulk-meta-3').states, ['watch']);
+    // One refresh for the failed row, one for the run.
+    assert.equal(getGtdMetadataRefreshGeneration(), before + 2);
+  });
+
+  it('bulk Undo removes the chips it put there', async () => {
+    clearGtdMetadata();
+    const harness = harnessFor({ 'bulk-meta-1': applied('bulk-meta-1'), 'bulk-meta-2': applied('bulk-meta-2') });
+    await classifyManyWithUndo(rows.slice(0, 2), 'todo', harness);
+    assert.deepEqual(getGtdMetadata('bulk-meta-2').states, ['todo']);
+    const before = getGtdMetadataRefreshGeneration();
+    assert.equal(await harness.notifications[0].onUndo(), true);
+    assert.equal(getGtdMetadata('bulk-meta-1'), null);
+    assert.equal(getGtdMetadata('bulk-meta-2'), null);
+    assert.ok(getGtdMetadataRefreshGeneration() > before, 'and refetches the real state');
+  });
+
+  it('a switched row drops its old chip instead of adding one', async () => {
+    clearGtdMetadata();
+    patchGtdMetadata(rows[0], 'todo', null);
+    const harness = harnessFor({ 'bulk-meta-1': { applied: true, switched: true } });
+    await classifyManyWithUndo(rows.slice(0, 1), 'watch', harness);
+    assert.equal(getGtdMetadata('bulk-meta-1'), null);
+  });
+
+  it('a run that outlives the session writes no chips', async () => {
+    clearGtdMetadata();
+    const harness = createHarness();
+    let finish;
+    harness.api.gtdClassify = () => new Promise(resolve => { finish = resolve; });
+    const run = classifyManyWithUndo(rows.slice(0, 1), 'todo', harness);
+    clearGtdMetadata();
+    const generation = getGtdMetadataRefreshGeneration();
+    finish(applied('bulk-meta-1'));
+    await run;
+    assert.equal(getGtdMetadata('bulk-meta-1'), null);
+    assert.equal(getGtdMetadataRefreshGeneration(), generation);
+  });
+});
