@@ -7,6 +7,7 @@ import { useMobile } from '../hooks/useMobile.js';
 import { LAYOUTS } from '../layouts.js';
 import { updateFaviconBadge } from '../themes.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
+import { undoLatestNotification } from '../utils/undoableAction.js';
 import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
 import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
@@ -465,7 +466,7 @@ export default function MailApp() {
     const tabCount = selectedAccountId
       ? (unreadCounts.byAccount[selectedAccountId] ?? 0)
       : total;
-    document.title = 'MailFlow';
+    document.title = 'muconaFlow';
     updateFaviconBadge(showFaviconBadge ? tabCount : 0);
     // App-icon badge always reflects total unread across all accounts so that
     // selecting a zero-unread account never clears the home screen badge.
@@ -568,8 +569,21 @@ export default function MailApp() {
       // Pure modifier keys — never intercept
       if (['CapsLock', 'Control', 'Meta', 'Alt', 'Shift'].includes(key)) return;
 
-      // Escape cancels any pending prefix sequence
-      if (key === 'Escape') { clearPending(); return; }
+      // Escape cancels any pending prefix sequence; otherwise it closes the preview
+      // pane. Deferred so menus, pickers, the help overlay and multi-select get the
+      // same keypress first — they preventDefault() when they dismiss something.
+      if (key === 'Escape') {
+        const hadPending = pendingKey !== null;
+        clearPending();
+        if (!hadPending) {
+          setTimeout(() => {
+            if (e.defaultPrevented) return;
+            const { selectedMessageId: openId, setSelectedMessage: select } = useStore.getState();
+            if (openId) select(null);
+          }, 0);
+        }
+        return;
+      }
 
       // Resolve two-key sequences
       let resolved = key;
@@ -620,14 +634,20 @@ export default function MailApp() {
     const onCompose   = () => openCompose({ accountId: useStore.getState().selectedAccountId || undefined });
     const onGoInbox   = () => setSelectedAccount(null, 'INBOX');
     const onShowHelp  = () => { if (!isMobile) setShowShortcutHelp(v => !v); };
+    const onUndo      = () => {
+      const { notifications, removeNotification } = useStore.getState();
+      undoLatestNotification(notifications, removeNotification);
+    };
 
     shortcutBus.on('compose',   onCompose);
     shortcutBus.on('goInbox',   onGoInbox);
     shortcutBus.on('showHelp',  onShowHelp);
+    shortcutBus.on('undo',      onUndo);
     return () => {
       shortcutBus.off('compose',   onCompose);
       shortcutBus.off('goInbox',   onGoInbox);
       shortcutBus.off('showHelp',  onShowHelp);
+      shortcutBus.off('undo',      onUndo);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

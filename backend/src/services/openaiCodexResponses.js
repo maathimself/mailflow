@@ -10,7 +10,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const ERROR_BODY_LIMIT_BYTES = 8 * 1024;
 const EVENT_LIMIT_BYTES = 256 * 1024;
 const OUTPUT_LIMIT_CHARS = 2 * 1024 * 1024;
-const MAILFLOW_INSTRUCTIONS = 'You are Mailflow, a helpful email assistant.';
+const MAILFLOW_INSTRUCTIONS = 'You are muconaFlow, a helpful email assistant.';
 
 export class CodexResponseError extends Error {
   constructor(message, { status, code } = {}) {

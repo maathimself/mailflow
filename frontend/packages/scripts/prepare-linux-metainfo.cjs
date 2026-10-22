@@ -17,7 +17,7 @@ function escapeXml(value) {
 }
 
 const releaseDate = new Date().toISOString().slice(0, 10);
-const productName = packageJson.productName || 'MailFlow';
+const productName = packageJson.productName || 'muconaFlow';
 const description = packageJson.description || 'A self-hosted, unified webmail client.';
 const homepage = packageJson.homepage || 'https://mailflow.sh';
 const license = packageJson.license || 'GPL-3.0';

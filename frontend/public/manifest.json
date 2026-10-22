@@ -1,6 +1,6 @@
 {
-  "name": "MailFlow",
-  "short_name": "MailFlow",
+  "name": "muconaFlow",
+  "short_name": "muconaFlow",
   "description": "Your unified inbox",
   "start_url": "/",
   "display": "standalone",

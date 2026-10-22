@@ -1,0 +1,2004 @@
+{
+  "meta": {
+    "schemaVersion": 1,
+    "reportId": "b0ba571853e4",
+    "generatedAt": "2026-09-17T06:41:37.134Z"
+  },
+  "versions": {
+    "app": "3.3.0",
+    "backendSha": "[redacted]",
+    "frontendSha": "[redacted]"
+  },
+  "environment": {
+    "platform": "web",
+    "browser": "Chrome 152",
+    "os": "macOS",
+    "locale": "en",
+    "theme": "light",
+    "uiScale": 1,
+    "tzOffsetMinutes": -120,
+    "viewport": {
+      "w": 1445,
+      "h": 957,
+      "dpr": 2
+    }
+  },
+  "server": {
+    "uptimeSeconds": 689386,
+    "dbOk": true,
+    "redisOk": true
+  },
+  "accounts": [
+    {
+      "ref": "1cc184d5",
+      "provider": "imap",
+      "authType": "password",
+      "enabled": true,
+      "inUnifiedInbox": true,
+      "unread": 2,
+      "folderCount": 8,
+      "lastSyncAgeSeconds": 47,
+      "syncErrorCategory": "none"
+    },
+    {
+      "ref": "ec9d9c11",
+      "provider": "imap",
+      "authType": "password",
+      "enabled": true,
+      "inUnifiedInbox": true,
+      "unread": 4,
+      "folderCount": 7,
+      "lastSyncAgeSeconds": 43,
+      "syncErrorCategory": "none"
+    },
+    {
+      "ref": "f1b5b485",
+      "provider": "imap",
+      "authType": "password",
+      "enabled": true,
+      "inUnifiedInbox": true,
+      "unread": 3,
+      "folderCount": 8,
+      "lastSyncAgeSeconds": 153,
+      "syncErrorCategory": "other"
+    },
+    {
+      "ref": "ae3031ea",
+      "provider": "imap",
+      "authType": "password",
+      "enabled": true,
+      "inUnifiedInbox": true,
+      "unread": 1,
+      "folderCount": 8,
+      "lastSyncAgeSeconds": 153,
+      "syncErrorCategory": "other"
+    },
+    {
+      "ref": "76003808",
+      "provider": "imap",
+      "authType": "password",
+      "enabled": true,
+      "inUnifiedInbox": true,
+      "unread": 0,
+      "folderCount": 8,
+      "lastSyncAgeSeconds": 158,
+      "syncErrorCategory": "other"
+    },
+    {
+      "ref": "973fe183",
+      "provider": "imap",
+      "authType": "password",
+      "enabled": true,
+      "inUnifiedInbox": true,
+      "unread": 0,
+      "folderCount": 0,
+      "lastSyncAgeSeconds": null,
+      "syncErrorCategory": "other"
+    }
+  ],
+  "folders": [
+    {
+      "accountRef": "1cc184d5",
+      "name": "custom:65504ffe",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "1cc184d5",
+      "name": "spamverdacht",
+      "total": 4,
+      "unread": 4
+    },
+    {
+      "accountRef": "1cc184d5",
+      "name": "sent",
+      "total": 154,
+      "unread": 0
+    },
+    {
+      "accountRef": "1cc184d5",
+      "name": "drafts",
+      "total": 16,
+      "unread": 0
+    },
+    {
+      "accountRef": "1cc184d5",
+      "name": "Archive",
+      "total": 1436,
+      "unread": 1
+    },
+    {
+      "accountRef": "1cc184d5",
+      "name": "INBOX",
+      "total": 5,
+      "unread": 2
+    },
+    {
+      "accountRef": "1cc184d5",
+      "name": "Trash",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "1cc184d5",
+      "name": "Snoozed",
+      "total": 1,
+      "unread": 0
+    },
+    {
+      "accountRef": "ec9d9c11",
+      "name": "Snoozed",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "ec9d9c11",
+      "name": "INBOX",
+      "total": 5,
+      "unread": 4
+    },
+    {
+      "accountRef": "ec9d9c11",
+      "name": "Sent",
+      "total": 6,
+      "unread": 0
+    },
+    {
+      "accountRef": "ec9d9c11",
+      "name": "Drafts",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "ec9d9c11",
+      "name": "Archive",
+      "total": 385,
+      "unread": 1
+    },
+    {
+      "accountRef": "ec9d9c11",
+      "name": "Junk",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "ec9d9c11",
+      "name": "Trash",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "f1b5b485",
+      "name": "Sent",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "f1b5b485",
+      "name": "Drafts",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "f1b5b485",
+      "name": "Archive",
+      "total": 39,
+      "unread": 4
+    },
+    {
+      "accountRef": "f1b5b485",
+      "name": "spambucket",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "f1b5b485",
+      "name": "Trash",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "f1b5b485",
+      "name": "Snoozed",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "f1b5b485",
+      "name": "custom:074f272a",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "f1b5b485",
+      "name": "INBOX",
+      "total": 3,
+      "unread": 3
+    },
+    {
+      "accountRef": "ae3031ea",
+      "name": "Archive",
+      "total": 209,
+      "unread": 1
+    },
+    {
+      "accountRef": "ae3031ea",
+      "name": "Trash",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "ae3031ea",
+      "name": "Snoozed",
+      "total": 1,
+      "unread": 0
+    },
+    {
+      "accountRef": "ae3031ea",
+      "name": "custom:074f272a",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "ae3031ea",
+      "name": "spambucket",
+      "total": 9,
+      "unread": 9
+    },
+    {
+      "accountRef": "ae3031ea",
+      "name": "INBOX",
+      "total": 3,
+      "unread": 1
+    },
+    {
+      "accountRef": "ae3031ea",
+      "name": "Sent",
+      "total": 7,
+      "unread": 0
+    },
+    {
+      "accountRef": "ae3031ea",
+      "name": "Drafts",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "76003808",
+      "name": "Trash",
+      "total": 1,
+      "unread": 0
+    },
+    {
+      "accountRef": "76003808",
+      "name": "Snoozed",
+      "total": 1,
+      "unread": 0
+    },
+    {
+      "accountRef": "76003808",
+      "name": "custom:074f272a",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "76003808",
+      "name": "spambucket",
+      "total": 1,
+      "unread": 1
+    },
+    {
+      "accountRef": "76003808",
+      "name": "INBOX",
+      "total": 2,
+      "unread": 0
+    },
+    {
+      "accountRef": "76003808",
+      "name": "Sent",
+      "total": 1,
+      "unread": 0
+    },
+    {
+      "accountRef": "76003808",
+      "name": "Drafts",
+      "total": 0,
+      "unread": 0
+    },
+    {
+      "accountRef": "76003808",
+      "name": "Archive",
+      "total": 72,
+      "unread": 2
+    }
+  ],
+  "counts": {
+    "unreadTotal": 10,
+    "unreadByAccountRef": {
+      "76003808": 0,
+      "1cc184d5": 2,
+      "ec9d9c11": 4,
+      "f1b5b485": 3,
+      "ae3031ea": 1,
+      "973fe183": 0
+    }
+  },
+  "events": [
+    {
+      "t": "2026-09-14T18:01:51.723Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 0,
+      "afterTotal": 1,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-14T18:01:51.786Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-14T18:01:51.929Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-14T18:01:55.377Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-14T18:16:33.647Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-14T18:16:34.081Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-14T18:16:36.271Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-14T18:16:42.772Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-14T18:16:48.912Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-14T18:18:16.564Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 0,
+      "afterTotal": 1,
+      "accountRef": "76003808"
+    },
+    {
+      "t": "2026-09-14T18:18:16.640Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "76003808"
+    },
+    {
+      "t": "2026-09-14T18:18:16.758Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-14T18:19:00.737Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 1,
+      "afterTotal": 2,
+      "accountRef": "ec9d9c11"
+    },
+    {
+      "t": "2026-09-14T18:19:00.814Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "ec9d9c11"
+    },
+    {
+      "t": "2026-09-14T18:19:01.026Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 2,
+      "afterTotal": 2
+    },
+    {
+      "t": "2026-09-14T18:19:13.444Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 2,
+      "afterTotal": 3,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-14T18:19:13.483Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-14T18:19:13.600Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 3,
+      "afterTotal": 3
+    },
+    {
+      "t": "2026-09-14T18:39:47.418Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 2,
+      "afterTotal": 2
+    },
+    {
+      "t": "2026-09-14T18:52:18.857Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-14T19:05:37.371Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 2,
+      "afterTotal": 2
+    },
+    {
+      "t": "2026-09-14T19:07:35.134Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 2,
+      "afterTotal": 3,
+      "accountRef": "ec9d9c11"
+    },
+    {
+      "t": "2026-09-14T19:07:35.188Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "ec9d9c11"
+    },
+    {
+      "t": "2026-09-14T19:07:35.461Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 3,
+      "afterTotal": 3
+    },
+    {
+      "t": "2026-09-14T19:07:42.420Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 3,
+      "afterTotal": 4,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-14T19:07:42.438Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-14T19:07:42.539Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 4,
+      "afterTotal": 4
+    },
+    {
+      "t": "2026-09-14T19:12:00.974Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "76003808"
+    },
+    {
+      "t": "2026-09-14T19:12:01.303Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 4,
+      "afterTotal": 5
+    },
+    {
+      "t": "2026-09-14T19:17:08.446Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 4,
+      "afterTotal": 4
+    },
+    {
+      "t": "2026-09-15T07:16:50.459Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-15T07:32:14.614Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 0,
+      "afterTotal": 1,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-15T07:32:14.650Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-15T07:32:14.826Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-15T07:34:56.832Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 1,
+      "afterTotal": 2,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-15T07:34:56.865Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-15T07:34:56.976Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 2,
+      "afterTotal": 2
+    },
+    {
+      "t": "2026-09-15T07:39:27.072Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-15T07:42:18.561Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-15T07:42:19.164Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-15T07:49:08.660Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-15T07:49:17.959Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-15T08:02:14.657Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 0,
+      "afterTotal": 1,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-15T08:02:14.711Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-15T08:02:15.054Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-15T08:08:24.174Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T04:55:46.827Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 12,
+      "afterTotal": 12
+    },
+    {
+      "t": "2026-09-16T04:55:48.308Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 12,
+      "afterTotal": 12
+    },
+    {
+      "t": "2026-09-16T04:55:50.881Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 12,
+      "afterTotal": 12
+    },
+    {
+      "t": "2026-09-16T04:55:55.833Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 12,
+      "afterTotal": 12
+    },
+    {
+      "t": "2026-09-16T04:55:58.090Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 11,
+      "afterTotal": 11
+    },
+    {
+      "t": "2026-09-16T04:56:06.289Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 11,
+      "afterTotal": 11
+    },
+    {
+      "t": "2026-09-16T04:56:07.544Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 10,
+      "afterTotal": 10
+    },
+    {
+      "t": "2026-09-16T05:00:06.236Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 10,
+      "afterTotal": 10
+    },
+    {
+      "t": "2026-09-16T05:00:09.889Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 10,
+      "afterTotal": 10
+    },
+    {
+      "t": "2026-09-16T05:00:12.669Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 10,
+      "afterTotal": 10
+    },
+    {
+      "t": "2026-09-16T05:00:17.374Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 10,
+      "afterTotal": 10
+    },
+    {
+      "t": "2026-09-16T05:00:22.066Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 10,
+      "afterTotal": 10
+    },
+    {
+      "t": "2026-09-16T05:00:22.874Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 10,
+      "afterTotal": 10
+    },
+    {
+      "t": "2026-09-16T05:00:24.350Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 9,
+      "afterTotal": 9
+    },
+    {
+      "t": "2026-09-16T05:00:25.142Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 9,
+      "afterTotal": 9
+    },
+    {
+      "t": "2026-09-16T05:00:26.586Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 8,
+      "afterTotal": 8
+    },
+    {
+      "t": "2026-09-16T05:00:26.848Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 8,
+      "afterTotal": 8
+    },
+    {
+      "t": "2026-09-16T05:00:27.971Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 7,
+      "afterTotal": 7
+    },
+    {
+      "t": "2026-09-16T05:00:28.017Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 7,
+      "afterTotal": 7
+    },
+    {
+      "t": "2026-09-16T05:00:36.362Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 7,
+      "afterTotal": 7
+    },
+    {
+      "t": "2026-09-16T05:00:38.791Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 6,
+      "afterTotal": 6
+    },
+    {
+      "t": "2026-09-16T05:00:44.644Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 6,
+      "afterTotal": 6
+    },
+    {
+      "t": "2026-09-16T05:00:46.615Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 5,
+      "afterTotal": 5
+    },
+    {
+      "t": "2026-09-16T05:00:47.147Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 5,
+      "afterTotal": 5
+    },
+    {
+      "t": "2026-09-16T05:00:48.630Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 4,
+      "afterTotal": 4
+    },
+    {
+      "t": "2026-09-16T05:00:49.460Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 3,
+      "afterTotal": 3
+    },
+    {
+      "t": "2026-09-16T05:00:59.855Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 3,
+      "afterTotal": 3
+    },
+    {
+      "t": "2026-09-16T05:01:05.582Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 3,
+      "afterTotal": 3
+    },
+    {
+      "t": "2026-09-16T05:01:06.720Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 2,
+      "afterTotal": 2
+    },
+    {
+      "t": "2026-09-16T05:01:09.169Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 2,
+      "afterTotal": 2
+    },
+    {
+      "t": "2026-09-16T05:01:11.649Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T05:01:34.613Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T05:01:36.747Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T05:01:37.771Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T05:08:41.187Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 0,
+      "afterTotal": 1,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-16T05:08:41.227Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-16T05:08:41.433Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T05:24:57.197Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T05:37:02.422Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T05:39:50.511Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T05:57:06.501Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T05:58:07.886Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T05:58:08.537Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T06:00:40.885Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T06:02:23.750Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T06:02:26.507Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T06:02:37.372Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T06:02:55.084Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T06:02:59.443Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T06:03:05.110Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T06:03:22.655Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 0,
+      "afterTotal": 1,
+      "accountRef": "76003808"
+    },
+    {
+      "t": "2026-09-16T06:03:22.887Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "76003808"
+    },
+    {
+      "t": "2026-09-16T06:03:22.968Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T07:10:53.459Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 4,
+      "afterTotal": 4
+    },
+    {
+      "t": "2026-09-16T07:10:58.386Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 3,
+      "afterTotal": 3
+    },
+    {
+      "t": "2026-09-16T07:11:01.861Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 2,
+      "afterTotal": 2
+    },
+    {
+      "t": "2026-09-16T07:11:02.579Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T07:11:07.701Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T07:12:03.091Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 4,
+      "alertCount": 4,
+      "accountRef": "ec9d9c11"
+    },
+    {
+      "t": "2026-09-16T07:12:03.214Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 4
+    },
+    {
+      "t": "2026-09-16T07:12:21.019Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 3,
+      "afterTotal": 3
+    },
+    {
+      "t": "2026-09-16T07:12:28.487Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 2,
+      "afterTotal": 2
+    },
+    {
+      "t": "2026-09-16T07:12:31.643Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T07:15:43.970Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T07:15:45.088Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T07:15:56.422Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T07:15:57.260Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T07:15:59.836Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T07:16:00.784Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T07:16:02.796Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T07:16:03.336Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T07:16:05.925Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T07:29:17.316Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 0,
+      "afterTotal": 1,
+      "accountRef": "76003808"
+    },
+    {
+      "t": "2026-09-16T07:29:17.363Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "76003808"
+    },
+    {
+      "t": "2026-09-16T07:29:17.482Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T07:30:16.944Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 1,
+      "afterTotal": 2,
+      "accountRef": "76003808"
+    },
+    {
+      "t": "2026-09-16T07:30:16.964Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "76003808"
+    },
+    {
+      "t": "2026-09-16T07:30:17.085Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 2,
+      "afterTotal": 2
+    },
+    {
+      "t": "2026-09-16T09:30:06.696Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 5,
+      "afterTotal": 5
+    },
+    {
+      "t": "2026-09-16T09:32:47.937Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 5,
+      "afterTotal": 5
+    },
+    {
+      "t": "2026-09-16T09:32:48.612Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 4,
+      "afterTotal": 4
+    },
+    {
+      "t": "2026-09-16T09:32:49.236Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 3,
+      "afterTotal": 3
+    },
+    {
+      "t": "2026-09-16T09:32:49.567Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 3,
+      "afterTotal": 3
+    },
+    {
+      "t": "2026-09-16T09:32:50.569Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 2,
+      "afterTotal": 2
+    },
+    {
+      "t": "2026-09-16T09:32:51.261Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 2,
+      "afterTotal": 2
+    },
+    {
+      "t": "2026-09-16T09:32:51.557Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T09:32:51.910Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T09:32:52.805Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T09:32:52.896Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T09:32:53.801Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T09:32:54.817Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T09:32:56.615Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T09:32:59.472Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T09:33:35.752Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T09:33:58.818Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T09:50:00.079Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T10:00:46.367Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T10:54:02.303Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T11:50:39.811Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T12:16:02.600Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T12:43:25.137Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T12:47:24.104Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T13:06:57.856Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 5,
+      "afterTotal": 4
+    },
+    {
+      "t": "2026-09-16T13:07:06.791Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 4,
+      "afterTotal": 5,
+      "accountRef": "ec9d9c11"
+    },
+    {
+      "t": "2026-09-16T13:07:06.865Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "ec9d9c11"
+    },
+    {
+      "t": "2026-09-16T13:07:07.012Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 5,
+      "afterTotal": 5
+    },
+    {
+      "t": "2026-09-16T13:08:36.800Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 5,
+      "afterTotal": 4
+    },
+    {
+      "t": "2026-09-16T13:09:37.534Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 4,
+      "afterTotal": 5,
+      "accountRef": "ec9d9c11"
+    },
+    {
+      "t": "2026-09-16T13:09:37.551Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "ec9d9c11"
+    },
+    {
+      "t": "2026-09-16T13:09:37.667Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 5,
+      "afterTotal": 5
+    },
+    {
+      "t": "2026-09-16T13:11:16.062Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T13:11:59.944Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 4,
+      "afterTotal": 4
+    },
+    {
+      "t": "2026-09-16T13:12:00.103Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 4,
+      "afterTotal": 4
+    },
+    {
+      "t": "2026-09-16T13:12:01.448Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 4,
+      "afterTotal": 4
+    },
+    {
+      "t": "2026-09-16T13:12:02.550Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 4,
+      "afterTotal": 4
+    },
+    {
+      "t": "2026-09-16T13:12:03.528Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 3,
+      "afterTotal": 3
+    },
+    {
+      "t": "2026-09-16T13:12:10.499Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 3,
+      "afterTotal": 3
+    },
+    {
+      "t": "2026-09-16T13:12:11.471Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 2,
+      "afterTotal": 2
+    },
+    {
+      "t": "2026-09-16T13:12:12.834Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 2,
+      "afterTotal": 2
+    },
+    {
+      "t": "2026-09-16T13:12:13.773Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T13:12:17.257Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T13:12:18.609Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T13:12:18.812Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T13:12:19.281Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T13:12:19.819Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T13:20:53.800Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 0,
+      "afterTotal": 1,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-16T13:20:53.847Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "ae3031ea"
+    },
+    {
+      "t": "2026-09-16T13:20:54.044Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T13:28:37.930Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T14:16:08.566Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T14:22:14.204Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T14:22:41.570Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 3,
+      "afterTotal": 4,
+      "accountRef": "ec9d9c11"
+    },
+    {
+      "t": "2026-09-16T14:22:41.635Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "ec9d9c11"
+    },
+    {
+      "t": "2026-09-16T14:22:41.706Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 4,
+      "afterTotal": 4
+    },
+    {
+      "t": "2026-09-16T14:24:07.162Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T14:31:15.782Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T14:52:48.883Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T14:53:48.822Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T15:07:47.038Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T15:13:11.034Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T15:17:14.077Z",
+      "category": "ws",
+      "type": "reconnect"
+    },
+    {
+      "t": "2026-09-16T15:38:23.586Z",
+      "category": "unread",
+      "cause": "exists_hint",
+      "delta": 1,
+      "beforeTotal": 4,
+      "afterTotal": 5,
+      "accountRef": "1cc184d5"
+    },
+    {
+      "t": "2026-09-16T15:38:23.610Z",
+      "category": "event",
+      "type": "new_messages",
+      "isInbox": true,
+      "count": 1,
+      "alertCount": 1,
+      "accountRef": "1cc184d5"
+    },
+    {
+      "t": "2026-09-16T15:38:23.858Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 5,
+      "afterTotal": 5
+    },
+    {
+      "t": "2026-09-16T15:44:52.277Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 4,
+      "afterTotal": 4
+    },
+    {
+      "t": "2026-09-16T15:45:01.800Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 4,
+      "afterTotal": 4
+    },
+    {
+      "t": "2026-09-16T15:45:03.015Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 3,
+      "afterTotal": 3
+    },
+    {
+      "t": "2026-09-16T15:45:09.654Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 3,
+      "afterTotal": 3
+    },
+    {
+      "t": "2026-09-16T15:45:11.087Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 2,
+      "afterTotal": 2
+    },
+    {
+      "t": "2026-09-16T15:45:16.138Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 2,
+      "afterTotal": 2
+    },
+    {
+      "t": "2026-09-16T15:45:17.112Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T15:45:17.731Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 1,
+      "afterTotal": 1
+    },
+    {
+      "t": "2026-09-16T15:45:18.555Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    },
+    {
+      "t": "2026-09-16T15:45:18.988Z",
+      "category": "unread",
+      "cause": "server_counts",
+      "beforeTotal": 0,
+      "afterTotal": 0
+    }
+  ],
+  "warnings": [
+    {
+      "code": "imap_error",
+      "accountRef": "76003808",
+      "count": 2,
+      "lastSeenAgeSeconds": 138
+    },
+    {
+      "code": "imap_error",
+      "accountRef": "ae3031ea",
+      "count": 2,
+      "lastSeenAgeSeconds": 138
+    },
+    {
+      "code": "imap_error",
+      "accountRef": "1cc184d5",
+      "count": 177,
+      "lastSeenAgeSeconds": 5732
+    },
+    {
+      "code": "staleness_error",
+      "accountRef": "1cc184d5",
+      "count": 13,
+      "lastSeenAgeSeconds": 7893
+    },
+    {
+      "code": "staleness_error",
+      "accountRef": "ec9d9c11",
+      "count": 1,
+      "lastSeenAgeSeconds": 56830
+    },
+    {
+      "code": "staleness_error",
+      "accountRef": "76003808",
+      "count": 2,
+      "lastSeenAgeSeconds": 79354
+    },
+    {
+      "code": "staleness_error",
+      "accountRef": "ae3031ea",
+      "count": 1,
+      "lastSeenAgeSeconds": 292822
+    },
+    {
+      "code": "imap_error",
+      "accountRef": "ec9d9c11",
+      "count": 2,
+      "lastSeenAgeSeconds": 324666
+    }
+  ],
+  "syncSignals": [
+    {
+      "signal": "staleness_missed_mail",
+      "accountRef": "ec9d9c11",
+      "count": 3,
+      "totalMagnitude": 6,
+      "maxMagnitude": 4,
+      "lastSeenAgeSeconds": 84574
+    },
+    {
+      "signal": "staleness_missed_mail",
+      "accountRef": "76003808",
+      "count": 1,
+      "totalMagnitude": 1,
+      "maxMagnitude": 1,
+      "lastSeenAgeSeconds": 214176
+    },
+    {
+      "signal": "badge_count_clamp",
+      "accountRef": "ec9d9c11",
+      "count": 1,
+      "lastSeenAgeSeconds": 607320
+    },
+    {
+      "signal": "badge_count_clamp",
+      "accountRef": "f1b5b485",
+      "count": 1,
+      "lastSeenAgeSeconds": 654296
+    }
+  ],
+  "connection": {
+    "wsConnects": 142,
+    "wsDisconnects": 141,
+    "currentSockets": 1,
+    "broadcastCounts": {
+      "backfill_all_start": 88,
+      "account_connected": 91,
+      "backfill_progress": 290,
+      "backfill_complete": 145,
+      "backfill_all_complete": 88,
+      "message_flags": 277,
+      "folder_updated": 317,
+      "exists_hint": 268,
+      "new_messages": 273,
+      "sync_complete": 44,
+      "folders_synced": 3728,
+      "account_error": 49
+    }
+  },
+  "performance": {
+    "http": {
+      "routeCount": 44,
+      "slowest": [
+        {
+          "route": "POST /api/mail/send",
+          "errors": 0,
+          "count": 4,
+          "meanMs": 776,
+          "p50Ms": 500,
+          "p95Ms": 2500,
+          "maxMs": 1381
+        },
+        {
+          "route": "GET /api/sender-favicons/:domain",
+          "errors": 0,
+          "count": 773,
+          "meanMs": 165,
+          "p50Ms": 25,
+          "p95Ms": 1000,
+          "maxMs": 5196
+        },
+        {
+          "route": "GET /api/search/",
+          "errors": 0,
+          "count": 14,
+          "meanMs": 380,
+          "p50Ms": 1000,
+          "p95Ms": 1000,
+          "maxMs": 686
+        },
+        {
+          "route": "POST /api/auth/login",
+          "errors": 0,
+          "count": 2,
+          "meanMs": 662,
+          "p50Ms": 1000,
+          "p95Ms": 1000,
+          "maxMs": 694
+        },
+        {
+          "route": "POST /api/mail/messages/:id/unsubscribe",
+          "errors": 0,
+          "count": 1,
+          "meanMs": 652,
+          "p50Ms": 1000,
+          "p95Ms": 1000,
+          "maxMs": 652
+        },
+        {
+          "route": "GET /api/update",
+          "errors": 0,
+          "count": 57,
+          "meanMs": 67,
+          "p50Ms": 10,
+          "p95Ms": 500,
+          "maxMs": 276
+        },
+        {
+          "route": "POST /api/mail/draft",
+          "errors": 0,
+          "count": 26,
+          "meanMs": 104,
+          "p50Ms": 100,
+          "p95Ms": 500,
+          "maxMs": 335
+        },
+        {
+          "route": "POST /api/mail/messages/bulk-move",
+          "errors": 0,
+          "count": 9,
+          "meanMs": 181,
+          "p50Ms": 250,
+          "p95Ms": 500,
+          "maxMs": 269
+        },
+        {
+          "route": "GET /api/mail/messages/:id/attachments.zip",
+          "errors": 0,
+          "count": 2,
+          "meanMs": 234,
+          "p50Ms": 250,
+          "p95Ms": 500,
+          "maxMs": 283
+        },
+        {
+          "route": "POST /api/mail/messages/:id/spam",
+          "errors": 0,
+          "count": 1,
+          "meanMs": 322,
+          "p50Ms": 500,
+          "p95Ms": 500,
+          "maxMs": 322
+        },
+        {
+          "route": "GET /api/contacts/gravatar",
+          "errors": 0,
+          "count": 1595,
+          "meanMs": 35,
+          "p50Ms": 25,
+          "p95Ms": 250,
+          "maxMs": 551
+        },
+        {
+          "route": "POST /api/mail/messages/bulk-archive",
+          "errors": 0,
+          "count": 301,
+          "meanMs": 101,
+          "p50Ms": 100,
+          "p95Ms": 250,
+          "maxMs": 316
+        }
+      ]
+    },
+    "db": {
+      "count": 618627,
+      "meanMs": 4,
+      "p50Ms": 10,
+      "p95Ms": 10,
+      "maxMs": 679,
+      "slowCount": 9,
+      "slowThresholdMs": 200
+    }
+  },
+  "config": {
+    "aiEnabled": false,
+    "aiProvider": null,
+    "plugins": {}
+  },
+  "scrub": {
+    "fieldsDropped": 0,
+    "hitsRedacted": 2
+  }
+}

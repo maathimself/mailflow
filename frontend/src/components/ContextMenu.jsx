@@ -118,7 +118,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   // never cross the frame boundary to reach `document`) and it can't be defeated by a row
   // calling stopPropagation() on its click.
   useEffect(() => {
-    const handleKey = e => { if (e.key === 'Escape') onClose(); };
+    const handleKey = e => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } };
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
   }, [onClose]);

@@ -430,8 +430,8 @@ const HARDCODED_OK = new Set([
   // Tooltip label for a rich-text editor colour input — purely visual affordance,
   // identical concept in all languages
   'Emoji',
-  // "MailFlow" brand name split into two spans for typography styling
-  'Mail', 'Flow',
+  // "muconaFlow" brand name split into two spans for typography styling
+  'mucona', 'Flow',
   // Email header labels inside the handlePrint() HTML template literal —
   // translating them requires passing t() results into the template string
   'From:', 'Date:',

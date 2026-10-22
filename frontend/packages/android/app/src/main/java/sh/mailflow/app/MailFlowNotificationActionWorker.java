@@ -67,7 +67,7 @@ public class MailFlowNotificationActionWorker extends Worker {
         int status = connection.getResponseCode();
         connection.disconnect();
         if (status < 200 || status >= 300) {
-            throw new IllegalStateException("MailFlow notification action failed: HTTP " + status);
+            throw new IllegalStateException("muconaFlow notification action failed: HTTP " + status);
         }
     }
 }

@@ -22,7 +22,7 @@ const UPDATE_RELEASE_URL = 'https://api.github.com/repos/maathimself/mailflow/re
 const UPDATE_RELEASE_URL = 'https://api.github.com/repos/dcoffin88/mailflow/releases/latest';
 */
 
-const UPDATE_ERROR_MESSAGE = 'Could not check for MailFlow updates. Please visit the website instead.';
+const UPDATE_ERROR_MESSAGE = 'Could not check for muconaFlow updates. Please visit the website instead.';
 const NATIVE_ACTION_CHANNEL = 'mailflow:native-action';
 const NATIVE_ACTION_ARG = '--mailflow-action=';
 const NEW_MAIL_NOTIFICATION_MAX_LENGTH = 240;
@@ -59,7 +59,10 @@ function isAllowedExternalUrl(url) {
 const pendingNativeActions = new Map();
 const pendingProtocolUrls = [];
 
-app.setName('MailFlow');
+// Pin userData to the legacy "MailFlow" directory so existing installs keep
+// their config after the rename to muconaFlow (setName would otherwise move it).
+app.setPath('userData', path.join(app.getPath('appData'), 'MailFlow'));
+app.setName('muconaFlow');
 if (process.platform === 'win32') {
   app.setAppUserModelId('sh.mailflow.app');
 }
@@ -103,11 +106,11 @@ function registerWindowsMailtoCapabilities() {
     const command = `"${exePath}" "%1"`;
 
     writeCurrentUserRegValue('HKCU\\Software\\RegisteredApplications', 'MailFlow', 'Software\\Clients\\Mail\\MailFlow\\Capabilities');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow', '', 'MailFlow');
-    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow\\Capabilities', 'ApplicationName', 'MailFlow');
+    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow', '', 'muconaFlow');
+    writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow\\Capabilities', 'ApplicationName', 'muconaFlow');
     writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow\\Capabilities', 'ApplicationDescription', 'A self-hosted, unified webmail client.');
     writeCurrentUserRegValue('HKCU\\Software\\Clients\\Mail\\MailFlow\\Capabilities\\URLAssociations', 'mailto', 'MailFlow.mailto');
-    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto', '', 'URL:MailFlow MailTo Protocol');
+    writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto', '', 'URL:muconaFlow MailTo Protocol');
     writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto', 'URL Protocol', '');
     writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto\\DefaultIcon', '', `${exePath},0`);
     writeCurrentUserRegValue('HKCU\\Software\\Classes\\MailFlow.mailto\\shell\\open\\command', '', command);
@@ -674,7 +677,7 @@ function notifyCheckingUpdate(verbose) {
   sendUpdateStatus({ type: 'checking' });
   notifyUpdateStatus({
     title: 'Checking for update',
-    message: 'Checking for new MailFlow updates.',
+    message: 'Checking for new muconaFlow updates.',
   });
 }
 
@@ -693,7 +696,7 @@ function notifyUpToDate(verbose) {
   sendUpdateStatus({ type: 'up-to-date' });
   notifyUpdateStatus({
     title: 'Up to date',
-    message: 'Your version of MailFlow is up to date.',
+    message: 'Your version of muconaFlow is up to date.',
     type: 'positive',
   });
 }
@@ -714,7 +717,7 @@ function notifyUpdateAvailable(verbose = true) {
 
   notifyUpdateStatus({
     title: 'Update Available',
-    message: 'MailFlow is downloading the newest version for you.',
+    message: 'muconaFlow is downloading the newest version for you.',
   });
 }
 
@@ -722,7 +725,7 @@ function notifyUpdateDownloaded() {
   const linuxInstallCommand = getLinuxUpdateInstallCommand(downloadedUpdate);
   const isLinuxManualInstall = Boolean(linuxInstallCommand);
   const linuxInstallMessage = linuxInstallCommand
-    ? `MailFlow downloaded and verified the update. Install it from a terminal with:\n${linuxInstallCommand}`
+    ? `muconaFlow downloaded and verified the update. Install it from a terminal with:\n${linuxInstallCommand}`
     : null;
 
   sendUpdateStatus({
@@ -740,7 +743,7 @@ function notifyUpdateDownloaded() {
   });
   showInAppNotification({
     title: 'Update Ready',
-    message: linuxInstallMessage || 'MailFlow downloaded the update.',
+    message: linuxInstallMessage || 'muconaFlow downloaded the update.',
     type: 'positive',
     actionLabel: isLinuxManualInstall ? 'Copy & Quit' : 'Install',
     action: isLinuxManualInstall ? 'copy-update-command-and-quit' : 'install-update',
@@ -870,7 +873,7 @@ function verifyPlatformSignature(filePath) {
     const installed = readWindowsSignature(process.execPath);
     const downloaded = readWindowsSignature(filePath);
     if (!hasMatchingWindowsPublisher(installed, downloaded)) {
-      throw new Error('The update is not signed by the installed MailFlow publisher.');
+      throw new Error('The update is not signed by the installed muconaFlow publisher.');
     }
     return;
   }
@@ -889,7 +892,7 @@ function verifyPlatformSignature(filePath) {
     const installed = readMacSignatureDetails(process.execPath);
     const downloaded = readMacSignatureDetails(filePath);
     if (!hasMatchingMacTeam(installed, downloaded)) {
-      throw new Error('The update is not signed by the installed MailFlow team.');
+      throw new Error('The update is not signed by the installed muconaFlow team.');
     }
   }
 }
@@ -976,7 +979,7 @@ async function checkForUpdates(verbose = false) {
     }
 
     if (!asset) {
-      notifyUpdateError('A MailFlow update is available, but no installer was found for this platform.');
+      notifyUpdateError('A muconaFlow update is available, but no installer was found for this platform.');
       return { updateAvailable: true, downloadAvailable: false };
     }
 
@@ -1064,7 +1067,7 @@ function installDownloadedUpdate() {
 
         console.error('Could not launch downloaded update:', launchError);
         shell.showItemInFolder(downloadedUpdate);
-        notifyUpdateError('The update was downloaded, but MailFlow could not start the installer.');
+        notifyUpdateError('The update was downloaded, but muconaFlow could not start the installer.');
         resolve({ installed: false, reason: 'launch-failed', error: launchError.message });
       }
     });
@@ -1228,7 +1231,7 @@ function changeMailFlowHost() {
 function fileMenuItems() {
   return [
     {
-      label: 'Change MailFlow Host',
+      label: 'Change muconaFlow Host',
       accelerator: 'CmdOrCtrl+,',
       click: changeMailFlowHost,
     },
@@ -1518,7 +1521,7 @@ function refreshTrayMenu() {
     ...nativeActionMenuItems(),
     { type: 'separator' },
     {
-      label: isWindowVisible ? 'Hide MailFlow' : 'Show MailFlow',
+      label: isWindowVisible ? 'Hide muconaFlow' : 'Show muconaFlow',
       click: () => {
         if (isWindowVisible) {
           saveWindowBounds();
@@ -1530,7 +1533,7 @@ function refreshTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: 'Change MailFlow Host',
+      label: 'Change muconaFlow Host',
       click: () => {
         clearHost();
         showMainWindow();
@@ -1552,7 +1555,7 @@ function createTray() {
   if (trayIcon.isEmpty()) return;
 
   tray = new Tray(trayIcon);
-  tray.setToolTip('MailFlow');
+  tray.setToolTip('muconaFlow');
   tray.on('click', () => {
     refreshTrayMenu();
     showMainWindow({ reload: true });
@@ -1575,7 +1578,7 @@ function setupTaskbarTasks() {
       iconPath: getWindowIconPath(),
       iconIndex: 0,
       title: 'New Mail',
-      description: 'Compose a new MailFlow message',
+      description: 'Compose a new muconaFlow message',
     },
     {
       program: process.execPath,
@@ -1583,7 +1586,7 @@ function setupTaskbarTasks() {
       iconPath: getWindowIconPath(),
       iconIndex: 0,
       title: 'Sync',
-      description: 'Sync MailFlow mail',
+      description: 'Sync muconaFlow mail',
     },
   ]);
 }
@@ -1593,7 +1596,7 @@ function createWindow() {
     ...getDefaultWindowBounds(),
     ...getSavedWindowBounds(),
     show: false,
-    title: 'MailFlow',
+    title: 'muconaFlow',
     icon: getWindowIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -1749,12 +1752,12 @@ ipcMain.handle('mailflow:saveHost', async (_event, host) => {
       defaultId: 1,
       cancelId: 1,
       noLink: true,
-      title: 'Unencrypted MailFlow connection',
-      message: 'Traffic to this MailFlow server is not encrypted.',
+      title: 'Unencrypted muconaFlow connection',
+      message: 'Traffic to this muconaFlow server is not encrypted.',
       detail: 'Your session cookie and email data can be read or changed by anyone who can observe this network. Continue only on a private network you trust.',
     });
     if (result.response !== 0) {
-      throw new Error('The unencrypted MailFlow host was not saved.');
+      throw new Error('The unencrypted muconaFlow host was not saved.');
     }
   }
 

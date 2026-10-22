@@ -35,7 +35,7 @@ if (USE_DIV_RENDER) {
   ({ prepareEmailHtml }                    = await import('../utils/scopeEmailCss.js'));
   ({ injectEmailStyles, removeEmailStyles } = await import('../utils/emailStyleRegistry.js'));
 }
-import { senderColor } from '../themes.js';
+import { senderColor, isDarkTheme } from '../themes.js';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderIcon from './FolderIcon.jsx';
 import TodoistTaskModal from './TodoistTaskModal.jsx';
@@ -101,7 +101,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     imageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
     replyDefault, shortcuts, recentFolders, favoriteFolders, todoistConnected,
     categorizationEnabled, setCategoryCounts, adjustCategoryCount,
-    aiActions, setShowAdmin, setAdminTab,
+    aiActions, setShowAdmin, setAdminTab, theme,
   } = useStore();
 
   // Detached-window mode (#219): when a message id is passed in, this pane renders that
@@ -294,6 +294,12 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const [body, setBody] = useState(null);
   const [bodyError, setBodyError] = useState(null);
+  // Dark themes render the email body color-inverted (images re-inverted so they
+  // look normal). "Show original colors" opts out per message.
+  const darkTheme = isDarkTheme(theme);
+  const [showOriginalColors, setShowOriginalColors] = useState(false);
+  useEffect(() => { setShowOriginalColors(false); }, [selectedMessageId]);
+  const darkEmail = darkTheme && !showOriginalColors;
   const [retryKey, setRetryKey] = useState(0);
   const [loadingBody, setLoadingBody] = useState(false);
   const [downloadingPart, setDownloadingPart] = useState(null);
@@ -528,6 +534,36 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
     return () => { cancelled = true; };
   }, [selectedMessageId, retryKey]);
+
+  // Dark themes: invert the email document's colors, then re-invert media so
+  // photos and logos keep their real colors. Injected into the loaded iframe
+  // document (not srcDoc) so toggling never reloads the frame. html/body go
+  // transparent so the themed card shows through. The email's own dark-mode CSS
+  // stays off via color-scheme "only light" — it would fight the inversion.
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe || !body?.html) return;
+    const apply = () => {
+      const doc = iframe.contentDocument;
+      if (!doc?.head) return;
+      let style = doc.getElementById('mf-dark-email');
+      if (!darkEmail) { style?.remove(); return; }
+      if (!style) {
+        style = doc.createElement('style');
+        style.id = 'mf-dark-email';
+        style.textContent = `
+          html { filter: invert(1) hue-rotate(180deg); }
+          html, html body { background-color: transparent !important; }
+          img, video, picture, canvas, svg image, [background], [style*="background-image"] {
+            filter: invert(1) hue-rotate(180deg);
+          }`;
+        doc.head.appendChild(style);
+      }
+    };
+    apply();
+    iframe.addEventListener('load', apply);
+    return () => iframe.removeEventListener('load', apply);
+  }, [darkEmail, body?.html, selectedMessageId]);
 
   // Size the iframe to its full content height so no internal scrollbar appears.
   // The outer overflow:auto container is the only scrollbar the user sees.
@@ -2435,6 +2471,32 @@ ${bodyContent}
             <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
           </svg>
         </PaneBtn>
+
+        {darkTheme && (body?.html || body?.text) && (
+          <PaneBtn
+            onClick={() => setShowOriginalColors(v => !v)}
+            title={showOriginalColors ? t('message.showDarkColors') : t('message.showOriginalColors')}
+          >
+            {showOriginalColors ? (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+              </svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <circle cx="12" cy="12" r="4"/>
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+              </svg>
+            )}
+          </PaneBtn>
+        )}
+
+        {!windowMode && !isMobile && (
+          <PaneBtn onClick={() => setSelectedMessage(null)} title={t('window.close')}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </PaneBtn>
+        )}
       </div>
 
       {/* Single scroll container — sender card + email body scroll together */}
@@ -2861,7 +2923,7 @@ ${bodyContent}
           <div className="msg-card" style={{
             position: 'relative',
             padding: '14px 16px 12px',
-            background: 'white',
+            background: darkEmail ? 'var(--bg-secondary)' : 'white',
             borderRadius: isMobile ? 0 : 10,
             border: isMobile ? 'none' : '1px solid var(--border-subtle)',
             overflow: 'hidden',
@@ -2889,6 +2951,7 @@ ${bodyContent}
                   <div
                     ref={innerRef}
                     data-mailflow-email={prepared?.prefix}
+                    data-email-dark={darkEmail ? '' : undefined}
                     className={prepared?.prefix ?? ''}
                     dangerouslySetInnerHTML={prepared ? { __html: prepared.html } : undefined}
                   />
@@ -2993,8 +3056,8 @@ ${bodyContent}
           <div className="msg-card" style={{
             margin: 0, padding: '14px 16px 12px',
             whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-            fontSize: 14, color: '#1a1a1a', lineHeight: 1.7,
-            fontFamily: 'DM Sans, sans-serif', background: 'white',
+            fontSize: 14, color: darkEmail ? 'var(--text-primary)' : '#1a1a1a', lineHeight: 1.7,
+            fontFamily: 'DM Sans, sans-serif', background: darkEmail ? 'var(--bg-secondary)' : 'white',
             borderRadius: isMobile ? 0 : 10,
             border: isMobile ? 'none' : '1px solid var(--border-subtle)',
             overflow: 'hidden',

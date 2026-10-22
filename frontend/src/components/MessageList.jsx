@@ -311,10 +311,16 @@ export default function MessageList() {
     lastSelectIdxRef.current = -1;
   }, [messagesRefreshToken]);
 
+  // Whether an Escape press has something here to dismiss. When it does, the
+  // keydown is marked handled so MailApp doesn't also close the preview pane.
+  const hasEscapeTargetRef = useRef(false);
+  hasEscapeTargetRef.current = selectedIds.size > 0 || selectionModeActive || showFolderPicker || showLayoutPicker;
+
   // Escape clears selection; click-outside closes folder picker
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') {
+        if (hasEscapeTargetRef.current) e.preventDefault();
         setShowFolderPicker(false);
         setShowLayoutPicker(false);
         setSelectedIds(new Set());

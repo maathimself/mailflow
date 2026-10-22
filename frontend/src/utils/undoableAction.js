@@ -29,3 +29,14 @@ export function createUndoableCommit({
     },
   };
 }
+
+// Undoes the newest notification that carries an onUndo callback (notifications
+// are stored newest-first). Backs the global undo shortcut (ctrl/cmd+z).
+export function undoLatestNotification(notifications, removeNotification) {
+  const notification = notifications.find(item => typeof item.onUndo === 'function');
+  if (!notification) return false;
+
+  removeNotification(notification.id);
+  void notification.onUndo();
+  return true;
+}

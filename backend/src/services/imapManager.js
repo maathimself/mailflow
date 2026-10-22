@@ -70,7 +70,7 @@ async function connectImapClient(account, resolved, cfgOpts, timeoutMs, label) {
     client.on('error', (err) => {
       if (isConnectionRefusal(err?.message)) sawRefusal = true;
       recordWarning('imap_error', account?.id);
-      console.error(`IMAP error for ${logAccount(account)}:`, err.message);
+      console.error(`IMAP error for ${logAccount(account)}:`, extractImapError(err));
     });
     // Admission control (#384): cap concurrent connection establishment per host so a startup /
     // backfill burst can't stampede the provider into refusals. Held only for the handshake and
@@ -620,7 +620,14 @@ export function walkStructure(node, results) {
 
 // Extract a human-readable message from an imapflow error.
 // imapflow command failures have a structured .response object; fall back to .message.
-function extractImapError(err) {
+export function extractImapError(err) {
+  // autoSelectFamily (makeClientCfg) raises an AggregateError with an EMPTY message when every
+  // resolved address fails, so String(err) would record just "AggregateError". Surface the
+  // per-address causes (ECONNREFUSED / ETIMEDOUT / EHOSTUNREACH …) instead.
+  if (!err?.message && Array.isArray(err?.errors) && err.errors.length) {
+    const parts = err.errors.map(e => e?.message || e?.code).filter(Boolean);
+    if (parts.length) return [...new Set(parts)].join('; ');
+  }
   if (err.response && typeof err.response === 'object') {
     const text = err.response.attributes?.find(a => a.type === 'TEXT')?.value;
     if (text) return text;

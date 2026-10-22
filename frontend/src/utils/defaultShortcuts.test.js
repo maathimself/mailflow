@@ -1,7 +1,7 @@
 // Run with: node --test src/utils/defaultShortcuts.test.js
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildKeyMap, buildModKeyMap } from './defaultShortcuts.js';
+import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts } from './defaultShortcuts.js';
 
 describe('buildKeyMap', () => {
   it('does not warn when no overrides are given (defaults have no collisions)', (t) => {
@@ -39,7 +39,7 @@ describe('buildModKeyMap', () => {
     const warn = t.mock.method(console, 'warn', () => {});
     const map = buildModKeyMap();
     assert.equal(warn.mock.callCount(), 0);
-    assert.equal(map.z, 'gtdUndo');
+    assert.equal(map.z, 'undo');
   });
 
   it('warns and keeps last-writer-wins when an override collides on a modifier+key', (t) => {
@@ -63,5 +63,13 @@ describe('buildModKeyMap', () => {
     assert.equal(modMap['/'], 'toggleRightSidebar', 'ctrl+/ resolves to the right-sidebar toggle');
     assert.equal(keyMap['/'], 'focusSearch', 'bare / stays the search key (separate map)');
     assert.equal(warn.mock.callCount(), 0);
+  });
+});
+
+describe('getEffectiveShortcuts', () => {
+  it('carries a saved gtdUndo override over to the generic undo action', () => {
+    assert.equal(getEffectiveShortcuts({ gtdUndo: 'ctrl+u' }).undo, 'ctrl+u');
+    assert.equal(getEffectiveShortcuts({ gtdUndo: 'ctrl+u', undo: 'ctrl+y' }).undo, 'ctrl+y');
+    assert.equal(getEffectiveShortcuts().undo, 'ctrl+z');
   });
 });

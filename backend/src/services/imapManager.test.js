@@ -12,7 +12,7 @@ vi.mock('../utils/redact.js', () => ({ redactEmail: vi.fn() }));
 vi.mock('./hostValidation.js', () => ({ resolveForConnection: vi.fn() }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 
-import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch } from './imapManager.js';
+import { ImapManager, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, extractImapError } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
@@ -1745,5 +1745,25 @@ describe('syncMessages — empty mailbox still stamps last_sync', () => {
       ImapManager.prototype.syncMessages.call({}, account, client, 'INBOX', 50, false, true)
     ).resolves.toEqual({ insertedCount: 0, broadcastedNewMessages: false });
     expect(query.mock.calls.filter(c => /UPDATE email_accounts SET last_sync/.test(c[0]))).toHaveLength(0);
+  });
+});
+
+// ── extractImapError — AggregateError from autoSelectFamily ──────────────────
+describe('extractImapError', () => {
+  it('unwraps an AggregateError (empty message) into its per-address causes', () => {
+    const v6 = Object.assign(new Error('connect ETIMEDOUT 2001:db8::1:993'), { code: 'ETIMEDOUT' });
+    const v4 = Object.assign(new Error('connect ECONNREFUSED 192.0.2.1:993'), { code: 'ECONNREFUSED' });
+    const err = new AggregateError([v6, v4]);
+    expect(err.message).toBe('');
+    expect(extractImapError(err)).toBe('connect ETIMEDOUT 2001:db8::1:993; connect ECONNREFUSED 192.0.2.1:993');
+  });
+
+  it('falls back to the error codes when inner errors have no message', () => {
+    const err = new AggregateError([Object.assign(new Error(''), { code: 'EHOSTUNREACH' })]);
+    expect(extractImapError(err)).toBe('EHOSTUNREACH');
+  });
+
+  it('keeps plain error messages unchanged', () => {
+    expect(extractImapError(new Error('Invalid credentials'))).toBe('Invalid credentials');
   });
 });

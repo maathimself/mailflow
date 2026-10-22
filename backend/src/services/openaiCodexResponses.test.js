@@ -53,7 +53,7 @@ describe('buildCodexRequest', () => {
 
     expect(body).toEqual({
       model: 'gpt-5.4-mini',
-      instructions: 'You are Mailflow, a helpful email assistant.',
+      instructions: 'You are muconaFlow, a helpful email assistant.',
       input: [
         { type: 'message', role: 'developer', content: [{ type: 'input_text', text: 'Be concise.' }] },
         { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Draft a reply.' }] },

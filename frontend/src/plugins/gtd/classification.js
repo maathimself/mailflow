@@ -48,14 +48,3 @@ export async function classifyWithUndo(messageId, state, {
     return null;
   }
 }
-
-export function undoLatestGtdNotification(notifications, removeNotification) {
-  const notification = notifications.find(item => (
-    item.pluginId === 'gtd' && typeof item.onUndo === 'function'
-  ));
-  if (!notification) return false;
-
-  removeNotification(notification.id);
-  void notification.onUndo();
-  return true;
-}

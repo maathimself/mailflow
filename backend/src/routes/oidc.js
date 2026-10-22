@@ -66,7 +66,7 @@ async function getDiscovery(issuerUrl, allowInsecure = false) {
   const res = await fetchFn(wellKnown, fetchOpts);
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) {
-      throw new Error(`OIDC discovery blocked (${res.status}): the server cannot reach ${wellKnown} — ensure the well-known endpoint is publicly accessible from the MailFlow server`);
+      throw new Error(`OIDC discovery blocked (${res.status}): the server cannot reach ${wellKnown} — ensure the well-known endpoint is publicly accessible from the muconaFlow server`);
     }
     throw new Error(`OIDC discovery failed for ${issuerUrl}: ${res.status}`);
   }

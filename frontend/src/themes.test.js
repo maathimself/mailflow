@@ -1,7 +1,7 @@
 // Run with: node --test src/themes.test.js
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { THEMES } from './themes.js';
+import { THEMES, isDarkTheme } from './themes.js';
 
 const names = Object.keys(THEMES);
 
@@ -42,5 +42,16 @@ describe('THEMES CSS-var contract', () => {
       assert.ok(Array.isArray(THEMES[name].preview), `${name} preview must be an array`);
       assert.equal(THEMES[name].preview.length, arity, `${name} preview arity differs from ${reference}`);
     }
+  });
+});
+
+describe('isDarkTheme', () => {
+  it('classifies themes by background luminance', () => {
+    for (const name of ['dark', 'dracula', 'nord', 'high_contrast']) assert.equal(isDarkTheme(name), true, name);
+    for (const name of ['light', 'parchment', 'catppuccin_latte', 'winxp', 'win9x']) assert.equal(isDarkTheme(name), false, name);
+  });
+
+  it('treats unknown themes as dark', () => {
+    assert.equal(isDarkTheme('nope'), true);
   });
 });

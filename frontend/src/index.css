@@ -385,6 +385,16 @@ body, #root {
   color-scheme: light;
 }
 
+/* Dark themes invert the email's colors; media is re-inverted to stay true-color.
+   Mirrors the iframe path in MessagePane.jsx. */
+[data-mailflow-email][data-email-dark] {
+  filter: invert(1) hue-rotate(180deg);
+  background-color: transparent !important;
+}
+[data-mailflow-email][data-email-dark] :is(img, video, picture, canvas, svg image, [background], [style*="background-image"]) {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 /* ── Retro themes: skeuomorphic chrome ────────────────────────────────────────
    Scoped by the data-mailflow-theme attribute (set in applyTheme). Only targets
    surfaces that components DON'T set via inline styles — scrollbars and text

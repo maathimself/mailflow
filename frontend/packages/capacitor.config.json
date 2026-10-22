@@ -1,6 +1,6 @@
 {
   "appId": "sh.mailflow.app",
-  "appName": "MailFlow",
+  "appName": "muconaFlow",
   "webDir": "../dist",
   "android": {
     "path": "android"

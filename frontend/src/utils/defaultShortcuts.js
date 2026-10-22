@@ -42,6 +42,8 @@ export const ACTION_DEFS = {
   toggleRead:    { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.toggleRead.label',    descriptionKey: 'shortcuts.actions.toggleRead.description',    defaultKey: 'm'  },
   selectMessage: { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.selectMessage.label', descriptionKey: 'shortcuts.actions.selectMessage.description', defaultKey: 'x'      },
   printMessage:  { groupKey: 'shortcuts.groups.messageActions', labelKey: 'shortcuts.actions.printMessage.label',  descriptionKey: 'shortcuts.actions.printMessage.description',  defaultKey: 'ctrl+p' },
+  // Undoes the newest undoable action (archive, delete, GTD move) while its toast is live.
+  undo:          { groupKey: 'shortcuts.groups.messageActions', labelKey: 'common.undo',                          descriptionKey: 'shortcuts.actions.undo.description',          defaultKey: 'ctrl+z' },
 
   // ── GTD ──────────────────────────────────────────────────────────────────────
   // Classify the selected message into a GTD state (COPY into its label folder).
@@ -49,11 +51,14 @@ export const ACTION_DEFS = {
   gtdTodo:       { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdTodo.label',       descriptionKey: 'shortcuts.actions.gtdTodo.description',       defaultKey: 't' },
   gtdWatch:      { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdWatch.label',      descriptionKey: 'shortcuts.actions.gtdWatch.description',      defaultKey: 'w' },
   gtdDelegated:  { groupKey: 'shortcuts.groups.gtd',            labelKey: 'shortcuts.actions.gtdDelegated.label',  descriptionKey: 'shortcuts.actions.gtdDelegated.description',  defaultKey: 'd' },
-  gtdUndo:       { groupKey: 'shortcuts.groups.gtd',            labelKey: 'common.undo',                            descriptionKey: 'shortcuts.actions.gtdUndo.description',       defaultKey: 'ctrl+z' },
 };
 
 // Returns the effective shortcut map: action → key, with user overrides applied.
 export function getEffectiveShortcuts(userOverrides = {}) {
+  // 'gtdUndo' was generalized into 'undo'; carry over a saved override for it.
+  if ('gtdUndo' in userOverrides && !('undo' in userOverrides)) {
+    userOverrides = { ...userOverrides, undo: userOverrides.gtdUndo };
+  }
   const out = {};
   for (const [action, def] of Object.entries(ACTION_DEFS)) {
     out[action] = action in userOverrides ? userOverrides[action] : def.defaultKey;

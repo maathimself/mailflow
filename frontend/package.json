@@ -1,6 +1,6 @@
 {
   "name": "mailflow-frontend",
-  "productName": "MailFlow",
+  "productName": "muconaFlow",
   "version": "3.3.0",
   "description": "A self-hosted, unified webmail client.",
   "homepage": "https://mailflow.sh",
@@ -41,7 +41,7 @@
   },
   "build": {
     "appId": "sh.mailflow.app",
-    "productName": "MailFlow",
+    "productName": "muconaFlow",
     "executableName": "MailFlow",
     "directories": {
       "output": "packages/release",
@@ -50,7 +50,7 @@
     "icon": "icon",
     "protocols": [
       {
-        "name": "MailFlow email link",
+        "name": "muconaFlow email link",
         "schemes": [
           "mailto"
         ]
@@ -103,8 +103,8 @@
       "category": "Network",
       "desktop": {
         "entry": {
-          "Name": "MailFlow",
-          "StartupWMClass": "MailFlow"
+          "Name": "muconaFlow",
+          "StartupWMClass": "muconaFlow"
         }
       }
     },
@@ -118,7 +118,7 @@
       "fpm": [
         "--replaces=mailflow-frontend",
         "--conflicts=mailflow-frontend",
-        "packages/electron/package-type/deb=/opt/MailFlow/resources/package-type",
+        "packages/electron/package-type/deb=/opt/muconaFlow/resources/package-type",
         "packages/electron/metainfo/sh.mailflow.app.metainfo.xml=/usr/share/metainfo/sh.mailflow.app.metainfo.xml"
       ]
     },
@@ -130,7 +130,7 @@
       ],
       "fpm": [
         "--replaces=mailflow-frontend",
-        "packages/electron/package-type/rpm=/opt/MailFlow/resources/package-type"
+        "packages/electron/package-type/rpm=/opt/muconaFlow/resources/package-type"
       ]
     }
   },

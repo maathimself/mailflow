@@ -63,3 +63,30 @@ describe('createUndoableCommit', () => {
     assert.deepEqual(calls, ['commit']);
   });
 });
+
+describe('undoLatestNotification', () => {
+  it('removes and invokes only the newest undoable notification', () => {
+    const invoked = [];
+    const notifications = [
+      { id: 'info' },
+      { id: 'newest', onUndo: () => invoked.push('newest') },
+      { id: 'older-gtd', pluginId: 'gtd', onUndo: () => invoked.push('older-gtd') },
+    ];
+    const removed = [];
+
+    const handled = undoableAction.undoLatestNotification(notifications, id => removed.push(id));
+
+    assert.equal(handled, true);
+    assert.deepEqual(removed, ['newest']);
+    assert.deepEqual(invoked, ['newest']);
+  });
+
+  it('is a no-op without an undoable notification', () => {
+    const handled = undoableAction.undoLatestNotification(
+      [{ id: 'regular', pluginId: 'gtd' }],
+      () => assert.fail('must not remove a notification'),
+    );
+
+    assert.equal(handled, false);
+  });
+});

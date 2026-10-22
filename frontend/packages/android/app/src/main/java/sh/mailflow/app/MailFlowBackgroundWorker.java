@@ -98,7 +98,7 @@ public class MailFlowBackgroundWorker extends Worker {
         connection.disconnect();
 
         if (status < 200 || status >= 300) {
-            throw new IllegalStateException("MailFlow background check failed: HTTP " + status);
+            throw new IllegalStateException("muconaFlow background check failed: HTTP " + status);
         }
 
         return new JSONObject(body);

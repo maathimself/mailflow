@@ -137,7 +137,7 @@ function SidebarCtxMenu({ x, y, items, title, subtitle, onClose }) {
     const handleMouseDown = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) onCloseRef.current();
     };
-    const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
+    const handleKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); onCloseRef.current(); } };
     document.addEventListener('mousedown', handleMouseDown);
     document.addEventListener('keydown', handleKey);
     return () => {
@@ -817,7 +817,7 @@ export default function Sidebar() {
                 color: 'var(--text-primary)',
                 letterSpacing: '-0.02em', whiteSpace: 'nowrap',
               }}>
-                Mail
+                mucona
               </span>
               <span style={{
                 fontFamily: "'Syne', sans-serif",
