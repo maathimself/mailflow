@@ -16,7 +16,7 @@ import { fitInlineImages } from '../services/inlineImageFit.js';
 import { needsCidRefetch, needsImageRefetch, settleCids, settledEarlier, withoutCidMarker } from '../utils/cidRefs.js';
 import { sanitizeDbText, storeFetchedBody } from '../services/messageBodyStore.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, parseMailboxList, buildHeadersFromMessage } from '../services/messageParser.js';
-import { draftMessageSql, resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
+import { draftMessageSql, resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings, readCopyTargets, pushSeen } from '../utils/mailUtils.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { listMessages } from '../services/messageService.js';
 import { recordSyncSignal } from '../services/diagnosticsRing.js';
@@ -1051,11 +1051,13 @@ router.patch('/messages/:id/read', async (req, res) => {
   // those rows (and their folder unread counts) so label views don't go stale. Gated on
   // gtd_enabled (so a non-GTD account is byte-identical to pre-GTD behaviour) AND on the
   // message actually having siblings — a plain single-folder message keeps the PK-only
-  // fast path. The IMAP \Seen flag is written to the acted folder only (below): Gmail
-  // propagates \Seen message-wide server-side, and per-copy writes to N folders would
-  // multiply round-trips — an asymmetry accepted in the GTD design.
+  // fast path. Gmail propagates Seen message-wide; per-copy servers need a write to
+  // each eligible flipped copy. Added writes do not delay this request's response.
+  const account = accountResult.rows[0];
+  let copies = [];
   if (Number(message.sibling_count) > 1 && await accountMaintainsLabelSiblings(message.account_id)) {
-    await fanOutReadToSiblings(message.account_id, message.message_id, read);
+    const flipped = await fanOutReadToSiblings(message.account_id, message.message_id, read) || [];
+    if (account && !imapManager.isLabelStore(account)) copies = flipped;
   }
 
   try {
@@ -1066,6 +1068,14 @@ router.patch('/messages/:id/read', async (req, res) => {
     // Push failed — queue a durable retry so a later flag-sync pull can't silently revert
     // the user's change once the 30s local-wins window lapses.
     imapManager._enqueueFlagPush(message.account_id, id, '\\Seen', read);
+  }
+
+  if (copies.length) {
+    (async () => {
+      const flippedIds = new Set(copies.map(r => r.id));
+      const targets = await readCopyTargets(message.account_id, message.message_id, message);
+      await pushSeen(imapManager, account, message.account_id, targets.filter(r => r.id !== id && flippedIds.has(r.id)), read);
+    })().catch(err => console.warn('Read-copy push failed:', err.message));
   }
 
   // Refresh GTD section data if this message's thread carries a GTD label (its head shows read state).
@@ -1438,8 +1448,7 @@ router.post('/messages/bulk-read', async (req, res) => {
     // belongs to a gtd_enabled account, adjusting each sibling folder's unread count.
     // Gating on gtd_enabled keeps a non-GTD account byte-identical to pre-GTD (no extra
     // fan-out query); the fan-out itself is also self-limiting for messages without
-    // siblings. IMAP \Seen is still written per acted row only (below); Gmail propagates
-    // it message-wide server-side.
+    // siblings. Gmail propagates Seen; other servers also push eligible flipped copies.
     // gtdUpdatedIds is scoped to toUpdate (rows whose read-state actually changed), so a
     // message already at the target state never triggers sibling fan-out here — unlike the
     // single-message handler above, which fans out unconditionally regardless of whether the
@@ -1452,7 +1461,7 @@ router.post('/messages/bulk-read', async (req, res) => {
       if (await accountMaintainsLabelSiblings(aid)) gtdAccts.add(aid);
     }));
     const gtdUpdatedIds = toUpdate.filter(m => gtdAccts.has(m.account_id)).map(m => m.id);
-    if (gtdUpdatedIds.length) await fanOutBulkReadToSiblings(gtdUpdatedIds, read);
+    const siblings = gtdUpdatedIds.length ? await fanOutBulkReadToSiblings(gtdUpdatedIds, read) || [] : [];
     // Reflect the bulk read/unread change on the user's other sessions in place (no full refetch).
     imapManager.broadcast({ type: 'message_flags', changes: toUpdate.map(m => ({ id: m.id, is_read: read })) }, req.session.userId);
 
@@ -1477,6 +1486,17 @@ router.post('/messages/bulk-read', async (req, res) => {
           imapManager._resolveFlagPush(accountId, msgs[i].id, '\\Seen'); // confirmed
         }
       });
+      if (siblings.length && gtdAccts.has(accountId) && account && !imapManager.isLabelStore(account)) {
+        (async () => {
+          const targets = [];
+          for (const mid of new Set(msgs.map(m => m.message_id))) {
+            targets.push(...await readCopyTargets(accountId, mid, msgs));
+          }
+          const acted = new Set(msgs.map(m => m.id));
+          const flipped = new Set(siblings.filter(r => r.account_id === accountId).map(r => r.id));
+          await pushSeen(imapManager, account, accountId, targets.filter(r => !acted.has(r.id) && flipped.has(r.id)), read);
+        })().catch(err => console.warn('Bulk read-copy push failed:', err.message));
+      }
     }
 
     // Refresh GTD section data for any updated thread that carries a GTD label.
