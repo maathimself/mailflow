@@ -6268,6 +6268,18 @@ export class ImapManager {
     return providerProfile(account).labelStore === true;
   }
 
+  // Whether the server names a moved message's new uid (UIDPLUS). Without it a moved row keeps
+  // its old uid at the destination, where it can name another message until a sync. A failed
+  // check answers no.
+  async supportsUidPlus(account) {
+    try {
+      return await withFreshClient(account, async client => client.capabilities?.has('UIDPLUS') === true);
+    } catch (err) {
+      console.warn(`UIDPLUS check failed for account ${account.id}: ${err.message}`);
+      return false;
+    }
+  }
+
   // A cached sibling is not evidence that mail survives an automatic label strip.
   // Check the exact physical UID and RFC identity on the server, without SEARCH's
   // substring matching. Errors propagate so the caller conservatively keeps mail.

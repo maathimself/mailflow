@@ -53,6 +53,8 @@ const imapManager = {
   broadcast: vi.fn(),
   hasMessageCopy: vi.fn(),
   isLabelStore: vi.fn(),
+  supportsUidPlus: vi.fn(),
+  syncFolderOnDemand: vi.fn(),
 };
 setMailEngine(imapManager);
 import gtdRoutes from './routes.js';
@@ -138,6 +140,8 @@ beforeEach(() => {
   // By default the server confirms a surviving copy, and the account is not Gmail.
   imapManager.hasMessageCopy.mockResolvedValue(true);
   imapManager.isLabelStore.mockReturnValue(false);
+  imapManager.supportsUidPlus.mockResolvedValue(true);
+  imapManager.syncFolderOnDemand.mockResolvedValue(undefined);
 });
 
 describe('POST /api/gtd/done — id validation', () => {
@@ -182,22 +186,36 @@ describe('POST /api/gtd/done — strip-ok + archive-fail', () => {
     expect(adjustFolderCounts).not.toHaveBeenCalled();
   });
 
-  it('releases both move guards when the non-UIDPLUS archive write throws', async () => {
+  it('releases the move guard when the non-UIDPLUS archive write throws', async () => {
     query.mockImplementation(async (sql) => {
       if (sql.startsWith('SELECT DISTINCT folder FROM messages')) return { rows: [{ folder: 'INBOX' }] };
       if (sql.includes('FROM messages m') && sql.includes('JOIN email_accounts')) return { rows: [msg] };
       if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [account] };
       if (sql.startsWith('SELECT id, uid, is_read FROM messages')) return { rows: [inboxCopy] };
       if (sql.startsWith('SELECT uid FROM messages')) return { rows: [{ uid: 10 }] };
-      if (sql.startsWith('UPDATE messages SET folder')) throw new Error('archive write failed');
+      if (sql.startsWith('DELETE FROM messages')) throw new Error('archive write failed');
       return { rows: [] };
     });
     imapManager.moveMessage.mockResolvedValue(null);
     const res = await done({ id: MSG_ID, states: ['watch'] });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, archived: false, archiveFailed: true });
-    expect(imapManager._unguardMoveUid).toHaveBeenCalledWith(ACCT_ID, 'Archive', inboxCopy.uid);
     expect(imapManager._unguardMoveUid).toHaveBeenCalledWith(ACCT_ID, 'INBOX', inboxCopy.uid);
+    expect(imapManager._guardMoveUid).not.toHaveBeenCalledWith(ACCT_ID, 'Archive', inboxCopy.uid);
+  });
+
+  // The source uid at the destination may belong to another message, or to none and hide the
+  // moved one, so the row is dropped and a sync of Archive files the message under its real uid.
+  it('drops the row and syncs Archive when the move names no new uid', async () => {
+    stubQueries({ archiveWrite: { rowCount: 1, rows: [{ is_read: true }] } });
+    imapManager.moveMessage.mockResolvedValue(null);
+    const res = await done({ id: MSG_ID, states: ['watch'] });
+    expect(await res.json()).toMatchObject({ ok: true, archived: true, archiveFailed: false });
+    const writes = query.mock.calls.map(([sql]) => sql).filter(sql => /^(UPDATE messages SET folder|DELETE FROM messages)/.test(sql));
+    expect(writes).toEqual([expect.stringMatching(/^DELETE FROM messages WHERE id = \$1 AND folder = \$2/)]);
+    expect(imapManager.syncFolderOnDemand).toHaveBeenCalledWith(account, 'Archive');
+    expect(adjustFolderCounts).toHaveBeenCalledWith(ACCT_ID, 'INBOX', -1, 0);
+    expect(adjustFolderCounts).not.toHaveBeenCalledWith(ACCT_ID, 'Archive', expect.anything(), expect.anything());
   });
 
   it('full success: archived=true, archiveFailed=false, noArchiveFolder=false', async () => {
@@ -510,6 +528,7 @@ describe('POST /api/gtd/done — a GTD folder holding the only copy', () => {
 describe('POST /api/gtd/done — strips every copy in the thread', () => {
   const A = '<a@x>';
   const B = '<b@x>';
+  const C = '<c@x>';
   const row = (uid, folder, messageId, extra = {}) => ({
     id: `row-${uid}`, account_id: ACCT_ID, uid, folder, message_id: messageId, thread_key: 'T', is_read: true, ...extra,
   });
@@ -835,6 +854,109 @@ describe('POST /api/gtd/done — strips every copy in the thread', () => {
     expect(moves).toEqual(expect.arrayContaining([[77, 'INBOX', 'Archive'], [55, 'INBOX', 'Archive']]));
     expect(moves).toHaveLength(2);
     expect(removedCopies()).toEqual([[5, 'Watch'], [6, 'Watch']]);
+  });
+
+  // Without UIDPLUS a moved row keeps its old uid in Archive, where it can name another message.
+  describe('on a server without UIDPLUS', () => {
+    beforeEach(() => { imapManager.supportsUidPlus.mockResolvedValue(false); });
+
+    it('moves only the acted message\'s own copy and leaves the other messages\' copies that need a move', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const acted = row(6, 'Watch', B, { id: MSG_ID });
+        stubThread([row(5, 'Watch', A), row(55, 'INBOX', C), acted, row(77, 'INBOX', B)], acted);
+        imapManager.moveMessage.mockResolvedValue(null);
+        const res = await done({ id: MSG_ID, states: ['watch'] });
+        expect(await res.json()).toMatchObject({ ok: true, archived: true, archiveFailed: true, threadRemains: true });
+        expect(imapManager.moveMessage.mock.calls.map(c => [c[1], c[2]])).toEqual([[77, 'INBOX']]);
+        expect(removedCopies()).toEqual([[6, 'Watch']]);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('still deletes another message\'s GTD copy that another copy keeps, before any move', async () => {
+      const acted = row(6, 'Watch', B, { id: MSG_ID });
+      stubThread([row(5, 'Watch', A), row(15, 'Receipts', A), acted, row(77, 'INBOX', B)], acted);
+      imapManager.moveMessage.mockResolvedValue(null);
+      const res = await done({ id: MSG_ID, states: ['watch'] });
+      expect(await res.json()).toMatchObject({ ok: true, archived: true, threadRemains: false });
+      expect(removedCopies()).toEqual([[5, 'Watch'], [6, 'Watch']]);
+      expect(imapManager.removeMessageCopy.mock.invocationCallOrder[0]).toBeLessThan(imapManager.moveMessage.mock.invocationCallOrder[0]);
+    });
+
+    it('archives a kept only copy of the acted message', async () => {
+      const acted = row(6, 'Watch', B, { id: MSG_ID });
+      stubThread([acted, row(5, 'Watch', A), row(15, 'Receipts', A)], acted);
+      imapManager.moveMessage.mockResolvedValue(null);
+      const res = await done({ id: MSG_ID, states: ['watch'] });
+      expect(await res.json()).toMatchObject({ ok: true, archived: true, threadRemains: false });
+      expect(imapManager.moveMessage.mock.calls.map(c => [c[1], c[2]])).toEqual([[6, 'Watch']]);
+    });
+
+    it('does not move the acted message\'s extra INBOX row', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const acted = row(6, 'Watch', B, { id: MSG_ID });
+        stubThread([acted, row(77, 'INBOX', B), row(78, 'INBOX', B)], acted);
+        imapManager.moveMessage.mockResolvedValue(null);
+        const res = await done({ id: MSG_ID, states: ['watch'] });
+        expect(await res.json()).toMatchObject({ ok: true, archived: true, archiveFailed: true });
+        expect(imapManager.moveMessage.mock.calls.map(c => c[1])).toEqual([77]);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('treats a failed capability check like a server without UIDPLUS', async () => {
+      // supportsUidPlus answers false when its own check fails; the route never sees a throw.
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const acted = row(6, 'Watch', B, { id: MSG_ID });
+        stubThread([row(5, 'Watch', A), acted, row(77, 'INBOX', B)], acted);
+        imapManager.moveMessage.mockResolvedValue(88);
+        const res = await done({ id: MSG_ID, states: ['watch'] });
+        expect(await res.json()).toMatchObject({ ok: true, threadRemains: true });
+        expect(imapManager.moveMessage.mock.calls.map(c => c[1])).toEqual([77]);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+  });
+
+  // A server can claim UIDPLUS and still answer a move without the new uid.
+  it('stops moving other messages\' copies once a move comes back without its new uid', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const acted = row(6, 'Watch', B, { id: MSG_ID });
+      stubThread([row(5, 'Watch', A), row(8, 'Watch', C), row(55, 'INBOX', C), acted, row(77, 'INBOX', B)], acted);
+      imapManager.hasMessageCopy.mockImplementation(async (_acct, uid, folder) => !(folder === 'INBOX' && Number(uid) === 55));
+      imapManager.moveMessage.mockResolvedValue(null);
+      const res = await done({ id: MSG_ID, states: ['watch'] });
+      expect(await res.json()).toMatchObject({ ok: true, threadRemains: true });
+      expect(imapManager.moveMessage.mock.calls.map(c => [c[1], c[2]])).toEqual([[5, 'Watch'], [77, 'INBOX']]);
+      expect(removedCopies()).toEqual([[6, 'Watch']]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('keeps archiving the whole conversation on a UIDPLUS server whose moves name the new uid', async () => {
+    const acted = row(6, 'Watch', B, { id: MSG_ID });
+    stubThread([row(5, 'Watch', A), row(8, 'Watch', C), row(55, 'INBOX', A), acted, row(77, 'INBOX', B)], acted);
+    imapManager.moveMessage.mockResolvedValue(88);
+    const res = await done({ id: MSG_ID, states: ['watch'] });
+    expect(await res.json()).toMatchObject({ ok: true, archived: true, archiveFailed: false });
+    expect(imapManager.moveMessage.mock.calls.map(c => c[1])).toEqual([8, 77, 55]);
+    expect(removedCopies()).toEqual([[5, 'Watch'], [6, 'Watch']]);
+  });
+
+  it('asks nothing about UIDPLUS for the inbox checkmark', async () => {
+    const acted = row(77, 'INBOX', B, { id: MSG_ID });
+    stubThread([row(55, 'INBOX', A), acted], acted);
+    imapManager.moveMessage.mockResolvedValue(88);
+    await done({ id: MSG_ID });
+    expect(imapManager.supportsUidPlus).not.toHaveBeenCalled();
   });
 
   it('archives only the acted message\'s INBOX copy when done from the inbox', async () => {

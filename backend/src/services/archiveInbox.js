@@ -29,10 +29,10 @@ import { resolveArchiveFolder, isAllMailFolder, adjustFolderCounts } from '../ut
 // Guard protocol (ref-counted _guardMoveUid/_unguardMoveUid, byte-equivalent to the move
 // paths): the source (INBOX, uid) is guarded for the whole move so reconcileDeletes can't
 // treat the row as an orphan mid-flight; released in the finally so it is freed even when the
-// move or write throws. On a non-UIDPLUS server the new destination uid is unknown, so the DB
-// row keeps the stale source uid at the destination — guard (Archive, uid) too, and hold that
-// guard for the sync that learns the real uid only when the row was actually moved; a lost
-// race (rowCount 0) or a throw releases it immediately, since there is nothing to protect.
+// move or write throws. On a non-UIDPLUS server the new destination uid is unknown, and the
+// source uid at the destination can belong to another message (or to none, hiding the moved
+// one). So the row is dropped instead of kept on that uid, and a sync of the destination files
+// the message under its real uid; the destination's counts come from that sync.
 // `fromFolder` defaults to INBOX. GTD's /done also passes a label folder, to archive a copy that
 // is the message's only one instead of deleting it. The counts move the row's own unread, read
 // back from the guarded write, so an unread copy archives unread.
@@ -43,7 +43,6 @@ export async function archiveInboxCopy(imapManager, account, inboxCopy, fromFold
 
   const allMail = await isAllMailFolder(accountId, archiveFolder);
   imapManager._guardMoveUid(accountId, fromFolder, inboxCopy.uid);
-  let destGuardHeld = false;
   try {
     const newUid = await imapManager.moveMessage(account, inboxCopy.uid, fromFolder, archiveFolder);
     let applied;
@@ -55,25 +54,23 @@ export async function archiveInboxCopy(imapManager, account, inboxCopy, fromFold
       write = await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3 AND folder = $4 RETURNING is_read', [archiveFolder, newUid, inboxCopy.id, fromFolder]);
       applied = write.rowCount > 0;
     } else {
-      imapManager._guardMoveUid(accountId, archiveFolder, inboxCopy.uid);
-      destGuardHeld = true;
-      write = await query('UPDATE messages SET folder = $1 WHERE id = $2 AND folder = $3 RETURNING is_read', [archiveFolder, inboxCopy.id, fromFolder]);
+      write = await query('DELETE FROM messages WHERE id = $1 AND folder = $2 RETURNING is_read', [inboxCopy.id, fromFolder]);
       applied = write.rowCount > 0;
-      // Hold the destination guard for the sync that learns the real uid only when we
-      // actually moved the row; a lost race releases it immediately (nothing to protect).
-      if (applied) setTimeout(() => imapManager._unguardMoveUid(accountId, archiveFolder, inboxCopy.uid), 10_000);
-      else imapManager._unguardMoveUid(accountId, archiveFolder, inboxCopy.uid);
-      destGuardHeld = false;
     }
+    const uidKnown = allMail || newUid != null;
     if (applied) {
       const unread = write.rows?.[0]?.is_read === false ? 1 : 0;
       adjustFolderCounts(accountId, fromFolder, -1, unread ? -1 : 0);
-      if (!allMail) adjustFolderCounts(accountId, archiveFolder, 1, unread);
+      if (!allMail && uidKnown) adjustFolderCounts(accountId, archiveFolder, 1, unread);
+      if (!uidKnown) {
+        imapManager.syncFolderOnDemand(account, archiveFolder)
+          .catch(err => console.warn(`Archive: sync of ${archiveFolder} after a move without UIDPLUS failed: ${err.message}`));
+      }
     }
-    return { archived: applied, noArchiveFolder: false };
+    // uidKnown: whether the server named the moved message's new uid. Without it the row was
+    // dropped and waits for the destination's sync.
+    return { archived: applied, noArchiveFolder: false, uidKnown };
   } finally {
     imapManager._unguardMoveUid(accountId, fromFolder, inboxCopy.uid);
-    // Release the destination guard when its DB write throws before normal handoff.
-    if (destGuardHeld) imapManager._unguardMoveUid(accountId, archiveFolder, inboxCopy.uid);
   }
 }
