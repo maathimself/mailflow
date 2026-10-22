@@ -4,16 +4,18 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { BUILTIN_SUMMARIZE, buildAiActionContent, summarizePromptForLocale } from '../aiActions.js';
 import { getResults, saveResult, removeResult } from '../aiResults.js';
+import { aiMessageText } from '../utils/aiMessageText.js';
 import { aiRuns } from '../utils/aiRunRegistry.js';
-import { stripTags } from '../utils/stripTags.js';
 
 // AI actions on one message, shared by the reading pane and the conversation view (#521).
 //
-// Results are pinned per message and persisted (#204), so they reappear when the message is
-// shown again. A run is not aborted when the message stops being shown: it saves its result
-// against the message it started from and only paints while that message is on screen (#428).
-// Dismissal, re-running the same action, and an identity change cancel a run.
-export function useAiActions(messageId, body) {
+// Results are pinned per message and persisted (#204), so they reappear when the message
+// is shown again. A run is not aborted when the message stops being shown: it saves its
+// result against the message it started from and only paints while that message is on
+// screen (#428). Dismissal, re-running the same action, and an identity change cancel a run.
+// The envelope subject reaches the built-in action: an Outlook forward has no marker in
+// the body, and "Fwd:" on the subject is what tells it from a reply (#647 review).
+export function useAiActions(messageId, body, subject) {
   const { t, i18n } = useTranslation();
   const aiActions = useStore(s => s.aiActions);
   const [results, setResults] = useState({});
@@ -57,9 +59,13 @@ export function useAiActions(messageId, body) {
       }
     }
 
-    const textContent = body?.text
-      || (body?.html ? stripTags(body.html).replace(/\s+/g, ' ').trim() : '')
-      || '';
+    // The model reads what the user reads: the visible text of the message, without CSS
+    // or bare URLs (#646). The built-in action also gets trailing quoted history cut;
+    // custom actions are sent whole — their prompts may need the thread and the links,
+    // and cutting is lossy on forwards and inline replies (#647 review). aiMessageText
+    // subsumes the linear-time stripTags of 1903651: extraction is DOMParser-based,
+    // linear on hostile input, and leaves no tag debris or CSS either.
+    const textContent = aiMessageText(body, { full: !action.builtin, subject });
     if (!textContent) return;
 
     const actionLabel = label(key, action.label);

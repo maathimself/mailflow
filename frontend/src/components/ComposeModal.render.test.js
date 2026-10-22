@@ -1012,3 +1012,97 @@ describe('pasting text copied from an email', () => {
     assert.doesNotMatch(posted[0].payload.body, /background-color|(?<![\w-])color\s*:/);
   });
 });
+
+describe('pasting into the signature and the quoted message', () => {
+  // What Chrome puts on the clipboard for two paragraphs copied out of the message pane: each <p>
+  // carries the email frame's white page and #1a1a1a text. utils/contentEditablePaste.test.js
+  // covers the other shapes a copy takes; this checks both areas are wired to drop the colors.
+  const PAGE = 'color: rgb(26, 26, 26); font-family: -apple-system, Arial, sans-serif; font-size: 14px; font-style: normal; font-variant-ligatures: normal; font-variant-caps: normal; font-weight: 400; letter-spacing: normal; orphans: 2; text-align: start; text-indent: 0px; text-transform: none; widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; white-space: normal; background-color: rgb(255, 255, 255); text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial;';
+  const COPIED = `<meta charset='utf-8'><p id="p1" style="${PAGE}">Hi Marty,</p><p id="p2" style="${PAGE}">The ice resurfacer is booked.</p>`;
+  const Host = () => (useStore(s => s.composing) ? React.createElement(ComposeModal) : null);
+  const posted = [];
+
+  // jsdom has no editing, so this stands in for the browser twice: insertHTML puts its HTML at
+  // the caret and fires input, and a paste the page does not cancel inserts the clipboard's HTML
+  // as it is, which is what the browser's own paste keeps of the colors.
+  function insertAtCaret(target, html) {
+    const selection = window.getSelection();
+    let range = selection.rangeCount ? selection.getRangeAt(0) : null;
+    if (!range || !target.contains(range.commonAncestorContainer)) {
+      range = document.createRange();
+      range.selectNodeContents(target);
+      range.collapse(false);
+    }
+    range.deleteContents();
+    range.insertNode(range.createContextualFragment(html));
+    target.dispatchEvent(new window.Event('input', { bubbles: true }));
+  }
+  function paste(target, html) {
+    document.execCommand = (command, showUi, value) => {
+      if (command !== 'insertHTML') return false;
+      insertAtCaret(target, value);
+      return true;
+    };
+    try {
+      const event = new window.Event('paste', { bubbles: true, cancelable: true });
+      event.clipboardData = { getData: type => (type === 'text/html' ? html : '') };
+      target.dispatchEvent(event);
+      if (!event.defaultPrevented) insertAtCaret(target, html);
+    } finally {
+      delete document.execCommand;
+    }
+  }
+
+  // Opens a reply with a signature and a quoted message, pastes the copy into both, and sends it.
+  // Returns the payload the server was sent.
+  async function pasteAndSend({ phone }) {
+    posted.length = 0;
+    useStore.setState({
+      plaintextEmail: false, notifications: [], composing: false, composeData: null,
+      accounts: [{ id: 'acct', enabled: true, email_address: 'me@example.invalid', name: 'Me', color: '#fff', signature: '<p>Marty Example</p>' }],
+    });
+    api.post = async (path, payload) => { posted.push({ path, payload }); return { ok: true }; };
+    useStore.getState().openCompose({
+      accountId: 'acct', isReply: true, to: ['Bob <bob@example.invalid>'], cc: [], subject: 'Re: Rink', body: '',
+      quotedBodyHtml: '<p>Original message</p>',
+    });
+    const width = window.innerWidth;
+    if (phone) Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 375 });
+    const root = createRoot(document.getElementById('root'));
+    try {
+      await React.act(async () => { root.render(React.createElement(Host)); });
+      await React.act(async () => {});
+      const buttons = () => [...document.querySelectorAll('button')];
+      // Only the phone layout shows Reply and Reply All side by side.
+      assert.equal(buttons().some(b => b.textContent === 'compose.replyAll'), phone, 'precondition: the layout under test is rendered');
+      const editable = (text) => [...document.querySelectorAll('[contenteditable]')].find(el => el.textContent.includes(text));
+      const signature = editable('Marty Example');
+      const quoted = editable('Original message');
+      assert.ok(signature && quoted, 'precondition: the signature and the quoted message are editable');
+      await React.act(async () => { paste(signature, COPIED); });
+      await React.act(async () => { paste(quoted, COPIED); });
+      await React.act(async () => { buttons().find(b => b.textContent.trim() === 'compose.send').click(); });
+      await React.act(async () => {});
+      assert.equal(posted.length, 1);
+      return posted[0].payload;
+    } finally {
+      await React.act(async () => root.unmount());
+      Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width });
+    }
+  }
+
+  function assertNoCopiedColor({ editedSignature, quotedBodyHtml }) {
+    for (const [name, html] of [['signature', editedSignature], ['quoted message', quotedBodyHtml]]) {
+      assert.match(html, /The ice resurfacer is booked\./, `the paste reached the ${name}`);
+      assert.doesNotMatch(html, /background-color|(?<![\w-])color\s*:/, `the ${name} carries no copied color`);
+    }
+  }
+
+  test('the reply is sent without the colors of the email the text came from', async () => {
+    assertNoCopiedColor(await pasteAndSend({ phone: false }));
+  });
+
+  test('and so it is from the phone layout, which has its own quoted message', async () => {
+    assertNoCopiedColor(await pasteAndSend({ phone: true }));
+  });
+});

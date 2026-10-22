@@ -296,7 +296,8 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
         contextMenuDoc.removeEventListener('contextmenu', iframeContextMenuHandler);
       }
       iframeContextMenuHandler = (ev) => {
-        if (nativeTargetRef.current?.(ev, doc)) return;
+        // A conversation card has no menu of its own: the browser's shows there.
+        if (!onContextMenuRef.current || nativeTargetRef.current?.(ev, doc)) return;
         ev.preventDefault();
         const rect = iframe.getBoundingClientRect();
         onContextMenuRef.current?.(rect.left + ev.clientX, rect.top + ev.clientY, {
