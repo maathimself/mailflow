@@ -354,7 +354,7 @@ describe('conversation actions', () => {
           ? { ok: true, status: 200, json: async () => ({ ok: true }) }
           : { ok: false, status: 500, json: async () => ({ error: 'IMAP store failed' }) };
       }
-      if (String(url).includes('/ai/status')) return { ok: true, status: 200, json: async () => ({ enabled: true, features: { summarize: true } }) };
+      if (String(url).includes('/ai/status')) return { ok: true, status: 200, json: async () => ({ enabled: true, features: { summarize: true, compose: true } }) };
       if (String(url).includes('/ai/chat')) {
         const sse = 'data: {"choices":[{"delta":{"content":"Short "}}]}\n\ndata: {"choices":[{"delta":{"content":"summary."}}]}\n\ndata: [DONE]\n\n';
         return new Response(sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
@@ -441,6 +441,23 @@ describe('conversation actions', () => {
     assert.equal(JSON.parse(chat.body).purpose, 'summarize', 'under the summaries switch (#644)');
     assert.match(card('m1').textContent, /Short summary\./, 'the result is pinned on this message');
     assert.doesNotMatch(card('m3').textContent, /Short summary/, 'and only on this message');
+  });
+
+  test('Reply with AI opens the reply to this message with the instruction panel', async () => {
+    const aiReply = button('m1', 'compose.toolbar.aiReply');
+    assert.ok(aiReply, 'an open message offers it when the AI can write replies');
+    await click(aiReply);
+    const data = useStore.getState().composeData;
+    assert.equal(data?.aiReply, true);
+    assert.equal(data.inReplyTo, '<1@x>');
+    await React.act(async () => { useStore.getState().closeCompose(); });
+  });
+
+  test('Reply with AI is not offered to a user who writes in plain text', async () => {
+    await React.act(async () => { useStore.setState({ plaintextEmail: true }); });
+    assert.equal(button('m1', 'compose.toolbar.aiReply'), undefined);
+    await React.act(async () => { useStore.setState({ plaintextEmail: false }); });
+    assert.ok(button('m1', 'compose.toolbar.aiReply'));
   });
 
   test('the print shortcut prints the selected message', async () => {
