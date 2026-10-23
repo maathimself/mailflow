@@ -4,7 +4,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   aiReplyAvailable, stripQuotedReply, htmlToText, unquote, pickContextMessages, ownAddresses, toContextMessage,
-  loadReplyConversation, buildReplyPrompt, buildDraftPrompt, aiTextToHtml,
+  loadReplyConversation, buildReplyPrompt, buildDraftPrompt,
   MAX_CONTEXT_MESSAGES, MAX_INSTRUCTION_CHARS,
 } from './aiReply.js';
 import { AI_MESSAGE_MAX_CHARS } from '../aiActions.js';
@@ -406,30 +406,5 @@ describe('buildDraftPrompt', () => {
   test('signs with the sender\'s name when there is no signature, instead of a placeholder', () => {
     assert.match(buildDraftPrompt({ senderName: 'Mateus' })[0].content, /Sign off with the name Mateus\./);
     assert.match(buildDraftPrompt({})[0].content, /End with a brief closing line\./);
-  });
-});
-
-describe('aiTextToHtml', () => {
-  test('stays linear on a long run of spaces', () => {
-    const started = performance.now();
-    aiTextToHtml(`${' '.repeat(200_000)}x`);
-    assert.ok(performance.now() - started < 1000);
-  });
-
-  test('keeps the blank line between paragraphs, and a line break within one', () => {
-    // The editor sets paragraphs almost touching, so the blank line is an empty paragraph, as
-    // Enter pressed twice leaves it; without it the text ran together once applied.
-    assert.equal(aiTextToHtml('Hi Ana,\n\nApproved.\nThanks'), '<p>Hi Ana,</p><p></p><p>Approved.<br>Thanks</p>');
-  });
-
-  test('reads a blank line with spaces in it, or Windows line endings, as a blank line', () => {
-    assert.equal(aiTextToHtml('One.\n  \nTwo.\r\n\r\nThree.\n\n\n\nFour.'), '<p>One.</p><p></p><p>Two.</p><p></p><p>Three.</p><p></p><p>Four.</p>');
-  });
-
-  test('keeps markup the AI wrote as text, so an email cannot put a link into the reply', () => {
-    assert.equal(
-      aiTextToHtml('See <a href="https://evil.example">here</a> & <img src=x onerror=alert(1)>'),
-      '<p>See &lt;a href=&quot;https://evil.example&quot;&gt;here&lt;/a&gt; &amp; &lt;img src=x onerror=alert(1)&gt;</p>',
-    );
   });
 });

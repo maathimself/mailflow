@@ -30,7 +30,7 @@ import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } f
 import { resolveSignatureEnabled } from '../utils/composeSignature.js';
 import { UNDO_SEND_SECONDS, undoWindowMs, trackHeldSend, reopenCompose } from '../utils/heldSend.js';
 import { openSentMessage } from '../utils/openSentMessage.js';
-import { loadReplyConversation, buildReplyPrompt, buildDraftPrompt, aiTextToHtml, MAX_INSTRUCTION_CHARS } from '../utils/aiReply.js';
+import { loadReplyConversation, buildReplyPrompt, buildDraftPrompt, MAX_INSTRUCTION_CHARS } from '../utils/aiReply.js';
 import { frameGeometry } from '../utils/frameGeometry.js';
 import { AI_MESSAGE_MAX_CHARS } from '../aiActions.js';
 import { stripTags } from '../utils/stripTags.js';
