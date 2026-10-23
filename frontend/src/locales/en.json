@@ -983,6 +983,7 @@
       "errorPasswordRequired": "Password is required for new accounts",
       "microsoftImapUnsupported": "Outlook.com / Hotmail requires OAuth2 (Modern Auth)",
       "microsoftImapNote": "Microsoft has disabled password-based (basic auth) IMAP for personal Outlook.com, Hotmail, and Live accounts. You can still connect these accounts using Microsoft OAuth2 (Modern Auth) — configure it under Integrations → Microsoft 365 / Outlook.com. The device-code sign-in works best for personal accounts, and no app password is needed.",
+      "microsoftImapNoteReady": "Microsoft has disabled password-based (basic auth) IMAP for personal Outlook.com, Hotmail, and Live accounts. Connect this account under Integrations → Microsoft 365 / Outlook.com instead: the device-code sign-in needs no setup and no app password.",
       "reindex": "Re-index for search",
       "reindexing": "Indexing messages...",
       "reindexProgress": "{{synced}} / {{total}} messages indexed",
@@ -1621,7 +1622,13 @@
         "deviceCodeExpired": "Code expired. Click start again.",
         "deviceCodeDeclined": "Authorization was declined.",
         "deviceCodeError": "An error occurred. Please try again.",
-        "deviceCodeCancel": "Cancel"
+        "deviceCodeCancel": "Cancel",
+        "personalReady": "Personal accounts ready",
+        "builtinTitle": "Connect a personal Microsoft account",
+        "builtinNote": "No setup needed for Outlook.com, Hotmail, Live and MSN accounts. This uses MailFlow's shared Microsoft app, which Microsoft may label as unverified. You sign in on Microsoft's own page in your browser, and Microsoft sends the tokens straight to this server: MailFlow's maintainers never see your mail or tokens. Work or school accounts need an app registered by your administrator.",
+        "builtinToggle": "Offer MailFlow's app for personal accounts",
+        "builtinToggleDesc": "While no Client ID is saved, personal Outlook.com and Hotmail accounts can sign in through MailFlow's shared app. Turning this off stops new sign-ins through it; accounts already connected through it keep working.",
+        "userNoteBuiltin": "You can connect a personal Outlook.com, Hotmail, Live or MSN account below with no setup. Work or school Microsoft 365 accounts need your administrator to set up Microsoft 365 sign-in."
       },
       "google": {
         "title": "Gmail / Google Workspace",
@@ -1706,7 +1713,8 @@
       "sourceCode": "Source code",
       "sponsor": "Support development",
       "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "githubSponsors": "GitHub Sponsors",
+      "sponsorBlurb": "MailFlow is built and maintained by one person. Sponsorships pay for the time that goes into fixes, reviews and releases."
     },
     "search": {
       "placeholder": "Search settings…",
@@ -1910,6 +1918,7 @@
     "show": "Show right sidebar"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: oldest labeled message age (days): {{count}}",
     "title": "GTD",
     "inbox": "Inbox",
     "waiting": "Waiting",
@@ -1923,6 +1932,8 @@
     "tabEmpty": "Nothing here yet",
     "removeFrom": "Remove from {{state}}",
     "classified": "Label applied",
+    "classifiedMany": "Tagged {{count}} as {{state}}",
+    "classifiedSome": "Tagged {{count}} of {{total}} as {{state}}",
     "classifyFailed": "Couldn't apply label",
     "undoFailed": "Couldn't undo label",
     "removed": "Label removed",
@@ -1931,6 +1942,7 @@
     "done": "Mark done",
     "doneFailed": "Couldn't mark done",
     "doneArchiveFailed": "Marked done, but archiving failed — still in your Inbox",
+    "doneThreadRemains": "Some messages in this conversation couldn't be cleared, so it stays in its GTD section",
     "state": {
       "todo": "Todo",
       "watch": "Watch",

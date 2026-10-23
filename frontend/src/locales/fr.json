@@ -981,6 +981,7 @@
       "errorPasswordRequired": "Le mot de passe est requis pour les nouveaux comptes",
       "microsoftImapUnsupported": "Outlook.com / Hotmail nécessite OAuth2 (Modern Auth)",
       "microsoftImapNote": "Microsoft a désactivé la connexion IMAP par mot de passe (authentification de base) pour les comptes personnels Outlook.com, Hotmail et Live. Vous pouvez toujours connecter ces comptes via Microsoft OAuth2 (Modern Auth) : configurez-le dans Intégrations → Microsoft 365 / Outlook.com. La connexion par code d'appareil convient le mieux aux comptes personnels et ne nécessite aucun mot de passe d'application.",
+      "microsoftImapNoteReady": "Microsoft a désactivé la connexion IMAP par mot de passe (authentification de base) pour les comptes personnels Outlook.com, Hotmail et Live. Connectez plutôt ce compte dans Intégrations → Microsoft 365 / Outlook.com : la connexion par code d'appareil ne demande ni configuration ni mot de passe d'application.",
       "reindex": "Réindexer pour la recherche",
       "reindexing": "Indexation des messages...",
       "reindexProgress": "{{synced}} / {{total}} messages indexés",
@@ -1621,7 +1622,13 @@
         "deviceCodeExpired": "Code expiré. Recommencez.",
         "deviceCodeDeclined": "L'autorisation a été refusée.",
         "deviceCodeError": "Une erreur s'est produite. Veuillez réessayer.",
-        "deviceCodeCancel": "Annuler"
+        "deviceCodeCancel": "Annuler",
+        "personalReady": "Comptes personnels prêts",
+        "builtinTitle": "Connecter un compte Microsoft personnel",
+        "builtinNote": "Aucune configuration requise pour les comptes Outlook.com, Hotmail, Live et MSN. Cette connexion utilise l'application Microsoft partagée de MailFlow, que Microsoft peut signaler comme non vérifiée. Vous vous connectez sur la page de Microsoft dans votre navigateur, et Microsoft envoie les jetons directement à ce serveur : les mainteneurs de MailFlow ne voient jamais vos e-mails ni vos jetons. Les comptes professionnels ou scolaires nécessitent une application enregistrée par votre administrateur.",
+        "builtinToggle": "Proposer l'application MailFlow pour les comptes personnels",
+        "builtinToggleDesc": "Tant qu'aucun ID client n'est enregistré, les comptes personnels Outlook.com et Hotmail peuvent se connecter via l'application partagée de MailFlow. La désactiver empêche les nouvelles connexions par ce biais ; les comptes déjà connectés ainsi continuent de fonctionner.",
+        "userNoteBuiltin": "Vous pouvez connecter ci-dessous un compte personnel Outlook.com, Hotmail, Live ou MSN sans aucune configuration. Pour les comptes Microsoft 365 professionnels ou scolaires, votre administrateur doit configurer la connexion Microsoft 365."
       },
       "google": {
         "title": "Gmail / Google Workspace",
@@ -1706,7 +1713,8 @@
       "sourceCode": "Code source",
       "sponsor": "Soutenir le développement",
       "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "githubSponsors": "GitHub Sponsors",
+      "sponsorBlurb": "MailFlow est développé et maintenu par une seule personne. Les parrainages financent le temps consacré aux correctifs, aux revues de code et aux nouvelles versions."
     },
     "search": {
       "placeholder": "Rechercher dans les paramètres…",
@@ -1910,6 +1918,7 @@
     "show": "Afficher la barre latérale droite"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}} : âge du plus ancien message portant cette étiquette (jours) : {{count}}",
     "title": "GTD",
     "inbox": "Boîte de réception",
     "waiting": "En attente",
@@ -1923,6 +1932,8 @@
     "tabEmpty": "Rien ici pour l'instant",
     "removeFrom": "Retirer de {{state}}",
     "classified": "Étiquette appliquée",
+    "classifiedMany": "{{count}} étiquetés {{state}}",
+    "classifiedSome": "{{count}} sur {{total}} étiquetés {{state}}",
     "classifyFailed": "Impossible d'appliquer l'étiquette",
     "undoFailed": "Impossible d'annuler l'étiquette",
     "removed": "Étiquette retirée",
@@ -1931,6 +1942,7 @@
     "done": "Marquer comme terminé",
     "doneFailed": "Impossible de marquer comme terminé",
     "doneArchiveFailed": "Marqué comme terminé, mais l'archivage a échoué — toujours dans la boîte de réception",
+    "doneThreadRemains": "Certains messages de cette conversation n'ont pas pu être retirés, elle reste donc dans sa section GTD",
     "state": {
       "todo": "À faire",
       "watch": "Surveiller",

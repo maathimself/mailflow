@@ -908,6 +908,7 @@
       "errorPasswordRequired": "Für neue Konten ist ein Passwort erforderlich",
       "microsoftImapUnsupported": "Outlook.com / Hotmail erfordert OAuth2 (Modern Auth)",
       "microsoftImapNote": "Microsoft hat die passwortbasierte IMAP-Anmeldung (Basic Auth) für persönliche Outlook.com-, Hotmail- und Live-Konten deaktiviert. Diese Konten lassen sich weiterhin über Microsoft OAuth2 (Modern Auth) verbinden – richten Sie dies unter Integrationen → Microsoft 365 / Outlook.com ein. Die Anmeldung per Gerätecode eignet sich am besten für persönliche Konten, und es wird kein App-Passwort benötigt.",
+      "microsoftImapNoteReady": "Microsoft hat die passwortbasierte IMAP-Anmeldung (Basic Auth) für persönliche Outlook.com-, Hotmail- und Live-Konten deaktiviert. Verbinden Sie dieses Konto stattdessen unter Integrationen → Microsoft 365 / Outlook.com: Die Anmeldung per Gerätecode braucht weder Einrichtung noch App-Passwort.",
       "reindex": "Für die Suche neu indizieren",
       "reindexing": "Nachrichten werden indiziert...",
       "reindexProgress": "{{synced}} / {{total}} Nachrichten indiziert",
@@ -1546,7 +1547,13 @@
         "deviceCodeExpired": "Code abgelaufen. Erneut starten.",
         "deviceCodeDeclined": "Autorisierung wurde abgelehnt.",
         "deviceCodeError": "Ein Fehler ist aufgetreten. Bitte erneut versuchen.",
-        "deviceCodeCancel": "Abbrechen"
+        "deviceCodeCancel": "Abbrechen",
+        "personalReady": "Private Konten bereit",
+        "builtinTitle": "Privates Microsoft-Konto verbinden",
+        "builtinNote": "Für Outlook.com-, Hotmail-, Live- und MSN-Konten ist keine Einrichtung nötig. Dies nutzt die gemeinsame Microsoft-App von MailFlow, die Microsoft eventuell als nicht verifiziert kennzeichnet. Sie melden sich in Ihrem Browser auf der Seite von Microsoft an, und Microsoft sendet die Tokens direkt an diesen Server: Die Maintainer von MailFlow sehen weder Ihre E-Mails noch Ihre Tokens. Geschäfts- oder Schulkonten benötigen eine von Ihrem Administrator registrierte App.",
+        "builtinToggle": "MailFlows App für private Konten anbieten",
+        "builtinToggleDesc": "Solange keine Client-ID gespeichert ist, können sich private Outlook.com- und Hotmail-Konten über die gemeinsame App von MailFlow anmelden. Ausschalten verhindert neue Anmeldungen darüber; bereits darüber verbundene Konten funktionieren weiter.",
+        "userNoteBuiltin": "Sie können unten ohne Einrichtung ein privates Outlook.com-, Hotmail-, Live- oder MSN-Konto verbinden. Für Microsoft-365-Geschäfts- oder Schulkonten muss Ihr Administrator die Microsoft-365-Anmeldung einrichten."
       },
       "google": {
         "title": "Gmail / Google Workspace",
@@ -1631,7 +1638,8 @@
       "sourceCode": "Quellcode",
       "sponsor": "Entwicklung unterstützen",
       "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "githubSponsors": "GitHub Sponsors",
+      "sponsorBlurb": "MailFlow wird von einer einzelnen Person entwickelt und gepflegt. Sponsoring finanziert die Zeit für Fehlerbehebungen, Reviews und Releases."
     },
     "rules": {
       "conditionLogicOr": "eine Bedingung (ODER)",
@@ -1910,6 +1918,7 @@
     "show": "Rechte Seitenleiste einblenden"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: Alter der ältesten Nachricht mit diesem Label (Tage): {{count}}",
     "title": "GTD",
     "inbox": "Posteingang",
     "waiting": "Wartet",
@@ -1923,6 +1932,8 @@
     "tabEmpty": "Noch nichts hier",
     "removeFrom": "Aus {{state}} entfernen",
     "classified": "Label angewendet",
+    "classifiedMany": "{{count}} als {{state}} markiert",
+    "classifiedSome": "{{count}} von {{total}} als {{state}} markiert",
     "classifyFailed": "Label konnte nicht angewendet werden",
     "undoFailed": "Label konnte nicht rückgängig gemacht werden",
     "removed": "Label entfernt",
@@ -1931,6 +1942,7 @@
     "done": "Als erledigt markieren",
     "doneFailed": "Konnte nicht als erledigt markiert werden",
     "doneArchiveFailed": "Als erledigt markiert, aber Archivieren fehlgeschlagen – noch im Posteingang",
+    "doneThreadRemains": "Einige Nachrichten dieser Konversation konnten nicht entfernt werden, daher bleibt sie in ihrem GTD-Bereich",
     "state": {
       "todo": "Aufgabe",
       "watch": "Beobachten",

@@ -981,6 +981,7 @@
       "errorPasswordRequired": "La password è richiesta per i nuovi account",
       "microsoftImapUnsupported": "Outlook.com / Hotmail richiede OAuth2 (Modern Auth)",
       "microsoftImapNote": "Microsoft ha disattivato l'IMAP con password (autenticazione di base) per gli account personali Outlook.com, Hotmail e Live. Puoi comunque collegare questi account tramite Microsoft OAuth2 (Modern Auth): configuralo in Integrazioni → Microsoft 365 / Outlook.com. L'accesso tramite codice dispositivo è il più adatto agli account personali e non richiede alcuna password per l'app.",
+      "microsoftImapNoteReady": "Microsoft ha disattivato l'accesso IMAP con password (autenticazione di base) per gli account personali Outlook.com, Hotmail e Live. Collega invece questo account in Integrazioni → Microsoft 365 / Outlook.com: l'accesso con codice dispositivo non richiede configurazione né password per app.",
       "reindex": "Reindicizza per la ricerca",
       "reindexing": "Indicizzazione messaggi...",
       "reindexProgress": "{{synced}} / {{total}} messaggi indicizzati",
@@ -1621,7 +1622,13 @@
         "deviceCodeExpired": "Codice scaduto. Riprova.",
         "deviceCodeDeclined": "L'autorizzazione è stata rifiutata.",
         "deviceCodeError": "Si è verificato un errore. Riprova.",
-        "deviceCodeCancel": "Annulla"
+        "deviceCodeCancel": "Annulla",
+        "personalReady": "Account personali pronti",
+        "builtinTitle": "Collega un account Microsoft personale",
+        "builtinNote": "Nessuna configurazione necessaria per gli account Outlook.com, Hotmail, Live e MSN. Questo usa l'app Microsoft condivisa di MailFlow, che Microsoft potrebbe indicare come non verificata. Accedi sulla pagina di Microsoft nel tuo browser e Microsoft invia i token direttamente a questo server: i manutentori di MailFlow non vedono mai la tua posta né i tuoi token. Gli account aziendali o scolastici richiedono un'app registrata dal tuo amministratore.",
+        "builtinToggle": "Offri l'app di MailFlow per gli account personali",
+        "builtinToggleDesc": "Finché non è salvato un ID client, gli account personali Outlook.com e Hotmail possono accedere tramite l'app condivisa di MailFlow. Disattivandola si bloccano i nuovi accessi tramite essa; gli account già collegati così continuano a funzionare.",
+        "userNoteBuiltin": "Puoi collegare qui sotto un account personale Outlook.com, Hotmail, Live o MSN senza alcuna configurazione. Per gli account Microsoft 365 aziendali o scolastici il tuo amministratore deve configurare l'accesso Microsoft 365."
       },
       "google": {
         "title": "Gmail / Google Workspace",
@@ -1706,7 +1713,8 @@
       "sourceCode": "Codice sorgente",
       "sponsor": "Supporta lo sviluppo",
       "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "githubSponsors": "GitHub Sponsors",
+      "sponsorBlurb": "MailFlow è sviluppato e mantenuto da una sola persona. Le sponsorizzazioni finanziano il tempo dedicato a correzioni, revisioni e nuove release."
     },
     "search": {
       "placeholder": "Cerca impostazioni…",
@@ -1910,6 +1918,7 @@
     "show": "Mostra la barra laterale destra"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: età del messaggio più vecchio con questa etichetta (giorni): {{count}}",
     "title": "GTD",
     "inbox": "Posta in arrivo",
     "waiting": "In attesa",
@@ -1923,6 +1932,8 @@
     "tabEmpty": "Ancora niente qui",
     "removeFrom": "Rimuovi da {{state}}",
     "classified": "Etichetta applicata",
+    "classifiedMany": "{{count}} etichettati come {{state}}",
+    "classifiedSome": "{{count}} di {{total}} etichettati come {{state}}",
     "classifyFailed": "Impossibile applicare l'etichetta",
     "undoFailed": "Impossibile annullare l'etichetta",
     "removed": "Etichetta rimossa",
@@ -1931,6 +1942,7 @@
     "done": "Segna come completato",
     "doneFailed": "Impossibile segnare come completato",
     "doneArchiveFailed": "Segnato come completato, ma archiviazione non riuscita: è ancora nella posta in arrivo",
+    "doneThreadRemains": "Alcuni messaggi di questa conversazione non sono stati rimossi, quindi resta nella sua sezione GTD",
     "state": {
       "todo": "Da fare",
       "watch": "Osservare",

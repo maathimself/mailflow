@@ -983,6 +983,7 @@
       "errorPasswordRequired": "添加新账户时必须填写密码",
       "microsoftImapUnsupported": "Outlook.com / Hotmail 需要使用 OAuth2（新式验证）",
       "microsoftImapNote": "微软已停用个人 Outlook.com、Hotmail 和 Live 账户的密码 IMAP（基本身份验证）。你仍然可以通过 Microsoft OAuth2（新式验证）连接这些账户——在“集成 → Microsoft 365 / Outlook.com”中进行配置。设备代码登录最适合个人账户，且无需应用专用密码。",
+      "microsoftImapNoteReady": "Microsoft 已为个人 Outlook.com、Hotmail 和 Live 账户禁用基于密码（基本身份验证）的 IMAP。请改为在 集成 → Microsoft 365 / Outlook.com 中连接此账户：设备代码登录无需设置，也无需应用密码。",
       "reindex": "重新索引以供搜索",
       "reindexing": "正在索引邮件...",
       "reindexProgress": "已索引 {{synced}} / {{total}} 封邮件",
@@ -1621,7 +1622,13 @@
         "deviceCodeExpired": "代码已过期，请重新开始。",
         "deviceCodeDeclined": "授权被拒绝。",
         "deviceCodeError": "发生错误，请重试。",
-        "deviceCodeCancel": "取消"
+        "deviceCodeCancel": "取消",
+        "personalReady": "个人账户可用",
+        "builtinTitle": "连接个人 Microsoft 账户",
+        "builtinNote": "Outlook.com、Hotmail、Live 和 MSN 账户无需任何设置。此功能使用 MailFlow 的共享 Microsoft 应用，Microsoft 可能会将其标记为未验证。你在浏览器中的 Microsoft 官方页面上登录，Microsoft 会将令牌直接发送到此服务器：MailFlow 的维护者永远看不到你的邮件或令牌。工作或学校账户需要由管理员注册的应用。",
+        "builtinToggle": "为个人账户提供 MailFlow 的应用",
+        "builtinToggleDesc": "在未保存客户端 ID 时，个人 Outlook.com 和 Hotmail 账户可以通过 MailFlow 的共享应用登录。关闭后将不再允许通过它新登录；已通过它连接的账户会继续正常使用。",
+        "userNoteBuiltin": "你可以在下方无需设置即可连接个人 Outlook.com、Hotmail、Live 或 MSN 账户。工作或学校的 Microsoft 365 账户需要管理员设置 Microsoft 365 登录。"
       },
       "google": {
         "title": "Gmail / Google Workspace",
@@ -1706,7 +1713,8 @@
       "sourceCode": "源代码",
       "sponsor": "支持开发",
       "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "githubSponsors": "GitHub Sponsors",
+      "sponsorBlurb": "MailFlow 由一人开发和维护。赞助用于支付修复问题、审查代码和发布新版本所需的时间。"
     },
     "search": {
       "placeholder": "搜索设置…",
@@ -1910,6 +1918,7 @@
     "show": "显示右侧边栏"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}：带此标签的最早邮件距今的天数：{{count}}",
     "title": "GTD",
     "inbox": "收件箱",
     "waiting": "等待中",
@@ -1923,6 +1932,8 @@
     "tabEmpty": "这里还没有内容",
     "removeFrom": "从{{state}}中移除",
     "classified": "已添加标签",
+    "classifiedMany": "已将 {{count}} 封标记为{{state}}",
+    "classifiedSome": "已将 {{count}}/{{total}} 封标记为{{state}}",
     "classifyFailed": "无法添加标签",
     "undoFailed": "无法撤销标签",
     "removed": "已移除标签",
@@ -1931,6 +1942,7 @@
     "done": "标记为完成",
     "doneFailed": "无法标记为完成",
     "doneArchiveFailed": "已标记为完成，但归档失败——邮件仍在收件箱中",
+    "doneThreadRemains": "此会话中的部分邮件无法清除，因此它仍留在原 GTD 分区中",
     "state": {
       "todo": "待办",
       "watch": "关注",

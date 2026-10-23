@@ -34,6 +34,7 @@ import { loadReplyConversation, buildReplyPrompt, buildDraftPrompt, aiTextToHtml
 import { frameGeometry } from '../utils/frameGeometry.js';
 import { AI_MESSAGE_MAX_CHARS } from '../aiActions.js';
 import { stripTags } from '../utils/stripTags.js';
+import { aiTextToHtml } from '../utils/aiText.js';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.

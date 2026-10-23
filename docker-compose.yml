@@ -61,6 +61,8 @@ services:
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       IMAP_MAX_PERSISTENT_PER_HOST: ${IMAP_MAX_PERSISTENT_PER_HOST:-}
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-}
+      # false stops offering MailFlow's built-in Microsoft app for personal accounts (#674).
+      MS_BUILTIN_APP: ${MS_BUILTIN_APP:-}
       # The image proxy's cache of fitted images: per user, at most this many MB, kept for a month.
       IMAGE_CACHE_DIR: /var/cache/mailflow/images
       IMAGE_CACHE_MAX_MB: ${IMAGE_CACHE_MAX_MB:-512}

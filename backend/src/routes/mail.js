@@ -13,10 +13,10 @@ import { imageProxyPath, proxyWidth, fetchProxiedImage, createUserLimiter } from
 import { imageCache, imageCacheKey } from '../services/imageCache.js';
 import { shrinkImage } from '../services/imageShrink.js';
 import { fitInlineImages } from '../services/inlineImageFit.js';
-import { needsCidRefetch, withoutCidMarker } from '../utils/cidRefs.js';
+import { needsCidRefetch, needsImageRefetch, settleCids, settledEarlier, withoutCidMarker } from '../utils/cidRefs.js';
 import { sanitizeDbText, storeFetchedBody } from '../services/messageBodyStore.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, parseMailboxList, buildHeadersFromMessage } from '../services/messageParser.js';
-import { draftMessageSql, resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
+import { draftMessageSql, resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings, readCopyTargets, pushSeen } from '../utils/mailUtils.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { listMessages } from '../services/messageService.js';
 import { recordSyncSignal } from '../services/diagnosticsRing.js';
@@ -409,6 +409,72 @@ function fetchWithTimeout(promise, ms) {
 // none stored, so it shows none.
 const bccOf = (message) => (Array.isArray(message.bcc_addresses) ? message.bcc_addresses : []);
 
+// Messages whose cached body a repair fetch (below) lately failed to replace: served as stored for
+// a while, rather than every view waiting on a mail server that is not answering first. Kept in
+// this process only, and emptied past its cap: forgetting one costs a single fetch.
+const BODY_REPAIR_RETRY_MS = 10 * 60_000;
+const BODY_REPAIR_FAILURES_MAX = 10_000;
+const failedBodyRepairs = new Map();
+
+function bodyRepairFailedLately(id) {
+  const at = failedBodyRepairs.get(id);
+  if (at === undefined) return false;
+  if (Date.now() - at < BODY_REPAIR_RETRY_MS) return true;
+  failedBodyRepairs.delete(id);
+  return false;
+}
+
+function noteBodyRepairFailed(id) {
+  if (failedBodyRepairs.size >= BODY_REPAIR_FAILURES_MAX) failedBodyRepairs.clear();
+  failedBodyRepairs.set(id, Date.now());
+}
+
+// A view waits this long on a repair fetch, then gets the stored body: it was readable before,
+// and a mail server that accepts a connection and then says nothing would otherwise hold every
+// such view for the whole fetch timeout. The fetch goes on, and stores its body when it arrives.
+const BODY_REPAIR_TIMEOUT_MS = 8000;
+// Repair fetches under way, by message id: the views of one message while it runs share it.
+const bodyRepairs = new Map();
+
+// The body of `message` fetched again to repair the stored one, and stored, once however many
+// views ask at a time. Resolves to { stored } with what storeFetchedBody stored, or to
+// { keptHtml } when the stored HTML stays because the fetch came back with text alone (marked, so
+// it is not fetched again for that), or to {} when the message is gone from the server or its row
+// changed meanwhile. Either write lands only on the row as the repair found it: one that arrives
+// after the view stopped waiting must not replace a body stored since. A failure is noted, so the
+// views after it get the stored body for a while.
+function repairBody(message) {
+  const { id } = message;
+  const running = bodyRepairs.get(id);
+  if (running) return running;
+  const repair = (async () => {
+    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
+    const account = accountResult.rows[0];
+    imapManager.noteUserActivity(account.id);
+    const body = await imapManager.fetchMessageBody(account, message.uid, message.folder);
+    if (body.html == null && body.text == null) {
+      noteBodyRepairFailed(id);
+      return {};
+    }
+    if (body.html == null) {
+      const keptHtml = settleCids(message.body_html, true);
+      const kept = await query('UPDATE messages SET body_html = $1 WHERE id = $2 AND body_html = $3 AND uid = $4 AND folder = $5',
+        [keptHtml, id, message.body_html, message.uid, message.folder]);
+      return kept?.rowCount ? { keptHtml } : {};
+    }
+    const { sanitized, safeText, stored } = await storeFetchedBody(id, body, { over: message });
+    return stored ? { stored: { sanitized, safeText, attachments: body.attachments } } : {};
+  })().catch((err) => {
+    console.warn('Body repair fetch failed, serving the stored body:', err.message || err);
+    noteBodyRepairFailed(id);
+    throw err;
+  }).finally(() => bodyRepairs.delete(id));
+  // A view that stopped waiting has nothing to do with the failure; it is noted above.
+  repair.catch(() => {});
+  bodyRepairs.set(id, repair);
+  return repair;
+}
+
 // Get full message body + attachments list
 router.get('/messages/:id/body', async (req, res) => {
   const { id } = req.params;
@@ -438,10 +504,18 @@ router.get('/messages/:id/body', async (req, res) => {
     // CSS url(http://) in inline style attributes or <style> blocks
     /url\(\s*['"]?http:\/\//i.test(message.body_html)
   );
-  if ((message.body_html || message.body_text) && !hasCidRefs && !hasHttpImgs) {
-    const attachments = message.attachments
-      ? (typeof message.attachments === 'string' ? JSON.parse(message.attachments) : message.attachments)
-      : [];
+  const cachedAttachments = message.attachments
+    ? (typeof message.attachments === 'string' ? JSON.parse(message.attachments) : message.attachments)
+    : [];
+  const cached = Boolean(message.body_html || message.body_text);
+  // A body the release before served as stored, fetched again only to repair its images: one
+  // settled under an earlier marker, or one an email's own images may show in now (#640). When
+  // that fetch fails or is slow the stored body is served, as before (repairBody).
+  // A draft's stored body is what its composer saved, so it is never replaced this way.
+  const repairOnly = cached && !hasHttpImgs && (!hasCidRefs || settledEarlier(message.body_html));
+  const staleImages = repairOnly && !(message.flags || []).includes('\\Draft')
+    && needsImageRefetch(message.body_html, cachedAttachments);
+  const serveCached = async () => {
     // Apply head-stripping to already-cached HTML so emails stored before this
     // fix was deployed are cleaned up immediately on first view.
     let html = message.body_html ? stripEmailHead(message.body_html) : null;
@@ -502,22 +576,10 @@ router.get('/messages/:id/body', async (req, res) => {
     const imageStats = {};
     if (remoteImagesProxied && shown) responseHtml = proxyRemoteImages(shown, (raw, width) => imageProxyPath(id, raw, width), imageStats);
     const inline = req.query.original === '1' ? { html: responseHtml, count: 0 } : await fitInlineImages(responseHtml, req.session.userId);
-    return res.json({ ...splitDarkScheme(inline.html), inlineImagesFitted: inline.count > 0, text: message.body_text, attachments, hasBlockedRemoteImages, remoteImagesBlocked, remoteImagesProxied, trackersBlocked: imageStats.trackers ?? 0, senderEmail: message.sender_email, senderName: message.sender_name, forwardedFromEmail: message.forwarded_from_email, forwardedFromName: message.forwarded_from_name, forwardedVia: message.forwarded_via, bccAddresses: bccOf(message) });
-  }
-
-  // Fetch from IMAP — signal user activity so background jobs back off during this request.
-  try {
-    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
-    const account = accountResult.rows[0];
-    imapManager.noteUserActivity(account.id);
-
-    const { html, text, attachments, cidsComplete } = await fetchWithTimeout(
-      imapManager.fetchMessageBody(account, message.uid, message.folder),
-      BODY_FETCH_TIMEOUT_MS
-    );
-
-    const { sanitized, safeText } = await storeFetchedBody(id, { html, text, attachments, cidsComplete });
-
+    return res.json({ ...splitDarkScheme(inline.html), inlineImagesFitted: inline.count > 0, text: message.body_text, attachments: cachedAttachments, hasBlockedRemoteImages, remoteImagesBlocked, remoteImagesProxied, trackersBlocked: imageStats.trackers ?? 0, senderEmail: message.sender_email, senderName: message.sender_name, forwardedFromEmail: message.forwarded_from_email, forwardedFromName: message.forwarded_from_name, forwardedVia: message.forwarded_via, bccAddresses: bccOf(message) });
+  };
+  // A body fetched from the mail server and stored (storeFetchedBody), as the response gives it.
+  const serveFetched = async ({ sanitized, safeText, attachments }) => {
     // Apply remote-image blocking at response time — safeHtml (unblocked) is what
     // was written to the DB cache above, preserving the canonical body; the response is it
     // without the settled marker.
@@ -536,7 +598,35 @@ router.get('/messages/:id/body', async (req, res) => {
     const imageStats = {};
     if (remoteImagesProxied && sanitized) responseHtml = proxyRemoteImages(sanitized, (raw, width) => imageProxyPath(id, raw, width), imageStats);
     const inline = req.query.original === '1' ? { html: responseHtml, count: 0 } : await fitInlineImages(responseHtml, req.session.userId);
-    res.json({ ...splitDarkScheme(inline.html), inlineImagesFitted: inline.count > 0, text: safeText, attachments: attachments || [], hasBlockedRemoteImages, remoteImagesBlocked, remoteImagesProxied, trackersBlocked: imageStats.trackers ?? 0, senderEmail: message.sender_email, senderName: message.sender_name, forwardedFromEmail: message.forwarded_from_email, forwardedFromName: message.forwarded_from_name, forwardedVia: message.forwarded_via, bccAddresses: bccOf(message) });
+    return res.json({ ...splitDarkScheme(inline.html), inlineImagesFitted: inline.count > 0, text: safeText, attachments: attachments || [], hasBlockedRemoteImages, remoteImagesBlocked, remoteImagesProxied, trackersBlocked: imageStats.trackers ?? 0, senderEmail: message.sender_email, senderName: message.sender_name, forwardedFromEmail: message.forwarded_from_email, forwardedFromName: message.forwarded_from_name, forwardedVia: message.forwarded_via, bccAddresses: bccOf(message) });
+  };
+  if (cached && !hasCidRefs && !hasHttpImgs && !staleImages) return serveCached();
+  if (repairOnly) {
+    if (bodyRepairFailedLately(id)) return serveCached();
+    let repaired;
+    try {
+      repaired = await fetchWithTimeout(repairBody(message), BODY_REPAIR_TIMEOUT_MS);
+    } catch (err) {
+      // Still running, it stores its body when that arrives; until then the stored one is served.
+      if (err.message === 'BODY_FETCH_TIMEOUT') noteBodyRepairFailed(id);
+      return serveCached();
+    }
+    if (repaired.stored) return serveFetched(repaired.stored);
+    if (repaired.keptHtml) message.body_html = repaired.keptHtml;
+    return serveCached();
+  }
+
+  // Fetch from IMAP — signal user activity so background jobs back off during this request.
+  try {
+    const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]);
+    const account = accountResult.rows[0];
+    imapManager.noteUserActivity(account.id);
+
+    const { html, text, attachments, cidsComplete } = await fetchWithTimeout(
+      imapManager.fetchMessageBody(account, message.uid, message.folder),
+      BODY_FETCH_TIMEOUT_MS
+    );
+    return await serveFetched({ ...await storeFetchedBody(id, { html, text, attachments, cidsComplete }), attachments });
   } catch (err) {
     const msg = err.message || 'Unknown error';
     console.error('Body fetch error:', msg);
@@ -961,11 +1051,13 @@ router.patch('/messages/:id/read', async (req, res) => {
   // those rows (and their folder unread counts) so label views don't go stale. Gated on
   // gtd_enabled (so a non-GTD account is byte-identical to pre-GTD behaviour) AND on the
   // message actually having siblings — a plain single-folder message keeps the PK-only
-  // fast path. The IMAP \Seen flag is written to the acted folder only (below): Gmail
-  // propagates \Seen message-wide server-side, and per-copy writes to N folders would
-  // multiply round-trips — an asymmetry accepted in the GTD design.
+  // fast path. Gmail propagates Seen message-wide; per-copy servers need a write to
+  // each eligible flipped copy. Added writes do not delay this request's response.
+  const account = accountResult.rows[0];
+  let copies = [];
   if (Number(message.sibling_count) > 1 && await accountMaintainsLabelSiblings(message.account_id)) {
-    await fanOutReadToSiblings(message.account_id, message.message_id, read);
+    const flipped = await fanOutReadToSiblings(message.account_id, message.message_id, read) || [];
+    if (account && !imapManager.isLabelStore(account)) copies = flipped;
   }
 
   try {
@@ -976,6 +1068,14 @@ router.patch('/messages/:id/read', async (req, res) => {
     // Push failed — queue a durable retry so a later flag-sync pull can't silently revert
     // the user's change once the 30s local-wins window lapses.
     imapManager._enqueueFlagPush(message.account_id, id, '\\Seen', read);
+  }
+
+  if (copies.length) {
+    (async () => {
+      const flippedIds = new Set(copies.map(r => r.id));
+      const targets = await readCopyTargets(message.account_id, message.message_id, message);
+      await pushSeen(imapManager, account, message.account_id, targets.filter(r => r.id !== id && flippedIds.has(r.id)), read);
+    })().catch(err => console.warn('Read-copy push failed:', err.message));
   }
 
   // Refresh GTD section data if this message's thread carries a GTD label (its head shows read state).
@@ -1348,8 +1448,7 @@ router.post('/messages/bulk-read', async (req, res) => {
     // belongs to a gtd_enabled account, adjusting each sibling folder's unread count.
     // Gating on gtd_enabled keeps a non-GTD account byte-identical to pre-GTD (no extra
     // fan-out query); the fan-out itself is also self-limiting for messages without
-    // siblings. IMAP \Seen is still written per acted row only (below); Gmail propagates
-    // it message-wide server-side.
+    // siblings. Gmail propagates Seen; other servers also push eligible flipped copies.
     // gtdUpdatedIds is scoped to toUpdate (rows whose read-state actually changed), so a
     // message already at the target state never triggers sibling fan-out here — unlike the
     // single-message handler above, which fans out unconditionally regardless of whether the
@@ -1362,7 +1461,7 @@ router.post('/messages/bulk-read', async (req, res) => {
       if (await accountMaintainsLabelSiblings(aid)) gtdAccts.add(aid);
     }));
     const gtdUpdatedIds = toUpdate.filter(m => gtdAccts.has(m.account_id)).map(m => m.id);
-    if (gtdUpdatedIds.length) await fanOutBulkReadToSiblings(gtdUpdatedIds, read);
+    const siblings = gtdUpdatedIds.length ? await fanOutBulkReadToSiblings(gtdUpdatedIds, read) || [] : [];
     // Reflect the bulk read/unread change on the user's other sessions in place (no full refetch).
     imapManager.broadcast({ type: 'message_flags', changes: toUpdate.map(m => ({ id: m.id, is_read: read })) }, req.session.userId);
 
@@ -1387,6 +1486,17 @@ router.post('/messages/bulk-read', async (req, res) => {
           imapManager._resolveFlagPush(accountId, msgs[i].id, '\\Seen'); // confirmed
         }
       });
+      if (siblings.length && gtdAccts.has(accountId) && account && !imapManager.isLabelStore(account)) {
+        (async () => {
+          const targets = [];
+          for (const mid of new Set(msgs.map(m => m.message_id))) {
+            targets.push(...await readCopyTargets(accountId, mid, msgs));
+          }
+          const acted = new Set(msgs.map(m => m.id));
+          const flipped = new Set(siblings.filter(r => r.account_id === accountId).map(r => r.id));
+          await pushSeen(imapManager, account, accountId, targets.filter(r => !acted.has(r.id) && flipped.has(r.id)), read);
+        })().catch(err => console.warn('Bulk read-copy push failed:', err.message));
+      }
     }
 
     // Refresh GTD section data for any updated thread that carries a GTD label.

@@ -983,6 +983,7 @@
       "errorPasswordRequired": "A senha é obrigatória para novas contas",
       "microsoftImapUnsupported": "Outlook.com / Hotmail exige OAuth2 (Autenticação Moderna)",
       "microsoftImapNote": "A Microsoft desativou o IMAP com senha (autenticação básica) para contas pessoais do Outlook.com, Hotmail e Live. Você ainda pode conectar essas contas usando o OAuth2 da Microsoft (Autenticação Moderna) — configure em Integrações → Microsoft 365 / Outlook.com. O login por código de dispositivo funciona melhor para contas pessoais e não exige senha de app.",
+      "microsoftImapNoteReady": "A Microsoft desativou o IMAP com senha (autenticação básica) para contas pessoais Outlook.com, Hotmail e Live. Conecte esta conta em Integrações → Microsoft 365 / Outlook.com: o login por código de dispositivo não precisa de configuração nem de senha de aplicativo.",
       "reindex": "Reindexar para pesquisa",
       "reindexing": "Indexando mensagens...",
       "reindexProgress": "{{synced}} / {{total}} mensagens indexadas",
@@ -1621,7 +1622,13 @@
         "deviceCodeExpired": "Código expirado. Clique em iniciar novamente.",
         "deviceCodeDeclined": "A autorização foi recusada.",
         "deviceCodeError": "Ocorreu um erro. Tente novamente.",
-        "deviceCodeCancel": "Cancelar"
+        "deviceCodeCancel": "Cancelar",
+        "personalReady": "Contas pessoais prontas",
+        "builtinTitle": "Conectar uma conta pessoal da Microsoft",
+        "builtinNote": "Contas Outlook.com, Hotmail, Live e MSN não precisam de configuração. Isso usa o aplicativo Microsoft compartilhado do MailFlow, que a Microsoft pode marcar como não verificado. Você entra na própria página da Microsoft no seu navegador, e a Microsoft envia os tokens direto para este servidor: os mantenedores do MailFlow nunca veem seus e-mails nem seus tokens. Contas corporativas ou de estudante precisam de um aplicativo registrado pelo seu administrador.",
+        "builtinToggle": "Oferecer o aplicativo do MailFlow para contas pessoais",
+        "builtinToggleDesc": "Enquanto nenhum ID do cliente estiver salvo, contas pessoais Outlook.com e Hotmail podem entrar pelo aplicativo compartilhado do MailFlow. Desativar impede novos logins por ele; as contas já conectadas por ele continuam funcionando.",
+        "userNoteBuiltin": "Você pode conectar abaixo uma conta pessoal Outlook.com, Hotmail, Live ou MSN sem nenhuma configuração. Contas Microsoft 365 corporativas ou de estudante precisam que o administrador configure o login do Microsoft 365."
       },
       "google": {
         "title": "Gmail / Google Workspace",
@@ -1706,7 +1713,8 @@
       "sourceCode": "Código-fonte",
       "sponsor": "Apoie o desenvolvimento",
       "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "githubSponsors": "GitHub Sponsors",
+      "sponsorBlurb": "O MailFlow é desenvolvido e mantido por uma única pessoa. Os patrocínios pagam o tempo dedicado a correções, revisões e novas versões."
     },
     "search": {
       "placeholder": "Pesquisar configurações…",
@@ -1910,6 +1918,7 @@
     "show": "Mostrar barra lateral direita"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: idade da mensagem mais antiga com esta etiqueta (dias): {{count}}",
     "title": "GTD",
     "inbox": "Entrada",
     "waiting": "Aguardando",
@@ -1923,6 +1932,8 @@
     "tabEmpty": "Nada aqui ainda",
     "removeFrom": "Remover de {{state}}",
     "classified": "Etiqueta aplicada",
+    "classifiedMany": "{{count}} marcados como {{state}}",
+    "classifiedSome": "{{count}} de {{total}} marcados como {{state}}",
     "classifyFailed": "Não foi possível aplicar a etiqueta",
     "undoFailed": "Não foi possível desfazer a etiqueta",
     "removed": "Etiqueta removida",
@@ -1931,6 +1942,7 @@
     "done": "Marcar como concluída",
     "doneFailed": "Não foi possível marcar como concluída",
     "doneArchiveFailed": "Marcada como concluída, mas o arquivamento falhou — ainda está na sua Caixa de entrada",
+    "doneThreadRemains": "Algumas mensagens desta conversa não puderam ser removidas, então ela continua na sua seção do GTD",
     "state": {
       "todo": "A fazer",
       "watch": "Acompanhar",

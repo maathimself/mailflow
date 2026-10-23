@@ -170,7 +170,7 @@ describe('ensureLabelFolders', () => {
 
 describe('markThreadRead', () => {
   const msg = { account_id: 'acct-1', message_id: '<m>' };
-  const imapMR = () => ({ setFlag: vi.fn() });
+  const imapMR = () => ({ isLabelStore: () => true, setFlag: vi.fn() });
 
   it('fans out read state and sets \\Seen on an unread INBOX copy; returns the copy', async () => {
     query.mockResolvedValueOnce({ rows: [{ id: 'i1', uid: 5, is_read: false }] });

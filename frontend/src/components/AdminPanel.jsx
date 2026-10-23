@@ -107,6 +107,20 @@ function AccountForm({ initial, onSave, onCancel }) {
   const [showSmtpPass, setShowSmtpPass] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState(null);
   const [mailPolicy, setMailPolicy] = useState({ allowPrivateHosts: false, allowInsecureTls: false, allowNonstandardPorts: false });
+  // Whether an Outlook.com address can be connected right away through Integrations, with the
+  // instance's own app or MailFlow's built-in one (#674). Asked only once one is typed, and
+  // only in a build that ships the built-in app; otherwise the note stays as it was.
+  const [msPersonalReady, setMsPersonalReady] = useState(false);
+  const microsoftHost = isMicrosoftImapHost(form.imap_host);
+
+  useEffect(() => {
+    if (!microsoftHost) return undefined;
+    let cancelled = false;
+    api.getIntegrationsStatus()
+      .then(d => { if (!cancelled) setMsPersonalReady(!!d.microsoft?.builtinAppShipped && !!d.microsoft?.personalAccounts); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [microsoftHost]);
 
   useEffect(() => {
     api.admin.getSettings()
@@ -340,7 +354,9 @@ function AccountForm({ initial, onSave, onCancel }) {
           </svg>
           <div>
             <div style={{ fontWeight: 600, marginBottom: 3 }}>{t('admin.accounts.microsoftImapUnsupported')}</div>
-            <div style={{ color: 'var(--text-secondary)', lineHeight: 1.5 }}>{t('admin.accounts.microsoftImapNote')}</div>
+            <div style={{ color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              {msPersonalReady ? t('admin.accounts.microsoftImapNoteReady') : t('admin.accounts.microsoftImapNote')}
+            </div>
           </div>
         </div>
       )}
@@ -2430,7 +2446,7 @@ function IntegrationsTab() {
       .then(data => {
         setMsStatus(data.microsoft || null);
         setGoogleStatus(data.google || null);
-        if (data.microsoft?.configured) setMsExpanded(true);
+        if (data.microsoft?.configured || data.microsoft?.builtinApp) setMsExpanded(true);
         if (data.google?.configured) setGoogleExpanded(true);
       })
       .catch(console.error)
@@ -2502,6 +2518,18 @@ function IntegrationsTab() {
     if (devicePollRef.current) { clearInterval(devicePollRef.current); devicePollRef.current = null; }
     setDeviceFlow(null);
     setDeviceStatus(null);
+  };
+
+  // Whether personal accounts may use MailFlow's built-in app while no Client ID is saved.
+  // A setting of its own, apart from the app config above. (#674)
+  const handleToggleMsBuiltin = async (builtinApp) => {
+    setSaveMsg('');
+    try {
+      await api.setMsBuiltinApp(builtinApp);
+      setMsStatus(prev => ({ ...prev, builtinApp }));
+    } catch (err) {
+      setSaveMsg('Error: ' + err.message);
+    }
   };
 
   const handleStartDeviceFlow = async () => {
@@ -2619,6 +2647,10 @@ function IntegrationsTab() {
   // server reports it configured from .env. Checking only the former left the
   // connect button disabled on env-only installs.
   const msConfigured = (isAdmin && configs.microsoft?.clientId) || msStatus?.configured;
+  // Without the instance's own app, personal accounts sign in through MailFlow's built-in
+  // one unless the admin turned it off. (#674)
+  const msBuiltin = !msConfigured && !!msStatus?.builtinApp;
+  const msDeviceAvailable = !!msConfigured || msBuiltin;
   const googleConfigured = (isAdmin && configs.google?.clientId) || googleStatus?.configured;
 
   const subTabStyle = (key) => ({
@@ -2874,6 +2906,14 @@ function IntegrationsTab() {
                   }}>
                     {t('admin.integrations.microsoft.configured')}
                   </span>
+                ) : msBuiltin ? (
+                  <span style={{
+                    fontSize: 11, padding: '3px 8px', borderRadius: 20,
+                    background: 'rgba(74,222,128,0.1)', color: 'var(--green)',
+                    border: '1px solid rgba(74,222,128,0.2)', fontWeight: 500,
+                  }}>
+                    {t('admin.integrations.microsoft.personalReady')}
+                  </span>
                 ) : (
                   <span style={{
                     fontSize: 11, padding: '3px 8px', borderRadius: 20,
@@ -2958,6 +2998,17 @@ function IntegrationsTab() {
                     {t('admin.integrations.microsoft.redirectUriNote', { uri: `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}/oauth/microsoft/callback` })}
                   </div>
                 </Field>
+
+                {msStatus?.builtinAppShipped && (
+                  <div style={{ marginBottom: 12 }}>
+                    <ToggleRow
+                      label={t('admin.integrations.microsoft.builtinToggle')}
+                      desc={t('admin.integrations.microsoft.builtinToggleDesc')}
+                      checked={!!msStatus.builtinApp}
+                      onChange={handleToggleMsBuiltin}
+                    />
+                  </div>
+                )}
                 </>)}
 
                 {/* Non-admin: no config form; just a short note about connecting */}
@@ -2970,7 +3021,9 @@ function IntegrationsTab() {
                   }}>
                     {msConfigured
                       ? t('admin.integrations.microsoft.userNoteConfigured')
-                      : t('admin.integrations.microsoft.userNoteNotConfigured')}
+                      : msBuiltin
+                        ? t('admin.integrations.microsoft.userNoteBuiltin')
+                        : t('admin.integrations.microsoft.userNoteNotConfigured')}
                   </div>
                 )}
 
@@ -3027,6 +3080,7 @@ function IntegrationsTab() {
                       setConfigs(c => { const n = {...c}; delete n.microsoft; return n; });
                       setMsForm({ clientId: '', clientSecret: '', tenantId: '', redirectUri: '' });
                       setSaveMsg('');
+                      api.getIntegrationsStatus().then(data => setMsStatus(data.microsoft || null)).catch(console.error);
                     }} style={{
                       padding: '9px 12px', background: 'transparent',
                       border: '1px solid transparent', borderRadius: 8,
@@ -3044,23 +3098,23 @@ function IntegrationsTab() {
                 {/* Device code flow */}
                 <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    {t('admin.integrations.microsoft.deviceCodeTitle')}
+                    {msBuiltin ? t('admin.integrations.microsoft.builtinTitle') : t('admin.integrations.microsoft.deviceCodeTitle')}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 10, lineHeight: 1.5 }}>
-                    {t('admin.integrations.microsoft.deviceCodeNote')}
+                    {msBuiltin ? t('admin.integrations.microsoft.builtinNote') : t('admin.integrations.microsoft.deviceCodeNote')}
                   </div>
 
                   {!deviceFlow && (
                     <button
                       onClick={handleStartDeviceFlow}
-                      disabled={!msConfigured}
-                      title={!msConfigured ? t('admin.integrations.microsoft.save') : ''}
+                      disabled={!msDeviceAvailable}
+                      title={!msDeviceAvailable ? t('admin.integrations.microsoft.save') : ''}
                       style={{
                         padding: '8px 14px', background: 'var(--bg-elevated)',
                         border: '1px solid var(--border)', borderRadius: 8,
-                        color: msConfigured ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                        cursor: msConfigured ? 'pointer' : 'not-allowed',
-                        fontSize: 12, fontWeight: 500, opacity: msConfigured ? 1 : 0.5,
+                        color: msDeviceAvailable ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                        cursor: msDeviceAvailable ? 'pointer' : 'not-allowed',
+                        fontSize: 12, fontWeight: 500, opacity: msDeviceAvailable ? 1 : 0.5,
                       }}
                     >
                       {t('admin.integrations.microsoft.deviceCodeStart')}
@@ -6101,6 +6155,9 @@ function AboutTab() {
       </div>
       <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px 4px' }}>
         {t('admin.about.sponsor')}
+      </div>
+      <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 4px 10px', lineHeight: 1.5 }}>
+        {t('admin.about.sponsorBlurb')}
       </div>
       <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
         {supportRows.map(([label, href], i) => (

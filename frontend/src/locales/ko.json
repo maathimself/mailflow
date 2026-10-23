@@ -980,6 +980,7 @@
       "smtpAuthNote": "보내는(SMTP) 서버가 위의 로그인과 다른 사용자 이름과 비밀번호를 사용하는 경우에만 필요합니다. 재사용하려면 비워두세요.",
       "errorRequired": "이메일, 사용자 이름, IMAP 호스트가 필요합니다.",
       "microsoftImapNote": "Microsoft는 개인 Outlook.com, Hotmail 및 Live 계정에 대해 비밀번호 기반(기본 인증) IMAP를 비활성화했습니다. Microsoft OAuth2(최신 인증)를 사용하여 이러한 계정을 계속 연결할 수 있습니다. 통합 → Microsoft 365 / Outlook.com에서 구성하세요. 기기 코드 로그인은 개인 계정에 가장 적합하며 앱 비밀번호가 필요하지 않습니다.",
+      "microsoftImapNoteReady": "Microsoft는 개인 Outlook.com, Hotmail 및 Live 계정의 비밀번호 기반(기본 인증) IMAP을 비활성화했습니다. 대신 통합 → Microsoft 365 / Outlook.com에서 이 계정을 연결하세요. 기기 코드 로그인은 설정이나 앱 비밀번호가 필요하지 않습니다.",
       "microsoftImapUnsupported": "Outlook.com/Hotmail에는 OAuth2(최신 인증)가 필요합니다.",
       "reindex": "검색을 위해 다시 색인화",
       "syncFoldersError": "폴더 동기화 실패",
@@ -1621,7 +1622,13 @@
         "deviceCodeExpired": "코드가 만료되었습니다. 다시 시작을 클릭하세요.",
         "deviceCodeEnter": "코드 입력:",
         "deviceCodeDeclined": "승인이 거부되었습니다.",
-        "deviceCodeWaiting": "승인을 기다리는 중…"
+        "deviceCodeWaiting": "승인을 기다리는 중…",
+        "personalReady": "개인 계정 사용 가능",
+        "builtinTitle": "개인 Microsoft 계정 연결",
+        "builtinNote": "Outlook.com, Hotmail, Live 및 MSN 계정은 설정이 필요하지 않습니다. MailFlow의 공유 Microsoft 앱을 사용하며, Microsoft에서 확인되지 않은 앱으로 표시할 수 있습니다. 브라우저에서 Microsoft의 자체 페이지에 로그인하면 Microsoft가 토큰을 이 서버로 직접 보냅니다. MailFlow 관리자는 메일이나 토큰을 볼 수 없습니다. 회사 또는 학교 계정에는 관리자가 등록한 앱이 필요합니다.",
+        "builtinToggle": "개인 계정에 MailFlow 앱 제공",
+        "builtinToggleDesc": "클라이언트 ID가 저장되지 않은 동안 개인 Outlook.com 및 Hotmail 계정은 MailFlow의 공유 앱으로 로그인할 수 있습니다. 끄면 이 앱을 통한 새 로그인이 중단되며, 이미 연결된 계정은 계속 작동합니다.",
+        "userNoteBuiltin": "아래에서 설정 없이 개인 Outlook.com, Hotmail, Live 또는 MSN 계정을 연결할 수 있습니다. 회사 또는 학교 Microsoft 365 계정은 관리자가 Microsoft 365 로그인을 설정해야 합니다."
       },
       "google": {
         "configured": "설정됨",
@@ -1703,7 +1710,8 @@
       "backendBuild": "백엔드 빌드",
       "frontendBuild": "프런트엔드 빌드",
       "sponsor": "개발 지원",
-      "githubSponsors": "GitHub 후원자"
+      "githubSponsors": "GitHub 후원자",
+      "sponsorBlurb": "MailFlow는 한 사람이 개발하고 유지 관리합니다. 후원금은 버그 수정, 코드 리뷰, 릴리스에 들어가는 시간을 충당합니다."
     },
     "ssoError": {
       "title": "SSO 오류"
@@ -1906,6 +1914,7 @@
     "priorityNormal": "우선순위 없음"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: 라벨이 있는 가장 오래된 메일의 경과 일수: {{count}}",
     "title": "GTD",
     "inbox": "받은편지함",
     "waiting": "대기 중",
@@ -1918,6 +1927,8 @@
     "allClearHint": "처리할 항목이 없습니다.",
     "classifyFailed": "라벨을 적용할 수 없습니다.",
     "classified": "라벨이 적용됨",
+    "classifiedMany": "{{count}}개를 {{state}}(으)로 지정함",
+    "classifiedSome": "{{total}}개 중 {{count}}개를 {{state}}(으)로 지정함",
     "toggleSection": "{{section}} 전환",
     "inboxZero": "받은 편지함 제로 ✓",
     "done": "완료로 표시",
@@ -1933,7 +1944,8 @@
     "removed": "라벨이 삭제됨",
     "removeFailed": "라벨을 삭제할 수 없습니다.",
     "onlyCopy": "이 메시지의 유일한 사본이므로 라벨을 삭제하면 메시지도 삭제됩니다. 대신 보관하거나 이동하세요.",
-    "doneArchiveFailed": "완료로 표시했지만 보관에 실패했습니다. 여전히 받은편지함에 있습니다."
+    "doneArchiveFailed": "완료로 표시했지만 보관에 실패했습니다. 여전히 받은편지함에 있습니다.",
+    "doneThreadRemains": "이 대화의 일부 메시지를 정리하지 못해 GTD 섹션에 그대로 남아 있습니다"
   },
   "rightSidebar": {
     "show": "오른쪽 사이드바 표시",

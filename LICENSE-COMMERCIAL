@@ -1,7 +1,12 @@
 MailFlow Commercial License
-Version 1.0
+Version 1.1, 23 October 2026
 
-Copyright (c) 2026 matthew. All rights reserved.
+Listed on mailflow.sh as the "private modifications license".
+
+Copyright (c) 2026 Matthias (MailFlow). All rights reserved.
+
+Licenses purchased under version 1.0 continue under the terms of
+version 1.0.
 
 DEFINITIONS
 
@@ -57,8 +62,9 @@ copies of the Software.
 
 GOVERNING LAW
 
-This agreement is governed by applicable law. Any disputes shall be resolved
-in the jurisdiction where the Licensor resides.
+This agreement is governed by the laws of the State of New York, USA,
+without regard to its conflict of law rules. Any disputes shall be resolved
+in the state or federal courts located in the State of New York.
 
 ENTIRE AGREEMENT
 
@@ -68,4 +74,4 @@ commercial use of the Software and supersedes all prior agreements.
 ---
 
 To purchase a commercial license, visit: https://mailflow.sh/#pricing
-For licensing enquiries: https://github.com/maathimself/mailflow/issues
+For licensing enquiries: contact@mailflow.sh

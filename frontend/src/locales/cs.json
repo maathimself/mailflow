@@ -678,6 +678,7 @@
     }
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: stáří nejstarší zprávy s tímto štítkem (dny): {{count}}",
     "title": "GTD",
     "inbox": "Doručené",
     "waiting": "Čeká se",
@@ -691,6 +692,8 @@
     "tabEmpty": "Zatím tu nic není",
     "removeFrom": "Odebrat ze stavu {{state}}",
     "classified": "Štítek použit",
+    "classifiedMany": "Štítek {{state}} použit u {{count}}",
+    "classifiedSome": "Štítek {{state}} použit u {{count}} z {{total}}",
     "classifyFailed": "Štítek se nepodařilo použít",
     "removed": "Štítek odebrán",
     "removeFailed": "Štítek se nepodařilo odebrat",
@@ -698,6 +701,7 @@
     "done": "Označit jako hotové",
     "doneFailed": "Nepodařilo se označit jako hotové",
     "doneArchiveFailed": "Označeno jako hotové, ale archivace se nezdařila — zpráva zůstává v Doručené poště",
+    "doneThreadRemains": "Některé zprávy v této konverzaci nebylo možné odebrat, proto zůstává ve své sekci GTD",
     "state": {
       "todo": "K vyřízení",
       "watch": "Sledovat",
@@ -1083,7 +1087,8 @@
       "sourceCode": "Zdrojový kód",
       "sponsor": "Podpořit vývoj",
       "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "githubSponsors": "GitHub Sponsors",
+      "sponsorBlurb": "MailFlow vyvíjí a udržuje jediný člověk. Sponzorské příspěvky pokrývají čas věnovaný opravám, revizím kódu a vydávání nových verzí."
     },
     "appearance": {
       "title": "Vzhled",
@@ -1164,6 +1169,7 @@
       "errorPasswordRequired": "U nových účtů je vyžadováno heslo",
       "microsoftImapUnsupported": "Outlook.com / Hotmail vyžaduje OAuth2 (moderní ověřování)",
       "microsoftImapNote": "Microsoft u osobních účtů Outlook.com, Hotmail a Live vypnul přihlašování k IMAP pomocí hesla (základní ověřování). Tyto účty lze stále připojit pomocí Microsoft OAuth2 (moderní ověřování) — nastavte je v Integrace → Microsoft 365 / Outlook.com. Pro osobní účty nejlépe funguje přihlášení pomocí kódu zařízení a není potřeba heslo pro aplikaci.",
+      "microsoftImapNoteReady": "Microsoft vypnul přihlášení k IMAP heslem (základní ověřování) pro osobní účty Outlook.com, Hotmail a Live. Připojte tento účet raději v Integrace → Microsoft 365 / Outlook.com: přihlášení kódem zařízení nevyžaduje nastavení ani heslo aplikace.",
       "reindex": "Znovu indexovat pro vyhledávání",
       "reindexing": "Indexování zpráv…",
       "reindexProgress": "Indexováno {{synced}} z {{total}} zpráv",
@@ -1832,7 +1838,13 @@
         "deviceCodeExpired": "Platnost kódu vypršela. Spusťte proces znovu.",
         "deviceCodeDeclined": "Autorizace byla zamítnuta.",
         "deviceCodeError": "Došlo k chybě. Zkuste to znovu.",
-        "deviceCodeCancel": "Zrušit"
+        "deviceCodeCancel": "Zrušit",
+        "personalReady": "Osobní účty připraveny",
+        "builtinTitle": "Připojit osobní účet Microsoft",
+        "builtinNote": "Účty Outlook.com, Hotmail, Live a MSN nepotřebují žádné nastavení. Používá se sdílená aplikace Microsoft od MailFlow, kterou Microsoft může označit jako neověřenou. Přihlásíte se na stránce Microsoftu ve svém prohlížeči a Microsoft pošle tokeny přímo na tento server: správci MailFlow nikdy neuvidí vaši poštu ani tokeny. Pracovní nebo školní účty potřebují aplikaci registrovanou vaším správcem.",
+        "builtinToggle": "Nabízet aplikaci MailFlow pro osobní účty",
+        "builtinToggleDesc": "Dokud není uloženo ID klienta, mohou se osobní účty Outlook.com a Hotmail přihlásit přes sdílenou aplikaci MailFlow. Vypnutím zastavíte nová přihlášení přes ni; účty, které jsou přes ni již připojené, fungují dál.",
+        "userNoteBuiltin": "Níže můžete bez nastavení připojit osobní účet Outlook.com, Hotmail, Live nebo MSN. Pro pracovní nebo školní účty Microsoft 365 musí správce nastavit přihlášení Microsoft 365."
       },
       "google": {
         "title": "Gmail / Google Workspace",

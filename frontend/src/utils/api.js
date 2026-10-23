@@ -373,6 +373,7 @@ export const api = {
   getIntegrationsStatus: () => request('GET', '/integrations/status'),
   saveIntegration: (provider, config) => request('POST', `/integrations/${provider}`, config),
   deleteIntegration: (provider) => request('DELETE', `/integrations/${provider}`),
+  setMsBuiltinApp: (enabled) => request('PUT', '/integrations/microsoft/builtin-app', { enabled }),
   startMsDeviceFlow: async () => {
     const res = await fetch('/oauth/microsoft/device', { method: 'POST', credentials: 'include' });
     const data = await res.json();
@@ -515,6 +516,7 @@ export const api = {
     const qs = p.toString();
     return request('GET', `/gtd/sections${qs ? '?' + qs : ''}`);
   },
+  gtdMetadata: (accountId, messageIds) => request('POST', '/gtd/metadata', { accountId, messageIds }),
   gtdClassify: (messageId, state) => request('POST', '/gtd/classify', { messageId, state }),
   gtdUndoClassify: (undoToken) => request('POST', '/gtd/classify/undo', undoToken),
   gtdUnclassify: (messageId, state) => request('DELETE', '/gtd/classify', { messageId, state }),

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { encrypt, decrypt, isEncrypted } from '../services/encryption.js';
+import { msBuiltinAppEnabled, msBuiltinAppShipped, msPersonalAccountsAvailable } from '../services/microsoftOAuthClient.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -23,6 +24,11 @@ const PROVIDER_ENV = {
   },
 };
 
+// Whether MailFlow's built-in Microsoft app is offered for personal accounts (#674). The
+// admin's choice in Settings has its own system_settings row, not a place in the microsoft
+// config, so removing the instance's own app does not quietly turn the shared app back on.
+// Once set, it takes precedence over MS_BUILTIN_APP in .env.
+const MS_BUILTIN_APP_KEY = 'ms_builtin_app';
 function applyConfigToEnv(provider, config) {
   const map = PROVIDER_ENV[provider];
   if (!map) return;
@@ -61,15 +67,38 @@ router.get('/', requireAdmin, async (req, res) => {
 // the connect buttons, while the config read/write/delete endpoints stay admin-only.
 // The OAuth connect routes already require only an authenticated session and bind the
 // resulting mailbox to that user, so no privilege is granted here. (#315)
+//
+// configured is the instance's own app. builtinApp is whether MailFlow's built-in app may be
+// offered: this build ships one (builtinAppShipped) and the admin has not opted out. Without
+// an own app, personal accounts connect through the built-in one over the device-code flow.
+// personalAccounts says whether a personal account can sign in at all right now. (#674)
 router.get('/status', async (req, res) => {
   res.json({
     microsoft: {
       configured: !!process.env.MS_CLIENT_ID,
+      builtinApp: msBuiltinAppEnabled(),
+      builtinAppShipped: msBuiltinAppShipped(),
+      personalAccounts: msPersonalAccountsAvailable(),
     },
     google: {
       configured: !!process.env.GOOGLE_CLIENT_ID,
     },
   });
+});
+
+// Offer MailFlow's built-in Microsoft app for personal accounts, or stop offering it (#674).
+// Turning it off stops new sign-ins through it; accounts already connected keep refreshing
+// through the client they were connected with. Admin only.
+router.put('/microsoft/builtin-app', requireAdmin, async (req, res) => {
+  const { enabled } = req.body || {};
+  if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
+  await query(
+    `INSERT INTO system_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+    [MS_BUILTIN_APP_KEY, String(enabled)],
+  );
+  process.env.MS_BUILTIN_APP = String(enabled);
+  res.json({ ok: true });
 });
 
 // Save/update integration config — admin only (writes affect global OAuth env vars)
@@ -128,6 +157,8 @@ export async function loadIntegrationConfigs() {
       // decrypt() returns the value unchanged for plaintext (migration fallback)
       applyConfigToEnv(row.provider, row.config);
     }
+    const builtin = await query('SELECT value FROM system_settings WHERE key = $1', [MS_BUILTIN_APP_KEY]);
+    if (builtin.rows.length) process.env.MS_BUILTIN_APP = builtin.rows[0].value;
     console.log('Integration configs loaded');
   } catch (err) {
     console.error('Failed to load integration configs:', err.message);

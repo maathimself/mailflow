@@ -981,6 +981,7 @@
       "errorPasswordRequired": "La contraseña es obligatoria para cuentas nuevas",
       "microsoftImapUnsupported": "Outlook.com / Hotmail requiere OAuth2 (Modern Auth)",
       "microsoftImapNote": "Microsoft ha desactivado el IMAP por contraseña (autenticación básica) para las cuentas personales de Outlook.com, Hotmail y Live. Aún puedes conectar estas cuentas mediante Microsoft OAuth2 (Modern Auth): configúralo en Integraciones → Microsoft 365 / Outlook.com. El inicio de sesión con código de dispositivo es el más adecuado para cuentas personales y no requiere contraseña de aplicación.",
+      "microsoftImapNoteReady": "Microsoft ha desactivado el acceso IMAP con contraseña (autenticación básica) para las cuentas personales de Outlook.com, Hotmail y Live. Conecta esta cuenta en Integraciones → Microsoft 365 / Outlook.com: el inicio de sesión con código de dispositivo no necesita configuración ni contraseña de aplicación.",
       "reindex": "Re-indexar para búsqueda",
       "reindexing": "Indexando mensajes...",
       "reindexProgress": "{{synced}} / {{total}} mensajes indexados",
@@ -1621,7 +1622,13 @@
         "deviceCodeExpired": "Código expirado. Inicia de nuevo.",
         "deviceCodeDeclined": "La autorización fue rechazada.",
         "deviceCodeError": "Ocurrió un error. Inténtalo de nuevo.",
-        "deviceCodeCancel": "Cancelar"
+        "deviceCodeCancel": "Cancelar",
+        "personalReady": "Cuentas personales listas",
+        "builtinTitle": "Conectar una cuenta personal de Microsoft",
+        "builtinNote": "Las cuentas de Outlook.com, Hotmail, Live y MSN no necesitan configuración. Esto usa la aplicación de Microsoft compartida de MailFlow, que Microsoft puede marcar como no verificada. Inicias sesión en la propia página de Microsoft en tu navegador, y Microsoft envía los tokens directamente a este servidor: los mantenedores de MailFlow nunca ven tu correo ni tus tokens. Las cuentas de trabajo o educativas necesitan una aplicación registrada por tu administrador.",
+        "builtinToggle": "Ofrecer la aplicación de MailFlow para cuentas personales",
+        "builtinToggleDesc": "Mientras no haya un ID de cliente guardado, las cuentas personales de Outlook.com y Hotmail pueden iniciar sesión con la aplicación compartida de MailFlow. Al desactivarlo se impiden nuevos inicios de sesión con ella; las cuentas ya conectadas así siguen funcionando.",
+        "userNoteBuiltin": "Puedes conectar abajo una cuenta personal de Outlook.com, Hotmail, Live o MSN sin configurar nada. Para las cuentas de Microsoft 365 de trabajo o educativas, tu administrador debe configurar el inicio de sesión de Microsoft 365."
       },
       "google": {
         "title": "Gmail / Google Workspace",
@@ -1706,7 +1713,8 @@
       "sourceCode": "Código fuente",
       "sponsor": "Apoyar el desarrollo",
       "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "githubSponsors": "GitHub Sponsors",
+      "sponsorBlurb": "MailFlow lo desarrolla y mantiene una sola persona. Los patrocinios pagan el tiempo dedicado a correcciones, revisiones y nuevas versiones."
     },
     "search": {
       "placeholder": "Buscar ajustes…",
@@ -1910,6 +1918,7 @@
     "show": "Mostrar la barra lateral derecha"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: antigüedad del mensaje más antiguo con esta etiqueta (días): {{count}}",
     "title": "GTD",
     "inbox": "Bandeja de entrada",
     "waiting": "En espera",
@@ -1923,6 +1932,8 @@
     "tabEmpty": "Nada aquí todavía",
     "removeFrom": "Quitar de {{state}}",
     "classified": "Etiqueta aplicada",
+    "classifiedMany": "{{count}} etiquetados como {{state}}",
+    "classifiedSome": "{{count}} de {{total}} etiquetados como {{state}}",
     "classifyFailed": "No se pudo aplicar la etiqueta",
     "undoFailed": "No se pudo deshacer la etiqueta",
     "removed": "Etiqueta eliminada",
@@ -1931,6 +1942,7 @@
     "done": "Marcar como hecho",
     "doneFailed": "No se pudo marcar como hecho",
     "doneArchiveFailed": "Marcado como hecho, pero falló el archivado: sigue en la bandeja de entrada",
+    "doneThreadRemains": "Algunos mensajes de esta conversación no se pudieron quitar, así que sigue en su sección de GTD",
     "state": {
       "todo": "Por hacer",
       "watch": "Vigilar",

@@ -6,6 +6,7 @@ import { imapManager } from '../index.js';
 import { providerProfile, PROVIDERS } from '../services/imapManager.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { redactEmail } from '../utils/redact.js';
+import { getMsConfig, getMsDeviceClient, msRefreshClient } from '../services/microsoftOAuthClient.js';
 
 // Cache JWKS fetchers per tenant — createRemoteJWKSet handles caching internally.
 const jwksCache = new Map();
@@ -25,15 +26,6 @@ const MICROSOFT_AUTH_URL = 'https://login.microsoftonline.com';
 // In-memory store for pending device code flows — keyed by userId.
 // Device codes expire in 15 minutes so no persistence is needed.
 const deviceFlows = new Map();
-
-function getMsConfig() {
-  return {
-    clientId: process.env.MS_CLIENT_ID,
-    clientSecret: process.env.MS_CLIENT_SECRET,
-    tenantId: process.env.MS_TENANT_ID || 'common',
-    redirectUri: process.env.MS_REDIRECT_URI,
-  };
-}
 
 // Step 1: redirect user to Microsoft login
 router.get('/microsoft', async (req, res) => {
@@ -188,9 +180,10 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publ
         UPDATE email_accounts SET
           oauth_provider = 'microsoft',
           oauth_access_token = $1, oauth_refresh_token = $2, oauth_token_expiry = $3,
-          name = $4, oauth_public_client = $5, sync_error = NULL
+          name = $4, oauth_public_client = $5, sync_error = NULL,
+          oauth_client_id = $7, oauth_tenant_id = $8
         WHERE id = $6
-      `, [encrypt(access_token), encrypt(refresh_token), expiry, displayName || email, publicClient, accountId]);
+      `, [encrypt(access_token), encrypt(refresh_token), expiry, displayName || email, publicClient, accountId, clientId, tenantId]);
     } else {
       const colors = ['#0078d4', '#106ebe', '#005a9e', '#004578'];
       const color = colors[Math.floor(Math.random() * colors.length)];
@@ -201,15 +194,15 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publ
           smtp_host, smtp_port, smtp_tls,
           auth_user,
           oauth_provider, oauth_access_token, oauth_refresh_token, oauth_token_expiry,
-          oauth_public_client
+          oauth_public_client, oauth_client_id, oauth_tenant_id
         ) VALUES ($1,$2,$3,$4,'imap',
           'outlook.office365.com', 993, true,
           'smtp.office365.com', 587, 'STARTTLS',
           $3,
           'microsoft', $5, $6, $7,
-          $8)
+          $8, $9, $10)
         RETURNING *
-      `, [userId, displayName, email, color, encrypt(access_token), encrypt(refresh_token), expiry, publicClient]);
+      `, [userId, displayName, email, color, encrypt(access_token), encrypt(refresh_token), expiry, publicClient, clientId, tenantId]);
       accountId = result.rows[0].id;
     }
 
@@ -230,10 +223,12 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publ
 // Step 1: initiate device code flow — returns user_code + verification_uri to the frontend.
 router.post('/microsoft/device', async (req, res) => {
   if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const { clientId, tenantId } = getMsConfig();
-  if (!clientId || !tenantId) {
+  // The instance's own app when configured, else MailFlow's built-in public client (#674).
+  const client = getMsDeviceClient();
+  if (!client) {
     return res.status(400).json({ error: 'Microsoft integration not configured. Set Client ID and Tenant ID in the Integrations tab.' });
   }
+  const { clientId, tenantId } = client;
 
   try {
     const dcRes = await fetch(`${MICROSOFT_AUTH_URL}/${tenantId}/oauth2/v2.0/devicecode`, {
@@ -332,7 +327,9 @@ export function refreshMicrosoftToken(account) {
 
 // Refresh an expired Microsoft token
 async function doRefreshMicrosoftToken(account) {
-  const { clientId, clientSecret, tenantId } = getMsConfig();
+  // The client the account was connected with: its refresh token is valid for no other (#674).
+  const { clientId, clientSecret, tenantId } = msRefreshClient(account);
+  if (!clientId) throw new Error('Microsoft integration not configured. Set Client ID and Tenant ID in the Integrations tab.');
 
   const storedRefreshToken = decrypt(account.oauth_refresh_token);
   if (!storedRefreshToken) throw new Error('OAuth refresh token is missing or corrupted — please reconnect your account');
@@ -381,17 +378,36 @@ async function doRefreshMicrosoftToken(account) {
   const expiry = new Date(Date.now() + refreshExpiresInSecs * 1000);
   const isPublic = !!account.oauth_public_client || becamePublic;
 
-  await query(`
+  // An account from before the identity was recorded has just proven which client it
+  // belongs to. Recording it keeps the account working if MS_CLIENT_ID changes later.
+  // The row must still belong to the client this refresh used: a sign-in that finished
+  // meanwhile through another client stored that client's tokens, and these must not be
+  // paired with its ID.
+  const saved = await query(`
     UPDATE email_accounts SET
       oauth_access_token = $1,
       oauth_refresh_token = COALESCE($2, oauth_refresh_token),
       oauth_token_expiry = $3,
-      oauth_public_client = $4
+      oauth_public_client = $4,
+      oauth_client_id = COALESCE(oauth_client_id, $6),
+      oauth_tenant_id = COALESCE(oauth_tenant_id, $7)
     WHERE id = $5
-  `, [encrypt(access_token), refresh_token ? encrypt(refresh_token) : null, expiry, isPublic, account.id]);
+      AND COALESCE(oauth_client_id, $6) = $6
+      AND COALESCE(oauth_tenant_id, $7) = $7
+  `, [encrypt(access_token), refresh_token ? encrypt(refresh_token) : null, expiry, isPublic, account.id, clientId, tenantId]);
+  if (saved?.rowCount === 0) {
+    console.warn(`Microsoft token refresh for account ${account.id} not saved: the account was signed in again through another client meanwhile`);
+  }
 
   // Return plaintext tokens so callers can use them immediately without decrypting
-  return { ...account, oauth_access_token: access_token, oauth_token_expiry: expiry, oauth_public_client: isPublic };
+  return {
+    ...account,
+    oauth_access_token: access_token,
+    oauth_token_expiry: expiry,
+    oauth_public_client: isPublic,
+    oauth_client_id: account.oauth_client_id || clientId,
+    oauth_tenant_id: account.oauth_tenant_id || tenantId,
+  };
 }
 
 // ─── Google ──────────────────────────────────────────────────────────────────

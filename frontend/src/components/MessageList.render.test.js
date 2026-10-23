@@ -462,6 +462,31 @@ describe('MessageList reply draft indicators', () => {
   });
 });
 
+describe('plugin row metadata', () => {
+  test('shows GTD chips on flat and threaded inbox rows only for activated accounts', async () => {
+    await import('../plugins/gtd/index.jsx');
+    const { patchGtdMetadata, clearGtdMetadata } = await import('../plugins/gtd/metadataStore.js');
+    try {
+      for (const [row, threadedView] of [[MESSAGE, false], [THREAD, true]]) {
+        await mount({ rows: [row], threadedView });
+        await React.act(async () => {
+          useStore.setState({ accounts: [{ ...ACCOUNT, gtd_enabled: true }], enabledPlugins: ['gtd'], activeGtdTab: null });
+          patchGtdMetadata(row, 'todo', row.date);
+        });
+        assert.ok(container.querySelector(`[data-msgid="${row.id}"] [aria-label="gtd.state.todo"]`));
+        await React.act(async () => { useStore.setState({ enabledPlugins: [] }); });
+        assert.equal(container.querySelector('[aria-label="gtd.state.todo"]'), null);
+        await React.act(async () => {
+          useStore.setState({ enabledPlugins: ['gtd'], accounts: [ACCOUNT] });
+        });
+        assert.equal(container.querySelector('[aria-label="gtd.state.todo"]'), null);
+      }
+    } finally {
+      await React.act(async () => { clearGtdMetadata(); useStore.setState({ enabledPlugins: [], accounts: [ACCOUNT] }); });
+    }
+  });
+});
+
 describe('MessageList — a conversation another account also received (#476)', () => {
   // One email delivered to two of the reader's accounts is two mailbox items, and the thread
   // route returns both so the conversation can show them. In acct-1's own view its row

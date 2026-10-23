@@ -2,6 +2,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildMovePickerSections,
+  movePickerSectionHeading,
+  movePickerFoldersEmpty,
+  runMovePickerAction,
   favoriteMoveTargets,
   recentMoveTargets,
   folderDelimiter,
@@ -276,5 +280,180 @@ describe('recentMoveTargets (#551)', () => {
   it('tolerates missing lists', () => {
     assert.deepEqual(recentMoveTargets(undefined, folders, { accountId: 'a' }), []);
     assert.deepEqual(recentMoveTargets(recents, undefined, { accountId: 'a' }), []);
+  });
+});
+
+describe('buildMovePickerSections', () => {
+  const folders = ['INBOX', 'Archive', 'Todo', 'Watch', 'Drafts'].map(path => ({ path, name: path }));
+  const recents = [{ accountId: 'a', path: 'Watch' }, { accountId: 'a', path: 'Archive' }];
+  const favorites = [{ accountId: 'a', path: 'Archive' }, { accountId: 'a', path: 'Drafts', label: 'Drafts!' }];
+  const item = (key, label, path) => ({ key, label, path, renderIcon: () => null, onSelect: () => {} });
+  const gtd = { key: 'gtd', heading: 'GTD', items: [item('todo', 'Todo', 'Todo'), item('watch', 'Watch', 'Watch')] };
+  const base = { folders, recents, favorites, accountId: 'a', currentFolder: 'INBOX' };
+  const paths = section => section.rows.map(r => r.folder.path);
+  const byKey = (sections, key) => sections.find(s => s.key === key);
+
+  it('no plugin sections reproduces today\'s picker', () => {
+    const sections = buildMovePickerSections(base);
+    const recent = recentMoveTargets(recents, folders, { accountId: 'a', currentFolder: 'INBOX' });
+    const favs = favoriteMoveTargets(favorites, folders, { accountId: 'a', currentFolder: 'INBOX', exclude: recent });
+    assert.deepEqual(sections.map(s => [s.key, s.heading]), [['recent', null], ['favorites', null], ['all', null]]);
+    assert.deepEqual(byKey(sections, 'recent').rows, recent.map(folder => ({ kind: 'folder', folder })));
+    assert.deepEqual(byKey(sections, 'favorites').rows, favs.map(folder => ({ kind: 'folder', folder })));
+    assert.deepEqual(paths(byKey(sections, 'all')), ['Archive', 'Todo', 'Watch', 'Drafts']);
+  });
+
+  it('favorite rows keep the favorite\'s custom name', () => {
+    const sections = buildMovePickerSections(base);
+    assert.deepEqual(byKey(sections, 'favorites').rows.map(r => r.folder.favoriteLabel), ['Drafts!']);
+  });
+
+  it('plugin sections come first and their paths leave every core section', () => {
+    const sections = buildMovePickerSections({ ...base, pluginSections: [gtd] });
+    assert.deepEqual(sections.map(s => s.key), ['plugin:gtd', 'recent', 'favorites', 'all']);
+    const g = byKey(sections, 'plugin:gtd');
+    assert.equal(g.heading, 'GTD');
+    assert.deepEqual(g.rows, gtd.items.map(i => ({ kind: 'action', item: i })));
+    for (const key of ['recent', 'favorites', 'all']) {
+      const p = paths(byKey(sections, key));
+      assert.ok(!p.includes('Todo') && !p.includes('Watch'), `${key} still lists a plugin path: ${p}`);
+    }
+  });
+
+  it('an item for the current folder is hidden', () => {
+    const sections = buildMovePickerSections({ ...base, currentFolder: 'Watch', pluginSections: [gtd] });
+    assert.deepEqual(byKey(sections, 'plugin:gtd').rows.map(r => r.item.key), ['todo']);
+    for (const s of sections.filter(s => s.key !== 'plugin:gtd')) {
+      assert.ok(!paths(s).includes('Watch'));
+    }
+    const inArchive = buildMovePickerSections({ ...base, currentFolder: 'Archive', pluginSections: [gtd] });
+    assert.deepEqual(byKey(inArchive, 'plugin:gtd').rows.map(r => r.item.key), ['todo', 'watch']);
+    for (const s of inArchive.filter(s => s.key !== 'plugin:gtd')) {
+      assert.ok(!paths(s).includes('Archive'), `${s.key} lists the current folder`);
+    }
+    assert.ok(paths(byKey(inArchive, 'all')).includes('Drafts'));
+  });
+
+  it('a query filters item labels and folders, without recent or favorites', () => {
+    const arc = buildMovePickerSections({ ...base, pluginSections: [gtd], query: ' Arc ' });
+    assert.deepEqual(arc.map(s => s.key), ['all']);
+    assert.deepEqual(paths(arc[0]), ['Archive']);
+
+    const tod = buildMovePickerSections({ ...base, pluginSections: [gtd], query: 'tod' });
+    assert.deepEqual(tod.map(s => s.key), ['plugin:gtd']);
+    assert.deepEqual(tod[0].rows.map(r => r.item.key), ['todo']);
+  });
+
+  it('a query finds an item by its folder when the label differs', () => {
+    const german = { key: 'gtd', heading: 'GTD', items: [item('todo', 'Aufgabe', 'Todo')] };
+    const found = buildMovePickerSections({ ...base, pluginSections: [german], query: 'todo' });
+    assert.deepEqual(byKey(found, 'plugin:gtd').rows.map(r => r.item.key), ['todo']);
+    const noFolder = buildMovePickerSections({ ...base, folders: [], pluginSections: [german], query: 'todo' });
+    assert.deepEqual(byKey(noFolder, 'plugin:gtd').rows.map(r => r.item.key), ['todo']);
+
+    const renamed = { key: 'gtd', heading: 'GTD', items: [item('todo', 'Todo', '@Next Actions')] };
+    const next = buildMovePickerSections({
+      ...base,
+      folders: [...folders, { path: '@Next Actions', name: '@Next Actions' }],
+      pluginSections: [renamed],
+      query: 'next',
+    });
+    assert.deepEqual(byKey(next, 'plugin:gtd').rows.map(r => r.item.key), ['todo']);
+    assert.ok(!(byKey(next, 'all')?.rows || []).some(r => r.folder.path === '@Next Actions'));
+  });
+
+  it('empty sections are dropped', () => {
+    const sections = buildMovePickerSections({ ...base, recents: [], favorites: [], pluginSections: [gtd] });
+    assert.deepEqual(sections.map(s => s.key), ['plugin:gtd', 'all']);
+    const none = buildMovePickerSections({ ...base, pluginSections: [{ key: 'empty', heading: 'E', items: [] }] });
+    assert.deepEqual(none.map(s => s.key), ['recent', 'favorites', 'all']);
+  });
+
+  it('a plugin section keyed like a core section stays apart from it', () => {
+    const clash = { key: 'all', heading: 'X', items: [item('todo', 'Todo', 'Todo')] };
+    const sections = buildMovePickerSections({ ...base, pluginSections: [clash] });
+    assert.deepEqual(sections.map(s => [s.key, s.heading]), [
+      ['plugin:all', 'X'], ['recent', null], ['favorites', null], ['all', null],
+    ]);
+    assert.equal(new Set(sections.map(s => s.key)).size, sections.length);
+  });
+
+  it('two plugin sections with the same key get distinct keys', () => {
+    const a = { key: 'gtd', heading: 'A', items: [item('todo', 'Todo', 'Todo')] };
+    const b = { key: 'gtd', heading: 'B', items: [item('watch', 'Watch', 'Watch')] };
+    const c = { key: 'gtd', heading: 'C', items: [item('arc', 'Arc', 'Archive')] };
+    const sections = buildMovePickerSections({ ...base, pluginSections: [a, b, c] });
+    assert.deepEqual(sections.slice(0, 3).map(s => [s.key, s.heading]), [
+      ['plugin:gtd', 'A'], ['plugin:gtd-2', 'B'], ['plugin:gtd-3', 'C'],
+    ]);
+    assert.equal(new Set(sections.map(s => s.key)).size, sections.length);
+  });
+
+  it('a suffixed key never collides with a plugin section already keyed that way', () => {
+    const sections = buildMovePickerSections({ ...base, pluginSections: [
+      { key: 'gtd', heading: 'A', items: [item('todo', 'Todo', 'Todo')] },
+      { key: 'gtd-2', heading: 'B', items: [item('watch', 'Watch', 'Watch')] },
+      { key: 'gtd', heading: 'C', items: [item('arc', 'Arc', 'Archive')] },
+    ] });
+    assert.equal(new Set(sections.map(s => s.key)).size, sections.length);
+  });
+
+  it('plugin sections survive an empty or failed folder list', () => {
+    const sections = buildMovePickerSections({ ...base, folders: [], pluginSections: [gtd] });
+    assert.deepEqual(sections.map(s => s.key), ['plugin:gtd']);
+    assert.deepEqual(byKey(sections, 'plugin:gtd').rows.map(r => r.item.key), ['todo', 'watch']);
+  });
+});
+
+describe('movePickerFoldersEmpty', () => {
+  const action = { key: 'plugin:gtd', heading: 'GTD', rows: [{ kind: 'action', item: {} }] };
+  const all = { key: 'all', heading: null, rows: [{ kind: 'folder', folder: { path: 'Archive' } }] };
+
+  it('an empty or missing folder list shows the empty message, beside any plugin sections', () => {
+    assert.equal(movePickerFoldersEmpty([action], []), true);
+    assert.equal(movePickerFoldersEmpty([action], null), true);
+    assert.equal(movePickerFoldersEmpty([], undefined), true);
+  });
+
+  it('nothing to show at all shows the empty message', () => {
+    assert.equal(movePickerFoldersEmpty([], [{ path: 'Archive' }]), true);
+  });
+
+  it('folders, or a search matching only plugin items, show no empty message', () => {
+    assert.equal(movePickerFoldersEmpty([all], [{ path: 'Archive' }]), false);
+    assert.equal(movePickerFoldersEmpty([action], [{ path: 'Archive' }]), false);
+  });
+});
+
+describe('runMovePickerAction', () => {
+  it('runs the item, then closes', () => {
+    const calls = [];
+    runMovePickerAction({ onSelect: () => calls.push('select') }, () => calls.push('close'));
+    assert.deepEqual(calls, ['select', 'close']);
+  });
+
+  it('closes the picker even when the item throws', () => {
+    let closed = false;
+    assert.throws(
+      () => runMovePickerAction({ onSelect: () => { throw new Error('boom'); } }, () => { closed = true; }),
+      /boom/,
+    );
+    assert.equal(closed, true);
+  });
+});
+
+describe('movePickerSectionHeading', () => {
+  const t = key => `t:${key}`;
+
+  it('a section\'s own heading wins, even under a core key', () => {
+    assert.equal(movePickerSectionHeading({ key: 'recent', heading: 'X' }, t), 'X');
+    assert.equal(movePickerSectionHeading({ key: 'all', heading: 'Y' }, t), 'Y');
+    assert.equal(movePickerSectionHeading({ key: 'gtd', heading: 'GTD' }, t), 'GTD');
+  });
+
+  it('core sections take their translated headings, and all has none', () => {
+    assert.equal(movePickerSectionHeading({ key: 'recent', heading: null }, t), 't:contextMenu.folders.recent');
+    assert.equal(movePickerSectionHeading({ key: 'favorites', heading: null }, t), 't:contextMenu.folders.favorites');
+    assert.equal(movePickerSectionHeading({ key: 'all', heading: null }, t), null);
   });
 });

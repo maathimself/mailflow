@@ -999,6 +999,7 @@
       "errorPasswordRequired": "Hasło jest wymagane dla nowych kont",
       "microsoftImapUnsupported": "Outlook.com / Hotmail wymaga OAuth2 (Modern Auth)",
       "microsoftImapNote": "Firma Microsoft wyłączyła uwierzytelnianie IMAP za pomocą haseł (uwierzytelnianie podstawowe) dla osobistych kont Outlook.com, Hotmail i Live. Nadal możesz połączyć te konta za pomocą Microsoft OAuth2 (Modern Auth) — skonfiguruj je w Integracje → Microsoft 365 / Outlook.com. Logowanie za pomocą kodu urządzenia najlepiej sprawdza się w przypadku kont osobistych i nie wymaga hasła aplikacji.",
+      "microsoftImapNoteReady": "Microsoft wyłączył logowanie IMAP hasłem (uwierzytelnianie podstawowe) dla prywatnych kont Outlook.com, Hotmail i Live. Połącz to konto w Integracje → Microsoft 365 / Outlook.com: logowanie kodem urządzenia nie wymaga konfiguracji ani hasła aplikacji.",
       "reindex": "Ponownie zindeksuj wyszukiwanie",
       "reindexing": "Indeksowanie wiadomości...",
       "reindexProgress": "{{synced}} / {{total}} wiadomości zindeksowano",
@@ -1640,7 +1641,13 @@
         "deviceCodeExpired": "Kod wygasł. Kliknij, aby rozpocząć ponownie.",
         "deviceCodeDeclined": "Autoryzacja została odrzucona.",
         "deviceCodeError": "Wystąpił błąd. Spróbuj ponownie.",
-        "deviceCodeCancel": "Anuluj"
+        "deviceCodeCancel": "Anuluj",
+        "personalReady": "Konta prywatne gotowe",
+        "builtinTitle": "Połącz prywatne konto Microsoft",
+        "builtinNote": "Konta Outlook.com, Hotmail, Live i MSN nie wymagają konfiguracji. Korzysta to ze wspólnej aplikacji Microsoft MailFlow, którą Microsoft może oznaczyć jako niezweryfikowaną. Logujesz się na stronie Microsoft w swojej przeglądarce, a Microsoft wysyła tokeny bezpośrednio do tego serwera: opiekunowie MailFlow nigdy nie widzą Twojej poczty ani tokenów. Konta służbowe lub szkolne wymagają aplikacji zarejestrowanej przez administratora.",
+        "builtinToggle": "Oferuj aplikację MailFlow dla kont prywatnych",
+        "builtinToggleDesc": "Dopóki nie zapisano identyfikatora klienta, prywatne konta Outlook.com i Hotmail mogą logować się przez wspólną aplikację MailFlow. Wyłączenie blokuje nowe logowania przez nią; konta już w ten sposób połączone nadal działają.",
+        "userNoteBuiltin": "Poniżej możesz bez konfiguracji połączyć prywatne konto Outlook.com, Hotmail, Live lub MSN. Służbowe lub szkolne konta Microsoft 365 wymagają, aby administrator skonfigurował logowanie Microsoft 365."
       },
       "google": {
         "title": "Gmail / Google Workspace",
@@ -1725,7 +1732,8 @@
       "sourceCode": "Kod źródłowy",
       "sponsor": "Wesprzyj rozwój",
       "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "githubSponsors": "GitHub Sponsors",
+      "sponsorBlurb": "MailFlow jest tworzony i utrzymywany przez jedną osobę. Sponsoring pokrywa czas poświęcony na poprawki, przeglądy kodu i wydania."
     },
     "search": {
       "placeholder": "Wyszukaj ustawienie…",
@@ -1929,6 +1937,7 @@
     "show": "Pokaż prawy pasek boczny"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: wiek najstarszej wiadomości z tą etykietą (dni): {{count}}",
     "title": "GTD",
     "inbox": "Odebrane",
     "waiting": "Oczekujące",
@@ -1942,6 +1951,8 @@
     "tabEmpty": "Nie ma tu jeszcze żadnych elementów",
     "removeFrom": "Usuń ze stanu {{state}}",
     "classified": "Zastosowano etykietę",
+    "classifiedMany": "Oznaczono {{count}} jako {{state}}",
+    "classifiedSome": "Oznaczono {{count}} z {{total}} jako {{state}}",
     "classifyFailed": "Nie udało się zastosować etykiety",
     "removed": "Usunięto etykietę",
     "removeFailed": "Nie udało się usunąć etykiety",
@@ -1949,6 +1960,7 @@
     "done": "Oznacz jako wykonane",
     "doneFailed": "Nie udało się oznaczyć jako gotowe",
     "doneArchiveFailed": "Oznaczono jako gotowe, ale archiwizacja nie powiodła się — wiadomość nadal znajduje się w skrzynce odbiorczej",
+    "doneThreadRemains": "Nie udało się usunąć niektórych wiadomości z tej rozmowy, więc pozostaje ona w swojej sekcji GTD",
     "state": {
       "todo": "Do zrobienia",
       "watch": "Do obserwowania",

@@ -15,12 +15,14 @@
 
 ## Licensing
 
-MailFlow is dual-licensed:
+Licensing and paid options:
 
-- **[AGPL-3.0](LICENSE)** — free for personal use, self-hosting, and open-source projects. If you modify and distribute or host MailFlow, you must publish your changes under the same license.
-- **[Commercial License](LICENSE-COMMERCIAL)** — $500 per installation, one-time. For businesses or deployments where AGPL obligations cannot be met. [Purchase here](https://mailflow.sh/#pricing).
+- **[AGPL-3.0](LICENSE)**: free for everyone, individuals and businesses, to self-host. If you modify MailFlow and let others use it over a network, you must publish your changes under the same license.
+- **Business License**: $100 per instance per year. MailFlow is free for everyone under the AGPL, including businesses. If you use it in a business, we ask you to buy a yearly license to support development. It isn't legally required or enforced. [Buy one here](https://mailflow.sh/#pricing).
+- **[Private modifications license](LICENSE-COMMERCIAL)** (commercial license): $500 per installation, one-time. Only for a business that wants to modify MailFlow and run it without publishing its changes; most businesses don't need it. [Purchase here](https://mailflow.sh/#pricing). Hosting providers and MSPs that want to offer MailFlow to others: get in touch at contact@mailflow.sh.
+- **Business support**: from $600 per year, for teams that rely on MailFlow, with help setting up, priority answers and a say in the roadmap. Includes a business license. Get in touch at contact@mailflow.sh.
 
-**Personal self-hosting is free and always will be.** This licensing model exists to protect the project from commercial exploitation while keeping MailFlow freely available to individuals and families.
+**Personal self-hosting is free and always will be.**
 
 If you contribute code, please read the [Contributor License Agreement](CLA.md). By submitting a pull request you agree to its terms.
 
@@ -451,9 +453,35 @@ Gmail requires an **App Password** (not your normal password):
 
 Microsoft has disabled basic (password) auth for Outlook.com, Hotmail, and most
 Microsoft 365 accounts, so they connect via OAuth2 under **Settings → Integrations →
-Microsoft 365** (not the normal Add Account form). This is a one-time setup: you
-create a free [Microsoft Entra app registration](https://portal.azure.com) once, and
-the same app then serves every account and user on your instance.
+Microsoft 365** (not the normal Add Account form).
+
+**Personal accounts (Outlook.com, Hotmail, Live, MSN) need no setup.** Click **Start
+device code flow**, then visit [microsoft.com/devicelogin](https://microsoft.com/devicelogin)
+on any device and enter the code MailFlow shows. When your instance has no Microsoft
+app of its own, this sign-in uses MailFlow's registered public app, which accepts
+personal Microsoft accounts only. The app only identifies MailFlow to Microsoft: you
+sign in on Microsoft's own page in your browser, Microsoft sends the tokens straight
+to your server, and MailFlow's maintainers never see your mail or tokens. Microsoft
+may label the app **"unverified"** on the consent screen; that refers to the
+publisher verification status of the app registration and does not change what the
+app can access.
+
+To stop offering the shared app, turn off **Offer MailFlow's app for personal
+accounts** in Integrations → Microsoft 365, or set `MS_BUILTIN_APP=false` in `.env`.
+Once the switch has been used, its setting takes precedence over `MS_BUILTIN_APP`.
+Turning it off stops new sign-ins through the shared app; accounts already connected
+through it keep refreshing through it. Personal accounts then need your own app
+registration, as below.
+
+**Your own app registration** is needed for work / school accounts, and is an
+option for admins who prefer not to use the shared app. Once its Client ID is saved,
+every new sign-in on the instance uses it. Personal accounts already connected
+through MailFlow's shared app keep working through it when you add your own app,
+because each account remembers the app it was connected with. It is a one-time
+setup: you create a free [Microsoft Entra app registration](https://portal.azure.com)
+once, and the same app then serves every account and user on your instance. If you
+later replace the app with a different one, reconnect the accounts that were connected
+through the old one.
 
 **1. Register the app.** In the Azure portal, go to **Microsoft Entra ID → App
 registrations → New registration**. Under **Supported account types**, choose
@@ -478,7 +506,7 @@ both of these, then follow the consent note:
 
 Then follow the steps for your account type:
 
-**Personal accounts (Outlook.com / Hotmail)** (public client, device code):
+**Personal accounts with your own app** (public client, device code):
 
 1. In the Azure app, open **Authentication** and set **"Allow public client flows"**
    to **Yes**. No client secret or redirect URI is needed.
@@ -486,7 +514,7 @@ Then follow the steps for your account type:
    (`common`), leave Client Secret and Redirect URI blank, then save.
 3. Start the device-code flow shown there. MailFlow displays a short code; visit
    [microsoft.com/devicelogin](https://microsoft.com/devicelogin) and enter it to
-   authorise.
+   authorize.
 
 **Work / school accounts (Microsoft 365)** (confidential client):
 
@@ -628,7 +656,7 @@ npm run android:dist    # Android package (.apk / .aab)
 
 ## Supporters
 
-MailFlow is free and open source. If it's useful to you, consider supporting development:
+MailFlow is free and open source, and built and maintained by one person. Sponsorships pay for the time that goes into fixes, reviews and releases. Sponsors appear below; businesses that sponsor get their logo here and on mailflow.sh.
 
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support_MailFlow-FF5E5B?logo=ko-fi&logoColor=white&style=for-the-badge)](https://ko-fi.com/mailflow)
 [![GitHub Sponsors](https://img.shields.io/badge/GitHub_Sponsors-Sponsor-ea4aaa?logo=github-sponsors&logoColor=white&style=for-the-badge)](https://github.com/sponsors/maathimself)
