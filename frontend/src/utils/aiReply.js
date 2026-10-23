@@ -327,12 +327,16 @@ function closingInstruction({ senderName, hasSignature }) {
 }
 
 // The chat messages for writing a new email. The instruction is what the user typed; without one,
-// the AI writes from the subject and recipients alone.
+// the AI writes from the subject and recipients alone. An instruction is usually a few words ("ask
+// for a quote"), and taken literally that gave a two-line note, so the model is asked to develop
+// it into a full email, still without adding facts it was not given.
 export function buildDraftPrompt({ instruction, subject, to, senderName, hasSignature }) {
   const cleanInstruction = clip((instruction || '').trim(), MAX_INSTRUCTION_CHARS);
   const system = [
     'You are an email writing assistant drafting a new email on the user\'s behalf.',
     'Follow the user\'s instruction for what the email should say, using the subject and recipients as context. Without an instruction, write a suitable email for the subject.',
+    'The instruction is usually brief: develop it into a complete, well-written email rather than a short note. Open with a greeting to the recipient (by name when the recipients show it), give the context and the reason for writing, develop the request or information in two or three short paragraphs (what is needed, why, and the next steps or timing the instruction implies), and close with a courteous line that invites a reply.',
+    'Aim for about 120 to 220 words, unless the instruction asks for something shorter or longer. Keep a cordial, professional tone.',
     'Do not invent facts, dates, prices or commitments that are in neither the instruction nor the subject; where one is needed, leave a short placeholder in square brackets.',
     'Write in the language of the instruction, or of the subject when there is no instruction.',
     'Return only the body text of the email, with no subject line. Use plain text with no markdown or HTML. Use double newlines between paragraphs.',

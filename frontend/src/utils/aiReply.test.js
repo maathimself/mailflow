@@ -389,6 +389,14 @@ describe('buildDraftPrompt', () => {
     assert.match(system.content, /Do not add a signature/);
   });
 
+  test('asks for a developed email, not a note, without adding facts', () => {
+    const [system] = buildDraftPrompt({ instruction: 'Ask for a quote', subject: 'Quote', to: 'Ana <ana@example.test>' });
+    assert.match(system.content, /develop it into a complete, well-written email rather than a short note/);
+    assert.match(system.content, /greeting to the recipient \(by name when the recipients show it\)/);
+    assert.match(system.content, /about 120 to 220 words, unless the instruction asks for something shorter or longer/);
+    assert.match(system.content, /Do not invent facts/, 'developing is not inventing');
+  });
+
   test('without an instruction, asks for an email from the subject alone', () => {
     const [, user] = buildDraftPrompt({ instruction: '  ', subject: '', to: '' });
     assert.match(user.content, /Subject: \(none\)\nTo: \(none\)/);
