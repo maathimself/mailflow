@@ -1935,8 +1935,6 @@
     "doneArchiveFailed": "Marcada como concluída, mas o arquivamento falhou — ainda está na sua Caixa de entrada",
     "doneThreadRemains": "Algumas mensagens desta conversa não puderam ser removidas, então ela continua na sua seção do GTD",
     "delegate": {
-      "menu": "Delegar…",
-      "button": "Delegar a um contato",
       "title_one": "Delegar mensagem · {{count}}",
       "title_other": "Delegar mensagens · {{count}}",
       "hint": "Escolha um contato CardDAV ou delegue sem atribuir uma pessoa.",

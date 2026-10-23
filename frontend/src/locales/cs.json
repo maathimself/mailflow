@@ -703,8 +703,6 @@
     },
     "undoFailed": "Štítek se nepodařilo vrátit zpět",
     "delegate": {
-      "menu": "Delegovat…",
-      "button": "Delegovat kontaktu",
       "title_one": "Delegovat {{count}} zprávu",
       "title_few": "Delegovat {{count}} zprávy",
       "title_other": "Delegovat {{count}} zpráv",

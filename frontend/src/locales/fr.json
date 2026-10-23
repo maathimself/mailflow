@@ -1935,8 +1935,6 @@
     "doneArchiveFailed": "Marqué comme terminé, mais l'archivage a échoué — toujours dans la boîte de réception",
     "doneThreadRemains": "Certains messages de cette conversation n'ont pas pu être retirés, elle reste donc dans sa section GTD",
     "delegate": {
-      "menu": "Déléguer…",
-      "button": "Déléguer à un contact",
       "title_one": "Déléguer un message · {{count}}",
       "title_other": "Déléguer des messages · {{count}}",
       "hint": "Choisissez un contact CardDAV ou déléguez sans personne.",

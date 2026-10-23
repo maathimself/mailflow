@@ -1935,8 +1935,6 @@
     "doneArchiveFailed": "Als erledigt markiert, aber Archivieren fehlgeschlagen – noch im Posteingang",
     "doneThreadRemains": "Einige Nachrichten dieser Konversation konnten nicht entfernt werden, daher bleibt sie in ihrem GTD-Bereich",
     "delegate": {
-      "menu": "Delegieren…",
-      "button": "An Kontakt delegieren",
       "title_one": "Nachricht delegieren · {{count}}",
       "title_other": "Nachrichten delegieren · {{count}}",
       "hint": "Wähle einen CardDAV-Kontakt oder delegiere ohne Person.",

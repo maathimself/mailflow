@@ -1935,8 +1935,6 @@
     "doneArchiveFailed": "Marked done, but archiving failed — still in your Inbox",
     "doneThreadRemains": "Some messages in this conversation couldn't be cleared, so it stays in its GTD section",
     "delegate": {
-      "menu": "Delegate…",
-      "button": "Delegate to a contact",
       "title_one": "Delegate message · {{count}}",
       "title_other": "Delegate messages · {{count}}",
       "hint": "Choose a CardDAV contact, or delegate without assigning a person.",

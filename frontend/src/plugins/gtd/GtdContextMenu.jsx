@@ -14,7 +14,7 @@ import { runDelegation } from './delegation.js';
 // The classify + remove submenu shown when the "GTD" item is opened. Renders its own back row and
 // takes over the menu content area (via core's generic plugin-submenu view). Classify offers every
 // state; "Remove from <state>" is offered only for the states this thread is actually labelled with.
-function GtdContextSubmenu({ message, account, onClose, onBack }) {
+function GtdContextSubmenu({ message, account, targetMessageIds, onClose, onBack }) {
   const { t } = useTranslation();
   const addNotification = useStore(s => s.addNotification);
   const scheduleGtdSectionsFetch = useStore(s => s.scheduleGtdSectionsFetch);
@@ -23,12 +23,18 @@ function GtdContextSubmenu({ message, account, onClose, onBack }) {
   // Classify = COPY into the state's label folder (message stays put); remove = strip that label.
   // Store-based, so they run the same on every surface — no dependency on the caller's onAction.
   const classify = (state) => {
-    void classifyWithUndo(message.id, state, {
-      api,
-      store: useStore,
-      t,
-      message,
-    });
+    if (state === 'delegated') {
+      void runDelegation(targetMessageIds || [message.id], {
+        api, store: { addNotification, scheduleGtdSectionsFetch }, t,
+      });
+    } else {
+      void classifyWithUndo(message.id, state, {
+        api,
+        store: useStore,
+        t,
+        message,
+      });
+    }
     onClose();
   };
   const removeFrom = (state) => { unclassifyThread(message.id, state, { gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t, message }); onClose(); };
@@ -97,19 +103,8 @@ export function buildGtdContextItems(ctx) {
       keepOpen: true,
       hasSubmenu: true,
       action: () => openSubmenu((onBack) => (
-        <GtdContextSubmenu message={message} account={account} onClose={onClose} onBack={onBack} />
+        <GtdContextSubmenu message={message} account={account} targetMessageIds={targetMessageIds} onClose={onClose} onBack={onBack} />
       )),
-    });
-    items.push({
-      label: t('gtd.delegate.menu'),
-      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a7 7 0 0114 0v2"/><path d="M19 8v6M16 11h6"/></svg>,
-      action: () => {
-        const { addNotification, scheduleGtdSectionsFetch } = useStore.getState();
-        void runDelegation(targetMessageIds || [message.id], {
-          api, store: { addNotification, scheduleGtdSectionsFetch }, t,
-        });
-        onClose();
-      },
     });
   }
   // The sidebar's "done" checkmark — section-scoped stripping happens in the caller's onAction.

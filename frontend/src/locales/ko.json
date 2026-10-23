@@ -1938,8 +1938,6 @@
     "doneArchiveFailed": "완료로 표시했지만 보관에 실패했습니다. 여전히 받은편지함에 있습니다.",
     "doneThreadRemains": "이 대화의 일부 메시지를 정리하지 못해 GTD 섹션에 그대로 남아 있습니다",
     "delegate": {
-      "menu": "위임…",
-      "button": "연락처에 위임",
       "title_one": "메시지 위임 · {{count}}",
       "title_other": "메시지 위임 · {{count}}",
       "hint": "CardDAV 연락처를 선택하거나, 담당자 없이 위임하세요.",

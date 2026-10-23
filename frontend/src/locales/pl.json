@@ -1961,8 +1961,6 @@
     },
     "undoFailed": "Nie udało się cofnąć etykiety",
     "delegate": {
-      "menu": "Deleguj…",
-      "button": "Deleguj kontaktowi",
       "title_one": "Deleguj {{count}} wiadomość",
       "title_few": "Deleguj {{count}} wiadomości",
       "title_many": "Deleguj {{count}} wiadomości",

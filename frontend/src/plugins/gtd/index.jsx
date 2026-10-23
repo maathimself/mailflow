@@ -15,7 +15,6 @@ import { shouldShowInboxGtdMetadata } from './indicators.js';
 import { invalidateGtdMetadata } from './metadataStore.js';
 import { buildGtdContextItems } from './GtdContextMenu.jsx';
 import DelegatePill from './DelegatePill.jsx';
-import DelegateButton from './DelegateButton.jsx';
 import GtdStateIcon from './GtdStateIcon.jsx';
 import { buildGtdMovePickerSections } from './movePickerSections.js';
 import { classifyWithUndo, classifyManyWithUndo } from '../../utils/gtdClassification.js';
@@ -106,12 +105,6 @@ for (const slotName of ['gtd-entry-meta', 'message-pane-meta']) {
     render: (ctx) => <DelegatePill message={ctx.message} />,
   });
 }
-
-registerSlot('message-pane-actions', {
-  pluginId: 'gtd',
-  isActive: (ctx) => gtdActiveForContext(useStore.getState().accounts, ctx.message.account_id, true),
-  render: (ctx) => <DelegateButton message={ctx.message} />,
-});
 
 // WS: a GTD label folder changed (tick / classify copy-remove / transition strip). Refetch the
 // rail+tab sections when the event's account is in the current rail scope (debounced in the store).

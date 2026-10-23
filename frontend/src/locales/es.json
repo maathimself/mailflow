@@ -1935,8 +1935,6 @@
     "doneArchiveFailed": "Marcado como hecho, pero falló el archivado: sigue en la bandeja de entrada",
     "doneThreadRemains": "Algunos mensajes de esta conversación no se pudieron quitar, así que sigue en su sección de GTD",
     "delegate": {
-      "menu": "Delegar…",
-      "button": "Delegar a un contacto",
       "title_one": "Delegar mensaje · {{count}}",
       "title_other": "Delegar mensajes · {{count}}",
       "hint": "Elige un contacto de CardDAV o delega sin asignar a nadie.",

@@ -1935,8 +1935,6 @@
     "doneArchiveFailed": "Segnato come completato, ma archiviazione non riuscita: è ancora nella posta in arrivo",
     "doneThreadRemains": "Alcuni messaggi di questa conversazione non sono stati rimossi, quindi resta nella sua sezione GTD",
     "delegate": {
-      "menu": "Delega…",
-      "button": "Delega a un contatto",
       "title_one": "Delega messaggio · {{count}}",
       "title_other": "Delega messaggi · {{count}}",
       "hint": "Scegli un contatto CardDAV oppure delega senza assegnare una persona.",

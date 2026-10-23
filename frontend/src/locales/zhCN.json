@@ -1935,8 +1935,6 @@
     "doneArchiveFailed": "已标记为完成，但归档失败——邮件仍在收件箱中",
     "doneThreadRemains": "此会话中的部分邮件无法清除，因此它仍留在原 GTD 分区中",
     "delegate": {
-      "menu": "委派…",
-      "button": "委派给联系人",
       "title_one": "委派 {{count}} 封邮件",
       "title_other": "委派 {{count}} 封邮件",
       "hint": "选择 CardDAV 联系人，或不指定人员直接委派。",
