@@ -5,13 +5,16 @@ import { gtdActiveForContext } from '../../utils/gtd.js';
 import { api } from '../../utils/api.js';
 import { shortcutBus } from '../../utils/shortcutBus.js';
 import { classifyWithUndo } from '../../utils/gtdClassification.js';
-import { runGtdHotkey } from '../../utils/gtdHotkeys.js';
+import { resolveGtdHotkeyTarget, runGtdHotkey } from '../../utils/gtdHotkeys.js';
 import { doneInboxGtdMessage } from './inboxDone.js';
 import { doneGtdRow } from '../../utils/gtdDone.js';
 import { advanceSelectionAfterRemoval } from '../../utils/listSelection.js';
 import { cancelAutoMarkReadFor } from '../../hooks/useGtdTriage.js';
 import { shouldShowInboxGtdMetadata } from './indicators.js';
-import { clearGtdMetadata, getGtdMetadataRefreshGeneration, subscribeGtdMetadataRefresh, startGtdMetadataFetch, tickGtdMetadataClock } from './metadataStore.js';
+import { clearGtdMetadata, getGtdMetadataRefreshGeneration, selectGtdMetadataTargets, subscribeGtdMetadataRefresh, startGtdMetadataFetch, tickGtdMetadataClock } from './metadataStore.js';
+import DelegateContactPicker from './DelegateContactPicker.jsx';
+import { closeDelegation, getDelegationSnapshot, subscribeDelegation } from './delegationController.js';
+import { findDelegationTarget, findMessageWindowTargets, runDelegation, submitOpenDelegation } from './delegation.js';
 
 // GTD's headless runtime: the single owner of the GTD sections fetch. Reloads whenever the context
 // (unified vs a single account) changes and GTD is active there; both the rail and the tab list read
@@ -28,6 +31,11 @@ export default function GtdRuntime() {
   const messages = useStore(s => s.messages);
   const searchResults = useStore(s => s.searchResults);
   const searchQuery = useStore(s => s.searchQuery);
+  const selectedMessageId = useStore(s => s.selectedMessageId);
+  const threadMessages = useStore(s => s.threadMessages);
+  const messageWindows = useStore(s => s.messageWindows);
+  const gtdSections = useStore(s => s.gtdSections);
+  const delegation = useSyncExternalStore(subscribeDelegation, getDelegationSnapshot, getDelegationSnapshot);
   const metadataRefreshGeneration = useSyncExternalStore(
     subscribeGtdMetadataRefresh, getGtdMetadataRefreshGeneration,
   );
@@ -35,15 +43,23 @@ export default function GtdRuntime() {
   // fetch pool stable across that churn; account/config changes and explicit invalidation still fetch.
   const metadataAccountsKey = JSON.stringify(accounts.filter(account => account.gtd_enabled)
     .map(account => [account.id, account.gtd_folders]));
-  const metadataRowsKey = JSON.stringify((searchQuery.trim() ? searchResults : messages).map(message => ({
+  // Delegate pills also render in the GTD rail, the reading pane and message windows, so their
+  // messages join the inbox rows in the fetch pool.
+  const showRowMetadata = shouldShowInboxGtdMetadata({ selectedFolder, searchQuery, activeGtdTab });
+  const metadataRowsKey = JSON.stringify(selectGtdMetadataTargets({
+    rows: showRowMetadata ? (searchQuery.trim() ? searchResults : messages) : [],
+    sectionMessages: Object.values(gtdSections || {}).flatMap(section => section?.threads || []),
+    selectedMessage: findDelegationTarget({ selectedMessageId, searchQuery, messages, searchResults, threadMessages }),
+    windowMessages: findMessageWindowTargets({ messageWindows, searchQuery, messages, searchResults, threadMessages }),
+  }).map(message => ({
     id: message.id, account_id: message.account_id,
     thread_key: message.thread_key ?? message.thread_id, message_id: message.message_id,
   })));
   const metadataMessages = useMemo(() => {
-    if (!userId || !shouldShowInboxGtdMetadata({ selectedFolder, searchQuery, activeGtdTab })) return [];
+    if (!userId) return [];
     const enabled = new Set(JSON.parse(metadataAccountsKey).map(([id]) => id));
     return JSON.parse(metadataRowsKey).filter(message => enabled.has(message.account_id));
-  }, [userId, selectedFolder, searchQuery, activeGtdTab, metadataAccountsKey, metadataRowsKey]);
+  }, [userId, metadataAccountsKey, metadataRowsKey]);
 
   useEffect(() => {
     clearGtdMetadata();
@@ -111,6 +127,21 @@ export default function GtdRuntime() {
     shortcutBus.on('gtdReference', onReference);
     shortcutBus.on('gtdSomeday', onSomeday);
     shortcutBus.on('gtdDone', onDone);
+    const onDelegateContact = () => {
+      const state = useStore.getState();
+      // Same target as the other GTD keys, so a rail-only selection works too.
+      const target = resolveGtdHotkeyTarget(state);
+      if (!target) return;
+      void runDelegation([target.message.id], {
+        api,
+        store: {
+          addNotification: state.addNotification,
+          scheduleGtdSectionsFetch: state.scheduleGtdSectionsFetch,
+        },
+        t,
+      });
+    };
+    shortcutBus.on('gtdDelegateContact', onDelegateContact);
     return () => {
       shortcutBus.off('gtdTodo', onTodo);
       shortcutBus.off('gtdWatch', onWatch);
@@ -118,8 +149,25 @@ export default function GtdRuntime() {
       shortcutBus.off('gtdReference', onReference);
       shortcutBus.off('gtdSomeday', onSomeday);
       shortcutBus.off('gtdDone', onDone);
+      shortcutBus.off('gtdDelegateContact', onDelegateContact);
     };
   }, [t]);
 
-  return null;
+  if (delegation.phase !== 'picker' && delegation.phase !== 'submitting') return null;
+  return (
+    <DelegateContactPicker
+      targetCount={delegation.messageIds.length}
+      initialError={delegation.error}
+      submitting={delegation.phase === 'submitting'}
+      onCancel={closeDelegation}
+      onSelect={contactId => void submitOpenDelegation(contactId, {
+        api,
+        store: {
+          addNotification: useStore.getState().addNotification,
+          scheduleGtdSectionsFetch: useStore.getState().scheduleGtdSectionsFetch,
+        },
+        t,
+      })}
+    />
+  );
 }

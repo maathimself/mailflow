@@ -4095,6 +4095,9 @@ export default function MessageList() {
             x={contextMenu.x}
             y={contextMenu.y}
             message={contextMenu.message}
+            targetMessageIds={(selectedIds.has(contextMenu.message.id) && selectedIds.size > 0
+              ? [...selectedIds]
+              : [contextMenu.message.id])}
             defaultMoveView={contextMenu.defaultMoveView}
             defaultSnoozeView={contextMenu.defaultSnoozeView}
             onClose={() => setContextMenu(null)}

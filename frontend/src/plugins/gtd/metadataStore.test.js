@@ -8,7 +8,9 @@ import {
   getGtdMetadata,
   getGtdMetadataRefreshGeneration,
   invalidateGtdMetadata,
+  patchGtdDelegation,
   patchGtdMetadata,
+  selectGtdMetadataTargets,
   startGtdMetadataFetch,
   subscribeGtdMetadataRefresh,
 } from './metadataStore.js';
@@ -176,6 +178,25 @@ describe('startGtdMetadataFetch', () => {
   });
 });
 
+describe('selectGtdMetadataTargets', () => {
+  it('adds rail, reading-pane and window targets to the rows, once each', () => {
+    const inboxRow = { id: 'inbox-row', account_id: A1 };
+    const sectionRow = { id: 'section-row', account_id: A1 };
+    const paneRow = { id: 'pane-row', account_id: A1 };
+    const windowRow = { id: 'window-row', account_id: A1 };
+
+    assert.deepEqual(selectGtdMetadataTargets({
+      rows: [inboxRow, sectionRow],
+      sectionMessages: [sectionRow],
+      selectedMessage: paneRow,
+      windowMessages: [windowRow, paneRow],
+    }), [inboxRow, sectionRow, paneRow, windowRow]);
+    assert.deepEqual(selectGtdMetadataTargets({
+      rows: [], sectionMessages: [sectionRow], selectedMessage: null, windowMessages: [],
+    }), [sectionRow]);
+  });
+});
+
 describe('invalidateGtdMetadata', () => {
   it('advances the refresh generation and notifies runtime subscribers', () => {
     const before = getGtdMetadataRefreshGeneration();
@@ -211,6 +232,24 @@ describe('patchGtdMetadata', () => {
   });
 });
 
+describe('patchGtdDelegation', () => {
+  it('leaves the thread in Delegated only, with or without a person', () => {
+    const id = 'delegation-message';
+    patchGtdMetadata(id, 'todo', '2026-08-01T00:00:00.000Z');
+    const delegation = { contactId: 'c1', displayName: 'Casey', delegatedAt: '2026-08-05T00:00:00.000Z' };
+    patchGtdDelegation(id, delegation);
+    assert.deepEqual(getGtdMetadata(id), {
+      states: ['delegated'],
+      dates: { delegated: '2026-08-05T00:00:00.000Z' },
+      date: '2026-08-05T00:00:00.000Z',
+      delegation,
+    });
+
+    patchGtdDelegation('personless-message', null);
+    assert.deepEqual(getGtdMetadata('personless-message').states, ['delegated']);
+    assert.equal(getGtdMetadata('personless-message').delegation, null);
+  });
+});
 
 describe('metadata lifecycle', () => {
   it('does not apply a response after its only consumer cancels', async () => {

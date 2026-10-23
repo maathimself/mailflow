@@ -4,6 +4,7 @@ import {
 } from '../utils/gtd.js';
 import { clearHoveredGtdRow } from '../utils/gtdHoveredRow.js';
 import { formatDate } from '../utils/formatDate.js';
+import { PluginSlot } from '../plugins/PluginSlot.jsx';
 
 // One GTD entry row, shared by both display surfaces: the GTD browse list that
 // replaces the message list (GtdTabList, roomier) and the denser right-sidebar
@@ -121,6 +122,7 @@ export default function GtdEntryRow({
           {formatDate(thread.date)}
         </span>
       </div>
+      <PluginSlot name="gtd-entry-meta" ctx={{ message: thread }} />
 
       {/* Shared hover cluster — same buttons the inbox rows get, overlaid (absolute) so it
           never shifts the row. Rendered here, after the header, only while hovered and only

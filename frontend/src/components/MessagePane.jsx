@@ -25,7 +25,7 @@ import MessageBodyView from './MessageBodyView.jsx';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { saveSenderCategory } from '../utils/senderCategory.js';
 import { buildMovePickerSections, movePickerSectionHeading, movePickerFoldersEmpty, runMovePickerAction } from '../utils/folderDisplay.js';
-import { usePluginCollected } from '../plugins/PluginSlot.jsx';
+import { PluginSlot, usePluginCollected } from '../plugins/PluginSlot.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
 import SpamBadge from './SpamBadge.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
@@ -1811,6 +1811,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           </>
         )}
 
+        <PluginSlot name="message-pane-actions" ctx={{ message }} />
+
         <PaneBtn onClick={handleStarToggle} title={t('message.star')}>
           <svg width="15" height="15" viewBox="0 0 24 24"
             fill={message.is_starred ? 'var(--amber)' : 'none'}
@@ -1877,6 +1879,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                 })()}
               </span>
               <SpamBadge message={message} onClick={(m) => setSpamExplainMessageId(m.id)} />
+              <PluginSlot name="message-pane-meta" ctx={{ message }} />
             </div>
           </div>
 
@@ -2463,6 +2466,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           x={contextMenu.x}
           y={contextMenu.y}
           message={contextMenu.message}
+          targetMessageIds={[contextMenu.message.id]}
           variant="messagePane"
           selectedText={getPaneSelectionText()}
           onClose={() => setContextMenu(null)}

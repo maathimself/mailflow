@@ -18,6 +18,7 @@ import {
 import { query } from '../../services/db.js';
 import { getGtdConfig } from './gtdConfig.js';
 import { resolveAllDraftsPaths } from '../../utils/mailUtils.js';
+import { withGtdDelegationLock } from './gtdDelegationLock.js';
 
 const DEFAULT_FOLDERS = { todo: 'Todo', watch: 'Watch', delegated: 'Delegated', someday: 'Someday', reference: 'Reference' };
 const account = { id: 'acct-1', user_id: 'user-1', email_address: 'me@example.com', folder_mappings: {} };
@@ -228,6 +229,38 @@ describe('runGtdTransitions', () => {
     await runGtdTransitions(mgr, account, ['t1']);
     expect(mgr.removeMessageCopy).not.toHaveBeenCalled();
     expect(mgr.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('waits for an in-flight delegation before reading the thread', async () => {
+    const rows = [
+      {
+        thread_key: 't1', uid: 20, folder: 'INBOX', from_email: 'them@other.com',
+        date: '2026-07-09T12:00:00Z', id: 'r1',
+      },
+      {
+        thread_key: 't1', uid: 23, folder: 'Delegated', from_email: 'them@other.com',
+        date: '2026-07-09T12:00:00Z', id: 'r4',
+      },
+    ];
+    mockQuery({ rows });
+    const mgr = fakeManager();
+    let release;
+    let entered;
+    const lockEntered = new Promise(resolve => { entered = resolve; });
+    const delegationWrite = withGtdDelegationLock('acct-1', 't1', async () => {
+      entered();
+      await new Promise(resolve => { release = resolve; });
+    });
+    await lockEntered;
+
+    const tick = runGtdTransitions(mgr, account, ['t1']);
+    await Promise.resolve();
+    expect(query.mock.calls.some(([sql]) => sql.includes('FROM messages'))).toBe(false);
+
+    release();
+    await delegationWrite;
+    await tick;
+    expect(mgr.removeMessageCopy).not.toHaveBeenCalledWith('acct-1', 23, 'Delegated');
   });
 
   it('treats an alias sender as the owner (self-strips Todo)', async () => {
