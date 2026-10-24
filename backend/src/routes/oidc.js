@@ -11,6 +11,7 @@ import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { logAuthEvent } from '../services/authEvents.js';
 import { aiEnabledForNewUser } from '../services/aiNewUsers.js';
+import { recordOidcConfirmation } from '../services/oidcConfirmation.js';
 
 // In-memory OIDC discovery cache keyed by issuerUrl
 const discoveryCache = new Map();
@@ -162,10 +163,12 @@ async function maybeBackfillDisplayName(client, userId, payload) {
 // Record how the user signed in so logout can offer RP-initiated (end-session) logout.
 // The raw id_token is kept for use as id_token_hint; the provider id lets logout look up
 // its issuer and the rp_initiated_logout toggle. Both are cleared when the session is
-// destroyed at logout.
+// destroyed at logout. The sign-in also confirms the user for creating an API token for a
+// few minutes, as the reauth action below does.
 function rememberOidcSession(req, providerId, idToken) {
   req.session.oidcProviderId = providerId;
   if (idToken) req.session.oidcIdToken = idToken;
+  recordOidcConfirmation(req.session, providerId);
 }
 
 // Build the OIDC RP-initiated logout (end-session) URL for a session that signed in via
@@ -266,19 +269,22 @@ export default oidcApiRouter;
 export const oidcBrowserRouter = Router();
 
 // Error redirect: login-flow errors go to /login?oidc_error= (shown on LoginPage);
-// link-flow errors go to /?oidc_error= (shown as a toast inside MailApp).
+// link- and reauth-flow errors go to /?oidc_error= (shown as a toast inside MailApp).
 function oidcError(res, action, message) {
-  const base = action === 'link' ? '/' : '/login';
+  const base = action === 'link' || action === 'reauth' ? '/' : '/login';
   return res.redirect(`${base}?oidc_error=${encodeURIComponent(message)}`);
 }
 
-// Step 1: redirect the browser to the OIDC provider's authorization endpoint
+// Step 1: redirect the browser to the OIDC provider's authorization endpoint.
+// action=link adds an identity to the signed-in account; action=reauth has the provider vouch
+// again for the signed-in user, which creating an API token needs when the account cannot sign in
+// with a password (#617).
 oidcBrowserRouter.get('/:slug/start', async (req, res) => {
   const { slug } = req.params;
-  const isLink = req.query.action === 'link';
-  const action = isLink ? 'link' : 'login';
+  const action = ['link', 'reauth'].includes(req.query.action) ? req.query.action : 'login';
+  const isLink = action === 'link';
 
-  if (isLink && !req.session?.userId) {
+  if (action !== 'login' && !req.session?.userId) {
     return oidcError(res, action, 'Not authenticated');
   }
   // The screen-lock gate in index.js (#235) covers only /api, not this router. A locked session
@@ -309,6 +315,7 @@ oidcBrowserRouter.get('/:slug/start', async (req, res) => {
       providerId: provider.id,
       action,
       linkUserId: isLink ? req.session.userId : undefined,
+      reauthUserId: action === 'reauth' ? req.session.userId : undefined,
       expiresAt: Date.now() + 10 * 60 * 1000,
     };
 
@@ -466,6 +473,27 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         throw err;
       }
       return res.redirect('/?oidc_success=linked');
+    }
+
+    // ── Reauth action: the provider vouches again for the signed-in user ───────
+    // Only for the identity linked to the user who started it, still signed in on this session.
+    // Nothing else about the session changes.
+    if (pending.action === 'reauth') {
+      const { rows: [identity] } = await client.query(
+        'SELECT user_id FROM user_identities WHERE issuer = $1 AND subject = $2',
+        [issuer, subject]
+      );
+      if (!pending.reauthUserId || identity?.user_id !== pending.reauthUserId
+          || req.session.userId !== pending.reauthUserId) {
+        return oidcError(res, 'reauth', 'That sign-in is not linked to your account');
+      }
+      await client.query(
+        'UPDATE user_identities SET last_used_at = NOW() WHERE issuer = $1 AND subject = $2',
+        [issuer, subject]
+      );
+      recordOidcConfirmation(req.session, provider.id);
+      await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+      return res.redirect('/?oidc_success=reauth');
     }
 
     // ── Login action: find or provision a MailFlow user ───────────────────────

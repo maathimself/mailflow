@@ -79,7 +79,7 @@ const PII_PATTERNS = [
   /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/,       // IPv4
   /\beyJ[\w-]+\.[\w-]+\.[\w-]+/,                  // JWT
   /\b[A-Fa-f0-9]{32,}\b/,                         // long hex (keys/tokens)
-  /(ghp_|gho_|sk-|xoxb-|Bearer\s+\S)/i,           // token prefixes
+  /(ghp_|gho_|sk-|xoxb-|mfat_|Bearer\s+\S)/i,     // token prefixes (mfat_: MailFlow API tokens)
 ];
 
 export function scrubReport(obj) {

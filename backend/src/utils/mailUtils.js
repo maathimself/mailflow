@@ -33,6 +33,9 @@ const TRASH_FOLDER_SQL = `(special_use = '\\Trash'
   OR (lower(name) IN ('trash', 'deleted', 'deleted items', 'deleted messages') AND ${TOP_LEVEL_FOLDER_SQL}))`;
 const DRAFTS_FOLDER_SQL = `(special_use = '\\Drafts'
   OR (lower(name) IN ('drafts', 'draft') AND ${TOP_LEVEL_FOLDER_SQL}))`;
+// Spam has no top-level rule: providers file it under many localized names (see resolveSpamFolder).
+const SPAM_FOLDER_SQL = `(special_use = '\\Junk'
+  OR lower(name) ~ '(spam|junk|bulk|indesiderata|spamverdacht|courrier ind|posta indesiderata)')`;
 
 // True for a draft, in a query over messages aliased `m`: flagged \Draft, or held in the account's
 // mapped Drafts folder or a folder the Drafts rules above match. The thread badge leaves drafts out
@@ -141,8 +144,7 @@ export async function resolveSpamFolder(accountId, folderMappings) {
   if (mapped) return mapped;
   const result = await query(
     `SELECT path FROM folders WHERE account_id = $1
-     AND (special_use = '\\Junk'
-          OR lower(name) ~ '(spam|junk|bulk|indesiderata|spamverdacht|courrier ind|posta indesiderata)')
+     AND ${SPAM_FOLDER_SQL}
      ORDER BY (CASE WHEN special_use = '\\Junk' THEN 0 ELSE 1 END)
      LIMIT 1`,
     [accountId]
@@ -158,11 +160,47 @@ export async function resolveAllSpamPaths(accountId, folderMappings) {
   if (mapped) return new Set([mapped]);
   const result = await query(
     `SELECT path FROM folders WHERE account_id = $1
-     AND (special_use = '\\Junk'
-          OR lower(name) ~ '(spam|junk|bulk|indesiderata|spamverdacht|courrier ind|posta indesiderata)')`,
+     AND ${SPAM_FOLDER_SQL}`,
     [accountId]
   );
   return new Set(result.rows.map(r => r.path));
+}
+
+// The roles one folder of an account plays, by the same rules as the resolvers above: whether
+// the Trash, Drafts and Spam rules match it, and whether the account's mappings name it as one
+// of those. Unlike the resolvers this ignores whether a mapping is usable and unions every rule,
+// so it answers "could MailFlow treat this folder as Trash, Drafts or Spam?". Null when the
+// account has no folder at that path.
+//
+// It also says whether the folder is where MailFlow snoozes mail. Snoozing creates 'Snoozed',
+// which an INBOX. namespace prefix puts at INBOX.Snoozed (imapManager.js ensureMailbox), so the
+// name counts where the stock Trash and Drafts names do. A folder one of the account's snooze
+// records names counts too, which finds Snoozed under any other prefix, or where a rename took
+// it, while mail waits there.
+export async function folderRoles(accountId, path) {
+  const mapped = role => `COALESCE(path = (SELECT ea.folder_mappings->>'${role}' FROM email_accounts ea WHERE ea.id = $1), false)`;
+  const { rows: [row] } = await query(
+    `SELECT no_select, special_use,
+            COALESCE(${TRASH_FOLDER_SQL}, false) AS trash_rule,
+            COALESCE(${DRAFTS_FOLDER_SQL}, false) AS drafts_rule,
+            COALESCE(${SPAM_FOLDER_SQL}, false) AS spam_rule,
+            ${mapped('trash')} AS mapped_trash,
+            ${mapped('drafts')} AS mapped_drafts,
+            ${mapped('spam')} AS mapped_spam,
+            COALESCE(lower(name) = 'snoozed' AND ${TOP_LEVEL_FOLDER_SQL}, false) AS snoozed_rule,
+            EXISTS (SELECT 1 FROM snoozed_messages sm WHERE sm.account_id = $1 AND sm.snoozed_folder = $2) AS snooze_record
+       FROM folders WHERE account_id = $1 AND path = $2`,
+    [accountId, path]
+  );
+  if (!row) return null;
+  return {
+    noSelect: row.no_select === true,
+    specialUse: row.special_use || null,
+    trash: row.trash_rule === true || row.mapped_trash === true,
+    drafts: row.drafts_rule === true || row.mapped_drafts === true,
+    spam: row.spam_rule === true || row.mapped_spam === true,
+    snoozed: row.snoozed_rule === true || row.snooze_record === true,
+  };
 }
 
 // Resolve the canonical Sent folder path for an account (APPEND target for sent copies).

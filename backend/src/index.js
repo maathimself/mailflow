@@ -10,7 +10,7 @@ import 'dotenv/config';
 import { redisClient } from './services/redis.js';
 import { parseTrustProxyHops } from './utils/trustProxy.js';
 import { buildSessionOptions } from './utils/sessionConfig.js';
-import { mountBodyParsers } from './middleware/bodyParsers.js';
+import { mountApiAuth } from './middleware/apiChain.js';
 
 import sendRoutes from './routes/send.js';
 import draftRoutes from './routes/draft.js';
@@ -36,6 +36,7 @@ import pluginsRoutes from './routes/plugins.js';
 import senderFaviconsRoutes from './routes/senderFavicons.js';
 import diagnosticsRoutes from './routes/diagnostics.js';
 import backupRoutes from './routes/backup.js';
+import apiTokenRoutes from './routes/apiTokens.js';
 import spamRoutes, { accountSpamRouter } from './routes/spam.js';
 import carddavRouter from './routes/carddav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
@@ -132,36 +133,10 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'same-origin');
   next();
 });
-// Body parsers live in middleware/bodyParsers.js so they can be exercised by tests. The larger
-// limits are for signed-in requests only, so those paths load the session there first.
-mountBodyParsers(app, sessionMiddleware);
-app.use(sessionMiddleware);
-
-// CSRF defense-in-depth for the cookie-authenticated /api surface. A mutating
-// request must carry a custom header that a cross-site <form> cannot set and a
-// cross-origin fetch cannot send without a CORS preflight — which the CORS policy
-// above restricts to FRONTEND_URL. SameSite=lax cookies are the primary defense;
-// this closes same-site/subdomain and legacy-browser gaps. The external DAV server
-// (/carddav) and OAuth flows (/oauth) are mounted outside /api and use their own
-// auth, so they are intentionally not gated here.
-const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-app.use('/api', (req, res, next) => {
-  if (CSRF_SAFE_METHODS.has(req.method)) return next();
-  if (req.get('X-Requested-With')) return next();
-  return res.status(403).json({ error: 'Missing required X-Requested-With header' });
-});
-
-// Screen-lock enforcement (#235). A locked session may only reach the endpoints
-// needed to render the lock screen, unlock, or sign out; everything else returns
-// 423 Locked until the PIN is verified (routes/auth.js sets req.session.locked).
-// Matches the full path (minus query) so it can't fail open on mount-relative paths.
-const LOCK_ALLOWED = new Set(['/api/auth/unlock', '/api/auth/logout', '/api/auth/me', '/api/health', '/api/version']);
-app.use('/api', (req, res, next) => {
-  if (req.session?.locked && !LOCK_ALLOWED.has(req.originalUrl.split('?')[0])) {
-    return res.status(423).json({ error: 'Locked', locked: true });
-  }
-  next();
-});
+// Who a request is and whether it may go on: API tokens, the body parsers, the session, the CSRF
+// header check, the screen lock and the token guards, in that order (middleware/apiChain.js, so
+// the tests run the same chain).
+mountApiAuth(app, sessionMiddleware);
 
 // Make imap manager available globally
 export const imapManager = new ImapManager(wss);
@@ -188,6 +163,7 @@ app.use('/api/search', searchRoutes);
 app.use('/api/admin/backup', backupRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/totp', totpRoutes);
+app.use('/api/api-tokens', apiTokenRoutes);
 app.use('/api/rules', rulesRoutes);
 app.use('/api/block-list', blockListRoutes);
 app.use('/api/contacts', contactsRoutes);

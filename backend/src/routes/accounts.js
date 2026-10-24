@@ -82,6 +82,28 @@ export const SAFE_FIELDS = [
 // Columns PUT /:id may write. The settings form sends back what GET returned, so every
 // non-secret one must be in SAFE_FIELDS or saving an unrelated edit would write it as empty.
 export const ACCOUNT_UPDATE_FIELDS = ['name', 'sender_name', 'color', 'icon', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'signature_enabled', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id', 'auto_cc_addresses', 'auto_bcc_addresses'];
+// What an API token sees of an account (#617): enough to name it, pick a From and draft as the
+// composer does (signature on or off, the automatic Cc and Bcc), and nothing of its settings:
+// no hosts, ports, TLS or login names, signatures, folder mappings or plugin configuration.
+function tokenAccount(row, aliases) {
+  return {
+    id: row.id,
+    name: row.name,
+    sender_name: row.sender_name,
+    email_address: row.email_address,
+    color: row.color,
+    icon: row.icon,
+    enabled: row.enabled,
+    include_in_unified_inbox: row.include_in_unified_inbox,
+    last_sync: row.last_sync,
+    sync_error: row.sync_error,
+    signature_enabled: row.signature_enabled,
+    auto_cc_addresses: row.auto_cc_addresses,
+    auto_bcc_addresses: row.auto_bcc_addresses,
+    aliases: aliases.map(({ id, name, email, reply_to }) => ({ id, name, email, reply_to })),
+  };
+}
+
 function safeAccount(row) {
   const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
   // Sanitize on read so legacy values stored before the write-time sanitizer are safe
@@ -110,6 +132,8 @@ router.get('/', async (req, res) => {
       aliasMap[alias.account_id].push(alias);
     }
   }
+
+  if (req.apiToken) return res.json(result.rows.map(a => tokenAccount(a, aliasMap[a.id] || [])));
 
   // Let plugins re-attach their own account-scoped fields (GTD: gtd_enabled/gtd_folders, no longer
   // columns) so the client sees them as before. Each enrichAccount handler returns a field patch.
