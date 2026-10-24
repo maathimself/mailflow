@@ -1,12 +1,12 @@
 MailFlow Commercial License
-Version 1.1, 23 October 2026
+Version 1.2, 23 October 2026
 
 Listed on mailflow.sh as the "private modifications license".
 
 Copyright (c) 2026 Matthias (MailFlow). All rights reserved.
 
-Licenses purchased under version 1.0 continue under the terms of
-version 1.0.
+Licenses purchased under an earlier version continue under the terms of
+that version.
 
 DEFINITIONS
 
@@ -17,7 +17,8 @@ DEFINITIONS
 
 GRANT OF LICENSE
 
-Subject to payment of the applicable license fee ($500 USD per Installation),
+Subject to payment of the applicable license fee ($500 USD per Installation,
+plus applicable taxes),
 the Licensor grants the Licensee a non-exclusive, non-transferable,
 non-sublicensable, worldwide license to:
 
@@ -25,6 +26,9 @@ non-sublicensable, worldwide license to:
   2. Deploy that Installation for any internal or commercial purpose.
   3. Use the Software without the obligations of the GNU Affero General
      Public License, Version 3 (AGPL-3.0).
+
+The license covers later versions of the Software released by the Licensor,
+at no additional cost.
 
 RESTRICTIONS
 
@@ -35,6 +39,9 @@ The Licensee may not:
   2. Use one license to cover more than one Installation. Each distinct
      production deployment requires a separate license.
   3. Remove or alter any copyright, trademark, or attribution notices.
+  4. Offer the Software, modified or not, to third parties as a hosted
+     service under this license. Hosting providers need separate written
+     terms from the Licensor.
 
 OWNERSHIP
 
@@ -57,8 +64,8 @@ LICENSOR'S TOTAL LIABILITY SHALL NOT EXCEED THE LICENSE FEE PAID.
 TERMINATION
 
 This license terminates automatically if the Licensee breaches any of its
-terms. Upon termination, the Licensee must cease all use and destroy all
-copies of the Software.
+terms, or if the license fee is refunded. Upon termination, the Licensee
+must cease all use and destroy all copies of the Software.
 
 GOVERNING LAW
 
@@ -74,4 +81,4 @@ commercial use of the Software and supersedes all prior agreements.
 ---
 
 To purchase a commercial license, visit: https://mailflow.sh/#pricing
-For licensing enquiries: contact@mailflow.sh
+For licensing inquiries: contact@mailflow.sh

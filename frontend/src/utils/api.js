@@ -305,7 +305,8 @@ export const api = {
   addAccount: (data) => request('POST', '/accounts', data),
   updateAccount: (id, data) => request('PUT', `/accounts/${id}`, data),
   deleteAccount: (id) => request('DELETE', `/accounts/${id}`),
-  reconnectAccount: (id) => request('POST', `/accounts/${id}/reconnect`),
+  // { wait: true } answers with how the attempt went: { connection, code, error }.
+  reconnectAccount: (id, { wait = false } = {}) => request('POST', `/accounts/${id}/reconnect${wait ? '?wait=1' : ''}`),
   reindexAccount: (id) => request('POST', `/accounts/${id}/reindex`),
   getFolders: (accountId) => request('GET', `/accounts/${accountId}/folders`),
   getAliases: (accountId) => request('GET', `/accounts/${accountId}/aliases`),
@@ -370,12 +371,24 @@ export const api = {
 
   // Integrations
   getIntegrations: () => request('GET', '/integrations'),
+  // How the last redirect sign-in ended (kept in the session, not the URL), read once.
+  oauthResult: async () => {
+    const res = await fetch('/oauth/result', { credentials: 'include' });
+    return res.ok ? (await res.json()).result : null;
+  },
   getIntegrationsStatus: () => request('GET', '/integrations/status'),
   saveIntegration: (provider, config) => request('POST', `/integrations/${provider}`, config),
   deleteIntegration: (provider) => request('DELETE', `/integrations/${provider}`),
   setMsBuiltinApp: (enabled) => request('PUT', '/integrations/microsoft/builtin-app', { enabled }),
-  startMsDeviceFlow: async () => {
-    const res = await fetch('/oauth/microsoft/device', { method: 'POST', credentials: 'include' });
+  // accountId signs in again to repair that account: the server then refuses a different
+  // address instead of adding a second account (poll status 'wrong_account').
+  // kind ('personal' | 'work') picks the app a new account signs in through.
+  startMsDeviceFlow: async (accountId, kind) => {
+    const res = await fetch('/oauth/microsoft/device', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...(accountId ? { accountId } : {}), ...(kind ? { kind } : {}) }),
+    });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to start device code flow');
     return data;

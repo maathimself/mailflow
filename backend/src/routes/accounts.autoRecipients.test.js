@@ -41,7 +41,7 @@ function buildApp() {
 // The UPDATE returns the values it was given, as RETURNING * would after node-pg parses a text[].
 function stubQueries() {
   query.mockImplementation(async (sql, params) => {
-    if (sql.startsWith('SELECT id FROM email_accounts')) return { rows: [{ id: ACCOUNT_ID }] };
+    if (sql.startsWith('SELECT id, oauth_provider FROM email_accounts') || sql.startsWith('SELECT id FROM email_accounts')) return { rows: [{ id: ACCOUNT_ID, oauth_provider: null }] };
     if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [ACCOUNT_ROW] };
     if (sql.startsWith('UPDATE email_accounts')) {
       const row = { ...ACCOUNT_ROW };

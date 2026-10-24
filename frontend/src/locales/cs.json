@@ -129,7 +129,6 @@
     "settings": "Nastavení",
     "lock": "Uzamknout",
     "signOut": "Odhlásit se",
-    "connectionError": "Chyba připojení",
     "folderMenu": {
       "markAllRead": "Označit vše jako přečtené",
       "syncFolder": "Synchronizovat složku",
@@ -147,7 +146,8 @@
       "syncNow": "Synchronizovat nyní",
       "syncFoldersNow": "Synchronizovat složky nyní",
       "settings": "Nastavení účtu",
-      "reconnect": "Znovu připojit",
+      "tryAgain": "Zkusit znovu",
+      "signInAgain": "Přihlásit se znovu",
       "moveUp": "Posunout nahoru",
       "moveDown": "Posunout dolů",
       "moveFailed": "Pořadí účtů se nepodařilo změnit"
@@ -1047,7 +1047,8 @@
       "groupAdmin": "Správa",
       "behavior": "Chování",
       "plugins": "Pluginy",
-      "backup": "Záloha"
+      "backup": "Záloha",
+      "mailSignIn": "Poskytovatelé e-mailu"
     },
     "categories": {
       "title": "Kategorie e-mailů",
@@ -1088,6 +1089,7 @@
       "sponsor": "Podpořit vývoj",
       "kofi": "Ko-fi",
       "githubSponsors": "GitHub Sponsors",
+      "businessLicense": "Firemní licence",
       "sponsorBlurb": "MailFlow vyvíjí a udržuje jediný člověk. Sponzorské příspěvky pokrývají čas věnovaný opravám, revizím kódu a vydávání nových verzí."
     },
     "appearance": {
@@ -1168,8 +1170,8 @@
       "errorRequired": "Je vyžadován e-mail, uživatelské jméno a server IMAP",
       "errorPasswordRequired": "U nových účtů je vyžadováno heslo",
       "microsoftImapUnsupported": "Outlook.com / Hotmail vyžaduje OAuth2 (moderní ověřování)",
-      "microsoftImapNote": "Microsoft u osobních účtů Outlook.com, Hotmail a Live vypnul přihlašování k IMAP pomocí hesla (základní ověřování). Tyto účty lze stále připojit pomocí Microsoft OAuth2 (moderní ověřování) — nastavte je v Integrace → Microsoft 365 / Outlook.com. Pro osobní účty nejlépe funguje přihlášení pomocí kódu zařízení a není potřeba heslo pro aplikaci.",
-      "microsoftImapNoteReady": "Microsoft vypnul přihlášení k IMAP heslem (základní ověřování) pro osobní účty Outlook.com, Hotmail a Live. Připojte tento účet raději v Integrace → Microsoft 365 / Outlook.com: přihlášení kódem zařízení nevyžaduje nastavení ani heslo aplikace.",
+      "microsoftImapNote": "Microsoft už nepřijímá hesla pro schránky Outlook.com, Hotmail, Live a MSN a přihlášení přes Microsoft není na tomto serveru nastavené. Požádejte správce, aby ho zapnul v sekci Poskytovatelé e-mailu.",
+      "microsoftImapNoteReady": "Microsoft už nepřijímá hesla pro schránky Outlook.com, Hotmail, Live a MSN. Přidejte tuto schránku raději přes „Přihlásit se přes Microsoft“ v Přidat účet.",
       "reindex": "Znovu indexovat pro vyhledávání",
       "reindexing": "Indexování zpráv…",
       "reindexProgress": "Indexováno {{synced}} z {{total}} zpráv",
@@ -1191,7 +1193,8 @@
       "trustedAuthservDetected": "Viděno ve vašich nedávných zprávách (kliknutím použijete):",
       "trustedAuthservDetectedNone": "Zatím žádná data — zprávy se kontrolují, jakmile je pro tento účet zapnutý antispam.",
       "trustedAuthservWarn": "Důvěřujte pouze ID, které znáte jako přijímající server vašeho poskytovatele.",
-      "enabledGlobally": "Globálně zapnuto"
+      "enabledGlobally": "Globálně zapnuto",
+      "microsoftImapNoteSignIn": "Microsoft už nepřijímá hesla pro schránky Outlook.com, Hotmail, Live a MSN. Přihlaste se raději přes Microsoft: heslo aplikace není potřeba."
     },
     "folderMappings": {
       "title": "Mapování složek",
@@ -1722,7 +1725,7 @@
     },
     "sso": {
       "title": "Jednotné přihlašování",
-      "description": "Nastavte externí poskytovatele OIDC, aby se uživatelé mohli přihlašovat účty své organizace.",
+      "description": "Jak se lidé přihlašují do samotného MailFlow přes poskytovatele identity vaší organizace (OIDC). Připojení schránek najdete v části Poskytovatelé e-mailu.",
       "passwordLoginTitle": "Přihlašování heslem",
       "passwordLoginDesc": "Pokud je vypnuto, uživatelé se mohou přihlásit pouze přes SSO. Vyžaduje alespoň jednoho zapnutého poskytovatele SSO a účet správce musí být propojen s identitou SSO.",
       "passwordLoginEnabled": "Přihlašování heslem je zapnuté",
@@ -1797,22 +1800,14 @@
     "integrations": {
       "title": "Integrace",
       "loading": "Načítání…",
-      "tabEmailProviders": "Poskytovatelé e-mailu",
-      "tabApps": "Aplikace",
       "microsoft": {
-        "title": "Microsoft 365 / Outlook.com",
-        "description": "OAuth2 pro pracovní, školní nebo osobní účty Microsoft (Outlook.com, Hotmail)",
-        "configured": "Nastaveno",
-        "notConfigured": "Nenastaveno",
-        "redirecting": "Přesměrování…",
-        "connect": "Připojit účet Microsoft",
         "setupTitle": "Nastavení registrace aplikace v Azure",
         "step1": "Přejděte na portal.azure.com → Microsoft Entra ID → Registrace aplikací → Nová registrace. V části Podporované typy účtů vyberte „Účty v libovolném adresáři organizace a osobní účty Microsoft“, aby bylo možné přihlášení Outlook.com/Hotmail",
         "step2": "Nastavte typ URI přesměrování na Web a vložte URI uvedené níže",
         "step3": "Oprávnění rozhraní API → Přidat oprávnění → Rozhraní API používaná mojí organizací (pokud Exchange není uveden, vyhledejte jej) → Office 365 Exchange Online → Delegovaná → IMAP.AccessAsUser.All a SMTP.Send",
         "step4": "Oprávnění rozhraní API → Přidat oprávnění → Microsoft Graph → Delegovaná → offline_access, openid, email, profile",
-        "step5": "Klikněte na Udělit souhlas správce pro organizaci (pouze organizační/pracovní účty — u osobních tento krok přeskočte)",
-        "step6": "Certifikáty a tajné klíče → Nový tajný klíč klienta — zkopírujte Hodnotu (nikoli ID)",
+        "step5": "Klikněte na Udělit souhlas správce pro organizaci (pouze organizační/pracovní účty, u osobních tento krok přeskočte)",
+        "step6": "Certifikáty a tajné klíče → Nový tajný klíč klienta: zkopírujte Hodnotu (nikoli ID)",
         "clientId": "ID aplikace (klienta)",
         "clientIdPh": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
         "tenantId": "ID adresáře (tenanta)",
@@ -1823,36 +1818,13 @@
         "redirectUri": "URI přesměrování",
         "redirectUriNote": "Musí se přesně shodovat s URI přesměrování zaregistrovaným v Azure. Doporučeno: {{uri}}",
         "save": "Uložit nastavení",
-        "savedNote": "Nastavení bylo uloženo. Kliknutím na „Připojit účet“ udělte oprávnění.",
-        "connectedNote": "Účet Microsoft 365 byl úspěšně připojen! Podívejte se na kartu Účty.",
-        "userNoteConfigured": "Správce nastavil přihlašování Microsoft 365. Níže připojte svůj účet Outlook.com, Hotmail nebo Microsoft 365.",
-        "userNoteNotConfigured": "Správce zatím nenastavil přihlašování Microsoft 365. Požádejte jej o nastavení.",
-        "remove": "Odebrat",
-        "deviceCodeTitle": "Připojit pomocí kódu zařízení",
-        "deviceCodeNote": "Není potřeba URI přesměrování ani tajný klíč klienta. V Azure přejděte do Ověřování a nastavte Povolit toky veřejného klienta na Ano. Nejvhodnější pro osobní účty Outlook.com / Hotmail.",
-        "deviceCodeStart": "Spustit přihlášení pomocí kódu zařízení",
-        "deviceCodeInstructions": "Na libovolném zařízení otevřete níže uvedený odkaz a zadáním kódu povolte MailFlow:",
-        "deviceCodeVisit": "Navštivte:",
-        "deviceCodeEnter": "Zadejte kód:",
-        "deviceCodeWaiting": "Čekání na autorizaci…",
-        "deviceCodeExpired": "Platnost kódu vypršela. Spusťte proces znovu.",
-        "deviceCodeDeclined": "Autorizace byla zamítnuta.",
-        "deviceCodeError": "Došlo k chybě. Zkuste to znovu.",
-        "deviceCodeCancel": "Zrušit",
-        "personalReady": "Osobní účty připraveny",
-        "builtinTitle": "Připojit osobní účet Microsoft",
-        "builtinNote": "Účty Outlook.com, Hotmail, Live a MSN nepotřebují žádné nastavení. Používá se sdílená aplikace Microsoft od MailFlow, kterou Microsoft může označit jako neověřenou. Přihlásíte se na stránce Microsoftu ve svém prohlížeči a Microsoft pošle tokeny přímo na tento server: správci MailFlow nikdy neuvidí vaši poštu ani tokeny. Pracovní nebo školní účty potřebují aplikaci registrovanou vaším správcem.",
-        "builtinToggle": "Nabízet aplikaci MailFlow pro osobní účty",
-        "builtinToggleDesc": "Dokud není uloženo ID klienta, mohou se osobní účty Outlook.com a Hotmail přihlásit přes sdílenou aplikaci MailFlow. Vypnutím zastavíte nová přihlášení přes ni; účty, které jsou přes ni již připojené, fungují dál.",
-        "userNoteBuiltin": "Níže můžete bez nastavení připojit osobní účet Outlook.com, Hotmail, Live nebo MSN. Pro pracovní nebo školní účty Microsoft 365 musí správce nastavit přihlášení Microsoft 365."
+        "remove": "Odebrat"
       },
       "google": {
         "title": "Gmail / Google Workspace",
         "description": "OAuth2 pro schránky Gmail a Google Workspace — nutné, pokud správce zakázal hesla aplikací",
         "configured": "Nastaveno",
         "notConfigured": "Nenastaveno",
-        "redirecting": "Přesměrování…",
-        "connect": "Připojit účet Google",
         "setupTitle": "Nastavení klienta OAuth v Google Cloud",
         "step1": "Přejděte na console.cloud.google.com a vyberte (nebo vytvořte) projekt. U domény Workspace se přihlaste účtem z této domény, aby projekt patřil organizaci",
         "step2": "API a služby → Knihovna → povolte Gmail API",
@@ -1866,10 +1838,6 @@
         "redirectUri": "URI přesměrování",
         "redirectUriNote": "Musí se přesně shodovat s autorizovaným URI přesměrování u klienta OAuth. Doporučeno: {{uri}}",
         "save": "Uložit nastavení",
-        "savedNote": "Nastavení uloženo. Klikněte na „Připojit účet Google“ pro autorizaci.",
-        "connectedNote": "Účet Google byl úspěšně připojen! Zkontrolujte kartu Účty.",
-        "userNoteConfigured": "Váš správce nastavil přihlášení přes Google. Připojte níže svůj účet Gmail nebo Google Workspace.",
-        "userNoteNotConfigured": "Přihlášení přes Google zatím správce nenastavil. Požádejte prosím svého správce o jeho nastavení.",
         "remove": "Odebrat"
       },
       "todoist": {
@@ -1994,5 +1962,154 @@
     "trash": "Koš",
     "spam": "Spam",
     "archive": "Archiv"
+  },
+  "accountErrors": {
+    "label": {
+      "turnOnImap": "Zapnout IMAP",
+      "imapOff": "IMAP je vypnutý",
+      "signInAgain": "Přihlásit se znovu",
+      "cantConnect": "Nelze se připojit",
+      "openRow": "Ukázat, co je špatně a jak to opravit"
+    },
+    "imapOffPersonal": {
+      "title": "Outlook.com blokuje poštovní aplikace",
+      "body": "Microsoft vás přihlásil, ale IMAP je pro tuto schránku vypnutý. Zapnete ho takto:",
+      "step1": "Otevřete Outlook.com a přihlaste se.",
+      "step2": "Přejděte do Nastavení > Pošta > Přeposílání a IMAP.",
+      "step3": "Zapněte možnost „Povolit zařízením a aplikacím používat IMAP“ a vyberte Uložit.",
+      "outro": "Pak se sem vraťte a vyberte Zkusit znovu."
+    },
+    "imapOffWork": {
+      "title": "IMAP je pro tuto schránku vypnutý",
+      "body": "Microsoft vás přihlásil, ale vaše organizace vypnula IMAP pro {{email}}. Požádejte správce IT, aby ho zapnul, a pak vyberte Zkusit znovu."
+    },
+    "signIn": {
+      "title": "Znovu se přihlaste k Microsoftu",
+      "titleGoogle": "Znovu se přihlaste ke Googlu",
+      "body": "Přihlášení, které si MailFlow pro tento účet uložil, přestalo fungovat. Stává se to po změně hesla, po dlouhé době bez použití nebo když byl přístup odebrán v nastavení účtu."
+    },
+    "appConfig": {
+      "title": "Přihlášení k tomuto účtu není správně nastavené",
+      "bodyUser": "Poskytovatel pošty odmítl aplikaci, přes kterou se MailFlow přihlašuje. Požádejte správce, aby zkontroloval nastavení přihlášení.",
+      "bodyAdmin": "Poskytovatel pošty odmítl aplikaci, přes kterou se MailFlow přihlašuje. Zkontrolujte její nastavení v sekci Poskytovatelé e-mailu. Podrobnosti níže ukazují odpověď poskytovatele."
+    },
+    "authFailed": {
+      "title": "Server odmítl heslo",
+      "body": "Poštovní server nepřijal uživatelské jméno nebo heslo k tomuto účtu. Pokud jste změnili heslo nebo používáte heslo aplikace, aktualizujte ho přes Upravit účet."
+    },
+    "connection": {
+      "title": "MailFlow se k tomuto účtu nemůže připojit",
+      "body": "MailFlow to dál zkouší sám. Podrobnosti níže ukazují odpověď serveru."
+    },
+    "action": {
+      "openOutlook": "Otevřít Outlook.com",
+      "retry": "Zkusit znovu",
+      "signIn": "Přihlásit se znovu",
+      "edit": "Upravit účet"
+    },
+    "details": "Podrobnosti",
+    "wrongAccount": "Přihlásili jste se jako {{signedInAs}}, ne jako {{expected}}. Přihlaste se jako {{expected}}, abyste tento účet opravili.",
+    "signInDialog": {
+      "title": "Přihlásit se znovu",
+      "body": "Přihlaste se jako {{email}}, abyste tento účet znovu připojili.",
+      "success": "Přihlášeno. MailFlow tento účet znovu připojuje.",
+      "continueGoogle": "Pokračovat na Google",
+      "waitingGoogle": "Dokončete přihlášení na stránce Googlu a pak se sem vraťte."
+    },
+    "signInFailed": "Přihlášení nefungovalo",
+    "signInFailedBody": "Začněte znovu u účtu v Nastavení > Účty."
+  },
+  "addAccount": {
+    "title": "Přidat e-mailový účet",
+    "emailLabel": "Vaše e-mailová adresa",
+    "continue": "Pokračovat",
+    "invalidEmail": "Zadejte e-mailovou adresu, například vy@example.com.",
+    "orChoose": "Nebo vyberte poskytovatele",
+    "tile": {
+      "outlook": "Outlook.com, Hotmail, Live, MSN",
+      "outlookSub": "Přihlásit se přes Microsoft",
+      "work": "Microsoft 365 (práce nebo škola)",
+      "workSub": "Přihlaste se účtem Microsoft vaší organizace",
+      "gmail": "Gmail",
+      "gmailSub": "Použít heslo aplikace",
+      "gmailSignIn": "Přihlásit se přes Google",
+      "yahoo": "Yahoo Mail",
+      "yahooSub": "Použít heslo aplikace",
+      "icloud": "iCloud Mail",
+      "icloudSub": "Použít heslo pro aplikaci",
+      "other": "Jiný (IMAP)",
+      "otherSub": "Zadat nastavení serveru"
+    },
+    "personalOff": "Na tomto serveru není k dispozici.",
+    "workOff": "Na tomto serveru není k dispozici.",
+    "openSettings": "Otevřít nastavení poskytovatelů e-mailu"
+  },
+  "msSignIn": {
+    "titlePersonal": "Přihlásit se přes Microsoft",
+    "titleWork": "Přihlaste se pracovním nebo školním účtem",
+    "beforeTitle": "Než začnete",
+    "beforeBody": "Outlook.com musí povolit poštovní aplikace. Pokud jste to ještě neudělali:",
+    "step1": "Otevřete přihlašovací stránku Microsoftu.",
+    "step1Button": "Otevřít přihlášení Microsoft",
+    "step2": "Zadejte tam tento kód a pokračujte podle kroků na stránce Microsoftu.",
+    "copy": "Kopírovat kód",
+    "copied": "Zkopírováno",
+    "waiting": "Čekáme, až dokončíte přihlášení na stránce Microsoftu…",
+    "starting": "Získávání kódu od Microsoftu…",
+    "checking": "Kontrolujeme, zda se MailFlow dostane k vaší schránce…",
+    "connected": "{{email}} je připojeno. Pošta se právě synchronizuje.",
+    "stillConnecting": "Přihlášeno jako {{email}}. MailFlow se ještě připojuje a dál to zkouší sám. Seznam účtů ukáže, až bude připraven.",
+    "declined": "Přihlášení na stránce Microsoftu jste zrušili.",
+    "expired": "Kód vypršel dřív, než se přihlášení dokončilo. Kódy platí 15 minut.",
+    "error": "Přihlášení k Microsoftu nefungovalo.",
+    "newCode": "Získat nový kód",
+    "startOver": "Začít znovu",
+    "done": "Hotovo",
+    "finePrintShared": "Microsoft může MailFlow označit jako neověřenou aplikaci. To je v pořádku: sdílená aplikace MailFlow jen představuje MailFlow Microsoftu. Přihlašujete se na stránce Microsoftu a Microsoft posílá přístup přímo na tento server.",
+    "finePrintOwn": "Přihlašujete se na stránce Microsoftu a Microsoft posílá přístup přímo na tento server.",
+    "continueMicrosoft": "Pokračovat na Microsoft",
+    "redirectWaiting": "Dokončete přihlášení na otevřené stránce Microsoftu a pak se sem vraťte.",
+    "useCode": "Použít raději kód",
+    "useRedirect": "Přihlásit se raději na stránce Microsoftu",
+    "back": "Zpět",
+    "lost": "MailFlow ztratil přehled o tomto přihlášení, například kvůli restartu serveru. Pokud jste přihlášení na stránce Microsoftu dokončili, účet už možná je ve vašem seznamu.",
+    "checkAccounts": "Zkontrolovat účty"
+  },
+  "mailSignIn": {
+    "title": "Poskytovatelé e-mailu",
+    "description": "Jak se MailFlow připojuje ke schránkám Microsoft a Google. Je to něco jiného než jednotné přihlašování (SSO), kterým se lidé přihlašují do samotného MailFlow. Každý si přidává vlastní účty v Účty > Přidat účet.",
+    "required": "Nejdřív vyplňte povinná pole.",
+    "saved": "Uloženo.",
+    "ms": {
+      "title": "Microsoft",
+      "description": "Schránky Outlook.com, Hotmail, Live, MSN a Microsoft 365",
+      "personalTitle": "Osobní účty (Outlook.com, Hotmail, Live, MSN)",
+      "statusShared": "Používá sdílenou aplikaci MailFlow",
+      "statusOwn": "Používá vaši vlastní aplikaci",
+      "statusOff": "Vypnuto",
+      "sharedSwitch": "Povolit přihlášení přes sdílenou aplikaci MailFlow",
+      "sharedSwitchDesc": "Není potřeba nic nastavovat. Už připojené účty budou fungovat dál, i když to vypnete.",
+      "ownHandlesPersonal": "Osobní účty obsluhuje vaše vlastní aplikace, takže sdílená aplikace MailFlow se nepoužívá.",
+      "workTitle": "Pracovní a školní účty (Microsoft 365)",
+      "workOff": "Nenastaveno",
+      "setupToggle": "Nastavit vlastní aplikaci Microsoft Entra"
+    },
+    "google": {
+      "setupToggle": "Nastavit vlastního klienta Google OAuth"
+    }
+  },
+  "accountForm": {
+    "signedInMicrosoft": "Přihlášeno přes Microsoft jako {{email}}",
+    "signedInGoogle": "Přihlášeno přes Google jako {{email}}",
+    "signedInNote": "Server pochází z tohoto přihlášení. Pokud se účet přestane připojovat, přihlaste se znovu.",
+    "mailboxLabel": "Schránka k otevření",
+    "mailboxHelp": "U sdílené nebo delegované schránky zadejte její adresu. U vlastní schránky ponechte beze změny."
+  },
+  "googleSignIn": {
+    "title": "Přihlásit se přes Google",
+    "finePrint": "Přihlašujete se na stránce Googlu a Google posílá přístup přímo na tento server.",
+    "formNote": "Schránky Gmail a Google Workspace se mohou místo hesla aplikace přihlásit přes Google.",
+    "appPasswordNote": "Gmail vyžaduje heslo aplikace, ne vaše běžné heslo. Zapněte pro účet Google dvoufázové ověření, vytvořte heslo aplikace a zadejte ho do pole pro heslo.",
+    "createAppPassword": "Vytvořit heslo aplikace"
   }
 }

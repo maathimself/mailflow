@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/maathimself/mailflow/security/advisories/new
+    about: Please report vulnerabilities privately, not in a public issue.
+  - name: Business licenses, support and partner plans
+    url: https://mailflow.sh/#pricing
+    about: Pricing for businesses, MSPs and hosting providers, or email contact@mailflow.sh.
+  - name: Questions and ideas
+    url: https://github.com/maathimself/mailflow/discussions
+    about: Ask how to do something, or share an idea before it becomes a feature request.

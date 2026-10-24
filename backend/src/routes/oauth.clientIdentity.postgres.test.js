@@ -109,9 +109,10 @@ describe.skipIf(!ADMIN_URL)('Microsoft client identity on PostgreSQL', () => {
 
     const headers = { 'x-user': user.id };
     expect((await realFetch(`${base}/oauth/microsoft/device`, { method: 'POST', headers })).status).toBe(200);
-    expect(await (await realFetch(`${base}/oauth/microsoft/device/poll`, { headers })).json()).toEqual({ status: 'success' });
+    const poll = await (await realFetch(`${base}/oauth/microsoft/device/poll`, { headers })).json();
 
     const { rows: [account] } = await h.pool.query('SELECT * FROM email_accounts WHERE user_id = $1', [user.id]);
+    expect(poll).toEqual({ status: 'checking', accountId: account.id, email: 'me@outlook.com' });
     expect(account).toMatchObject({
       email_address: 'me@outlook.com', oauth_provider: 'microsoft', oauth_public_client: true,
       oauth_client_id: 'builtin-app-id', oauth_tenant_id: 'consumers',

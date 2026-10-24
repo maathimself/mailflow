@@ -745,3 +745,11 @@ body, #root {
    iOS scroll indicator for it. */
 .swipe-pager { scrollbar-width: none; }
 .swipe-pager::-webkit-scrollbar { display: none; }
+
+/* Email provider settings: a placeholder (an example ID, the suggested redirect URI) must not
+   read as a saved value, which in dark themes it did. */
+.mf-signin-form input::placeholder {
+  color: var(--text-tertiary);
+  opacity: 1;
+  font-style: italic;
+}

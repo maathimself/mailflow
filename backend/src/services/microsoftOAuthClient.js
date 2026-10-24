@@ -36,22 +36,46 @@ export function getMsConfig() {
   };
 }
 
-// Client for a new device-code sign-in: the instance's own app when one is configured,
-// else the built-in one unless the admin opted out. Null when neither is available.
-export function getMsDeviceClient() {
-  const { clientId, tenantId } = getMsConfig();
-  if (clientId) return { clientId, tenantId, builtin: false };
-  if (msBuiltinAppEnabled()) return { clientId: MAILFLOW_MS_CLIENT_ID, tenantId: MS_BUILTIN_TENANT_ID, builtin: true };
-  return null;
+const PERSONAL_TENANTS = new Set(['common', 'consumers']);
+export const ownAppAdmitsPersonal = ({ clientId, tenantId }) => !!clientId && PERSONAL_TENANTS.has(tenantId.trim().toLowerCase());
+const builtinClient = () => ({ clientId: MAILFLOW_MS_CLIENT_ID, tenantId: MS_BUILTIN_TENANT_ID, builtin: true });
+
+// Client for a new device-code sign-in, by the kind of account being added (#674):
+//   'personal'  the instance's own app when its tenant admits personal accounts (common or
+//               consumers), else MailFlow's built-in app unless the admin opted out
+//   'work'      the instance's own app, unless it is limited to personal accounts
+//   omitted     as before kinds existed: the own app when configured, else the built-in one
+// Null when nothing can sign that kind of account in.
+export function getMsDeviceClient(kind) {
+  const config = getMsConfig();
+  const own = config.clientId ? { clientId: config.clientId, tenantId: config.tenantId, builtin: false } : null;
+  if (kind === 'personal') {
+    if (ownAppAdmitsPersonal(config)) return own;
+    return msBuiltinAppEnabled() ? builtinClient() : null;
+  }
+  if (kind === 'work') return msWorkAccountsAvailable() ? own : null;
+  if (own) return own;
+  return msBuiltinAppEnabled() ? builtinClient() : null;
 }
 
-// Whether a personal Microsoft account can sign in now: through the instance's own app only
-// if its tenant admits personal accounts (organizations or a single tenant does not), else
-// through the built-in app if it is offered.
+// How a personal Microsoft account signs in now: 'own' (the instance's app admits personal
+// accounts), 'shared' (MailFlow's built-in app), or null when it cannot.
+export function msPersonalSignInVia() {
+  const client = getMsDeviceClient('personal');
+  if (!client) return null;
+  return client.builtin ? 'shared' : 'own';
+}
+
+// Whether a personal Microsoft account can sign in now.
 export function msPersonalAccountsAvailable() {
+  return msPersonalSignInVia() !== null;
+}
+
+// Whether a work or school account can sign in now: only through the instance's own app, and
+// not when that app is limited to personal accounts (the consumers tenant).
+export function msWorkAccountsAvailable() {
   const { clientId, tenantId } = getMsConfig();
-  if (clientId) return ['common', 'consumers'].includes(tenantId.trim().toLowerCase());
-  return msBuiltinAppEnabled();
+  return !!clientId && tenantId.trim().toLowerCase() !== 'consumers';
 }
 
 // Client a stored account refreshes through. Accounts connected before the identity was

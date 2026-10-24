@@ -2,10 +2,37 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { encrypt, decrypt, isEncrypted } from '../services/encryption.js';
-import { msBuiltinAppEnabled, msBuiltinAppShipped, msPersonalAccountsAvailable } from '../services/microsoftOAuthClient.js';
+import { clearRefreshFailure } from '../services/accountErrorCode.js';
+import { msBuiltinAppEnabled, msBuiltinAppShipped, msPersonalAccountsAvailable, msPersonalSignInVia, msWorkAccountsAvailable } from '../services/microsoftOAuthClient.js';
 
 const router = Router();
 router.use(requireAuth);
+
+// After an admin changes a provider's app (a new secret, a removed or replaced app, the shared
+// app switched), that provider's OAuth accounts get a fresh start: remembered refresh failures
+// and connect backoffs are forgotten, and the ones showing an error reconnect now instead of
+// waiting out a backoff that may be hours long. Runs in the background, three at a time.
+export async function recoverProviderAccounts(engine, provider) {
+  const { rows } = await query('SELECT * FROM email_accounts WHERE oauth_provider = $1', [provider]);
+  const broken = [];
+  for (const account of rows) {
+    clearRefreshFailure(account.id);
+    engine?.clearConnectCooldown?.(account.id);
+    if (account.enabled && account.sync_error) broken.push(account);
+  }
+  if (!engine?.connectAccount) return broken.length;
+  const queue = [...broken];
+  const worker = async () => {
+    for (let account = queue.shift(); account; account = queue.shift()) {
+      await engine.connectAccount(account).catch(err => console.error(`Reconnect after ${provider} app change failed:`, err.message));
+    }
+  };
+  Promise.all([worker(), worker(), worker()]).catch(() => {});
+  return broken.length;
+}
+const recoverAfterChange = (req, provider) =>
+  recoverProviderAccounts(req.app?.get?.('imapManager'), provider)
+    .catch(err => console.error(`Could not reset ${provider} accounts after an app change:`, err.message));
 
 // Maps each provider's stored config keys to the process.env vars the OAuth routes
 // read. Config can arrive from this UI or straight from .env; both converge here,
@@ -79,9 +106,20 @@ router.get('/status', async (req, res) => {
       builtinApp: msBuiltinAppEnabled(),
       builtinAppShipped: msBuiltinAppShipped(),
       personalAccounts: msPersonalAccountsAvailable(),
+      // Which app signs personal accounts in: 'own', 'shared' (MailFlow's), or null.
+      personalVia: msPersonalSignInVia(),
+      // Work and school accounts need the instance's own app on a tenant that admits them;
+      // with a secret and redirect URI it can also sign in through Microsoft's page (redirect).
+      workAccounts: msWorkAccountsAvailable(),
+      workRedirect: msWorkAccountsAvailable() && !!process.env.MS_CLIENT_SECRET && !!process.env.MS_REDIRECT_URI,
+      // The same for personal accounts when the own app signs them in: its page is then the
+      // main path, as in v4.0.4, since such an app may not allow public client flows.
+      personalRedirect: msPersonalSignInVia() === 'own' && !!process.env.MS_CLIENT_SECRET && !!process.env.MS_REDIRECT_URI,
     },
     google: {
       configured: !!process.env.GOOGLE_CLIENT_ID,
+      // Everything the sign-in on Google's page needs: Add account offers it only then.
+      signIn: !!process.env.GOOGLE_CLIENT_ID && !!process.env.GOOGLE_CLIENT_SECRET && !!process.env.GOOGLE_REDIRECT_URI,
     },
   });
 });
@@ -98,6 +136,7 @@ router.put('/microsoft/builtin-app', requireAdmin, async (req, res) => {
     [MS_BUILTIN_APP_KEY, String(enabled)],
   );
   process.env.MS_BUILTIN_APP = String(enabled);
+  await recoverAfterChange(req, 'microsoft');
   res.json({ ok: true });
 });
 
@@ -135,6 +174,7 @@ router.post('/:provider', requireAdmin, async (req, res) => {
 
   // Write plaintext values to process.env so oauth routes pick them up immediately
   applyConfigToEnv(provider, config);
+  await recoverAfterChange(req, provider);
 
   res.json({ ok: true });
 });
@@ -146,6 +186,7 @@ router.delete('/:provider', requireAdmin, async (req, res) => {
     [req.params.provider]
   );
   clearConfigFromEnv(req.params.provider);
+  if (PROVIDER_ENV[req.params.provider]) await recoverAfterChange(req, req.params.provider);
   res.json({ ok: true });
 });
 

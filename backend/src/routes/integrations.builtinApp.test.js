@@ -17,6 +17,8 @@ vi.mock('../services/db.js', () => ({
     if (/SELECT value FROM system_settings WHERE key/.test(sql)) {
       return { rows: db.settings.has(params[0]) ? [{ value: db.settings.get(params[0]) }] : [] };
     }
+    // Accounts reset after an app change (none here).
+    if (/FROM email_accounts WHERE oauth_provider/.test(sql)) return { rows: [] };
     throw new Error(`unexpected query: ${sql}`);
   }),
 }));
@@ -67,27 +69,30 @@ describe('Microsoft built-in app status and opt-out', () => {
   const removeApp = () => fetch(`${base}/microsoft`, { method: 'DELETE' });
 
   it('reports personal accounts available through the built-in app when no Client ID is set', async () => {
-    expect(await status()).toEqual({ configured: false, builtinApp: true, builtinAppShipped: true, personalAccounts: true });
+    expect(await status()).toEqual({ configured: false, builtinApp: true, builtinAppShipped: true, personalAccounts: true, personalVia: 'shared', workAccounts: false, workRedirect: false, personalRedirect: false });
   });
 
   it('MS_BUILTIN_APP=false in .env withdraws it', async () => {
     process.env.MS_BUILTIN_APP = 'false';
-    expect(await status()).toEqual({ configured: false, builtinApp: false, builtinAppShipped: true, personalAccounts: false });
+    expect(await status()).toEqual({ configured: false, builtinApp: false, builtinAppShipped: true, personalAccounts: false, personalVia: null, workAccounts: false, workRedirect: false, personalRedirect: false });
   });
 
-  // With its own app the instance signs personal accounts in through that app, which can
-  // only do so if its tenant admits them.
+  // With its own app the instance signs personal accounts in through that app when its tenant
+  // admits them; otherwise they fall back to the shared app, when it is offered.
   it.each([
-    [undefined, true],
-    ['common', true],
-    ['consumers', true],
-    ['Consumers', true],
-    ['organizations', false],
-    ['3f1c6c2e-0000-4000-8000-000000000001', false],
-  ])('with an own app on tenant %s, personal accounts are %s', async (tenant, expected) => {
+    [undefined, 'true', 'own'],
+    ['common', 'true', 'own'],
+    ['consumers', 'true', 'own'],
+    ['Consumers', 'false', 'own'],
+    ['organizations', 'true', 'shared'],
+    ['3f1c6c2e-0000-4000-8000-000000000001', 'true', 'shared'],
+    ['organizations', 'false', null],
+    ['3f1c6c2e-0000-4000-8000-000000000001', 'false', null],
+  ])('with an own app on tenant %s and the shared app %s, personal accounts sign in through %s', async (tenant, shared, via) => {
     process.env.MS_CLIENT_ID = 'own-app-id';
+    process.env.MS_BUILTIN_APP = shared;
     if (tenant !== undefined) process.env.MS_TENANT_ID = tenant;
-    expect(await status()).toMatchObject({ configured: true, personalAccounts: expected });
+    expect(await status()).toMatchObject({ configured: true, personalAccounts: via !== null, personalVia: via });
   });
 
   it('turning the switch off survives removing the own app', async () => {
@@ -95,14 +100,14 @@ describe('Microsoft built-in app status and opt-out', () => {
     expect((await setBuiltin({ enabled: false })).status).toBe(200);
     expect((await removeApp()).status).toBe(200);
 
-    expect(await status()).toEqual({ configured: false, builtinApp: false, builtinAppShipped: true, personalAccounts: false });
+    expect(await status()).toEqual({ configured: false, builtinApp: false, builtinAppShipped: true, personalAccounts: false, personalVia: null, workAccounts: false, workRedirect: false, personalRedirect: false });
     expect(db.settings.get('ms_builtin_app')).toBe('false');
   });
 
   it('the switch overrides .env and turns the shared app back on', async () => {
     process.env.MS_BUILTIN_APP = 'false';
     expect((await setBuiltin({ enabled: true })).status).toBe(200);
-    expect(await status()).toMatchObject({ builtinApp: true, personalAccounts: true });
+    expect(await status()).toMatchObject({ builtinApp: true, personalAccounts: true, workAccounts: false, workRedirect: false, personalRedirect: false });
   });
 
   it('rejects a switch value that is not a boolean', async () => {

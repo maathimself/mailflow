@@ -7,11 +7,11 @@ Thank you for your interest in MailFlow. Please read this before opening a pull 
 MailFlow is a vision-led project. I hold the direction, because a single coherent hand keeps the product consistent and the codebase maintainable, and I write a lot of it. I am no longer trying to write all of it: the project has outgrown what I can review quickly, and a fix waiting a week on me helps nobody. I am open to trusted contributors taking on review and merge rights, earned through a track record of focused, well-judged changes. That shapes what contributions fit:
 
 - **Bug reports and small, focused fixes are very welcome.** A real bug, a translation, a typo, a small correctness or quality fix — these are easy to review and usually merge quickly.
-- **For anything larger — a new feature, a refactor, a new dependency, a change to core behaviour — open an issue to discuss it first, before writing any code.** You'll get an honest answer on whether it fits and whether we'd merge it.
+- **For anything larger — a new feature, a refactor, a new dependency, a change to core behavior — open an issue to discuss it first, before writing any code.** You'll get an honest answer on whether it fits and whether we'd merge it.
 - **Unsolicited large pull requests will usually be declined, regardless of quality.** Not because the work isn't good, but because large changes have to fit a direction I'm holding, and reviewing a big PR I didn't plan for is costly whether or not it lands. Please check first so your effort isn't wasted.
 - A "no" is about scope and direction, not about you or your code. I appreciate every bit of interest in the project.
 
-If you want to build something bigger, MailFlow's plugin system and its AGPL licence give you room to do that in a plugin or your own fork, without needing it merged here.
+If you want to build something bigger, MailFlow's plugin system and its AGPL license give you room to do that in a plugin or your own fork, without needing it merged here.
 
 ## One open pull request per author
 
@@ -62,7 +62,7 @@ chore: dependency updates, config changes, etc.
 
 ## Reporting Bugs
 
-Use the [bug report template](https://github.com/maathimself/mailflow/issues/new?template=bug_report.md). Include steps to reproduce, expected behaviour, and actual behaviour. Screenshots or logs help.
+Use the [bug report template](https://github.com/maathimself/mailflow/issues/new?template=bug_report.md). Include steps to reproduce, expected behavior, and actual behavior. Screenshots or logs help.
 
 ## Requesting Features
 

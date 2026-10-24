@@ -9,6 +9,7 @@ import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } fr
 import { pluginRegistry } from '../plugins/registry.js';
 import { createPluginMailFacade } from '../plugins/mailEngineFacade.js';
 import { refreshMicrosoftToken, refreshGoogleToken } from '../routes/oauth.js';
+import { classifyAccountError, clearRefreshFailure, noteFreshToken, noteRefreshFailure, refreshFailureFor } from './accountErrorCode.js';
 import { sanitizeEmail } from './emailSanitizer.js';
 import { settleCids } from '../utils/cidRefs.js';
 import { logger } from './logger.js';
@@ -299,6 +300,17 @@ export function authCooldownMs(failures) {
 // RFC 3501/9051 AUTHENTICATIONFAILED is the structured form; the rest are what real servers
 // send instead. Deliberately narrow: anything not clearly about credentials should keep the
 // short refusal backoff so a transient fault still recovers in seconds.
+// An auth failure for backoff purposes: the server rejected the credentials, or this is an OAuth
+// account whose token refresh is known to have failed for good, so retrying the stale token
+// every tick cannot work. Signing in again clears both the backoff and the remembered failure.
+//
+// Only a dead grant counts (oauth_reauth). An app the provider rejects (oauth_app_config: an
+// expired or rotated secret, a disabled app) is the instance's problem, fixed by an admin, and
+// keeps the short retry so accounts recover as soon as the app is fixed.
+export function isAuthFailureFor(account, detail) {
+  return isAuthFailure(detail) || (!!account?.oauth_provider && refreshFailureFor(account.id)?.code === 'oauth_reauth');
+}
+
 export function isAuthFailure(detail) {
   return /\[AUTHENTICATIONFAILED\]|authentication failed|invalid credentials|invalid (?:user|login|password)|login failed|password incorrect|\[AUTHORIZATIONFAILED\]/i
     .test(String(detail || ''));
@@ -1974,7 +1986,7 @@ function parseAddressColumn(value) {
 }
 
 // Ensure OAuth token is fresh before connecting
-async function ensureFreshToken(account) {
+export async function ensureFreshToken(account) {
   const refreshers = { microsoft: refreshMicrosoftToken, google: refreshGoogleToken };
   const refresh = refreshers[account.oauth_provider];
   if (!refresh) return account;
@@ -1986,8 +1998,14 @@ async function ensureFreshToken(account) {
     console.log(`Refreshing ${account.oauth_provider} token for ${logAccount(account)}`);
     try {
       account = await refresh(account);
+      clearRefreshFailure(account.id);
+      noteFreshToken(account.id);
     } catch (err) {
       console.error(`Token refresh failed for ${logAccount(account)}:`, err.message);
+      // A refresh that cannot succeed by retrying (expired or revoked grant, rejected app) is
+      // remembered so the connection failure it causes is reported as this, not as the bare
+      // "AUTHENTICATE failed." that follows. The stored token is still tried: it may be valid.
+      if (err.accountErrorCode) noteRefreshFailure(account.id, { code: err.accountErrorCode, detail: err.message });
     }
   }
   return account;
@@ -2595,6 +2613,7 @@ export class ImapManager {
     // Lets the success paths skip a redundant UPDATE on every sync tick.
     this._syncErrorState = new Map();
     this._accountErrorStreak = new Map(); // accountId -> consecutive recoverable failures not yet surfaced
+    this._errorForgets = new Map(); // accountId -> times forgetAccountError ran (see there)
     this.onDemandSyncing = new Set(); // `${accountId}:${folder}` — prevent duplicate on-demand syncs
     // Bounded engine facade handed to plugin hooks instead of `this` — plugins get only the reviewed
     // sync/label primitives (see mailEngineFacade), never the raw engine, its connections, or locks.
@@ -3286,7 +3305,7 @@ export class ImapManager {
       // On a connection-refusal/throttle, back this account off with growing delay so we
       // stop hammering a provider that's at its limit. Other errors don't set a cooldown —
       // the health check retries them normally.
-      if (isAuthFailure(detail)) this._noteAuthFailure(account);
+      if (isAuthFailureFor(account, detail)) this._noteAuthFailure(account);
       else if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
       await this._recordAccountError(account, detail);
       return false;
@@ -3417,7 +3436,7 @@ export class ImapManager {
       const refused = isConnectionRefusal(detail);
       // Auth first: a rejected password is permanent until someone fixes it, so it takes the
       // long ladder rather than retrying every 30 seconds. Same order as connectAccount.
-      if (isAuthFailure(detail)) this._noteAuthFailure(account);
+      if (isAuthFailureFor(account, detail)) this._noteAuthFailure(account);
       else if (refused) this._noteConnectionRefusal(account);
       console.warn(`Poll-only sync error for ${logAccount(account)}: ${detail}`);
       // Surface only what we actually backed off on. Gated (unlike the connect paths, which
@@ -3425,7 +3444,7 @@ export class ImapManager {
       // timed-out poll must not paint a working account red in the sidebar.
       // Auth failures are recorded too: they arm a cooldown measured in hours, so leaving the
       // sidebar green would be silent degradation of exactly the kind this project avoids.
-      if (refused || isAuthFailure(detail)) await this._recordAccountError(account, detail);
+      if (refused || isAuthFailureFor(account, detail)) await this._recordAccountError(account, detail);
     } finally {
       // close(), not logout(): LOGOUT is a command and queues behind whatever wedged the
       // transport, and the semaphore slot and sync guard below are only released after it.
@@ -3471,6 +3490,29 @@ export class ImapManager {
     // minute cap after the user has asked for a retry makes the button look broken.
     this._secondaryCooldown.delete(accountId);
   }
+
+  // Whether the account has a live IMAP session (logged in), for the sign-in flow to report.
+  isConnected(accountId) {
+    return this.connections.has(accountId);
+  }
+
+  // Forget the account's recorded error before an explicit retry whose outcome is reported
+  // back (Try again in the sign-in flow): a failure recorded after this is the retry's own,
+  // never the one from before. Deleting the cached state makes the next record write through
+  // even when the text is the same.
+  //
+  // A record that was in flight when this ran must not leave its text in the cache: its UPDATE
+  // may land before this one, and a cached copy would then hide the next identical failure.
+  // The forget count tells _recordAccountError to skip caching a write it started before.
+  async forgetAccountError(accountId, userId) {
+    this._errorForgets.set(accountId, (this._errorForgets.get(accountId) || 0) + 1);
+    this._syncErrorState.delete(accountId);
+    await query('UPDATE email_accounts SET sync_error = NULL, sync_error_code = NULL WHERE id = $1', [accountId]);
+    this._syncErrorState.delete(accountId);
+    // Open account lists drop the old error too ('account_connected' clears it client-side).
+    if (userId !== undefined) this.broadcast({ type: 'account_connected', accountId }, userId);
+  }
+
 
   // Arm/extend the backoff for secondary connections. Same ladder as _noteConnectionRefusal,
   // deliberately a different map: only a successful secondary connection clears this, so a
@@ -3527,8 +3569,14 @@ export class ImapManager {
   // De-duplicated against the last persisted value: a host that stays down re-enters this on
   // every retry for as long as the outage lasts, and rewriting the same string each time is pure
   // write amplification. Never throws — every caller is already inside an error path.
-  async _recordAccountError(account, detail) {
-    if (this._syncErrorState.get(account.id) === detail) return;
+  async _recordAccountError(account, rawDetail) {
+    // What kind of failure this is, for the UI to say what to do (sync_error_code). An auth
+    // failure caused by a refresh that already failed for good is recorded as that refresh.
+    const { code, detail } = classifyAccountError(account, rawDetail, { authFailure: isAuthFailure(rawDetail) });
+    // The same text with a new code (a connection error that becomes "sign in again" once the
+    // token is no longer fresh) is a change the UI must see: de-duplicate on both.
+    const recorded = `${code}\u0000${detail}`;
+    if (this._syncErrorState.get(account.id) === recorded) return;
     // Hold back a failure that is likely to heal itself. Only RECOVERABLE failures are
     // deferred: an authentication or configuration failure will never clear on its own and is
     // reported immediately, because it is the user who has to act on it. A recoverable failure
@@ -3538,9 +3586,11 @@ export class ImapManager {
     this._accountErrorStreak.set(account.id, streak);
     if (isConnectionRefusal(detail) && streak < ACCOUNT_ERROR_MIN_STREAK) return;
     try {
-      await query('UPDATE email_accounts SET sync_error = $1 WHERE id = $2', [detail, account.id]);
-      this._syncErrorState.set(account.id, detail);
-      this.broadcast({ type: 'account_error', accountId: account.id, error: detail }, account.user_id);
+      const forgets = this._errorForgets?.get(account.id);
+      await query('UPDATE email_accounts SET sync_error = $1, sync_error_code = $3 WHERE id = $2', [detail, account.id, code]);
+      // Not cached when forgetAccountError ran meanwhile: the row may hold its NULL instead.
+      if (this._errorForgets?.get(account.id) === forgets) this._syncErrorState.set(account.id, recorded);
+      this.broadcast({ type: 'account_error', accountId: account.id, error: detail, code }, account.user_id);
     } catch (err) {
       // Leave _syncErrorState untouched so the next failure retries the write.
       console.warn(`Could not record sync_error for ${logAccount(account)}: ${err.message}`);
@@ -3559,7 +3609,7 @@ export class ImapManager {
     const prev = this._syncErrorState.get(account.id);
     if (prev === null) return;
     try {
-      await query('UPDATE email_accounts SET sync_error = NULL WHERE id = $1', [account.id]);
+      await query('UPDATE email_accounts SET sync_error = NULL, sync_error_code = NULL WHERE id = $1', [account.id]);
       this._syncErrorState.set(account.id, null);
       if (typeof prev === 'string') {
         this.broadcast({ type: 'account_connected', accountId: account.id }, account.user_id);
@@ -3670,7 +3720,7 @@ export class ImapManager {
         } catch (reconnErr) {
           const detail = extractImapError(reconnErr);
           // Back off on a connection-refusal so the interval stops hammering — mirrors connectAccount.
-          if (isAuthFailure(detail)) this._noteAuthFailure(account);
+          if (isAuthFailureFor(account, detail)) this._noteAuthFailure(account);
           else if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
           console.error(`Reconnect failed for ${logAccount(account)}:`, detail);
           // A failed reconnect is the same class of failure as a failed first connect, so record
@@ -3782,7 +3832,7 @@ export class ImapManager {
       // A refusal on the sync path (notably the fresh-login poll, which never reaches the
       // reconnect gate) must arm the same backoff the connect paths use — otherwise the poll
       // keeps hammering a provider that's refusing logins. Honored by the check above next tick.
-      if (isAuthFailure(detail)) {
+      if (isAuthFailureFor(account, detail)) {
         this._noteAuthFailure(account);
         // Recorded as well as backed off: the auth ladder runs to six hours, and an account
         // that has stopped syncing for that long must say so in the sidebar rather than sit

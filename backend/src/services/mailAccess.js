@@ -9,26 +9,16 @@
 // established it owns (via one of the user-keyed reads) and only ever read within that account —
 // they never span accounts or users.
 import { query } from './db.js';
+import { findOwnedAccount, findOwnedMessage } from './ownership.js';
 
 // A message the user owns (joined through their accounts), or null. Full row (m.*).
 export async function loadOwnedMessage(userId, messageId) {
-  const { rows } = await query(
-    `SELECT m.*
-       FROM messages m
-       JOIN email_accounts a ON a.id = m.account_id
-      WHERE m.id = $1 AND a.user_id = $2`,
-    [messageId, userId]
-  );
-  return rows[0] || null;
+  return findOwnedMessage(userId, messageId);
 }
 
 // One of the user's accounts by id (ownership enforced), or null. Full row.
 export async function getOwnedAccount(userId, accountId) {
-  const { rows } = await query(
-    'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
-    [accountId, userId]
-  );
-  return rows[0] || null;
+  return findOwnedAccount(userId, accountId);
 }
 
 // All of the user's accounts (light columns for listing/iteration). The caller filters by its

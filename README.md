@@ -9,7 +9,7 @@
 <p align="center">
   <a href="#installation">Quick Start</a> ·
   <a href="#email-provider-setup">Setup Guide</a> ·
-  <a href="https://mailflow.sh/#supporters">Contributing</a> ·
+  <a href="#supporters">Support MailFlow</a> ·
   <a href="https://mailflow.sh/#roadmap">Roadmap</a>
 </p>
 
@@ -18,9 +18,10 @@
 Licensing and paid options:
 
 - **[AGPL-3.0](LICENSE)**: free for everyone, individuals and businesses, to self-host. If you modify MailFlow and let others use it over a network, you must publish your changes under the same license.
-- **Business License**: $100 per instance per year. MailFlow is free for everyone under the AGPL, including businesses. If you use it in a business, we ask you to buy a yearly license to support development. It isn't legally required or enforced. [Buy one here](https://mailflow.sh/#pricing).
-- **[Private modifications license](LICENSE-COMMERCIAL)** (commercial license): $500 per installation, one-time. Only for a business that wants to modify MailFlow and run it without publishing its changes; most businesses don't need it. [Purchase here](https://mailflow.sh/#pricing). Hosting providers and MSPs that want to offer MailFlow to others: get in touch at contact@mailflow.sh.
-- **Business support**: from $600 per year, for teams that rely on MailFlow, with help setting up, priority answers and a say in the roadmap. Includes a business license. Get in touch at contact@mailflow.sh.
+- **Business License**: $100 per instance per year, plus tax. MailFlow is free for everyone under the AGPL, including businesses. If you use it in a business, we ask you to buy a yearly license to support development. It isn't legally required or enforced. [Buy one here](https://mailflow.sh/#pricing), or sponsor at $40/month on [GitHub Sponsors](https://github.com/sponsors/maathimself), which includes one.
+- **[Private modifications license](LICENSE-COMMERCIAL)** (commercial license): $500 per installation, one-time, plus tax. Only for a business that wants to modify MailFlow and run it without publishing its changes; most businesses don't need it. [Purchase here](https://mailflow.sh/#pricing).
+- **Hosting providers and MSPs**: partner plans for offering MailFlow to your customers: a revenue share for hosting platforms, or MSP plans: Starter at $500 per year for 5 client instances, and Partner at $1,200 per year for 20 (plus tax). Partners are listed on mailflow.sh and get an email before each security release with its date and severity; the fix itself is public to everyone at the same time. [Details](https://mailflow.sh/#pricing), or get in touch at contact@mailflow.sh.
+- **Business support**: from $600 per year, plus tax, for teams that rely on MailFlow, with help setting up, priority answers and a say in the roadmap. Includes a business license. Get in touch at contact@mailflow.sh.
 
 **Personal self-hosting is free and always will be.**
 
@@ -43,7 +44,7 @@ If you contribute code, please read the [Contributor License Agreement](CLA.md).
 - **Real-time notifications** — WebSocket-powered new-mail toasts and web push notifications
 - **PWA** — installable as a desktop or mobile app with push notification support
 - **Command palette** — Cmd+K / Ctrl+K quick-access for actions and navigation
-- **Keyboard shortcuts** — full shortcut set, fully customisable per user
+- **Keyboard shortcuts** — full shortcut set, fully customizable per user
 - **Smart contact autocomplete** — learns from sent mail to rank suggestions
 - **Reply / Forward / Compose** — correct per-account SMTP routing; font family groups, email priority
 - **Folder navigation** — expand any account to browse folders
@@ -194,7 +195,7 @@ docker compose pull
 docker compose up -d
 ```
 
-To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=2.7.0` to your `.env`.
+To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=4.0.4` to your `.env`.
 
 ---
 
@@ -452,22 +453,25 @@ Gmail requires an **App Password** (not your normal password):
 ### Microsoft 365 / Outlook (OAuth2)
 
 Microsoft has disabled basic (password) auth for Outlook.com, Hotmail, and most
-Microsoft 365 accounts, so they connect via OAuth2 under **Settings → Integrations →
-Microsoft 365** (not the normal Add Account form).
+Microsoft 365 accounts, so they connect with **Sign in with Microsoft**: in **Settings →
+Accounts → Add account**, type the address or pick **Outlook.com, Hotmail, Live, MSN** or
+**Microsoft 365 (work or school)**. Administrators configure how this works under
+**Settings → Email providers**.
 
-**Personal accounts (Outlook.com, Hotmail, Live, MSN) need no setup.** Click **Start
-device code flow**, then visit [microsoft.com/devicelogin](https://microsoft.com/devicelogin)
-on any device and enter the code MailFlow shows. When your instance has no Microsoft
-app of its own, this sign-in uses MailFlow's registered public app, which accepts
-personal Microsoft accounts only. The app only identifies MailFlow to Microsoft: you
+**Personal accounts (Outlook.com, Hotmail, Live, MSN) need no setup.** MailFlow shows a
+code; open [microsoft.com/devicelogin](https://microsoft.com/devicelogin) on any device
+and enter it. In Outlook.com, IMAP must be allowed first: **Settings → Mail → Forwarding
+and IMAP → Let devices and apps use IMAP**. When your instance has no Microsoft app of
+its own that accepts personal accounts, this sign-in uses MailFlow's registered public
+app, which accepts personal Microsoft accounts only. The app only identifies MailFlow to Microsoft: you
 sign in on Microsoft's own page in your browser, Microsoft sends the tokens straight
 to your server, and MailFlow's maintainers never see your mail or tokens. Microsoft
 may label the app **"unverified"** on the consent screen; that refers to the
 publisher verification status of the app registration and does not change what the
 app can access.
 
-To stop offering the shared app, turn off **Offer MailFlow's app for personal
-accounts** in Integrations → Microsoft 365, or set `MS_BUILTIN_APP=false` in `.env`.
+To stop offering the shared app, turn off **Let people sign in with MailFlow's shared
+app** in Settings → Email providers, or set `MS_BUILTIN_APP=false` in `.env`.
 Once the switch has been used, its setting takes precedence over `MS_BUILTIN_APP`.
 Turning it off stops new sign-ins through the shared app; accounts already connected
 through it keep refreshing through it. Personal accounts then need your own app
@@ -475,7 +479,9 @@ registration, as below.
 
 **Your own app registration** is needed for work / school accounts, and is an
 option for admins who prefer not to use the shared app. Once its Client ID is saved,
-every new sign-in on the instance uses it. Personal accounts already connected
+work and school sign-ins use it, and so do personal ones if its tenant admits them
+(`common` or `consumers`); with a tenant limited to organizations, personal accounts keep
+using the shared app while it is on. Personal accounts already connected
 through MailFlow's shared app keep working through it when you add your own app,
 because each account remembers the app it was connected with. It is a one-time
 setup: you create a free [Microsoft Entra app registration](https://portal.azure.com)
@@ -487,7 +493,7 @@ through the old one.
 registrations → New registration**. Under **Supported account types**, choose
 **"Accounts in any organizational directory and personal Microsoft accounts"** so it
 covers both Outlook.com/Hotmail and work/school accounts. After creating it, copy the
-**Application (Client) ID**.
+**Application (client) ID**.
 
 **2. Grant the mail permissions.** Open the app's **API permissions** page and add
 both of these, then follow the consent note:
@@ -510,21 +516,23 @@ Then follow the steps for your account type:
 
 1. In the Azure app, open **Authentication** and set **"Allow public client flows"**
    to **Yes**. No client secret or redirect URI is needed.
-2. In Integrations → Microsoft 365, enter the **Client ID** and **Tenant ID**
-   (`common`), leave Client Secret and Redirect URI blank, then save.
-3. Start the device-code flow shown there. MailFlow displays a short code; visit
-   [microsoft.com/devicelogin](https://microsoft.com/devicelogin) and enter it to
-   authorize.
+2. In Settings → Email providers → **Set up your own Microsoft Entra app**, enter the
+   **Application (client) ID** and **Directory (tenant) ID** (`common`), leave Client
+   secret and Redirect URI blank, then save.
+3. People then add their accounts under Accounts → Add account, which shows the code to
+   enter at [microsoft.com/devicelogin](https://microsoft.com/devicelogin).
 
 **Work / school accounts (Microsoft 365)** (confidential client):
 
 1. In the Azure app, open **Authentication → Add a platform → Web**, and set the
    redirect URI to `https://<your-mailflow-host>/oauth/microsoft/callback` (the exact
-   value is shown on the Integrations screen).
+   value is shown under Settings → Email providers).
 2. Under **Certificates & secrets → New client secret**, create a secret and copy its
    **Value** (not the Secret ID).
-3. In Integrations → Microsoft 365, enter the Client ID, Tenant ID, Client Secret,
-   and Redirect URI, then save and click **Connect Microsoft account**.
+3. In Settings → Email providers, enter the Application (client) ID, Directory (tenant) ID,
+   Client secret and Redirect URI, then save. People then add their accounts under
+   Accounts → Add account → **Microsoft 365 (work or school)**, which signs in on
+   Microsoft's page.
 
 ### Custom IMAP
 
@@ -678,6 +686,8 @@ MailFlow is free and open source, and built and maintained by one person. Sponso
 
 ## Upgrading
 
+From v3 on, each release's notes on [GitHub Releases](https://github.com/maathimself/mailflow/releases) list its upgrade steps. The notes below cover older versions.
+
 ### GTD
 
 GTD is opt-in per account (**Settings → Categories → GTD**). Migrations for the new schema are additive and apply automatically on first startup. No operator action needed.
@@ -717,6 +727,8 @@ If any accounts were configured with **Skip TLS verification** (e.g. for a self-
 ---
 
 ## Security notes
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md). Please don't open a public issue.
 
 - The first registered user becomes the admin automatically
 - Close open registration in Settings → Users once you've set up your accounts

@@ -52,7 +52,7 @@ describe('mailbox signature default', () => {
       expect(response.status).toBe(200);
       expect((await response.json()).signature_enabled).toBe(enabled !== false);
       expect(query.mock.calls[0][0]).toContain('signature, signature_enabled');
-      expect(query.mock.calls[0][1][21]).toBe(enabled !== false);
+      expect(query.mock.calls[0][1][18]).toBe(enabled !== false);
     });
   }
 

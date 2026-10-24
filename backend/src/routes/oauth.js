@@ -2,11 +2,16 @@ import { randomBytes } from 'crypto';
 import { Router } from 'express';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { query, withTransaction } from '../services/db.js';
+import { findOwnedAccount } from '../services/ownership.js';
 import { imapManager } from '../index.js';
 import { providerProfile, PROVIDERS } from '../services/imapManager.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { redactEmail } from '../utils/redact.js';
-import { getMsConfig, getMsDeviceClient, msRefreshClient } from '../services/microsoftOAuthClient.js';
+import { getMsConfig, getMsDeviceClient, msBuiltinAppEnabled, msRefreshClient, ownAppAdmitsPersonal } from '../services/microsoftOAuthClient.js';
+import { MAILFLOW_MS_CLIENT_ID } from '../services/microsoftBuiltinApp.js';
+import { classifyRefreshFailure, clearRefreshFailure, isPersonalMicrosoftAccount, noteFreshToken, terminalRefreshError } from '../services/accountErrorCode.js';
+import { isUuid } from '../utils/uuid.js';
+import { reportConnect } from '../services/connectReport.js';
 
 // Cache JWKS fetchers per tenant — createRemoteJWKSet handles caching internally.
 const jwksCache = new Map();
@@ -20,6 +25,56 @@ function getMsJwks(tenantId) {
 }
 
 const router = Router();
+
+// Signing in again to repair an account (a "Sign in again" action) names that account. If the
+// person signs in to the provider as someone else, nothing is stored: the sign-in would
+// otherwise quietly add a second account and leave the broken one as it was.
+export class WrongAccountError extends Error {
+  constructor(signedInAs, expected) {
+    super(`Signed in as ${signedInAs}, not ${expected}`);
+    this.signedInAs = signedInAs;
+    this.expected = expected;
+  }
+}
+
+// The account a repair sign-in is for, if it is this user's and uses this provider. A repair
+// request for anything else is refused up front rather than at the end of the sign-in.
+async function repairTarget(userId, accountId, provider) {
+  if (accountId === undefined || accountId === null || accountId === '') return null;
+  // Not a UUID cannot be an account: refuse it as one that does not exist, before the query.
+  if (!isUuid(String(accountId))) throw Object.assign(new Error('Account not found'), { status: 404 });
+  const row = await findOwnedAccount(userId, String(accountId), {
+    columns: 'id, email_address, oauth_provider, oauth_client_id, oauth_tenant_id',
+  });
+  if (!row || row.oauth_provider !== provider) {
+    throw Object.assign(new Error('Account not found'), { status: 404 });
+  }
+  return row;
+}
+
+// How a redirect sign-in ended is kept in the session for the page to fetch (GET
+// /oauth/result), not put in the URL: addresses and server text do not belong in access logs
+// or browser history. The URL carries only a short code.
+function rememberResult(req, result) {
+  if (req.session) req.session.oauthResult = result;
+}
+function wrongAccountRedirect(req, err) {
+  rememberResult(req, { error: 'wrong_account', signedInAs: err.signedInAs, expected: err.expected });
+  return '/?oauth_error=wrong_account&oauth_result=1';
+}
+
+// The outcome of the last redirect sign-in, once: read and forgotten.
+router.get('/result', (req, res) => {
+  if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
+  const result = req.session.oauthResult || null;
+  delete req.session.oauthResult;
+  res.json({ result });
+});
+
+// How long the redirect callback waits for the mailbox before answering: shorter than the
+// device-code poll's, so the token exchange, the key fetch and this wait fit well inside the
+// proxy's 60-second read timeout for /oauth/.
+const CALLBACK_CONNECT_WAIT_MS = 15000;
 
 const MICROSOFT_AUTH_URL = 'https://login.microsoftonline.com';
 
@@ -35,12 +90,16 @@ router.get('/microsoft', async (req, res) => {
   if (!clientId || !tenantId || !redirectUri) {
     return res.status(500).json({ error: 'Microsoft OAuth not configured. Set MS_CLIENT_ID, MS_CLIENT_SECRET, MS_TENANT_ID, MS_REDIRECT_URI in .env' });
   }
+  let repair;
+  try { repair = await repairTarget(req.session.userId, req.query.accountId, 'microsoft'); }
+  catch (err) { return res.status(err.status || 500).json({ error: err.message }); }
 
   // Generate a random CSRF nonce for the state parameter and store it alongside
   // the userId so the callback can verify it without trusting the state value.
   const oauthNonce = randomBytes(16).toString('hex');
   req.session.oauthNonce  = oauthNonce;
   req.session.oauthUserId = req.session.userId;
+  req.session.oauthRepairAccountId = repair?.id ?? null;
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -73,8 +132,10 @@ router.get('/microsoft/callback', async (req, res) => {
   }
   const userId = req.session.oauthUserId;
   if (!userId) return res.redirect(`/?oauth_error=${encodeURIComponent('OAuth session expired — please try again')}`);
+  const repairAccountId = req.session.oauthRepairAccountId ?? null;
   delete req.session.oauthNonce;
   delete req.session.oauthUserId;
+  delete req.session.oauthRepairAccountId;
 
   const { clientId, clientSecret, tenantId, redirectUri } = getMsConfig();
 
@@ -99,18 +160,22 @@ router.get('/microsoft/callback', async (req, res) => {
     }
 
     // Authorization-code flow uses the client secret → confidential client.
-    await processMicrosoftTokens(userId, tokens, { tenantId, clientId, publicClient: false });
+    const signedIn = await processMicrosoftTokens(userId, tokens, { tenantId, clientId, publicClient: false, repairAccountId });
 
-    // Redirect back to app with success
-    res.redirect('/?oauth_success=microsoft');
+    // Back to the app once the mailbox has answered (bounded), with how it went: the page that
+    // started the sign-in shows "connected" only when it is.
+    const report = await connectReportFor(signedIn, CALLBACK_CONNECT_WAIT_MS);
+    rememberResult(req, { provider: 'microsoft', accountId: signedIn.accountId, email: signedIn.email, ...report });
+    res.redirect('/?oauth_success=microsoft&oauth_result=1');
   } catch (err) {
+    if (err instanceof WrongAccountError) return res.redirect(wrongAccountRedirect(req, err));
     console.error('Microsoft OAuth callback error:', err);
     res.redirect(`/?oauth_error=${err.publicMessage ? encodeURIComponent(err.publicMessage) : 'Authentication+failed'}`);
   }
 });
 
 // Shared: validate tokens, upsert account, connect IMAP.
-async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publicClient = false }) {
+async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publicClient = false, repairAccountId = null }) {
   const { access_token, refresh_token, expires_in, id_token } = tokens;
   const expiresInSecs = Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
   const expiry = new Date(Date.now() + expiresInSecs * 1000);
@@ -160,27 +225,35 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publ
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',
       [`oauth-account:${userId}:${email.toLowerCase()}`]);
 
-    const existing = await client.query(
-      'SELECT id, imap_host, oauth_provider FROM email_accounts WHERE user_id = $1 AND email_address = $2',
-      [userId, email]
-    );
+    // A repair updates the account it was started for, and only when the person signed in as
+    // that account's address (compared without case: providers do not preserve it).
+    const existing = repairAccountId
+      ? await findOwnedAccount(userId, repairAccountId, { columns: 'id, imap_host, oauth_provider, email_address', client })
+      : (await client.query(
+        'SELECT id, imap_host, oauth_provider FROM email_accounts WHERE user_id = $1 AND email_address = $2',
+        [userId, email])).rows[0];
+    if (repairAccountId) {
+      if (!existing) throw Object.assign(new Error('Account not found'), { publicMessage: 'Account not found' });
+      if (existing.email_address.trim().toLowerCase() !== email.trim().toLowerCase()) {
+        throw new WrongAccountError(email, existing.email_address);
+      }
+    }
 
     let accountId;
-    if (existing.rows.length) {
-      const row = existing.rows[0];
+    if (existing) {
       // A Microsoft account can use any address as its sign-in name, a Gmail one included.
       // Switching a mailbox hosted elsewhere to XOAUTH2 would break it, and oauth_provider
       // cannot be changed back from the account settings. The user is told why.
-      if (providerProfile(row) !== PROVIDERS.microsoft) {
+      if (providerProfile(existing) !== PROVIDERS.microsoft) {
         const reason = 'An account with this address is already set up on a non-Microsoft mail server';
         throw Object.assign(new Error(reason), { publicMessage: reason });
       }
-      accountId = row.id;
+      accountId = existing.id;
       await client.query(`
         UPDATE email_accounts SET
           oauth_provider = 'microsoft',
           oauth_access_token = $1, oauth_refresh_token = $2, oauth_token_expiry = $3,
-          name = $4, oauth_public_client = $5, sync_error = NULL,
+          name = $4, oauth_public_client = $5, sync_error = NULL, sync_error_code = NULL,
           oauth_client_id = $7, oauth_tenant_id = $8
         WHERE id = $6
       `, [encrypt(access_token), encrypt(refresh_token), expiry, displayName || email, publicClient, accountId, clientId, tenantId]);
@@ -214,19 +287,69 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publ
   // backoff first. Auth failures back off for up to six hours, and connectAccount would
   // return early on it with sync_error already cleared: a silent no-op.
   imapManager.clearConnectCooldown(account.id);
-  imapManager.connectAccount(account).catch(err =>
-    console.error(`OAuth connect failed for ${redactEmail(email)}:`, err.message)
-  );
-  return email;
+  clearRefreshFailure(account.id);
+  noteFreshToken(account.id);
+  const connecting = imapManager.connectAccount(account).catch((err) => {
+    console.error(`OAuth connect failed for ${redactEmail(email)}:`, err.message);
+    return false;
+  });
+  // The address as stored on the account, not as typed at the provider (case can differ).
+  return { email: account.email_address || email, accountId: account.id, connecting };
 }
+
+// How the first connection after a sign-in went, waited for (bounded) so the sign-in reports
+// "connected" only once the mailbox has accepted the login.
+function connectReportFor({ accountId, connecting }, waitMs) {
+  return reportConnect(connecting, accountId, { waitMs, isConnected: () => !!imapManager.isConnected?.(accountId) });
+}
+
+// How the account's connection stands now, for an answer given after the wait ended: it may
+// have connected, or recorded its failure, since.
+async function connectionNow(accountId, report) {
+  if (report.connection !== 'connecting') return report;
+  if (imapManager.isConnected?.(accountId)) return { connection: 'connected' };
+  return reportConnect(Promise.resolve(false), accountId);
+}
+
+// The client a repair signs in through: the one the account was connected with when it is
+// still offered, else the one that signs this kind of account in now.
+function msRepairClient(repair) {
+  if (repair?.oauth_client_id === MAILFLOW_MS_CLIENT_ID && msBuiltinAppEnabled()) {
+    return { clientId: MAILFLOW_MS_CLIENT_ID, tenantId: 'consumers', builtin: true };
+  }
+  const config = getMsConfig();
+  const personal = isPersonalMicrosoftAccount(repair);
+  if (repair?.oauth_client_id && repair.oauth_client_id === config.clientId) {
+    // A personal account whose own app no longer accepts personal accounts (its tenant is now
+    // organizations or a single tenant) signs in again the way new personal accounts do.
+    if (personal && !ownAppAdmitsPersonal(config)) return getMsDeviceClient('personal');
+    // Otherwise the tenant the account was connected with: the configured one may have changed.
+    return { clientId: config.clientId, tenantId: repair.oauth_tenant_id || config.tenantId, builtin: false };
+  }
+  // No usable recorded client (an account from before clients were recorded, or one whose app
+  // was replaced): pick by the kind of address. Without the sign-in's own claims, a personal
+  // Microsoft account on a non-Microsoft address cannot be told from a work one and is tried
+  // as work.
+  return getMsDeviceClient(personal ? 'personal' : 'work');
+}
+
+// The kind of account a new device-code sign-in is for, as the page says: 'personal' or 'work'.
+// Anything else keeps the behavior from before kinds existed.
+const DEVICE_KINDS = new Set(['personal', 'work']);
 
 // Step 1: initiate device code flow — returns user_code + verification_uri to the frontend.
 router.post('/microsoft/device', async (req, res) => {
   if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
+  // { accountId } signs in again to repair that account; without it a sign-in adds or updates
+  // the account for whichever address the person signs in as.
+  let repair;
+  try { repair = await repairTarget(req.session.userId, req.body?.accountId, 'microsoft'); }
+  catch (err) { return res.status(err.status || 500).json({ error: err.message }); }
   // The instance's own app when configured, else MailFlow's built-in public client (#674).
-  const client = getMsDeviceClient();
+  const kind = DEVICE_KINDS.has(req.body?.kind) ? req.body.kind : undefined;
+  const client = repair ? msRepairClient(repair) : getMsDeviceClient(kind);
   if (!client) {
-    return res.status(400).json({ error: 'Microsoft integration not configured. Set Client ID and Tenant ID in the Integrations tab.' });
+    return res.status(400).json({ error: 'Microsoft integration not configured. Set the Client ID and Tenant ID under Settings > Email providers.' });
   }
   const { clientId, tenantId } = client;
 
@@ -249,6 +372,7 @@ router.post('/microsoft/device', async (req, res) => {
       deviceCode: dc.device_code,
       tenantId,
       clientId,
+      repairAccountId: repair?.id ?? null,
       expiresAt: Date.now() + dc.expires_in * 1000,
     });
 
@@ -268,7 +392,19 @@ router.post('/microsoft/device', async (req, res) => {
 router.get('/microsoft/device/poll', async (req, res) => {
   if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
   const flow = deviceFlows.get(req.session.userId);
-  if (!flow) return res.status(400).json({ status: 'error', error: 'No pending device code flow' });
+  // Nothing pending: the flow finished, was replaced, or the server restarted mid sign-in
+  // (pending flows live in memory). The sign-in may well have completed, so the page says it
+  // lost track and points at the account list rather than claiming a failure.
+  if (!flow) return res.json({ status: 'lost' });
+  // Tokens are being stored by another poll: wait for it.
+  if (flow.phase === 'storing') return res.json({ status: 'pending' });
+  // Signed in already: this poll answers with how the first connection went (waited for,
+  // bounded), so the page shows "checking" in between instead of announcing success early.
+  if (flow.phase === 'checking') {
+    const report = await connectionNow(flow.accountId, await flow.report);
+    if (deviceFlows.get(req.session.userId) === flow) deviceFlows.delete(req.session.userId);
+    return res.json({ status: 'success', accountId: flow.accountId, email: flow.email, ...report });
+  }
   if (Date.now() > flow.expiresAt) {
     deviceFlows.delete(req.session.userId);
     return res.json({ status: 'expired' });
@@ -301,14 +437,23 @@ router.get('/microsoft/device/poll', async (req, res) => {
       return res.json({ status: 'error', error: tokens.error_description || tokens.error || 'Token exchange failed' });
     }
 
-    deviceFlows.delete(req.session.userId);
+    // Marked, not deleted, while the tokens are stored, so a new sign-in started meanwhile is
+    // not overwritten by this one's result below.
+    flow.phase = 'storing';
     // Device-code flow never uses a client secret → public client. Its refresh must
     // omit the secret too, or Microsoft rejects it with AADSTS90023 (#216).
-    await processMicrosoftTokens(req.session.userId, tokens, { tenantId: flow.tenantId, clientId: flow.clientId, publicClient: true });
-    res.json({ status: 'success' });
+    const signedIn = await processMicrosoftTokens(req.session.userId, tokens, {
+      tenantId: flow.tenantId, clientId: flow.clientId, publicClient: true, repairAccountId: flow.repairAccountId,
+    });
+    const checking = { phase: 'checking', accountId: signedIn.accountId, email: signedIn.email, report: connectReportFor(signedIn) };
+    if (deviceFlows.get(req.session.userId) === flow) deviceFlows.set(req.session.userId, checking);
+    res.json({ status: 'checking', accountId: signedIn.accountId, email: signedIn.email });
   } catch (err) {
+    if (deviceFlows.get(req.session.userId) === flow) deviceFlows.delete(req.session.userId);
+    if (err instanceof WrongAccountError) {
+      return res.json({ status: 'wrong_account', signedInAs: err.signedInAs, expected: err.expected });
+    }
     console.error('Device code poll error:', err.message);
-    deviceFlows.delete(req.session.userId);
     res.json({ status: 'error', error: err.message });
   }
 });
@@ -329,10 +474,10 @@ export function refreshMicrosoftToken(account) {
 async function doRefreshMicrosoftToken(account) {
   // The client the account was connected with: its refresh token is valid for no other (#674).
   const { clientId, clientSecret, tenantId } = msRefreshClient(account);
-  if (!clientId) throw new Error('Microsoft integration not configured. Set Client ID and Tenant ID in the Integrations tab.');
+  if (!clientId) throw terminalRefreshError('Microsoft integration not configured. Set the Client ID and Tenant ID under Settings > Email providers.', 'oauth_app_config');
 
   const storedRefreshToken = decrypt(account.oauth_refresh_token);
-  if (!storedRefreshToken) throw new Error('OAuth refresh token is missing or corrupted — please reconnect your account');
+  if (!storedRefreshToken) throw terminalRefreshError('OAuth refresh token is missing or corrupted: please reconnect your account', 'oauth_reauth');
 
   // Public clients (device-code flow — personal Outlook.com/Hotmail) must NOT send a
   // client_secret on refresh: Microsoft rejects it with AADSTS90023 ("Public clients
@@ -371,7 +516,11 @@ async function doRefreshMicrosoftToken(account) {
     becamePublic = tokenRes.ok;
   }
 
-  if (!tokenRes.ok) throw new Error(tokens.error_description || 'Token refresh failed');
+  if (!tokenRes.ok) {
+    const message = tokens.error_description || tokens.error || 'Token refresh failed';
+    const code = classifyRefreshFailure(tokens);
+    throw code ? terminalRefreshError(message, code) : new Error(message);
+  }
 
   const { access_token, refresh_token, expires_in } = tokens;
   const refreshExpiresInSecs = Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
@@ -446,10 +595,14 @@ router.get('/google', async (req, res) => {
   if (!clientId || !redirectUri) {
     return res.status(500).json({ error: 'Google OAuth not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI in .env' });
   }
+  let repair;
+  try { repair = await repairTarget(req.session.userId, req.query.accountId, 'google'); }
+  catch (err) { return res.status(err.status || 500).json({ error: err.message }); }
 
   const oauthNonce = randomBytes(16).toString('hex');
   req.session.oauthNonce  = oauthNonce;
   req.session.oauthUserId = req.session.userId;
+  req.session.oauthRepairAccountId = repair?.id ?? null;
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -482,8 +635,10 @@ router.get('/google/callback', async (req, res) => {
   }
   const userId = req.session.oauthUserId;
   if (!userId) return res.redirect(`/?oauth_error=${encodeURIComponent('OAuth session expired — please try again')}`);
+  const repairAccountId = req.session.oauthRepairAccountId ?? null;
   delete req.session.oauthNonce;
   delete req.session.oauthUserId;
+  delete req.session.oauthRepairAccountId;
 
   const { clientId, clientSecret, redirectUri } = getGoogleConfig();
 
@@ -506,16 +661,21 @@ router.get('/google/callback', async (req, res) => {
       throw new Error(tokens.error_description || tokens.error || 'Token exchange failed');
     }
 
-    await processGoogleTokens(userId, tokens, { clientId });
-    res.redirect('/?oauth_success=google');
+    const signedIn = await processGoogleTokens(userId, tokens, { clientId, repairAccountId });
+    // As for Microsoft: back once the mailbox has answered (bounded), with the outcome kept in
+    // the session for the page to read.
+    const report = await connectReportFor(signedIn, CALLBACK_CONNECT_WAIT_MS);
+    rememberResult(req, { provider: 'google', accountId: signedIn.accountId, email: signedIn.email, ...report });
+    res.redirect('/?oauth_success=google&oauth_result=1');
   } catch (err) {
+    if (err instanceof WrongAccountError) return res.redirect(wrongAccountRedirect(req, err));
     console.error('Google OAuth callback error:', err);
     res.redirect('/?oauth_error=Authentication+failed');
   }
 });
 
 // Shared: validate tokens, upsert account, connect IMAP.
-async function processGoogleTokens(userId, tokens, { clientId }) {
+async function processGoogleTokens(userId, tokens, { clientId, repairAccountId = null }) {
   const { access_token, refresh_token, expires_in, id_token } = tokens;
   const expiresInSecs = Number.isFinite(expires_in) && expires_in > 0 ? expires_in : 3600;
   const expiry = new Date(Date.now() + expiresInSecs * 1000);
@@ -553,19 +713,25 @@ async function processGoogleTokens(userId, tokens, { clientId }) {
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',
       [`oauth-account:${userId}:${email.toLowerCase()}`]);
 
-    const existing = await client.query(
-      'SELECT id FROM email_accounts WHERE user_id = $1 AND email_address = $2',
-      [userId, email]
-    );
+    // Same repair rule as Microsoft: update the named account, and only for its own address.
+    const existing = repairAccountId
+      ? await findOwnedAccount(userId, repairAccountId, { columns: 'id, email_address', client })
+      : (await client.query('SELECT id FROM email_accounts WHERE user_id = $1 AND email_address = $2', [userId, email])).rows[0];
+    if (repairAccountId) {
+      if (!existing) throw new Error('Account not found');
+      if (existing.email_address.trim().toLowerCase() !== email.trim().toLowerCase()) {
+        throw new WrongAccountError(email, existing.email_address);
+      }
+    }
 
     let accountId;
-    if (existing.rows.length) {
-      accountId = existing.rows[0].id;
+    if (existing) {
+      accountId = existing.id;
       await client.query(`
         UPDATE email_accounts SET
           oauth_provider = 'google',
           oauth_access_token = $1, oauth_refresh_token = $2, oauth_token_expiry = $3,
-          name = $4, oauth_public_client = false, sync_error = NULL
+          name = $4, oauth_public_client = false, sync_error = NULL, sync_error_code = NULL
         WHERE id = $5
       `, [encrypt(access_token), encrypt(refresh_token), expiry, displayName || email, accountId]);
     } else {
@@ -596,10 +762,13 @@ async function processGoogleTokens(userId, tokens, { clientId }) {
 
   // Same as Microsoft: a re-link must not wait out an auth backoff.
   imapManager.clearConnectCooldown(account.id);
-  imapManager.connectAccount(account).catch(err =>
-    console.error(`OAuth connect failed for ${redactEmail(email)}:`, err.message)
-  );
-  return email;
+  clearRefreshFailure(account.id);
+  noteFreshToken(account.id);
+  const connecting = imapManager.connectAccount(account).catch((err) => {
+    console.error(`OAuth connect failed for ${redactEmail(email)}:`, err.message);
+    return false;
+  });
+  return { email: account.email_address || email, accountId: account.id, connecting };
 }
 
 // Serialize refreshes per account, same reasoning as Microsoft. Google does not
@@ -618,7 +787,7 @@ async function doRefreshGoogleToken(account) {
   const { clientId, clientSecret } = getGoogleConfig();
 
   const storedRefreshToken = decrypt(account.oauth_refresh_token);
-  if (!storedRefreshToken) throw new Error('OAuth refresh token is missing or corrupted — please reconnect your account');
+  if (!storedRefreshToken) throw terminalRefreshError('OAuth refresh token is missing or corrupted: please reconnect your account', 'oauth_reauth');
 
   const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
@@ -637,9 +806,11 @@ async function doRefreshGoogleToken(account) {
     // invalid_grant means the user revoked access, changed password, or the token
     // expired from disuse. No retry will fix it — the account must be reconnected.
     if (tokens.error === 'invalid_grant') {
-      throw new Error('Google access was revoked or expired — please reconnect this account');
+      throw terminalRefreshError('Google access was revoked or expired: please reconnect this account', 'oauth_reauth');
     }
-    throw new Error(tokens.error_description || tokens.error || 'Token refresh failed');
+    const code = classifyRefreshFailure(tokens);
+    const message = tokens.error_description || tokens.error || 'Token refresh failed';
+    throw code ? terminalRefreshError(message, code) : new Error(message);
   }
 
   const { access_token, refresh_token, expires_in } = tokens;

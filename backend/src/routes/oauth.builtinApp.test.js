@@ -92,7 +92,7 @@ describe('Microsoft device-code flow client', () => {
   it('uses the built-in client on the consumers tenant when no Client ID is configured', async () => {
     const { start, poll } = await connect();
     expect(start.status).toBe(200);
-    expect(poll).toEqual({ status: 'success' });
+    expect(poll).toEqual({ status: 'checking', accountId: 'acc-new', email: 'me@outlook.com' });
 
     expect(microsoftCalls.map(([url]) => url)).toEqual([
       'https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode',
@@ -114,7 +114,7 @@ describe('Microsoft device-code flow client', () => {
   it('never sends the configured secret with the built-in client', async () => {
     process.env.MS_CLIENT_SECRET = 'secret-xyz';
     const { poll } = await connect();
-    expect(poll).toEqual({ status: 'success' });
+    expect(poll).toEqual({ status: 'checking', accountId: 'acc-new', email: 'me@outlook.com' });
     expect(microsoftCalls).toHaveLength(2);
     for (const [, body] of microsoftCalls) expect(body.has('client_secret')).toBe(false);
   });
@@ -123,7 +123,7 @@ describe('Microsoft device-code flow client', () => {
     process.env.MS_CLIENT_ID = 'own-app-id';
     process.env.MS_TENANT_ID = 'contoso.example';
     const { poll } = await connect();
-    expect(poll).toEqual({ status: 'success' });
+    expect(poll).toEqual({ status: 'checking', accountId: 'acc-new', email: 'me@outlook.com' });
 
     expect(microsoftCalls[0][0]).toBe('https://login.microsoftonline.com/contoso.example/oauth2/v2.0/devicecode');
     for (const [, body] of microsoftCalls) expect(body.get('client_id')).toBe('own-app-id');

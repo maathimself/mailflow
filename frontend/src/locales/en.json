@@ -521,7 +521,6 @@
     "settings": "Settings",
     "lock": "Lock",
     "signOut": "Sign out",
-    "connectionError": "Connection error",
     "folderMenu": {
       "markAllRead": "Mark all as read",
       "syncFolder": "Sync folder",
@@ -539,7 +538,8 @@
       "syncNow": "Sync now",
       "syncFoldersNow": "Sync folders now",
       "settings": "Account settings",
-      "reconnect": "Reconnect",
+      "tryAgain": "Try again",
+      "signInAgain": "Sign in again",
       "moveUp": "Move up",
       "moveDown": "Move down",
       "moveFailed": "Failed to reorder accounts"
@@ -836,7 +836,7 @@
       "privacy": "Privacy",
       "shortcuts": "Shortcuts",
       "users": "Users",
-      "sso": "SSO",
+      "sso": "Single Sign-On",
       "integrations": "Integrations",
       "theme": "Theme",
       "fontsAndLanguage": "Language & Font",
@@ -851,7 +851,8 @@
       "groupAdmin": "Administration",
       "behavior": "Behavior",
       "plugins": "Plugins",
-      "backup": "Backup"
+      "backup": "Backup",
+      "mailSignIn": "Email providers"
     },
     "rules": {
       "title": "Inbox rules",
@@ -982,8 +983,8 @@
       "errorRequired": "Email, username, and IMAP host are required",
       "errorPasswordRequired": "Password is required for new accounts",
       "microsoftImapUnsupported": "Outlook.com / Hotmail requires OAuth2 (Modern Auth)",
-      "microsoftImapNote": "Microsoft has disabled password-based (basic auth) IMAP for personal Outlook.com, Hotmail, and Live accounts. You can still connect these accounts using Microsoft OAuth2 (Modern Auth) — configure it under Integrations → Microsoft 365 / Outlook.com. The device-code sign-in works best for personal accounts, and no app password is needed.",
-      "microsoftImapNoteReady": "Microsoft has disabled password-based (basic auth) IMAP for personal Outlook.com, Hotmail, and Live accounts. Connect this account under Integrations → Microsoft 365 / Outlook.com instead: the device-code sign-in needs no setup and no app password.",
+      "microsoftImapNote": "Microsoft no longer accepts passwords for Outlook.com, Hotmail, Live and MSN mailboxes, and sign-in with Microsoft is not set up on this server. Ask your administrator to turn it on under Email providers.",
+      "microsoftImapNoteReady": "Microsoft no longer accepts passwords for Outlook.com, Hotmail, Live and MSN mailboxes. Add this mailbox with Sign in with Microsoft under Add account instead.",
       "reindex": "Re-index for search",
       "reindexing": "Indexing messages...",
       "reindexProgress": "{{synced}} / {{total}} messages indexed",
@@ -1005,7 +1006,8 @@
       "trustedAuthservDetected": "Seen on your recent mail (click to use):",
       "trustedAuthservDetectedNone": "No data yet — messages are inspected once antispam is enabled for this account.",
       "trustedAuthservWarn": "Only trust an ID you recognize as your mail provider's receiving server.",
-      "enabledGlobally": "Enabled globally"
+      "enabledGlobally": "Enabled globally",
+      "microsoftImapNoteSignIn": "Microsoft no longer accepts passwords for Outlook.com, Hotmail, Live and MSN mailboxes. Sign in with Microsoft instead: no app password is needed."
     },
     "folderMappings": {
       "title": "Folder mappings",
@@ -1513,7 +1515,7 @@
     },
     "sso": {
       "title": "Single Sign-On",
-      "description": "Configure external OIDC providers so users can sign in with their organization accounts.",
+      "description": "How people sign in to MailFlow itself, through your organization's identity provider (OIDC). Connecting mailboxes is under Email providers.",
       "passwordLoginTitle": "Password Login",
       "passwordLoginDesc": "When disabled, users can only sign in via SSO. Requires at least one enabled SSO provider and your admin account must be linked to an SSO identity.",
       "passwordLoginEnabled": "Password login is enabled",
@@ -1581,62 +1583,31 @@
     "integrations": {
       "title": "Integrations",
       "loading": "Loading…",
-      "tabEmailProviders": "Email Providers",
-      "tabApps": "Apps",
       "microsoft": {
-        "title": "Microsoft 365 / Outlook.com",
-        "description": "OAuth2 for work, school, or personal Microsoft accounts (Outlook.com, Hotmail)",
-        "configured": "Configured",
-        "notConfigured": "Not configured",
-        "redirecting": "Redirecting…",
-        "connect": "Connect Microsoft account",
         "setupTitle": "Azure App Registration setup",
         "step1": "Go to portal.azure.com → Microsoft Entra ID → App registrations → New registration. Under Supported account types, select 'Accounts in any organizational directory and personal Microsoft accounts' to allow Outlook.com/Hotmail logins",
         "step2": "Set redirect URI type to Web and paste the URI shown below",
         "step3": "API permissions → Add a permission → APIs my organization uses (search 'Exchange' if not listed) → Office 365 Exchange Online → Delegated → IMAP.AccessAsUser.All and SMTP.Send",
         "step4": "API permissions → Add a permission → Microsoft Graph → Delegated → offline_access, openid, email, profile",
-        "step5": "Click Grant admin consent for your organization (org/work accounts only — personal accounts skip this step)",
-        "step6": "Certificates & secrets → New client secret — copy the Value (not the ID)",
-        "clientId": "Application (Client) ID",
+        "step5": "Click Grant admin consent for your organization (org/work accounts only, personal accounts skip this step)",
+        "step6": "Certificates & secrets → New client secret: copy the Value (not the ID)",
+        "clientId": "Application (client) ID",
         "clientIdPh": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-        "tenantId": "Directory (Tenant) ID",
+        "tenantId": "Directory (tenant) ID",
         "tenantIdPh": "consumers, common, or tenant UUID",
         "tenantIdNote": "Use 'consumers' for personal Outlook.com/Hotmail only, 'common' for both personal and org, or your tenant UUID for a single organization",
-        "clientSecret": "Client Secret",
+        "clientSecret": "Client secret",
         "clientSecretPh": "Client secret value from Azure",
         "redirectUri": "Redirect URI",
         "redirectUriNote": "This must exactly match the redirect URI registered in Azure. Suggested: {{uri}}",
         "save": "Save configuration",
-        "savedNote": "Configuration saved. Click \"Connect account\" to authorize.",
-        "connectedNote": "Microsoft 365 account connected successfully! Check the Accounts tab.",
-        "userNoteConfigured": "Your administrator has set up Microsoft 365 sign-in. Connect your Outlook.com, Hotmail, or Microsoft 365 account below.",
-        "userNoteNotConfigured": "Microsoft 365 sign-in has not been set up by an administrator yet. Please ask your administrator to configure it.",
-        "remove": "Remove",
-        "deviceCodeTitle": "Connect with device code",
-        "deviceCodeNote": "No redirect URI or client secret needed. In Azure, go to Authentication and set 'Allow public client flows' to Yes. Best for personal Outlook.com / Hotmail accounts.",
-        "deviceCodeStart": "Start device code flow",
-        "deviceCodeInstructions": "Visit the link below on any device and enter the code to authorize MailFlow:",
-        "deviceCodeVisit": "Visit:",
-        "deviceCodeEnter": "Enter code:",
-        "deviceCodeWaiting": "Waiting for authorization…",
-        "deviceCodeExpired": "Code expired. Click start again.",
-        "deviceCodeDeclined": "Authorization was declined.",
-        "deviceCodeError": "An error occurred. Please try again.",
-        "deviceCodeCancel": "Cancel",
-        "personalReady": "Personal accounts ready",
-        "builtinTitle": "Connect a personal Microsoft account",
-        "builtinNote": "No setup needed for Outlook.com, Hotmail, Live and MSN accounts. This uses MailFlow's shared Microsoft app, which Microsoft may label as unverified. You sign in on Microsoft's own page in your browser, and Microsoft sends the tokens straight to this server: MailFlow's maintainers never see your mail or tokens. Work or school accounts need an app registered by your administrator.",
-        "builtinToggle": "Offer MailFlow's app for personal accounts",
-        "builtinToggleDesc": "While no Client ID is saved, personal Outlook.com and Hotmail accounts can sign in through MailFlow's shared app. Turning this off stops new sign-ins through it; accounts already connected through it keep working.",
-        "userNoteBuiltin": "You can connect a personal Outlook.com, Hotmail, Live or MSN account below with no setup. Work or school Microsoft 365 accounts need your administrator to set up Microsoft 365 sign-in."
+        "remove": "Remove"
       },
       "google": {
         "title": "Gmail / Google Workspace",
-        "description": "OAuth2 for Gmail and Google Workspace mailboxes — required when an admin has disabled app passwords",
+        "description": "Gmail and Google Workspace mailboxes, for when app passwords are turned off",
         "configured": "Configured",
         "notConfigured": "Not configured",
-        "redirecting": "Redirecting…",
-        "connect": "Connect Google account",
         "setupTitle": "Google Cloud OAuth client setup",
         "step1": "Go to console.cloud.google.com and select (or create) a project. For a Workspace domain, sign in with an account in that domain so the project belongs to the organisation",
         "step2": "APIs & Services → Library → enable the Gmail API",
@@ -1650,10 +1621,6 @@
         "redirectUri": "Redirect URI",
         "redirectUriNote": "This must exactly match an authorized redirect URI on the OAuth client. Suggested: {{uri}}",
         "save": "Save configuration",
-        "savedNote": "Configuration saved. Click \"Connect Google account\" to authorize.",
-        "connectedNote": "Google account connected successfully! Check the Accounts tab.",
-        "userNoteConfigured": "Your administrator has set up Google sign-in. Connect your Gmail or Google Workspace account below.",
-        "userNoteNotConfigured": "Google sign-in has not been set up by an administrator yet. Please ask your administrator to configure it.",
         "remove": "Remove"
       },
       "todoist": {
@@ -1714,6 +1681,7 @@
       "sponsor": "Support development",
       "kofi": "Ko-fi",
       "githubSponsors": "GitHub Sponsors",
+      "businessLicense": "Business license",
       "sponsorBlurb": "MailFlow is built and maintained by one person. Sponsorships pay for the time that goes into fixes, reviews and releases."
     },
     "search": {
@@ -1975,5 +1943,154 @@
     "trash": "Trash",
     "spam": "Spam",
     "archive": "Archive"
+  },
+  "accountErrors": {
+    "label": {
+      "turnOnImap": "Turn on IMAP",
+      "imapOff": "IMAP is off",
+      "signInAgain": "Sign in again",
+      "cantConnect": "Can't connect",
+      "openRow": "Show what's wrong and how to fix it"
+    },
+    "imapOffPersonal": {
+      "title": "Outlook.com is blocking mail apps",
+      "body": "Microsoft signed you in, but IMAP is turned off for this mailbox. To turn it on:",
+      "step1": "Open Outlook.com and sign in.",
+      "step2": "Go to Settings > Mail > Forwarding and IMAP.",
+      "step3": "Turn on Let devices and apps use IMAP, then select Save.",
+      "outro": "Then come back here and select Try again."
+    },
+    "imapOffWork": {
+      "title": "IMAP is turned off for this mailbox",
+      "body": "Microsoft signed you in, but your organization has turned off IMAP for {{email}}. Ask your IT administrator to turn it on, then select Try again."
+    },
+    "signIn": {
+      "title": "Sign in to Microsoft again",
+      "titleGoogle": "Sign in to Google again",
+      "body": "MailFlow's saved sign-in for this account stopped working. This happens after a password change, after a long time without use, or when access was removed in your account settings."
+    },
+    "appConfig": {
+      "title": "Sign-in for this account isn't set up correctly",
+      "bodyUser": "The mail provider rejected the app MailFlow signs in with. Ask your administrator to check the sign-in settings.",
+      "bodyAdmin": "The mail provider rejected the app MailFlow signs in with. Check its settings under Email providers. Details below show what the provider said."
+    },
+    "authFailed": {
+      "title": "The server rejected the password",
+      "body": "The mail server didn't accept the username or password for this account. If you changed your password, or use an app password, update it with Edit account."
+    },
+    "connection": {
+      "title": "MailFlow can't connect to this account",
+      "body": "MailFlow keeps trying on its own. Details below show what the server said."
+    },
+    "action": {
+      "openOutlook": "Open Outlook.com",
+      "retry": "Try again",
+      "signIn": "Sign in again",
+      "edit": "Edit account"
+    },
+    "details": "Details",
+    "wrongAccount": "You signed in as {{signedInAs}}, not {{expected}}. Sign in with {{expected}} to fix this account.",
+    "signInDialog": {
+      "title": "Sign in again",
+      "body": "Sign in as {{email}} to reconnect this account.",
+      "success": "Signed in. MailFlow is reconnecting this account.",
+      "continueGoogle": "Continue to Google",
+      "waitingGoogle": "Finish signing in on the Google page, then come back here."
+    },
+    "signInFailed": "Sign-in didn't work",
+    "signInFailedBody": "Start again from the account in Settings > Accounts."
+  },
+  "addAccount": {
+    "title": "Add an email account",
+    "emailLabel": "Your email address",
+    "continue": "Continue",
+    "invalidEmail": "Enter an email address like you@example.com.",
+    "orChoose": "Or choose your provider",
+    "tile": {
+      "outlook": "Outlook.com, Hotmail, Live, MSN",
+      "outlookSub": "Sign in with Microsoft",
+      "work": "Microsoft 365 (work or school)",
+      "workSub": "Sign in with your organization's Microsoft account",
+      "gmail": "Gmail",
+      "gmailSub": "Use an app password",
+      "gmailSignIn": "Sign in with Google",
+      "yahoo": "Yahoo Mail",
+      "yahooSub": "Use an app password",
+      "icloud": "iCloud Mail",
+      "icloudSub": "Use an app-specific password",
+      "other": "Other (IMAP)",
+      "otherSub": "Enter your server settings"
+    },
+    "personalOff": "Not available on this server.",
+    "workOff": "Not available on this server.",
+    "openSettings": "Open email provider settings"
+  },
+  "msSignIn": {
+    "titlePersonal": "Sign in with Microsoft",
+    "titleWork": "Sign in with your work or school account",
+    "beforeTitle": "Before you start",
+    "beforeBody": "Outlook.com has to allow mail apps. If you have never done this:",
+    "step1": "Open Microsoft's sign-in page.",
+    "step1Button": "Open Microsoft sign-in",
+    "step2": "Enter this code there, then follow the steps on Microsoft's page.",
+    "copy": "Copy code",
+    "copied": "Copied",
+    "waiting": "Waiting for you to finish signing in on Microsoft's page…",
+    "starting": "Getting a code from Microsoft…",
+    "checking": "Checking that MailFlow can reach your mailbox…",
+    "connected": "{{email}} is connected. Your mail is syncing now.",
+    "stillConnecting": "Signed in as {{email}}. MailFlow is still connecting and keeps trying on its own. The account list shows when it is ready.",
+    "declined": "You canceled the sign-in on Microsoft's page.",
+    "expired": "The code expired before sign-in finished. Codes last 15 minutes.",
+    "error": "Microsoft sign-in didn't work.",
+    "newCode": "Get a new code",
+    "startOver": "Start over",
+    "done": "Done",
+    "finePrintShared": "Microsoft may show MailFlow as an unverified app. That is expected: MailFlow's shared app only identifies MailFlow to Microsoft. You sign in on Microsoft's own page, and Microsoft sends access straight to this server.",
+    "finePrintOwn": "You sign in on Microsoft's own page, and Microsoft sends access straight to this server.",
+    "continueMicrosoft": "Continue to Microsoft",
+    "redirectWaiting": "Finish signing in on the Microsoft page that opened, then come back here.",
+    "useCode": "Use a code instead",
+    "useRedirect": "Sign in on Microsoft's page instead",
+    "back": "Back",
+    "lost": "MailFlow lost track of this sign-in, for example because the server restarted. If you finished signing in on Microsoft's page, the account may already be in your list.",
+    "checkAccounts": "Check your accounts"
+  },
+  "mailSignIn": {
+    "title": "Email providers",
+    "description": "How MailFlow connects to people's Microsoft and Google mailboxes. This is separate from Single Sign-On, which is how people sign in to MailFlow itself. Everyone adds their own accounts under Accounts > Add account.",
+    "required": "Fill in the required fields first.",
+    "saved": "Saved.",
+    "ms": {
+      "title": "Microsoft",
+      "description": "Outlook.com, Hotmail, Live, MSN and Microsoft 365 mailboxes",
+      "personalTitle": "Personal accounts (Outlook.com, Hotmail, Live, MSN)",
+      "statusShared": "Using MailFlow's shared app",
+      "statusOwn": "Using your own app",
+      "statusOff": "Off",
+      "sharedSwitch": "Let people sign in with MailFlow's shared app",
+      "sharedSwitchDesc": "Needs no setup. Accounts already connected keep working if you turn this off.",
+      "ownHandlesPersonal": "Your own app handles personal accounts, so MailFlow's shared app is not used.",
+      "workTitle": "Work and school accounts (Microsoft 365)",
+      "workOff": "Not set up",
+      "setupToggle": "Set up your own Microsoft Entra app"
+    },
+    "google": {
+      "setupToggle": "Set up your own Google OAuth client"
+    }
+  },
+  "accountForm": {
+    "signedInMicrosoft": "Signed in with Microsoft as {{email}}",
+    "signedInGoogle": "Signed in with Google as {{email}}",
+    "signedInNote": "The server comes from this sign-in. If the account stops connecting, sign in again.",
+    "mailboxLabel": "Mailbox to open",
+    "mailboxHelp": "For a shared or delegated mailbox, enter its address. Leave as is for your own mailbox."
+  },
+  "googleSignIn": {
+    "title": "Sign in with Google",
+    "finePrint": "You sign in on Google's own page, and Google sends access straight to this server.",
+    "formNote": "Gmail and Google Workspace mailboxes can sign in with Google instead of an app password.",
+    "appPasswordNote": "Gmail needs an app password, not your regular password. Turn on 2-Step Verification for your Google account, then create an app password and enter it in the password field.",
+    "createAppPassword": "Create an app password"
   }
 }

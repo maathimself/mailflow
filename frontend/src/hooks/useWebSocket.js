@@ -199,7 +199,7 @@ export function useWebSocket() {
         break;
 
       case 'account_connected': {
-        updateAccount(data.accountId, { sync_error: null });
+        updateAccount(data.accountId, { sync_error: null, sync_error_code: null });
         break;
       }
 
@@ -213,7 +213,7 @@ export function useWebSocket() {
       }
 
       case 'account_error': {
-        updateAccount(data.accountId, { sync_error: data.error });
+        updateAccount(data.accountId, { sync_error: data.error, sync_error_code: data.code ?? null });
         break;
       }
 

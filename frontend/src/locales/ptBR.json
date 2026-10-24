@@ -521,7 +521,6 @@
     "settings": "Configurações",
     "lock": "Bloquear",
     "signOut": "Sair",
-    "connectionError": "Erro de conexão",
     "folderMenu": {
       "markAllRead": "Marcar todas como lidas",
       "syncFolder": "Sincronizar pasta",
@@ -539,7 +538,8 @@
       "syncNow": "Sincronizar agora",
       "syncFoldersNow": "Sincronizar pastas agora",
       "settings": "Configurações da conta",
-      "reconnect": "Reconectar",
+      "tryAgain": "Tentar novamente",
+      "signInAgain": "Entrar novamente",
       "moveUp": "Mover para cima",
       "moveDown": "Mover para baixo",
       "moveFailed": "Falha ao reordenar as contas"
@@ -851,7 +851,8 @@
       "groupAdmin": "Administração",
       "behavior": "Comportamento",
       "plugins": "Plugins",
-      "backup": "Backup"
+      "backup": "Backup",
+      "mailSignIn": "Provedores de e-mail"
     },
     "rules": {
       "title": "Regras da caixa de entrada",
@@ -982,8 +983,8 @@
       "errorRequired": "E-mail, nome de usuário e servidor IMAP são obrigatórios",
       "errorPasswordRequired": "A senha é obrigatória para novas contas",
       "microsoftImapUnsupported": "Outlook.com / Hotmail exige OAuth2 (Autenticação Moderna)",
-      "microsoftImapNote": "A Microsoft desativou o IMAP com senha (autenticação básica) para contas pessoais do Outlook.com, Hotmail e Live. Você ainda pode conectar essas contas usando o OAuth2 da Microsoft (Autenticação Moderna) — configure em Integrações → Microsoft 365 / Outlook.com. O login por código de dispositivo funciona melhor para contas pessoais e não exige senha de app.",
-      "microsoftImapNoteReady": "A Microsoft desativou o IMAP com senha (autenticação básica) para contas pessoais Outlook.com, Hotmail e Live. Conecte esta conta em Integrações → Microsoft 365 / Outlook.com: o login por código de dispositivo não precisa de configuração nem de senha de aplicativo.",
+      "microsoftImapNote": "A Microsoft não aceita mais senhas para caixas do Outlook.com, Hotmail, Live e MSN, e o login com a Microsoft não está configurado neste servidor. Peça ao administrador para ativá-lo em Provedores de e-mail.",
+      "microsoftImapNoteReady": "A Microsoft não aceita mais senhas para caixas do Outlook.com, Hotmail, Live e MSN. Adicione esta caixa com \"Entrar com a Microsoft\" em Adicionar conta.",
       "reindex": "Reindexar para pesquisa",
       "reindexing": "Indexando mensagens...",
       "reindexProgress": "{{synced}} / {{total}} mensagens indexadas",
@@ -1005,7 +1006,8 @@
       "trustedAuthservDetected": "Visto nos seus e-mails recentes (clique para usar):",
       "trustedAuthservDetectedNone": "Sem dados ainda — as mensagens são inspecionadas assim que o antispam for ativado para esta conta.",
       "trustedAuthservWarn": "Confie apenas em um ID que você reconheça como o servidor de recebimento do seu provedor de e-mail.",
-      "enabledGlobally": "Ativado globalmente"
+      "enabledGlobally": "Ativado globalmente",
+      "microsoftImapNoteSignIn": "A Microsoft não aceita mais senhas para caixas do Outlook.com, Hotmail, Live e MSN. Entre com a Microsoft: não é preciso senha de app."
     },
     "folderMappings": {
       "title": "Mapeamento de pastas",
@@ -1513,7 +1515,7 @@
     },
     "sso": {
       "title": "Login único (SSO)",
-      "description": "Configure provedores OIDC externos para que os usuários possam entrar com as contas da organização.",
+      "description": "Como as pessoas entram no próprio MailFlow, pelo provedor de identidade da sua organização (OIDC). A conexão das caixas fica em Provedores de e-mail.",
       "passwordLoginTitle": "Login com senha",
       "passwordLoginDesc": "Quando desativado, os usuários só podem entrar via SSO. Requer pelo menos um provedor SSO ativado, e sua conta de administrador precisa estar vinculada a uma identidade SSO.",
       "passwordLoginEnabled": "O login com senha está ativado",
@@ -1581,22 +1583,14 @@
     "integrations": {
       "title": "Integrações",
       "loading": "Carregando…",
-      "tabEmailProviders": "Provedores de e-mail",
-      "tabApps": "Apps",
       "microsoft": {
-        "title": "Microsoft 365 / Outlook.com",
-        "description": "OAuth2 para contas Microsoft corporativas, de estudante ou pessoais (Outlook.com, Hotmail)",
-        "configured": "Configurado",
-        "notConfigured": "Não configurado",
-        "redirecting": "Redirecionando…",
-        "connect": "Conectar conta Microsoft",
         "setupTitle": "Configuração do registro de app no Azure",
         "step1": "Acesse portal.azure.com → Microsoft Entra ID → Registros de aplicativo → Novo registro. Em Tipos de conta com suporte, selecione 'Contas em qualquer diretório organizacional e contas pessoais da Microsoft' para permitir logins do Outlook.com/Hotmail",
         "step2": "Defina o tipo de URI de redirecionamento como Web e cole a URI mostrada abaixo",
         "step3": "Permissões de API → Adicionar uma permissão → APIs que minha organização usa (pesquise 'Exchange' se não estiver listado) → Office 365 Exchange Online → Delegadas → IMAP.AccessAsUser.All e SMTP.Send",
         "step4": "Permissões de API → Adicionar uma permissão → Microsoft Graph → Delegadas → offline_access, openid, email, profile",
-        "step5": "Clique em Conceder consentimento do administrador para a sua organização (somente contas corporativas — contas pessoais pulam esta etapa)",
-        "step6": "Certificados e segredos → Novo segredo do cliente — copie o Valor (não o ID)",
+        "step5": "Clique em Conceder consentimento do administrador para a sua organização (somente contas corporativas, contas pessoais pulam esta etapa)",
+        "step6": "Certificados e segredos → Novo segredo do cliente: copie o Valor (não o ID)",
         "clientId": "ID do aplicativo (cliente)",
         "clientIdPh": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
         "tenantId": "ID do diretório (locatário)",
@@ -1607,36 +1601,13 @@
         "redirectUri": "URI de redirecionamento",
         "redirectUriNote": "Deve corresponder exatamente à URI de redirecionamento registrada no Azure. Sugestão: {{uri}}",
         "save": "Salvar configuração",
-        "savedNote": "Configuração salva. Clique em \"Conectar conta\" para autorizar.",
-        "connectedNote": "Conta do Microsoft 365 conectada com sucesso! Confira a aba Contas.",
-        "userNoteConfigured": "Seu administrador configurou o login com Microsoft 365. Conecte sua conta do Outlook.com, Hotmail ou Microsoft 365 abaixo.",
-        "userNoteNotConfigured": "O login com Microsoft 365 ainda não foi configurado por um administrador. Peça ao seu administrador para configurá-lo.",
-        "remove": "Remover",
-        "deviceCodeTitle": "Conectar com código de dispositivo",
-        "deviceCodeNote": "Não precisa de URI de redirecionamento nem de segredo do cliente. No Azure, vá em Autenticação e defina 'Permitir fluxos de cliente público' como Sim. Ideal para contas pessoais do Outlook.com / Hotmail.",
-        "deviceCodeStart": "Iniciar fluxo de código de dispositivo",
-        "deviceCodeInstructions": "Acesse o link abaixo em qualquer dispositivo e digite o código para autorizar o MailFlow:",
-        "deviceCodeVisit": "Acesse:",
-        "deviceCodeEnter": "Digite o código:",
-        "deviceCodeWaiting": "Aguardando autorização…",
-        "deviceCodeExpired": "Código expirado. Clique em iniciar novamente.",
-        "deviceCodeDeclined": "A autorização foi recusada.",
-        "deviceCodeError": "Ocorreu um erro. Tente novamente.",
-        "deviceCodeCancel": "Cancelar",
-        "personalReady": "Contas pessoais prontas",
-        "builtinTitle": "Conectar uma conta pessoal da Microsoft",
-        "builtinNote": "Contas Outlook.com, Hotmail, Live e MSN não precisam de configuração. Isso usa o aplicativo Microsoft compartilhado do MailFlow, que a Microsoft pode marcar como não verificado. Você entra na própria página da Microsoft no seu navegador, e a Microsoft envia os tokens direto para este servidor: os mantenedores do MailFlow nunca veem seus e-mails nem seus tokens. Contas corporativas ou de estudante precisam de um aplicativo registrado pelo seu administrador.",
-        "builtinToggle": "Oferecer o aplicativo do MailFlow para contas pessoais",
-        "builtinToggleDesc": "Enquanto nenhum ID do cliente estiver salvo, contas pessoais Outlook.com e Hotmail podem entrar pelo aplicativo compartilhado do MailFlow. Desativar impede novos logins por ele; as contas já conectadas por ele continuam funcionando.",
-        "userNoteBuiltin": "Você pode conectar abaixo uma conta pessoal Outlook.com, Hotmail, Live ou MSN sem nenhuma configuração. Contas Microsoft 365 corporativas ou de estudante precisam que o administrador configure o login do Microsoft 365."
+        "remove": "Remover"
       },
       "google": {
         "title": "Gmail / Google Workspace",
         "description": "OAuth2 para caixas do Gmail e do Google Workspace — necessário quando um administrador desativou as senhas de app",
         "configured": "Configurado",
         "notConfigured": "Não configurado",
-        "redirecting": "Redirecionando…",
-        "connect": "Conectar conta Google",
         "setupTitle": "Configuração do cliente OAuth no Google Cloud",
         "step1": "Acesse console.cloud.google.com e selecione (ou crie) um projeto. Para um domínio do Workspace, entre com uma conta desse domínio para que o projeto pertença à organização",
         "step2": "APIs e serviços → Biblioteca → ative a Gmail API",
@@ -1650,10 +1621,6 @@
         "redirectUri": "URI de redirecionamento",
         "redirectUriNote": "Deve corresponder exatamente a uma URI de redirecionamento autorizada no cliente OAuth. Sugestão: {{uri}}",
         "save": "Salvar configuração",
-        "savedNote": "Configuração salva. Clique em \"Conectar conta Google\" para autorizar.",
-        "connectedNote": "Conta Google conectada com sucesso! Confira a aba Contas.",
-        "userNoteConfigured": "Seu administrador configurou o login com Google. Conecte sua conta do Gmail ou do Google Workspace abaixo.",
-        "userNoteNotConfigured": "O login com Google ainda não foi configurado por um administrador. Peça ao seu administrador para configurá-lo.",
         "remove": "Remover"
       },
       "todoist": {
@@ -1714,6 +1681,7 @@
       "sponsor": "Apoie o desenvolvimento",
       "kofi": "Ko-fi",
       "githubSponsors": "GitHub Sponsors",
+      "businessLicense": "Licença empresarial",
       "sponsorBlurb": "O MailFlow é desenvolvido e mantido por uma única pessoa. Os patrocínios pagam o tempo dedicado a correções, revisões e novas versões."
     },
     "search": {
@@ -1975,5 +1943,154 @@
     "trash": "Lixeira",
     "spam": "Spam",
     "archive": "Arquivo"
+  },
+  "accountErrors": {
+    "label": {
+      "turnOnImap": "Ativar IMAP",
+      "imapOff": "IMAP desativado",
+      "signInAgain": "Entrar novamente",
+      "cantConnect": "Sem conexão",
+      "openRow": "Mostrar o problema e como resolvê-lo"
+    },
+    "imapOffPersonal": {
+      "title": "O Outlook.com está bloqueando apps de e-mail",
+      "body": "A Microsoft fez seu login, mas o IMAP está desativado para esta caixa de correio. Para ativá-lo:",
+      "step1": "Abra o Outlook.com e entre na sua conta.",
+      "step2": "Vá em Configurações > Email > Encaminhamento e IMAP.",
+      "step3": "Ative \"Permitir que dispositivos e aplicativos usem IMAP\" e selecione Salvar.",
+      "outro": "Depois volte aqui e selecione Tentar novamente."
+    },
+    "imapOffWork": {
+      "title": "O IMAP está desativado para esta caixa de correio",
+      "body": "A Microsoft fez seu login, mas sua organização desativou o IMAP para {{email}}. Peça ao administrador de TI para ativá-lo e depois selecione Tentar novamente."
+    },
+    "signIn": {
+      "title": "Entre na Microsoft novamente",
+      "titleGoogle": "Entre no Google novamente",
+      "body": "O login salvo pelo MailFlow para esta conta parou de funcionar. Isso acontece depois de uma troca de senha, de muito tempo sem uso ou quando o acesso foi removido nas configurações da sua conta."
+    },
+    "appConfig": {
+      "title": "O login desta conta não está configurado corretamente",
+      "bodyUser": "O provedor de e-mail recusou o app com que o MailFlow faz login. Peça ao administrador para verificar as configurações de login.",
+      "bodyAdmin": "O provedor de e-mail recusou o app com que o MailFlow faz login. Verifique as configurações dele em Provedores de e-mail. Os detalhes abaixo mostram o que o provedor respondeu."
+    },
+    "authFailed": {
+      "title": "O servidor recusou a senha",
+      "body": "O servidor de e-mail não aceitou o usuário ou a senha desta conta. Se você trocou a senha ou usa uma senha de app, atualize-a em Editar conta."
+    },
+    "connection": {
+      "title": "O MailFlow não consegue se conectar a esta conta",
+      "body": "O MailFlow continua tentando sozinho. Os detalhes abaixo mostram o que o servidor respondeu."
+    },
+    "action": {
+      "openOutlook": "Abrir o Outlook.com",
+      "retry": "Tentar novamente",
+      "signIn": "Entrar novamente",
+      "edit": "Editar conta"
+    },
+    "details": "Mais informações",
+    "wrongAccount": "Você entrou como {{signedInAs}}, não como {{expected}}. Entre com {{expected}} para consertar esta conta.",
+    "signInDialog": {
+      "title": "Entrar novamente",
+      "body": "Entre como {{email}} para reconectar esta conta.",
+      "success": "Login feito. O MailFlow está reconectando esta conta.",
+      "continueGoogle": "Continuar para o Google",
+      "waitingGoogle": "Conclua o login na página do Google e depois volte aqui."
+    },
+    "signInFailed": "O login não funcionou",
+    "signInFailedBody": "Comece de novo pela conta em Configurações > Contas."
+  },
+  "addAccount": {
+    "title": "Adicionar uma conta de e-mail",
+    "emailLabel": "Seu endereço de e-mail",
+    "continue": "Continuar",
+    "invalidEmail": "Digite um endereço de e-mail como voce@example.com.",
+    "orChoose": "Ou escolha seu provedor",
+    "tile": {
+      "outlook": "Outlook.com, Hotmail, Live, MSN",
+      "outlookSub": "Entrar com a Microsoft",
+      "work": "Microsoft 365 (trabalho ou escola)",
+      "workSub": "Entrar com a conta Microsoft da sua organização",
+      "gmail": "Gmail",
+      "gmailSub": "Usar uma senha de app",
+      "gmailSignIn": "Entrar com o Google",
+      "yahoo": "Yahoo Mail",
+      "yahooSub": "Usar uma senha de app",
+      "icloud": "iCloud Mail",
+      "icloudSub": "Usar uma senha específica de app",
+      "other": "Outro (IMAP)",
+      "otherSub": "Informar as configurações do servidor"
+    },
+    "personalOff": "Não disponível neste servidor.",
+    "workOff": "Não disponível neste servidor.",
+    "openSettings": "Abrir as configurações de provedores de e-mail"
+  },
+  "msSignIn": {
+    "titlePersonal": "Entrar com a Microsoft",
+    "titleWork": "Entrar com sua conta corporativa ou de estudante",
+    "beforeTitle": "Antes de começar",
+    "beforeBody": "O Outlook.com precisa permitir apps de e-mail. Se você nunca fez isso:",
+    "step1": "Abra a página de login da Microsoft.",
+    "step1Button": "Abrir o login da Microsoft",
+    "step2": "Digite este código lá e siga os passos na página da Microsoft.",
+    "copy": "Copiar código",
+    "copied": "Copiado",
+    "waiting": "Aguardando você concluir o login na página da Microsoft…",
+    "starting": "Obtendo um código da Microsoft…",
+    "checking": "Verificando se o MailFlow consegue acessar sua caixa de correio…",
+    "connected": "{{email}} está conectado. Seus e-mails estão sendo sincronizados.",
+    "stillConnecting": "Login feito como {{email}}. O MailFlow ainda está conectando e continua tentando sozinho. A lista de contas mostra quando estiver pronto.",
+    "declined": "Você cancelou o login na página da Microsoft.",
+    "expired": "O código expirou antes de o login terminar. Os códigos valem 15 minutos.",
+    "error": "O login da Microsoft não funcionou.",
+    "newCode": "Obter um novo código",
+    "startOver": "Recomeçar",
+    "done": "Concluído",
+    "finePrintShared": "A Microsoft pode mostrar o MailFlow como um app não verificado. Isso é esperado: o app compartilhado do MailFlow só identifica o MailFlow para a Microsoft. Você faz login na própria página da Microsoft, e a Microsoft envia o acesso direto para este servidor.",
+    "finePrintOwn": "Você faz login na própria página da Microsoft, e a Microsoft envia o acesso direto para este servidor.",
+    "continueMicrosoft": "Continuar para a Microsoft",
+    "redirectWaiting": "Conclua o login na página da Microsoft que abriu e depois volte aqui.",
+    "useCode": "Usar um código",
+    "useRedirect": "Entrar pela página da Microsoft",
+    "back": "Voltar",
+    "lost": "O MailFlow perdeu o acompanhamento deste login, por exemplo porque o servidor reiniciou. Se você concluiu o login na página da Microsoft, a conta pode já estar na sua lista.",
+    "checkAccounts": "Ver suas contas"
+  },
+  "mailSignIn": {
+    "title": "Provedores de e-mail",
+    "description": "Como o MailFlow se conecta às caixas da Microsoft e do Google. Isso é diferente do login único (SSO), que é como as pessoas entram no próprio MailFlow. Cada um adiciona as próprias contas em Contas > Adicionar conta.",
+    "required": "Preencha primeiro os campos obrigatórios.",
+    "saved": "Salvo.",
+    "ms": {
+      "title": "Microsoft",
+      "description": "Caixas do Outlook.com, Hotmail, Live, MSN e Microsoft 365",
+      "personalTitle": "Contas pessoais (Outlook.com, Hotmail, Live, MSN)",
+      "statusShared": "Usando o app compartilhado do MailFlow",
+      "statusOwn": "Usando seu próprio app",
+      "statusOff": "Desativado",
+      "sharedSwitch": "Permitir login com o app compartilhado do MailFlow",
+      "sharedSwitchDesc": "Não precisa de configuração. As contas já conectadas continuam funcionando se você desativar.",
+      "ownHandlesPersonal": "Seu próprio app cuida das contas pessoais, então o app compartilhado do MailFlow não é usado.",
+      "workTitle": "Contas corporativas e de estudante (Microsoft 365)",
+      "workOff": "Não configurado",
+      "setupToggle": "Configurar seu próprio app do Microsoft Entra"
+    },
+    "google": {
+      "setupToggle": "Configurar seu próprio cliente OAuth do Google"
+    }
+  },
+  "accountForm": {
+    "signedInMicrosoft": "Conectado com a Microsoft como {{email}}",
+    "signedInGoogle": "Conectado com o Google como {{email}}",
+    "signedInNote": "O servidor vem desta conexão. Se a conta parar de conectar, entre novamente.",
+    "mailboxLabel": "Caixa de correio a abrir",
+    "mailboxHelp": "Para uma caixa compartilhada ou delegada, digite o endereço dela. Deixe como está para a sua própria caixa."
+  },
+  "googleSignIn": {
+    "title": "Entrar com o Google",
+    "finePrint": "Você faz login na própria página do Google, e o Google envia o acesso direto para este servidor.",
+    "formNote": "Caixas do Gmail e do Google Workspace podem entrar com o Google em vez de usar uma senha de app.",
+    "appPasswordNote": "O Gmail precisa de uma senha de app, não da sua senha normal. Ative a verificação em duas etapas da sua Conta do Google, crie uma senha de app e digite-a no campo de senha.",
+    "createAppPassword": "Criar uma senha de app"
   }
 }

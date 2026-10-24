@@ -104,6 +104,25 @@ describe('Microsoft token refresh — public (device-code) vs confidential (auth
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  // A refresh that will never succeed carries what the account has to do about it (#674), so
+  // the connection failure it causes is reported as "sign in again" or as an app problem.
+  it.each([
+    [{ error: 'invalid_grant', error_description: 'AADSTS700082: The refresh token has expired due to inactivity.' }, 'oauth_reauth'],
+    [{ error: 'invalid_grant', error_description: 'AADSTS50173: The provided grant has expired due to it being revoked.' }, 'oauth_reauth'],
+    [{ error: 'invalid_client', error_description: 'AADSTS7000215: Invalid client secret provided.' }, 'oauth_app_config'],
+  ])('marks a terminal refresh failure (%o) as %s', async (body, code) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(res(false, body)));
+    await expect(refreshMicrosoftToken({ id: 'a8', oauth_refresh_token: 'stored-rt', oauth_public_client: true }))
+      .rejects.toMatchObject({ message: body.error_description, accountErrorCode: code });
+  });
+
+  it('leaves a failure that may be transient unmarked', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(res(false, { error: 'temporarily_unavailable', error_description: 'AADSTS90033: A transient error has occurred.' })));
+    const err = await refreshMicrosoftToken({ id: 'a9', oauth_refresh_token: 'stored-rt', oauth_public_client: true }).catch(e => e);
+    expect(err.message).toMatch(/AADSTS90033/);
+    expect(err.accountErrorCode).toBeUndefined();
+  });
+
   it('does not retry when a confidential refresh fails for a non-secret reason', async () => {
     process.env.MS_CLIENT_SECRET = 'secret-xyz';
     const fetchMock = vi.fn().mockResolvedValue(res(false, { error: 'invalid_grant', error_description: 'AADSTS700082: refresh token expired.' }));
@@ -247,7 +266,7 @@ describe('Microsoft token refresh: client identity', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(refreshMicrosoftToken({ id: 'b7', oauth_refresh_token: 'rt', oauth_public_client: true }))
-      .rejects.toThrow(/Microsoft integration not configured/);
+      .rejects.toMatchObject({ message: expect.stringMatching(/Microsoft integration not configured/), accountErrorCode: 'oauth_app_config' });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

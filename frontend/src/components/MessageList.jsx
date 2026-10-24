@@ -4521,6 +4521,15 @@ function EmptyState({ folderSyncing, searchQuery, searching, searchError, unread
         </div>
         <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>{t('messageList.noAccounts')}</div>
         <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>{t('messageList.noAccountsDesc')}</div>
+        <button type="button" onClick={() => {
+          const store = useStore.getState();
+          store.setAccountsIntent({ action: 'add' });
+          store.setAdminTab('accounts');
+          store.setShowAdmin(true);
+        }} style={{
+          marginTop: 16, padding: '8px 16px', background: 'var(--accent)', border: 'none', borderRadius: 8,
+          color: 'var(--accent-text)', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+        }}>{t('admin.accounts.addButton')}</button>
       </div>
     );
   }

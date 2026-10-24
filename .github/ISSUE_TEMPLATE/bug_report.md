@@ -1,38 +1,31 @@
 ---
 name: Bug report
-about: Create a report to help us improve
+about: Something in MailFlow doesn't work as expected
 title: ''
 labels: ''
 assignees: ''
 
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+**What happened**
+A clear description of the bug.
 
-**To Reproduce**
-Steps to reproduce the behavior:
+**Steps to reproduce**
 1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+2. Click on '...'
+3. See the problem
 
-**Expected behavior**
-A clear and concise description of what you expected to happen.
+**What you expected**
+What should have happened instead.
 
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
+**Environment**
+- MailFlow version (Settings → About):
+- Install method: Docker (pre-built images / built from source), native, desktop app, Android app
+- Mail provider(s) involved (Gmail, Microsoft 365, iCloud, other IMAP):
+- Browser and OS, if it's a web issue:
 
-**Desktop (please complete the following information):**
- - OS: [e.g. iOS]
- - Browser [e.g. chrome, safari]
- - Version [e.g. 22]
+**Screenshots or logs**
+If applicable. A diagnostics report (Settings → About → Generate diagnostics report) helps; remove anything private first.
 
-**Smartphone (please complete the following information):**
- - Device: [e.g. iPhone6]
- - OS: [e.g. iOS8.1]
- - Browser [e.g. stock browser, safari]
- - Version [e.g. 22]
-
-**Additional context**
-Add any other context about the problem here.
+**Anything else**
+Other context that might help.

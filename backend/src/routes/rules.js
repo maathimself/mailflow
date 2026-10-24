@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query } from '../services/db.js';
+import { findOwnedAccount, findOwnedMessage } from '../services/ownership.js';
 import { requireAuth } from '../middleware/auth.js';
 import { applyInboxRules, isDangerousRegex, RULE_CATEGORIES } from '../services/inboxRules.js';
 
@@ -109,11 +110,8 @@ router.post('/run', async (req, res) => {
   let accountIds;
   try {
     if (accountId) {
-      const owned = await query(
-        'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
-        [accountId, req.session.userId]
-      );
-      if (!owned.rows.length) return res.status(404).json({ error: 'Account not found' });
+      const owned = await findOwnedAccount(req.session.userId, accountId, { columns: 'id' });
+      if (!owned) return res.status(404).json({ error: 'Account not found' });
       accountIds = [accountId];
     } else {
       const accts = await query(
@@ -162,13 +160,9 @@ router.post('/sender-category', async (req, res) => {
   if (!RULE_CATEGORIES.has(category)) return res.status(400).json({ error: 'Invalid category' });
   const userId = req.session.userId;
   try {
-    const msgResult = await query(
-      `SELECT m.from_email FROM messages m JOIN email_accounts a ON a.id = m.account_id
-       WHERE m.id = $1 AND a.user_id = $2`,
-      [messageId, userId]
-    );
-    if (!msgResult.rows.length) return res.status(404).json({ error: 'Message not found' });
-    const email = String(msgResult.rows[0].from_email || '').trim().toLowerCase();
+    const msg = await findOwnedMessage(userId, messageId, { columns: 'm.from_email' });
+    if (!msg) return res.status(404).json({ error: 'Message not found' });
+    const email = String(msg.from_email || '').trim().toLowerCase();
     const at = email.lastIndexOf('@');
     if (at <= 0 || at === email.length - 1 || /\s/.test(email)) {
       return res.status(422).json({ error: 'This message has no sender address to match' });
@@ -340,11 +334,8 @@ router.post('/', async (req, res) => {
     .filter(a => accountId || a.type !== 'move');
   try {
     if (accountId) {
-      const owned = await query(
-        'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
-        [accountId, req.session.userId]
-      );
-      if (!owned.rows.length) return res.status(403).json({ error: 'Account not found' });
+      const owned = await findOwnedAccount(req.session.userId, accountId, { columns: 'id' });
+      if (!owned) return res.status(403).json({ error: 'Account not found' });
     }
     // Strip move actions for all-account rules — a move needs a known account to
     // resolve folder paths. The UI enforces this but a direct API call could bypass it.
@@ -403,11 +394,8 @@ router.put('/:id', async (req, res) => {
     .filter(a => accountId || a.type !== 'move');
   try {
     if (accountId) {
-      const owned = await query(
-        'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
-        [accountId, req.session.userId]
-      );
-      if (!owned.rows.length) return res.status(403).json({ error: 'Account not found' });
+      const owned = await findOwnedAccount(req.session.userId, accountId, { columns: 'id' });
+      if (!owned) return res.status(403).json({ error: 'Account not found' });
     }
     const moveAction = normalizedActions.find(a => a.type === 'move' && a.value?.trim());
     if (moveAction && accountId) {

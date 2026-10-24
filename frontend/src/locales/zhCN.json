@@ -521,7 +521,6 @@
     "settings": "设置",
     "lock": "锁定",
     "signOut": "退出登录",
-    "connectionError": "连接错误",
     "folderMenu": {
       "markAllRead": "全部标为已读",
       "syncFolder": "同步此文件夹",
@@ -539,7 +538,8 @@
       "syncNow": "立即同步",
       "syncFoldersNow": "立即同步文件夹",
       "settings": "账户设置",
-      "reconnect": "重新连接",
+      "tryAgain": "重试",
+      "signInAgain": "重新登录",
       "moveUp": "上移",
       "moveDown": "下移",
       "moveFailed": "账户重新排序失败"
@@ -851,7 +851,8 @@
       "groupAdmin": "管理",
       "behavior": "行为",
       "plugins": "插件",
-      "backup": "备份"
+      "backup": "备份",
+      "mailSignIn": "邮件服务商"
     },
     "rules": {
       "title": "收件箱规则",
@@ -982,8 +983,8 @@
       "errorRequired": "邮箱地址、用户名和 IMAP 服务器为必填项",
       "errorPasswordRequired": "添加新账户时必须填写密码",
       "microsoftImapUnsupported": "Outlook.com / Hotmail 需要使用 OAuth2（新式验证）",
-      "microsoftImapNote": "微软已停用个人 Outlook.com、Hotmail 和 Live 账户的密码 IMAP（基本身份验证）。你仍然可以通过 Microsoft OAuth2（新式验证）连接这些账户——在“集成 → Microsoft 365 / Outlook.com”中进行配置。设备代码登录最适合个人账户，且无需应用专用密码。",
-      "microsoftImapNoteReady": "Microsoft 已为个人 Outlook.com、Hotmail 和 Live 账户禁用基于密码（基本身份验证）的 IMAP。请改为在 集成 → Microsoft 365 / Outlook.com 中连接此账户：设备代码登录无需设置，也无需应用密码。",
+      "microsoftImapNote": "Microsoft 不再接受 Outlook.com、Hotmail、Live 和 MSN 邮箱的密码，而此服务器尚未设置 Microsoft 登录。请让管理员在“邮件服务商”中开启。",
+      "microsoftImapNoteReady": "Microsoft 不再接受 Outlook.com、Hotmail、Live 和 MSN 邮箱的密码。请改为在“添加帐户”中使用“使用 Microsoft 登录”添加此邮箱。",
       "reindex": "重新索引以供搜索",
       "reindexing": "正在索引邮件...",
       "reindexProgress": "已索引 {{synced}} / {{total}} 封邮件",
@@ -1005,7 +1006,8 @@
       "trustedAuthservDetected": "在您最近的邮件中出现过（点击使用）：",
       "trustedAuthservDetectedNone": "暂无数据——为该账户启用反垃圾邮件后才会分析邮件。",
       "trustedAuthservWarn": "只信任您确认为邮件服务商接收服务器的 ID。",
-      "enabledGlobally": "已全局启用"
+      "enabledGlobally": "已全局启用",
+      "microsoftImapNoteSignIn": "Microsoft 不再接受 Outlook.com、Hotmail、Live 和 MSN 邮箱的密码。请改用 Microsoft 登录：无需应用密码。"
     },
     "folderMappings": {
       "title": "文件夹映射",
@@ -1513,7 +1515,7 @@
     },
     "sso": {
       "title": "单点登录",
-      "description": "配置外部 OIDC 服务商，使用户能够通过其组织账户登录。",
+      "description": "通过组织的身份提供商（OIDC）登录 MailFlow 本身的方式。连接邮箱请前往“邮件服务商”。",
       "empty": "尚未配置任何 SSO 服务商。",
       "addProvider": "+ 添加 SSO 服务商",
       "templatePickerTitle": "选择服务商模板",
@@ -1581,22 +1583,14 @@
     "integrations": {
       "title": "集成",
       "loading": "加载中…",
-      "tabEmailProviders": "邮件提供商",
-      "tabApps": "应用",
       "microsoft": {
-        "title": "Microsoft 365 / Outlook.com",
-        "description": "为企业、学校或个人 Microsoft 账户（Outlook.com、Hotmail）提供 OAuth2 支持",
-        "configured": "已配置",
-        "notConfigured": "尚未配置",
-        "redirecting": "跳转中…",
-        "connect": "连接 Microsoft 账户",
         "setupTitle": "Azure 应用注册设置",
         "step1": "前往 portal.azure.com → Microsoft Entra ID → 应用注册 → 新注册。在「支持的账户类型」下，选择「任何组织目录中的账户和个人 Microsoft 账户」以允许 Outlook.com/Hotmail 登录",
         "step2": "将重定向 URI 类型设为「Web」，并粘贴下方所示的 URI",
         "step3": "API 权限 → 添加权限 → 我的组织使用的 API（若未列出，请搜索「Exchange」）→ Office 365 Exchange Online → 委托的权限 → IMAP.AccessAsUser.All 与 SMTP.Send",
         "step4": "API 权限 → 添加权限 → Microsoft Graph → 委托的权限 → offline_access、openid、email、profile",
-        "step5": "点击「为您的组织授予管理员同意」（仅适用于企业 / 学校账户 — 个人账户跳过此步骤）",
-        "step6": "证书和密码 → 新客户端密码 — 复制其「值」（而非「ID」）",
+        "step5": "点击「为您的组织授予管理员同意」（仅适用于企业 / 学校账户，个人账户跳过此步骤）",
+        "step6": "证书和密码 → 新客户端密码：复制其「值」（而非「ID」）",
         "clientId": "应用程序（客户端）ID",
         "clientIdPh": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
         "tenantId": "目录（租户）ID",
@@ -1607,36 +1601,13 @@
         "redirectUri": "重定向 URI",
         "redirectUriNote": "此项必须与在 Azure 中注册的重定向 URI 完全一致。建议值：{{uri}}",
         "save": "保存配置",
-        "savedNote": "配置已保存。点击「连接账户」以进行授权。",
-        "connectedNote": "Microsoft 365 账户连接成功！请前往「账户」选项卡查看。",
-        "userNoteConfigured": "您的管理员已设置 Microsoft 365 登录。请在下方连接您的 Outlook.com、Hotmail 或 Microsoft 365 账户。",
-        "userNoteNotConfigured": "管理员尚未设置 Microsoft 365 登录。请联系您的管理员进行配置。",
-        "remove": "移除",
-        "deviceCodeTitle": "使用设备码连接",
-        "deviceCodeNote": "无需重定向 URI 或客户端密钥。在 Azure 中，前往「身份验证」并将「允许公共客户端流」设置为「是」。最适合 Outlook.com / Hotmail 个人账户。",
-        "deviceCodeStart": "启动设备码流程",
-        "deviceCodeInstructions": "在任意设备上访问以下链接，输入代码以授权 MailFlow：",
-        "deviceCodeVisit": "访问：",
-        "deviceCodeEnter": "输入代码：",
-        "deviceCodeWaiting": "等待授权中…",
-        "deviceCodeExpired": "代码已过期，请重新开始。",
-        "deviceCodeDeclined": "授权被拒绝。",
-        "deviceCodeError": "发生错误，请重试。",
-        "deviceCodeCancel": "取消",
-        "personalReady": "个人账户可用",
-        "builtinTitle": "连接个人 Microsoft 账户",
-        "builtinNote": "Outlook.com、Hotmail、Live 和 MSN 账户无需任何设置。此功能使用 MailFlow 的共享 Microsoft 应用，Microsoft 可能会将其标记为未验证。你在浏览器中的 Microsoft 官方页面上登录，Microsoft 会将令牌直接发送到此服务器：MailFlow 的维护者永远看不到你的邮件或令牌。工作或学校账户需要由管理员注册的应用。",
-        "builtinToggle": "为个人账户提供 MailFlow 的应用",
-        "builtinToggleDesc": "在未保存客户端 ID 时，个人 Outlook.com 和 Hotmail 账户可以通过 MailFlow 的共享应用登录。关闭后将不再允许通过它新登录；已通过它连接的账户会继续正常使用。",
-        "userNoteBuiltin": "你可以在下方无需设置即可连接个人 Outlook.com、Hotmail、Live 或 MSN 账户。工作或学校的 Microsoft 365 账户需要管理员设置 Microsoft 365 登录。"
+        "remove": "移除"
       },
       "google": {
         "title": "Gmail / Google Workspace",
         "description": "适用于 Gmail 和 Google Workspace 邮箱的 OAuth2 — 当管理员停用应用专用密码时必须使用",
         "configured": "已配置",
         "notConfigured": "未配置",
-        "redirecting": "正在跳转…",
-        "connect": "连接 Google 账号",
         "setupTitle": "Google Cloud OAuth 客户端设置",
         "step1": "前往 console.cloud.google.com 并选择（或新建）一个项目。若为 Workspace 域，请使用该域下的账号登录，使项目归属于该组织",
         "step2": "API 和服务 → 库 → 启用 Gmail API",
@@ -1650,10 +1621,6 @@
         "redirectUri": "重定向 URI",
         "redirectUriNote": "必须与 OAuth 客户端中已授权的重定向 URI 完全一致。建议：{{uri}}",
         "save": "保存配置",
-        "savedNote": "配置已保存。点击“连接 Google 账号”进行授权。",
-        "connectedNote": "Google 账号连接成功！请查看“账号”标签页。",
-        "userNoteConfigured": "管理员已设置 Google 登录。请在下方连接你的 Gmail 或 Google Workspace 账号。",
-        "userNoteNotConfigured": "管理员尚未设置 Google 登录，请联系管理员。",
         "remove": "移除"
       },
       "todoist": {
@@ -1714,6 +1681,7 @@
       "sponsor": "支持开发",
       "kofi": "Ko-fi",
       "githubSponsors": "GitHub Sponsors",
+      "businessLicense": "企业许可证",
       "sponsorBlurb": "MailFlow 由一人开发和维护。赞助用于支付修复问题、审查代码和发布新版本所需的时间。"
     },
     "search": {
@@ -1975,5 +1943,154 @@
     "trash": "已删除",
     "spam": "垃圾邮件",
     "archive": "归档"
+  },
+  "accountErrors": {
+    "label": {
+      "turnOnImap": "开启 IMAP",
+      "imapOff": "IMAP 已关闭",
+      "signInAgain": "重新登录",
+      "cantConnect": "无法连接",
+      "openRow": "查看问题及解决方法"
+    },
+    "imapOffPersonal": {
+      "title": "Outlook.com 阻止了邮件应用",
+      "body": "Microsoft 已让你登录，但此邮箱的 IMAP 已关闭。开启方法：",
+      "step1": "打开 Outlook.com 并登录。",
+      "step2": "前往 设置 > 邮件 > 转发和 IMAP。",
+      "step3": "开启“允许设备和应用使用 IMAP”，然后选择保存。",
+      "outro": "然后回到这里，选择重试。"
+    },
+    "imapOffWork": {
+      "title": "此邮箱的 IMAP 已关闭",
+      "body": "Microsoft 已让你登录，但你的组织为 {{email}} 关闭了 IMAP。请让 IT 管理员开启它，然后选择重试。"
+    },
+    "signIn": {
+      "title": "重新登录 Microsoft",
+      "titleGoogle": "重新登录 Google",
+      "body": "MailFlow 为此帐户保存的登录已失效。这通常发生在更改密码后、长时间未使用后，或在帐户设置中移除了访问权限之后。"
+    },
+    "appConfig": {
+      "title": "此帐户的登录设置不正确",
+      "bodyUser": "邮件服务商拒绝了 MailFlow 用于登录的应用。请让管理员检查登录设置。",
+      "bodyAdmin": "邮件服务商拒绝了 MailFlow 用于登录的应用。请在“邮件服务商”中检查它的设置。下方详细信息显示了服务商的回复。"
+    },
+    "authFailed": {
+      "title": "服务器拒绝了密码",
+      "body": "邮件服务器不接受此帐户的用户名或密码。如果你更改过密码或使用应用专用密码，请通过“编辑帐户”更新。"
+    },
+    "connection": {
+      "title": "MailFlow 无法连接到此帐户",
+      "body": "MailFlow 会自动继续尝试。下方详细信息显示了服务器的回复。"
+    },
+    "action": {
+      "openOutlook": "打开 Outlook.com",
+      "retry": "重试",
+      "signIn": "重新登录",
+      "edit": "编辑帐户"
+    },
+    "details": "详细信息",
+    "wrongAccount": "你登录的是 {{signedInAs}}，而不是 {{expected}}。请使用 {{expected}} 登录以修复此帐户。",
+    "signInDialog": {
+      "title": "重新登录",
+      "body": "以 {{email}} 登录，重新连接此帐户。",
+      "success": "已登录。MailFlow 正在重新连接此帐户。",
+      "continueGoogle": "前往 Google",
+      "waitingGoogle": "请在 Google 页面完成登录，然后回到这里。"
+    },
+    "signInFailed": "登录未成功",
+    "signInFailedBody": "请在“设置 > 帐户”中从该帐户重新开始。"
+  },
+  "addAccount": {
+    "title": "添加邮件帐户",
+    "emailLabel": "你的电子邮件地址",
+    "continue": "继续",
+    "invalidEmail": "请输入电子邮件地址，例如 you@example.com。",
+    "orChoose": "或选择你的服务商",
+    "tile": {
+      "outlook": "Outlook.com, Hotmail, Live, MSN",
+      "outlookSub": "使用 Microsoft 登录",
+      "work": "Microsoft 365（工作或学校）",
+      "workSub": "使用你所在组织的 Microsoft 帐户登录",
+      "gmail": "Gmail",
+      "gmailSub": "使用应用密码",
+      "gmailSignIn": "使用 Google 登录",
+      "yahoo": "Yahoo Mail",
+      "yahooSub": "使用应用密码",
+      "icloud": "iCloud Mail",
+      "icloudSub": "使用 App 专用密码",
+      "other": "其他（IMAP）",
+      "otherSub": "输入服务器设置"
+    },
+    "personalOff": "此服务器上不可用。",
+    "workOff": "此服务器上不可用。",
+    "openSettings": "打开邮件服务商设置"
+  },
+  "msSignIn": {
+    "titlePersonal": "使用 Microsoft 登录",
+    "titleWork": "使用你的工作或学校帐户登录",
+    "beforeTitle": "开始之前",
+    "beforeBody": "Outlook.com 需要允许邮件应用。如果你从未设置过：",
+    "step1": "打开 Microsoft 的登录页面。",
+    "step1Button": "打开 Microsoft 登录",
+    "step2": "在那里输入此代码，然后按照 Microsoft 页面上的步骤操作。",
+    "copy": "复制代码",
+    "copied": "已复制",
+    "waiting": "正在等待你在 Microsoft 页面完成登录…",
+    "starting": "正在从 Microsoft 获取代码…",
+    "checking": "正在检查 MailFlow 能否访问你的邮箱…",
+    "connected": "{{email}} 已连接。正在同步你的邮件。",
+    "stillConnecting": "已以 {{email}} 登录。MailFlow 仍在连接，并会自动继续尝试。帐户列表会显示何时就绪。",
+    "declined": "你在 Microsoft 页面取消了登录。",
+    "expired": "登录完成前代码已过期。代码有效期为 15 分钟。",
+    "error": "Microsoft 登录未成功。",
+    "newCode": "获取新代码",
+    "startOver": "重新开始",
+    "done": "完成",
+    "finePrintShared": "Microsoft 可能会将 MailFlow 显示为未验证的应用。这是正常的：MailFlow 的共享应用只是向 Microsoft 表明 MailFlow 的身份。你在 Microsoft 自己的页面登录，Microsoft 会将访问权限直接发送到此服务器。",
+    "finePrintOwn": "你在 Microsoft 自己的页面登录，Microsoft 会将访问权限直接发送到此服务器。",
+    "continueMicrosoft": "继续前往 Microsoft",
+    "redirectWaiting": "请在打开的 Microsoft 页面完成登录，然后回到这里。",
+    "useCode": "改用代码",
+    "useRedirect": "改为在 Microsoft 页面登录",
+    "back": "返回",
+    "lost": "MailFlow 丢失了此次登录的进度，例如因为服务器重新启动。如果你已在 Microsoft 页面完成登录，该帐户可能已在你的列表中。",
+    "checkAccounts": "查看你的帐户"
+  },
+  "mailSignIn": {
+    "title": "邮件服务商",
+    "description": "MailFlow 连接 Microsoft 和 Google 邮箱的方式。这与单点登录（SSO）不同，后者是登录 MailFlow 本身的方式。每个人在“帐户 > 添加帐户”中添加自己的帐户。",
+    "required": "请先填写必填字段。",
+    "saved": "已保存。",
+    "ms": {
+      "title": "Microsoft",
+      "description": "Outlook.com、Hotmail、Live、MSN 和 Microsoft 365 邮箱",
+      "personalTitle": "个人帐户（Outlook.com、Hotmail、Live、MSN）",
+      "statusShared": "正在使用 MailFlow 的共享应用",
+      "statusOwn": "正在使用你自己的应用",
+      "statusOff": "已关闭",
+      "sharedSwitch": "允许通过 MailFlow 的共享应用登录",
+      "sharedSwitchDesc": "无需设置。关闭后，已连接的帐户仍可继续使用。",
+      "ownHandlesPersonal": "你自己的应用负责个人帐户，因此不会使用 MailFlow 的共享应用。",
+      "workTitle": "工作和学校帐户（Microsoft 365）",
+      "workOff": "未设置",
+      "setupToggle": "设置你自己的 Microsoft Entra 应用"
+    },
+    "google": {
+      "setupToggle": "设置你自己的 Google OAuth 客户端"
+    }
+  },
+  "accountForm": {
+    "signedInMicrosoft": "已以 {{email}} 使用 Microsoft 登录",
+    "signedInGoogle": "已以 {{email}} 使用 Google 登录",
+    "signedInNote": "服务器信息来自此次登录。如果帐户无法连接，请重新登录。",
+    "mailboxLabel": "要打开的邮箱",
+    "mailboxHelp": "如需打开共享或委托的邮箱，请输入其地址。打开自己的邮箱时保持不变即可。"
+  },
+  "googleSignIn": {
+    "title": "使用 Google 登录",
+    "finePrint": "你在 Google 自己的页面登录，Google 会将访问权限直接发送到此服务器。",
+    "formNote": "Gmail 和 Google Workspace 邮箱可以使用 Google 登录，而不必使用应用专用密码。",
+    "appPasswordNote": "Gmail 需要应用专用密码，而不是你的常用密码。请为 Google 帐号开启两步验证，然后创建应用专用密码并填入密码栏。",
+    "createAppPassword": "创建应用专用密码"
   }
 }

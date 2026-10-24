@@ -521,7 +521,6 @@
     "settings": "Ajustes",
     "lock": "Bloquear",
     "signOut": "Cerrar sesión",
-    "connectionError": "Error de conexión",
     "folderMenu": {
       "markAllRead": "Marcar todo como leído",
       "syncFolder": "Sincronizar carpeta",
@@ -539,7 +538,8 @@
       "syncNow": "Sincronizar ahora",
       "syncFoldersNow": "Sincronizar carpetas ahora",
       "settings": "Ajustes de cuenta",
-      "reconnect": "Reconectar",
+      "tryAgain": "Reintentar",
+      "signInAgain": "Volver a iniciar sesión",
       "moveUp": "Mover arriba",
       "moveDown": "Mover abajo",
       "moveFailed": "Error al reordenar las cuentas"
@@ -851,7 +851,8 @@
       "groupAdmin": "Administración",
       "behavior": "Comportamiento",
       "plugins": "Complementos",
-      "backup": "Copia de seguridad"
+      "backup": "Copia de seguridad",
+      "mailSignIn": "Proveedores de correo"
     },
     "rules": {
       "title": "Reglas de bandeja de entrada",
@@ -980,8 +981,8 @@
       "errorRequired": "El correo, el usuario y el servidor IMAP son obligatorios",
       "errorPasswordRequired": "La contraseña es obligatoria para cuentas nuevas",
       "microsoftImapUnsupported": "Outlook.com / Hotmail requiere OAuth2 (Modern Auth)",
-      "microsoftImapNote": "Microsoft ha desactivado el IMAP por contraseña (autenticación básica) para las cuentas personales de Outlook.com, Hotmail y Live. Aún puedes conectar estas cuentas mediante Microsoft OAuth2 (Modern Auth): configúralo en Integraciones → Microsoft 365 / Outlook.com. El inicio de sesión con código de dispositivo es el más adecuado para cuentas personales y no requiere contraseña de aplicación.",
-      "microsoftImapNoteReady": "Microsoft ha desactivado el acceso IMAP con contraseña (autenticación básica) para las cuentas personales de Outlook.com, Hotmail y Live. Conecta esta cuenta en Integraciones → Microsoft 365 / Outlook.com: el inicio de sesión con código de dispositivo no necesita configuración ni contraseña de aplicación.",
+      "microsoftImapNote": "Microsoft ya no acepta contraseñas para los buzones de Outlook.com, Hotmail, Live y MSN, y el inicio de sesión con Microsoft no está configurado en este servidor. Pide a tu administrador que lo active en Proveedores de correo.",
+      "microsoftImapNoteReady": "Microsoft ya no acepta contraseñas para los buzones de Outlook.com, Hotmail, Live y MSN. Añade este buzón con «Iniciar sesión con Microsoft» en Añadir cuenta.",
       "reindex": "Re-indexar para búsqueda",
       "reindexing": "Indexando mensajes...",
       "reindexProgress": "{{synced}} / {{total}} mensajes indexados",
@@ -1005,7 +1006,8 @@
       "trustedAuthservDetected": "Vistos en tus mensajes recientes (clic para usar):",
       "trustedAuthservDetectedNone": "Aún no hay datos: los mensajes se analizan cuando el antispam está activo en esta cuenta.",
       "trustedAuthservWarn": "Confía solo en un ID que reconozcas como servidor receptor de tu proveedor.",
-      "enabledGlobally": "Activado globalmente"
+      "enabledGlobally": "Activado globalmente",
+      "microsoftImapNoteSignIn": "Microsoft ya no acepta contraseñas para los buzones de Outlook.com, Hotmail, Live y MSN. Inicia sesión con Microsoft en su lugar: no hace falta una contraseña de aplicación."
     },
     "folderMappings": {
       "title": "Asignación de carpetas",
@@ -1513,7 +1515,7 @@
     },
     "sso": {
       "title": "Inicio de sesión único",
-      "description": "Configura proveedores OIDC externos para que los usuarios puedan iniciar sesión con sus cuentas de organización.",
+      "description": "Cómo inician sesión las personas en MailFlow, a través del proveedor de identidad de tu organización (OIDC). La conexión de buzones está en Proveedores de correo.",
       "empty": "Aún no hay proveedores SSO configurados.",
       "addProvider": "+ Añadir proveedor SSO",
       "templatePickerTitle": "Elegir una plantilla de proveedor",
@@ -1581,22 +1583,14 @@
     "integrations": {
       "title": "Integraciones",
       "loading": "Cargando…",
-      "tabEmailProviders": "Proveedores de correo",
-      "tabApps": "Aplicaciones",
       "microsoft": {
-        "title": "Microsoft 365 / Outlook.com",
-        "description": "OAuth2 para cuentas de trabajo, escuela o personales de Microsoft (Outlook.com, Hotmail)",
-        "configured": "Configurado",
-        "notConfigured": "No configurado",
-        "redirecting": "Redirigiendo…",
-        "connect": "Conectar cuenta de Microsoft",
         "setupTitle": "Configuración del registro de aplicación en Azure",
         "step1": "Ir a portal.azure.com → Microsoft Entra ID → Registros de aplicaciones → Nuevo registro. En 'Tipos de cuenta admitidos', seleccionar 'Cuentas en cualquier directorio organizativo y cuentas personales de Microsoft' para permitir inicios de sesión de Outlook.com/Hotmail",
         "step2": "Establecer el tipo de URI de redirección en Web y pegar el URI que se muestra abajo",
         "step3": "Permisos de API → Agregar un permiso → API que usa mi organización (buscar 'Exchange' si no aparece) → Office 365 Exchange Online → Delegado → IMAP.AccessAsUser.All y SMTP.Send",
         "step4": "Permisos de API → Agregar un permiso → Microsoft Graph → Delegado → offline_access, openid, email, profile",
-        "step5": "Hacer clic en Conceder consentimiento de administrador para tu organización (solo para cuentas de organización/trabajo — las cuentas personales omiten este paso)",
-        "step6": "Certificados y secretos → Nuevo secreto de cliente — copiar el Valor (no el ID)",
+        "step5": "Hacer clic en Conceder consentimiento de administrador para tu organización (solo para cuentas de organización/trabajo, las cuentas personales omiten este paso)",
+        "step6": "Certificados y secretos → Nuevo secreto de cliente: copiar el Valor (no el ID)",
         "clientId": "ID de aplicación (cliente)",
         "clientIdPh": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
         "tenantId": "ID de directorio (inquilino)",
@@ -1607,36 +1601,13 @@
         "redirectUri": "URI de redirección",
         "redirectUriNote": "Debe coincidir exactamente con el URI de redirección registrado en Azure. Sugerido: {{uri}}",
         "save": "Guardar configuración",
-        "savedNote": "Configuración guardada. Haz clic en «Conectar cuenta» para autorizar.",
-        "connectedNote": "¡Cuenta de Microsoft 365 conectada con éxito! Comprueba la pestaña Cuentas.",
-        "userNoteConfigured": "Tu administrador ha configurado el inicio de sesión de Microsoft 365. Conecta tu cuenta de Outlook.com, Hotmail o Microsoft 365 a continuación.",
-        "userNoteNotConfigured": "El inicio de sesión de Microsoft 365 aún no ha sido configurado por un administrador. Pídele a tu administrador que lo configure.",
-        "remove": "Eliminar",
-        "deviceCodeTitle": "Conectar con código de dispositivo",
-        "deviceCodeNote": "No se necesita URI de redirección ni secreto de cliente. En Azure, ve a Autenticación y activa 'Permitir flujos de cliente público'. Ideal para cuentas personales de Outlook.com / Hotmail.",
-        "deviceCodeStart": "Iniciar flujo de código de dispositivo",
-        "deviceCodeInstructions": "Visita el enlace de abajo en cualquier dispositivo e introduce el código para autorizar MailFlow:",
-        "deviceCodeVisit": "Visita:",
-        "deviceCodeEnter": "Introduce el código:",
-        "deviceCodeWaiting": "Esperando autorización…",
-        "deviceCodeExpired": "Código expirado. Inicia de nuevo.",
-        "deviceCodeDeclined": "La autorización fue rechazada.",
-        "deviceCodeError": "Ocurrió un error. Inténtalo de nuevo.",
-        "deviceCodeCancel": "Cancelar",
-        "personalReady": "Cuentas personales listas",
-        "builtinTitle": "Conectar una cuenta personal de Microsoft",
-        "builtinNote": "Las cuentas de Outlook.com, Hotmail, Live y MSN no necesitan configuración. Esto usa la aplicación de Microsoft compartida de MailFlow, que Microsoft puede marcar como no verificada. Inicias sesión en la propia página de Microsoft en tu navegador, y Microsoft envía los tokens directamente a este servidor: los mantenedores de MailFlow nunca ven tu correo ni tus tokens. Las cuentas de trabajo o educativas necesitan una aplicación registrada por tu administrador.",
-        "builtinToggle": "Ofrecer la aplicación de MailFlow para cuentas personales",
-        "builtinToggleDesc": "Mientras no haya un ID de cliente guardado, las cuentas personales de Outlook.com y Hotmail pueden iniciar sesión con la aplicación compartida de MailFlow. Al desactivarlo se impiden nuevos inicios de sesión con ella; las cuentas ya conectadas así siguen funcionando.",
-        "userNoteBuiltin": "Puedes conectar abajo una cuenta personal de Outlook.com, Hotmail, Live o MSN sin configurar nada. Para las cuentas de Microsoft 365 de trabajo o educativas, tu administrador debe configurar el inicio de sesión de Microsoft 365."
+        "remove": "Eliminar"
       },
       "google": {
         "title": "Gmail / Google Workspace",
         "description": "OAuth2 para buzones de Gmail y Google Workspace — necesario cuando un administrador ha desactivado las contraseñas de aplicación",
         "configured": "Configurado",
         "notConfigured": "Sin configurar",
-        "redirecting": "Redirigiendo…",
-        "connect": "Conectar cuenta de Google",
         "setupTitle": "Configuración del cliente OAuth de Google Cloud",
         "step1": "Ve a console.cloud.google.com y selecciona (o crea) un proyecto. Para un dominio de Workspace, inicia sesión con una cuenta de ese dominio para que el proyecto pertenezca a la organización",
         "step2": "APIs y servicios → Biblioteca → activa la API de Gmail",
@@ -1650,10 +1621,6 @@
         "redirectUri": "URI de redirección",
         "redirectUriNote": "Debe coincidir exactamente con una URI de redirección autorizada en el cliente OAuth. Sugerencia: {{uri}}",
         "save": "Guardar configuración",
-        "savedNote": "Configuración guardada. Haz clic en «Conectar cuenta de Google» para autorizar.",
-        "connectedNote": "¡Cuenta de Google conectada correctamente! Consulta la pestaña Cuentas.",
-        "userNoteConfigured": "Tu administrador ha configurado el inicio de sesión con Google. Conecta abajo tu cuenta de Gmail o Google Workspace.",
-        "userNoteNotConfigured": "Un administrador aún no ha configurado el inicio de sesión con Google. Pídeselo a tu administrador.",
         "remove": "Eliminar"
       },
       "todoist": {
@@ -1714,6 +1681,7 @@
       "sponsor": "Apoyar el desarrollo",
       "kofi": "Ko-fi",
       "githubSponsors": "GitHub Sponsors",
+      "businessLicense": "Licencia para empresas",
       "sponsorBlurb": "MailFlow lo desarrolla y mantiene una sola persona. Los patrocinios pagan el tiempo dedicado a correcciones, revisiones y nuevas versiones."
     },
     "search": {
@@ -1975,5 +1943,154 @@
     "trash": "Papelera",
     "spam": "Spam",
     "archive": "Archivo"
+  },
+  "accountErrors": {
+    "label": {
+      "turnOnImap": "Activar IMAP",
+      "imapOff": "IMAP desactivado",
+      "signInAgain": "Volver a iniciar sesión",
+      "cantConnect": "No se puede conectar",
+      "openRow": "Ver qué falla y cómo solucionarlo"
+    },
+    "imapOffPersonal": {
+      "title": "Outlook.com está bloqueando las aplicaciones de correo",
+      "body": "Microsoft inició tu sesión, pero IMAP está desactivado para este buzón. Para activarlo:",
+      "step1": "Abre Outlook.com e inicia sesión.",
+      "step2": "Ve a Configuración > Correo > Reenvío e IMAP.",
+      "step3": "Activa «Permitir que los dispositivos y las aplicaciones usen IMAP» y selecciona Guardar.",
+      "outro": "Después vuelve aquí y selecciona Reintentar."
+    },
+    "imapOffWork": {
+      "title": "IMAP está desactivado para este buzón",
+      "body": "Microsoft inició tu sesión, pero tu organización desactivó IMAP para {{email}}. Pide a tu administrador de TI que lo active y luego selecciona Reintentar."
+    },
+    "signIn": {
+      "title": "Vuelve a iniciar sesión en Microsoft",
+      "titleGoogle": "Vuelve a iniciar sesión en Google",
+      "body": "El inicio de sesión que MailFlow guardó para esta cuenta dejó de funcionar. Esto ocurre tras un cambio de contraseña, tras mucho tiempo sin uso o cuando se retiró el acceso en la configuración de tu cuenta."
+    },
+    "appConfig": {
+      "title": "El inicio de sesión de esta cuenta no está bien configurado",
+      "bodyUser": "El proveedor de correo rechazó la aplicación con la que MailFlow inicia sesión. Pide a tu administrador que revise la configuración de inicio de sesión.",
+      "bodyAdmin": "El proveedor de correo rechazó la aplicación con la que MailFlow inicia sesión. Revisa su configuración en Proveedores de correo. En los detalles de abajo se ve lo que respondió el proveedor."
+    },
+    "authFailed": {
+      "title": "El servidor rechazó la contraseña",
+      "body": "El servidor de correo no aceptó el usuario o la contraseña de esta cuenta. Si cambiaste la contraseña o usas una contraseña de aplicación, actualízala con Editar cuenta."
+    },
+    "connection": {
+      "title": "MailFlow no puede conectarse a esta cuenta",
+      "body": "MailFlow sigue intentándolo por su cuenta. En los detalles de abajo se ve lo que respondió el servidor."
+    },
+    "action": {
+      "openOutlook": "Abrir Outlook.com",
+      "retry": "Reintentar",
+      "signIn": "Volver a iniciar sesión",
+      "edit": "Editar cuenta"
+    },
+    "details": "Detalles",
+    "wrongAccount": "Iniciaste sesión como {{signedInAs}}, no como {{expected}}. Inicia sesión con {{expected}} para reparar esta cuenta.",
+    "signInDialog": {
+      "title": "Volver a iniciar sesión",
+      "body": "Inicia sesión como {{email}} para volver a conectar esta cuenta.",
+      "success": "Sesión iniciada. MailFlow está volviendo a conectar esta cuenta.",
+      "continueGoogle": "Continuar a Google",
+      "waitingGoogle": "Termina de iniciar sesión en la página de Google y luego vuelve aquí."
+    },
+    "signInFailed": "El inicio de sesión no funcionó",
+    "signInFailedBody": "Vuelve a empezar desde la cuenta en Configuración > Cuentas."
+  },
+  "addAccount": {
+    "title": "Añadir una cuenta de correo",
+    "emailLabel": "Tu dirección de correo",
+    "continue": "Continuar",
+    "invalidEmail": "Escribe una dirección de correo como tu@example.com.",
+    "orChoose": "O elige tu proveedor",
+    "tile": {
+      "outlook": "Outlook.com, Hotmail, Live, MSN",
+      "outlookSub": "Iniciar sesión con Microsoft",
+      "work": "Microsoft 365 (trabajo o escuela)",
+      "workSub": "Inicia sesión con la cuenta Microsoft de tu organización",
+      "gmail": "Gmail",
+      "gmailSub": "Usar una contraseña de aplicación",
+      "gmailSignIn": "Iniciar sesión con Google",
+      "yahoo": "Yahoo Mail",
+      "yahooSub": "Usar una contraseña de aplicación",
+      "icloud": "iCloud Mail",
+      "icloudSub": "Usar una contraseña específica de app",
+      "other": "Otra (IMAP)",
+      "otherSub": "Introduce los datos del servidor"
+    },
+    "personalOff": "No disponible en este servidor.",
+    "workOff": "No disponible en este servidor.",
+    "openSettings": "Abrir la configuración de proveedores de correo"
+  },
+  "msSignIn": {
+    "titlePersonal": "Iniciar sesión con Microsoft",
+    "titleWork": "Inicia sesión con tu cuenta de trabajo o escuela",
+    "beforeTitle": "Antes de empezar",
+    "beforeBody": "Outlook.com tiene que permitir las aplicaciones de correo. Si nunca lo has hecho:",
+    "step1": "Abre la página de inicio de sesión de Microsoft.",
+    "step1Button": "Abrir el inicio de sesión de Microsoft",
+    "step2": "Escribe allí este código y sigue los pasos en la página de Microsoft.",
+    "copy": "Copiar código",
+    "copied": "Copiado",
+    "waiting": "Esperando a que termines de iniciar sesión en la página de Microsoft…",
+    "starting": "Obteniendo un código de Microsoft…",
+    "checking": "Comprobando que MailFlow puede llegar a tu buzón…",
+    "connected": "{{email}} está conectada. Tu correo se está sincronizando.",
+    "stillConnecting": "Sesión iniciada como {{email}}. MailFlow sigue conectando y lo intenta por su cuenta. La lista de cuentas muestra cuándo está lista.",
+    "declined": "Cancelaste el inicio de sesión en la página de Microsoft.",
+    "expired": "El código caducó antes de terminar el inicio de sesión. Los códigos duran 15 minutos.",
+    "error": "El inicio de sesión de Microsoft no funcionó.",
+    "newCode": "Obtener un código nuevo",
+    "startOver": "Empezar de nuevo",
+    "done": "Listo",
+    "finePrintShared": "Microsoft puede mostrar MailFlow como una aplicación no verificada. Es lo esperado: la aplicación compartida de MailFlow solo identifica a MailFlow ante Microsoft. Inicias sesión en la propia página de Microsoft, y Microsoft envía el acceso directamente a este servidor.",
+    "finePrintOwn": "Inicias sesión en la propia página de Microsoft, y Microsoft envía el acceso directamente a este servidor.",
+    "continueMicrosoft": "Continuar a Microsoft",
+    "redirectWaiting": "Termina de iniciar sesión en la página de Microsoft que se abrió y luego vuelve aquí.",
+    "useCode": "Usar un código en su lugar",
+    "useRedirect": "Iniciar sesión en la página de Microsoft en su lugar",
+    "back": "Atrás",
+    "lost": "MailFlow perdió el rastro de este inicio de sesión, por ejemplo porque el servidor se reinició. Si terminaste de iniciar sesión en la página de Microsoft, puede que la cuenta ya esté en tu lista.",
+    "checkAccounts": "Revisar tus cuentas"
+  },
+  "mailSignIn": {
+    "title": "Proveedores de correo",
+    "description": "Cómo se conecta MailFlow a los buzones de Microsoft y Google. Es distinto del inicio de sesión único (SSO), que es cómo se inicia sesión en MailFlow. Cada persona añade sus propias cuentas en Cuentas > Añadir cuenta.",
+    "required": "Rellena primero los campos obligatorios.",
+    "saved": "Guardado.",
+    "ms": {
+      "title": "Microsoft",
+      "description": "Buzones de Outlook.com, Hotmail, Live, MSN y Microsoft 365",
+      "personalTitle": "Cuentas personales (Outlook.com, Hotmail, Live, MSN)",
+      "statusShared": "Usa la aplicación compartida de MailFlow",
+      "statusOwn": "Usa tu propia aplicación",
+      "statusOff": "Desactivado",
+      "sharedSwitch": "Permitir iniciar sesión con la aplicación compartida de MailFlow",
+      "sharedSwitchDesc": "No requiere configuración. Las cuentas ya conectadas siguen funcionando si la desactivas.",
+      "ownHandlesPersonal": "Tu propia aplicación gestiona las cuentas personales, así que no se usa la aplicación compartida de MailFlow.",
+      "workTitle": "Cuentas de trabajo y escuela (Microsoft 365)",
+      "workOff": "Sin configurar",
+      "setupToggle": "Configurar tu propia aplicación de Microsoft Entra"
+    },
+    "google": {
+      "setupToggle": "Configurar tu propio cliente OAuth de Google"
+    }
+  },
+  "accountForm": {
+    "signedInMicrosoft": "Sesión iniciada con Microsoft como {{email}}",
+    "signedInGoogle": "Sesión iniciada con Google como {{email}}",
+    "signedInNote": "El servidor viene de esta conexión. Si la cuenta deja de conectarse, vuelve a iniciar sesión.",
+    "mailboxLabel": "Buzón que abrir",
+    "mailboxHelp": "Para un buzón compartido o delegado, escribe su dirección. Déjalo como está para tu propio buzón."
+  },
+  "googleSignIn": {
+    "title": "Iniciar sesión con Google",
+    "finePrint": "Inicias sesión en la propia página de Google, y Google envía el acceso directamente a este servidor.",
+    "formNote": "Los buzones de Gmail y Google Workspace pueden iniciar sesión con Google en lugar de usar una contraseña de aplicación.",
+    "appPasswordNote": "Gmail necesita una contraseña de aplicación, no tu contraseña habitual. Activa la verificación en dos pasos de tu cuenta de Google, crea una contraseña de aplicación y escríbela en el campo de contraseña.",
+    "createAppPassword": "Crear una contraseña de aplicación"
   }
 }

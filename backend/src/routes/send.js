@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import { randomBytes, createHash, randomUUID } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
+import { findOwnedAccount, findOwnedMessages } from '../services/ownership.js';
 import { requireAuth } from '../middleware/auth.js';
 import { sanitizeSignature, sanitizeComposeBody, composeHtmlToText } from '../services/emailSanitizer.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
@@ -220,13 +221,13 @@ router.post('/send', async (req, res) => {
   }
   const normalizedSubject = sanitizeHeaderValue(subject || '');
 
-  const [result, prefResult] = await Promise.all([
-    query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]),
+  const [owned, prefResult] = await Promise.all([
+    findOwnedAccount(req.session.userId, accountId),
     query('SELECT preferences FROM users WHERE id = $1', [req.session.userId]),
   ]);
-  if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
+  if (!owned) return res.status(404).json({ error: 'Account not found' });
   const plaintextEmail = prefResult.rows[0]?.preferences?.plaintextEmail === true;
-  let account = result.rows[0];
+  let account = owned;
 
   // Resolve the From identity — account by default, alias if requested
   let fromName = account.sender_name || account.name;
@@ -263,13 +264,10 @@ router.post('/send', async (req, res) => {
       // Resolve every referenced message in a SINGLE ownership-scoped query so a large
       // forwardedAttachments array can't fan out into one DB round-trip per entry.
       const distinctMsgIds = [...new Set(forwardedAttachments.map(fa => fa.messageId))];
-      const msgRows = await query(
-        `SELECT m.id, m.uid, m.folder, m.attachments, m.account_id FROM messages m
-         JOIN email_accounts a ON m.account_id = a.id
-         WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2`,
-        [distinctMsgIds, req.session.userId]
-      );
-      const msgById = new Map(msgRows.rows.map(m => [m.id, m]));
+      const msgRows = await findOwnedMessages(req.session.userId, distinctMsgIds, {
+        columns: 'm.id, m.uid, m.folder, m.attachments, m.account_id',
+      });
+      const msgById = new Map(msgRows.map(m => [m.id, m]));
 
       // Build the fetch plan (one entry per requested attachment, order preserved) and sum the
       // DECLARED sizes so an oversized batch is rejected BEFORE any IMAP fetch happens.
@@ -327,19 +325,17 @@ router.post('/send', async (req, res) => {
 
   // Each forwarded message is attached as its raw RFC 822 source, every original header intact,
   // which is what an inline forward loses and abuse desks such as SpamCop need (#466). message/*
-  // goes out 8bit (RFC 2046 rules out base64 for it) and nodemailer would mark it inline, so the
+  // goes out 7bit or 8bit (RFC 2046 rules out base64 for it) and nodemailer would mark it inline, so the
   // disposition is set explicitly. Its size is known only once fetched, so the 25 MB total is
   // checked as each one arrives.
   let resolvedFwdMessages = [];
   if (forwardedMessages?.length) {
     try {
       const ids = [...new Set(forwardedMessages)];
-      const rows = (await query(
-        `SELECT m.id, m.uid, m.folder, m.subject, m.account_id FROM messages m
-         JOIN email_accounts a ON m.account_id = a.id
-         WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2 AND m.is_deleted = false`,
-        [ids, req.session.userId]
-      )).rows;
+      const rows = await findOwnedMessages(req.session.userId, ids, {
+        columns: 'm.id, m.uid, m.folder, m.subject, m.account_id',
+        live: true,
+      });
       const byId = new Map(rows.map(r => [r.id, r]));
       if (ids.some(id => !byId.has(id))) throw Object.assign(new Error('Forwarded message not found'), { status: 404 });
       const accts = (await query('SELECT * FROM email_accounts WHERE id = ANY($1::uuid[])', [[...new Set(rows.map(r => r.account_id))]])).rows;

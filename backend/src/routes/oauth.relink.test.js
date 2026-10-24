@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 // oauth.js imports imapManager from ../index.js, which has heavy load-time side
 // effects (Redis connect, migrations). Mock it so importing oauth.js is inert.
 vi.mock('../index.js', () => ({ imapManager: mocks.imapManager }));
-vi.mock('../services/db.js', () => ({ query: vi.fn(), withTransaction: mocks.withTransaction }));
+vi.mock('../services/db.js', () => ({ query: vi.fn(async () => ({ rows: [] })), withTransaction: mocks.withTransaction }));
 vi.mock('../services/encryption.js', () => ({ encrypt: (v) => v, decrypt: (v) => v }));
 // Verifying a real id_token would need the provider's published signing keys.
 vi.mock('jose', () => ({ createRemoteJWKSet: vi.fn(() => ({})), jwtVerify: mocks.jwtVerify }));
@@ -100,6 +100,8 @@ describe('OAuth re-link of an existing account', () => {
     expect(res.status).toBe(302);
     return res.headers.get('location');
   }
+  // The Microsoft redirect also reports how the first connection went (#674).
+  const successOf = (location) => new URL(location, 'http://x').searchParams.get('oauth_success');
 
   // Everything that picks password or XOAUTH2 reads oauth_provider. Left NULL, the row
   // stores the new tokens and goes on logging in with the old password. An account already
@@ -109,7 +111,7 @@ describe('OAuth re-link of an existing account', () => {
     ['a Microsoft OAuth account on a custom host', { ...OUTLOOK_ROW, imap_host: 'mail.example.com', oauth_provider: 'microsoft' }],
   ])('sets oauth_provider when a Microsoft sign-in re-links %s', async (_label, row) => {
     existingRow = row;
-    expect(await callback('microsoft')).toBe('/?oauth_success=microsoft');
+    expect(successOf(await callback('microsoft'))).toBe('microsoft');
 
     const update = statements.find(sql => /UPDATE email_accounts/.test(sql));
     const setList = update?.match(/SET([\s\S]*?)WHERE/)?.[1];
@@ -138,7 +140,7 @@ describe('OAuth re-link of an existing account', () => {
       return true;
     });
 
-    expect(await callback(provider)).toBe(`/?oauth_success=${provider}`);
+    expect(successOf(await callback(provider))).toBe(provider);
 
     expect(connected).toEqual([row.id]);
   });

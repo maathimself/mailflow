@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import { randomBytes } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
+import { findOwnedAccount } from '../services/ownership.js';
 import { requireAuth } from '../middleware/auth.js';
 import { sanitizeSignature, sanitizeComposeBody, sanitizeEmail, composeHtmlToText, proxyRemoteImages } from '../services/emailSanitizer.js';
 import { imageProxyPath } from '../services/imageProxy.js';
@@ -378,9 +379,8 @@ async function findReplacedDraft(userId, account, draftsFolder, { existingUid, e
   let holder = account;
   if (existingAccountId != null && existingAccountId !== account.id) {
     if (typeof existingAccountId !== 'string') return refuse('invalid account');
-    const { rows } = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [existingAccountId, userId]);
-    if (!rows.length) return refuse(`account ${JSON.stringify(existingAccountId)} not found`);
-    holder = rows[0];
+    holder = await findOwnedAccount(userId, existingAccountId);
+    if (!holder) return refuse(`account ${JSON.stringify(existingAccountId)} not found`);
   }
   if (!(await isDraftsPath(holder, existingFolder, holder === account ? draftsFolder : undefined))) {
     return refuse('not a Drafts folder');
@@ -421,11 +421,7 @@ router.post('/draft', async (req, res) => {
   const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder, existingAccountId, inReplyTo, references } = req.body;
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
 
-  const ownerCheck = await query(
-    'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
-    [accountId, req.session.userId]
-  );
-  if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
+  if (!(await findOwnedAccount(req.session.userId, accountId, { columns: 'id' }))) return res.status(404).json({ error: 'Account not found' });
 
   try {
     const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, inReplyTo, references });
@@ -503,14 +499,10 @@ router.delete('/draft/:uid', async (req, res) => {
   const { accountId, folder } = req.query;
   if (!accountId || !folder) return res.status(400).json({ error: 'accountId and folder required' });
 
-  const ownerCheck = await query(
-    'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
-    [accountId, req.session.userId]
-  );
-  if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
+  const account = await findOwnedAccount(req.session.userId, accountId);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
 
   try {
-    const account = ownerCheck.rows[0];
     if (!(await isDraftsPath(account, folder))) {
       return res.status(400).json({ error: 'Folder is not a Drafts folder' });
     }

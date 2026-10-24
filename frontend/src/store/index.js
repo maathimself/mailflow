@@ -635,6 +635,10 @@ export const useStore = create((set, get) => ({
   adminTab: 'accounts', // 'accounts' | 'appearance' | 'integrations' | 'users'
   setShowAdmin: (v) => set({ showAdmin: v }),
   setAdminTab: (t) => set({ adminTab: t }),
+  // Settings > Accounts opened for one account from elsewhere (the sidebar's error label or
+  // menu): { accountId, action: 'focus' | 'signIn' }, consumed by the Accounts tab.
+  accountsIntent: null,
+  setAccountsIntent: (intent) => set({ accountsIntent: intent }),
 
   // Contacts view
   showContacts: false,
