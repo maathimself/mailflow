@@ -433,6 +433,12 @@ export default function ComposeModal() {
     immediatelyRender: false,
     editorProps: {
       attributes: { spellcheck: 'true' },
+      // A file dropped on the body is attached by the composer's drop handler, not inserted here.
+      // Asked of the files, not the types: Chrome lists Files for another site's image without
+      // handing the file over, and that image still goes in as before.
+      handleDrop(view, event) {
+        return (event.dataTransfer?.files?.length ?? 0) > 0;
+      },
       handlePaste(view, event) {
         // If clipboard has HTML containing a table (e.g. from Excel), let
         // TipTap parse it natively — Excel provides both image/png and text/html;
@@ -771,9 +777,9 @@ export default function ComposeModal() {
     }
   }, [editor]);
 
-  const handleFileSelect = (e) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
+  // Files the user picked or dropped, added as attachments. A name already attached is not added
+  // twice.
+  const addAttachmentFiles = (files) => {
     files.forEach(file => {
       const reader = new FileReader();
       reader.onload = (ev) => {
@@ -785,8 +791,59 @@ export default function ComposeModal() {
       };
       reader.readAsDataURL(file);
     });
+  };
+
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    addAttachmentFiles(files);
     e.target.value = '';
   };
+
+  // Files dragged in from the desktop are attached wherever in the composer they are dropped, and
+  // never opened by the browser in place of the app. Only a drag that carries files counts, so text
+  // dragged within the editor still moves as before. dragenter and dragleave fire for every child
+  // crossed, so the overlay follows a count rather than the last event.
+  const [dropActive, setDropActive] = useState(false);
+  const dragDepthRef = useRef(0);
+  const carriesFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+  const dropHandlers = {
+    onDragEnter: (e) => {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      dragDepthRef.current += 1;
+      setDropActive(true);
+    },
+    onDragOver: (e) => {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    },
+    onDragLeave: (e) => {
+      if (!carriesFiles(e)) return;
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) setDropActive(false);
+    },
+    onDrop: (e) => {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      dragDepthRef.current = 0;
+      setDropActive(false);
+      const files = Array.from(e.dataTransfer.files || []);
+      if (files.length) addAttachmentFiles(files);
+    },
+  };
+  const dropOverlay = dropActive && (
+    <div aria-hidden="true" style={{
+      position: 'absolute', inset: 0, zIndex: 50, pointerEvents: 'none',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'color-mix(in srgb, var(--accent) 14%, transparent)', backdropFilter: 'blur(1px)',
+      border: '2px dashed var(--accent)', borderRadius: 'inherit',
+      color: 'var(--accent)', fontSize: 15, fontWeight: 600,
+    }}>
+      {t('compose.dropToAttach')}
+    </div>
+  );
 
   const handleKeyDown = (e) => {
     if (isComposeSendShortcut(e)) {
@@ -1546,6 +1603,7 @@ export default function ComposeModal() {
       <div
         ref={composePanelRef}
         onKeyDown={handleKeyDown}
+        {...dropHandlers}
         style={{
           position: 'fixed', top: 0, left: 0, right: 0,
           height: viewportHeight,
@@ -1557,6 +1615,7 @@ export default function ComposeModal() {
         }}
       >
         <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
+        {dropOverlay}
         {/* Header */}
         <div style={{
           display: 'flex', alignItems: 'center',
@@ -2194,6 +2253,7 @@ export default function ComposeModal() {
       ref={composeWindowRef}
       className="compose-window"
       onKeyDown={handleKeyDown}
+      {...dropHandlers}
       style={maximized ? {
         position: 'fixed', top: 28, left: 28, right: 28, bottom: 28,
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
@@ -2219,6 +2279,7 @@ export default function ComposeModal() {
       }}
     >
       <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
+      {dropOverlay}
       <input ref={imageInputRef} type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) insertImageIntoEditor(f); e.target.value = ''; }} style={{ display: 'none' }} />
       {/* Title bar */}
       <div

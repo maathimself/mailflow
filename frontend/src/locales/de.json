@@ -130,6 +130,7 @@
       "keepEditing": "Weiter bearbeiten"
     },
     "draftHasAttachments": "Anhänge werden nicht mit Entwürfen gespeichert. Sie müssen beim erneuten Öffnen neu hinzugefügt werden.",
+    "dropToAttach": "Dateien zum Anhängen hier ablegen",
     "emptySubject": {
       "title": "Ohne Betreff senden?",
       "sendAnyway": "Trotzdem senden",

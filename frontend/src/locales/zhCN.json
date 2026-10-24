@@ -130,6 +130,7 @@
       "keepEditing": "继续编辑"
     },
     "draftHasAttachments": "附件不会随草稿保存，重新打开时需要重新添加。",
+    "dropToAttach": "拖放文件以添加附件",
     "emptySubject": {
       "title": "没有主题，确定发送？",
       "sendAnyway": "仍然发送",
