@@ -122,8 +122,9 @@ describe('createSmtpTransport', () => {
 
 // Its EHLO reply offers AUTH but not STARTTLS, as a relay without TLS does, or as any EHLO
 // does after someone on the path has stripped STARTTLS from it.
-async function startSmtpServerWithoutStarttls() {
+async function startSmtpServerWithoutStarttls({ dropAfterData = false } = {}) {
   const commands = [];
+  const messages = [];
   const sockets = new Set();
   const server = createServer(socket => {
     sockets.add(socket);
@@ -140,7 +141,9 @@ async function startSmtpServerWithoutStarttls() {
         if (inData) {
           if (line === '.') {
             inData = false;
-            socket.write('250 2.0.0 Queued\r\n');
+            messages.push(line);
+            if (dropAfterData) socket.destroy();
+            else socket.write('250 2.0.0 Queued\r\n');
           }
           continue;
         }
@@ -161,12 +164,70 @@ async function startSmtpServerWithoutStarttls() {
   return {
     port: server.address().port,
     commands,
+    messages,
     close: () => {
       for (const socket of sockets) socket.destroy();
       return new Promise(resolve => server.close(resolve));
     },
   };
 }
+
+describe('createSmtpTransport with real SMTP sessions', () => {
+  async function sendThroughPorts(ports) {
+    const { default: realNodemailer } = await vi.importActual('nodemailer');
+    const createTransport = vi.fn(options => realNodemailer.createTransport({
+      ...options,
+      host: '127.0.0.1',
+      port: ports[options.host],
+    }));
+    const transport = createSmtpTransport(resolved, { secure: false, ignoreTLS: true }, createTransport);
+    const outcome = await transport
+      .sendMail({ from: 'sender@example.com', to: 'user@example.com', text: 'Hello' })
+      .catch(err => err);
+    return { createTransport, outcome };
+  }
+
+  it('still moves on to the next address when the first refuses the connection', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const closed = createServer();
+    await new Promise(resolve => closed.listen(0, '127.0.0.1', resolve));
+    const closedPort = closed.address().port;
+    await new Promise(resolve => closed.close(resolve));
+    const healthy = await startSmtpServerWithoutStarttls();
+    try {
+      const { createTransport, outcome } = await sendThroughPorts({
+        '203.0.113.10': closedPort,
+        '203.0.113.11': healthy.port,
+      });
+
+      expect(outcome.accepted).toEqual(['user@example.com']);
+      expect(healthy.messages).toHaveLength(1);
+      expect(createTransport).toHaveBeenCalledTimes(2);
+    } finally {
+      await healthy.close();
+    }
+  });
+
+  it('fails a send the server dropped after DATA instead of resubmitting it elsewhere', async () => {
+    const dropping = await startSmtpServerWithoutStarttls({ dropAfterData: true });
+    const healthy = await startSmtpServerWithoutStarttls();
+    try {
+      const { createTransport, outcome } = await sendThroughPorts({
+        '203.0.113.10': dropping.port,
+        '203.0.113.11': healthy.port,
+      });
+
+      expect(outcome).toBeInstanceOf(Error);
+      expect(outcome.command).toBe('CONN');
+      expect(dropping.messages).toHaveLength(1);
+      expect(healthy.messages).toHaveLength(0);
+      expect(createTransport).toHaveBeenCalledTimes(1);
+    } finally {
+      await dropping.close();
+      await healthy.close();
+    }
+  });
+});
 
 describe('createAccountSmtpTransport', () => {
   beforeEach(() => {

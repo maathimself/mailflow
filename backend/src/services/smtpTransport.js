@@ -31,6 +31,21 @@ export function isPreDeliveryConnectionError(err) {
   return err?.command === 'CONN';
 }
 
+// nodemailer tags a socket error, timeout or close as CONN even after DATA, when the
+// server may already have accepted the message, so the command alone cannot rule out a
+// duplicate send. It logs this entry right before it issues MAIL FROM, so watch for it.
+function envelopeStartLogger(onEnvelopeStart) {
+  const ignore = () => {};
+  return {
+    trace: ignore,
+    debug: ignore,
+    info: entry => { if (entry?.tnx === 'send') onEnvelopeStart(); },
+    warn: ignore,
+    error: ignore,
+    fatal: ignore,
+  };
+}
+
 async function runWithAddressFallback({
   resolved,
   transportOptions,
@@ -48,6 +63,7 @@ async function runWithAddressFallback({
     const remaining = SMTP_FAILOVER_BUDGET_MS - (now() - startedAt);
     if (remaining < 2000 && lastError) throw lastError;
     const attemptTimeout = Math.max(1000, Math.min(SMTP_ATTEMPT_TIMEOUT_MS, Math.floor(remaining / 2)));
+    let envelopeStarted = false;
     const transport = createTransport({
       // Before the spread so an explicit transportOptions.name would still win.
       name: smtpClientName(),
@@ -55,13 +71,16 @@ async function runWithAddressFallback({
       host: candidates[i],
       connectionTimeout: attemptTimeout,
       greetingTimeout: attemptTimeout,
+      logger: envelopeStartLogger(() => { envelopeStarted = true; }),
     });
 
     try {
       return await operation(transport);
     } catch (err) {
       lastError = err;
-      if (!isPreDeliveryConnectionError(err) || i === candidates.length - 1) throw err;
+      if (envelopeStarted || !isPreDeliveryConnectionError(err) || i === candidates.length - 1) {
+        throw err;
+      }
       console.warn('SMTP connection failed; retrying another validated address:', err.message);
     } finally {
       transport.close?.();
