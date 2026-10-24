@@ -8,6 +8,18 @@ import { getAiStatus } from './aiProvider.js';
 
 export const AI_FEATURES = ['compose', 'summarize'];
 
+// The switches each request purpose needs. Reply with AI writes a draft (the writing assistant)
+// from received mail (which only summaries send to the provider), so it needs both.
+export const AI_PURPOSES = Object.freeze({
+  compose: ['compose'],
+  summarize: ['summarize'],
+  reply: ['compose', 'summarize'],
+});
+
+export function isAiPurpose(purpose) {
+  return typeof purpose === 'string' && Object.hasOwn(AI_PURPOSES, purpose);
+}
+
 // Returns the instance status and whether this user may use AI. A user row that is missing or
 // cannot be read denies access: a read error is thrown to the caller, never treated as allowed.
 export async function getUserAiAccess(userId) {

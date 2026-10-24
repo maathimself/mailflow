@@ -448,6 +448,7 @@ describe('per-user AI access and feature gates', () => {
     [{ messages: hi, purpose: 'translate' }],
     [{ messages: hi, purpose: 'constructor' }],
     [{ messages: hi, purpose: ['compose'] }],
+    [{ messages: hi, purpose: ['reply'] }],
   ])('refuses a chat whose purpose is present but unknown %#', async (body) => {
     const response = await request('/api/ai/chat', { method: 'POST', user: MEMBER, body });
     expect(response.status).toBe(400);
@@ -457,7 +458,7 @@ describe('per-user AI access and feature gates', () => {
 
   it.each([MEMBER, ADMIN])('refuses chat for %s when their AI access is off', async (user) => {
     aiDisabledUsers.add(user);
-    for (const purpose of ['compose', 'summarize']) {
+    for (const purpose of ['compose', 'summarize', 'reply']) {
       const response = await chat({ messages: hi, purpose }, { user });
       expect(response.status).toBe(403);
       expect(await response.json()).toMatchObject({ code: 'ai_user_disabled', error: expect.stringMatching(/not enabled for your account/) });
@@ -480,6 +481,26 @@ describe('per-user AI access and feature gates', () => {
     expect(await summarize.json()).toMatchObject({ code: 'ai_feature_disabled', feature: 'summarize', error: expect.stringMatching(/summaries/) });
     expect(mocks.streamChat).not.toHaveBeenCalled();
     expect((await chat({ messages: hi, purpose: 'compose' })).status).toBe(200);
+  });
+
+  // Reply with AI writes a draft from received mail, so the server holds it to both switches
+  // rather than trusting the client to hide the button.
+  it.each([
+    [{ compose: false, summarize: true }, 'compose'],
+    [{ compose: true, summarize: false }, 'summarize'],
+    [{ compose: false, summarize: false }, 'compose'],
+  ])('refuses a reply unless both switches are on: %o', async (features, off) => {
+    mocks.getAiStatus.mockResolvedValue({ enabled: true, provider: 'api-key', features });
+    const response = await chat({ messages: hi, purpose: 'reply' });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: 'ai_feature_disabled', feature: off });
+    expect(mocks.streamChat).not.toHaveBeenCalled();
+  });
+
+  it('serves a reply while both switches are on', async () => {
+    const response = await chat({ messages: hi, purpose: 'reply' });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('data: [DONE]');
   });
 
   // A tab opened before the update sends no purpose. It could be either feature, so it is served
