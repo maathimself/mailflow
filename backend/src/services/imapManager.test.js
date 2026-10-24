@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }));
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), parseMailboxList: vi.fn(() => [{ name: 'Hidden', email: 'hidden@example.test' }]), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn(), enrichParsedMetadata: vi.fn((parsed) => parsed) }));
+vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), parseMailboxList: vi.fn(() => [{ name: 'Hidden', email: 'hidden@example.test' }]), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn(), enrichParsedMetadata: vi.fn((parsed) => parsed), MAX_HEADER_FIELD: 500 }));
 vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn(), refreshGoogleToken: vi.fn() }));
 vi.mock('./emailSanitizer.js', () => ({ sanitizeEmail: vi.fn() }));
 vi.mock('./encryption.js', () => ({ decrypt: vi.fn() }));
@@ -25,7 +25,7 @@ import { query } from './db.js';
 import { resolveForConnection } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { invalidateGtdConfigCache } from '../plugins/gtd/gtdConfig.js';
-import { parseMessage } from './messageParser.js';
+import { parseMessage, decodeMimeWords } from './messageParser.js';
 import { classifyAndTagMessage } from './spamPipeline.js';
 import { getAccountAddresses } from './mailAccess.js';
 
@@ -6221,8 +6221,9 @@ describe('prefetch on the gate error (#474 round 4)', () => {
 // the copy it means to delete, so a uid read from a stale row, or looked up in the wrong
 // account, deletes nothing. Driven through the real pool so the check is what guards the
 // EXPUNGE.
-describe('permanentDeleteMessage with expectMessageId', () => {
+describe('server copy identity checks', () => {
   let seq = 0;
+  // A server copy is its Message-ID, or { messageId, subject, internalDate, from }.
   function arrange(serverCopies) {
     const account = { id: `acct-pdm-${++seq}`, user_id: 'u1', imap_host: 'imap.example.com', email_address: 'me@example.test', auth_user: 'me', auth_pass: 'enc' };
     const client = Object.assign(new EventEmitter(), {
@@ -6232,11 +6233,21 @@ describe('permanentDeleteMessage with expectMessageId', () => {
       close: vi.fn(),
       noop: vi.fn(async () => true),
       getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
-      fetch: vi.fn(async function* (range) {
+      // As a server does, it answers with only the attributes asked for.
+      fetch: vi.fn(async function* (range, query) {
         for (const uid of String(range).split(',').map(Number)) {
-          if (serverCopies.has(uid)) yield { uid, envelope: { messageId: serverCopies.get(uid) } };
+          if (!serverCopies.has(uid)) continue;
+          const copy = serverCopies.get(uid);
+          const { messageId = null, subject, internalDate, from } = copy !== null && typeof copy === 'object' ? copy : { messageId: copy };
+          yield {
+            uid,
+            ...(query?.envelope && { envelope: { messageId, subject, from: from ? [{ address: from }] : [] } }),
+            ...(query?.internalDate && { internalDate }),
+          };
         }
       }),
+      // Every message, whatever the dates asked for: the search only narrows what is compared.
+      search: vi.fn(async () => [...serverCopies.keys()]),
       // A UIDPLUS server, so the delete is a UID EXPUNGE of exactly this uid (see expungeUids).
       capabilities: new Map([['UIDPLUS', true]]),
       messageFlagsAdd: vi.fn().mockResolvedValue(true),
@@ -6247,8 +6258,10 @@ describe('permanentDeleteMessage with expectMessageId', () => {
     resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
     query.mockReset();
     query.mockResolvedValue({ rows: [account] });
+    decodeMimeWords.mockImplementation(s => s);
     return { mgr: new ImapManager({ clients: new Set() }), account, client };
   }
+  afterEach(() => decodeMimeWords.mockReset());
 
   it.each([
     ['<invoice@example.test>', true],
@@ -6291,9 +6304,11 @@ describe('permanentDeleteMessage with expectMessageId', () => {
     expect(client.messageDelete).not.toHaveBeenCalled();
   });
 
-  it('deletes nothing when the uid is no longer on the server', async () => {
+  // Nothing holds the uid any more, which is where a delete would have left it.
+  it('counts a uid no longer on the server as deleted, expunging nothing', async () => {
     const { mgr, account, client } = arrange(new Map());
-    expect(await mgr.permanentDeleteMessage(account, 7, 'Drafts', { expectMessageId: '<old@example.test>' })).toBe(false);
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Drafts', { expectMessageId: '<old@example.test>' })).toBe(true);
+    expect(client.messageFlagsAdd).not.toHaveBeenCalled();
     expect(client.messageDelete).not.toHaveBeenCalled();
   });
 
@@ -6308,6 +6323,222 @@ describe('permanentDeleteMessage with expectMessageId', () => {
     expect(await mgr.permanentDeleteMessage(account, 7, 'Drafts')).toBe(true);
     expect(client.fetch).not.toHaveBeenCalled();
     expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  // messageParser stores a Message-ID cut at 500 characters, so the row of a message with a
+  // longer one holds a prefix of what the server copy carries.
+  const LONG_ID = `<${'x'.repeat(600)}@example.test>`;
+
+  it('deletes the uid when the row holds the Message-ID cut at the storage cap', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, LONG_ID]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectMessageId: LONG_ID.slice(0, 500) })).toBe(true);
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  it('deletes nothing when a cut Message-ID is not the start of the server copy\'s', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, `<${'y'.repeat(600)}@example.test>`]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectMessageId: LONG_ID.slice(0, 500) })).toBe(false);
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  it('does not take a short Message-ID for the start of a longer one', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<old@example.test.other>']]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectMessageId: '<old@example.test' })).toBe(false);
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  // A row of the messages table, and the server copy sync filed it from: sync stores the copy's
+  // INTERNALDATE as the row's date and its first From address as from_email.
+  const AT = new Date('2026-10-21T09:00:00Z');
+  const LATER = new Date('2026-10-21T09:00:01Z');
+  const row = (fields) => ({ message_id: null, date: AT, from_email: 'scanner@example.test', subject: 'Scan', ...fields });
+  const scan = (fields) => ({ messageId: null, internalDate: AT, from: 'scanner@example.test', subject: 'Scan', ...fields });
+
+  it.each([
+    ['the row has none and the server copy has one', row(), scan({ messageId: '<second@example.test>' })],
+    ['the row has <> and the server copy has one', row({ message_id: '<>' }), scan({ messageId: '<second@example.test>' })],
+    ['the row has one and the server copy has none', row({ message_id: '<first@example.test>' }), scan()],
+  ])('deletes nothing when only one side has a Message-ID: %s', async (_case, expectRow, copy) => {
+    const { mgr, account, client } = arrange(new Map([[7, copy]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow })).toBe(false);
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  it('deletes a server copy with no Message-ID whose INTERNALDATE, sender and subject are the row\'s', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, scan()]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row() })).toBe(true);
+    expect(client.fetch).toHaveBeenCalledWith('7', { uid: true, envelope: true, internalDate: true }, { uid: true });
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  it.each([
+    ['another INTERNALDATE', row(), scan({ internalDate: LATER })],
+    ['another subject', row(), scan({ subject: 'Invoice' })],
+    // The two cases from the #666 review: the same subject and time from another sender, and no
+    // subject on either.
+    ['another sender', row(), scan({ from: 'printer@example.test' })],
+    ['no subject and another sender', row({ subject: '(no subject)' }), scan({ subject: '', from: 'printer@example.test' })],
+    ['no date on either side', row({ date: null }), scan({ internalDate: null })],
+  ])('deletes nothing when neither has a Message-ID and they have %s', async (_case, expectRow, copy) => {
+    const { mgr, account, client } = arrange(new Map([[7, copy]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow })).toBe(false);
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  it('compares the sender without regard to case', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, scan({ from: 'Scanner@Example.test' })]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row() })).toBe(true);
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  it('takes the sender from a mailbox and host, as parseMessage does', async () => {
+    const { mgr, account, client } = arrange(new Map());
+    client.fetch = vi.fn(async function* () {
+      yield { uid: 7, envelope: { messageId: null, subject: 'Scan', from: [{ mailbox: 'scanner', host: 'example.test' }] }, internalDate: AT };
+    });
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row() })).toBe(true);
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  it('compares the subject as sync stores it, decoded and trimmed', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, scan({ subject: ' =?UTF-8?Q?Caf=C3=A9?= ' })]]));
+    decodeMimeWords.mockImplementation(s => s.replace('=?UTF-8?Q?Caf=C3=A9?=', 'Café'));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row({ subject: 'Café' }) })).toBe(true);
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  // Without a subject in the envelope, sync takes the row's from the Subject header, or stores
+  // '(no subject)', and the header is not fetched here.
+  it('compares only INTERNALDATE and sender when the server copy\'s envelope has no subject', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, scan({ subject: '' })]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row({ subject: 'From the Subject header' }) })).toBe(true);
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  // Nothing a row with no Message-ID stores tells apart two messages with its INTERNALDATE, sender
+  // and subject, so with two in the folder it could be either.
+  it('deletes nothing when another message in the folder matches the row as well', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, scan()], [8, scan()]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row() })).toBe(false);
+    // The days around the row's date, wide enough for any server's time zone.
+    expect(client.search).toHaveBeenCalledWith({ since: new Date('2026-10-19T00:00:00Z'), before: new Date('2026-10-24T00:00:00Z') }, { uid: true });
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  it('deletes the copy when nothing else in the folder matches the row', async () => {
+    const { mgr, account, client } = arrange(new Map([
+      [7, scan()],
+      [8, scan({ internalDate: LATER })],
+      [9, scan({ from: 'printer@example.test' })],
+      [10, scan({ messageId: '<scan@example.test>' })],
+    ]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row() })).toBe(true);
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  it('deletes nothing when the folder cannot be searched for another match', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, scan()]]));
+    client.search.mockResolvedValue(false);
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row() })).toBe(false);
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  // Copies that share a Message-ID can be taken for each other, an accepted limit.
+  it('does not search the folder for a row with a Message-ID', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<a@example.test>'], [8, '<a@example.test>']]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row({ message_id: '<a@example.test>' }) })).toBe(true);
+    expect(client.search).not.toHaveBeenCalled();
+  });
+
+  // The bulk delete of rows already in Trash. Rows hold PostgreSQL BIGINT uids as strings.
+  it('bulkPermanentDelete deletes only the uids whose server copy is the row\'s message', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<a@example.test>'], [8, '<someone-elses@example.test>']]));
+    const expectRows = new Map([[7, row({ message_id: '<a@example.test>' })], [8, row({ message_id: '<b@example.test>' })]]);
+    expect(await mgr.bulkPermanentDelete(account, ['7', '8'], 'Trash', { expectRows }))
+      .toEqual({ succeeded: ['7'], failed: [], mismatched: ['8'] });
+    expect(client.fetch).toHaveBeenCalledTimes(1);
+    expect(client.search).not.toHaveBeenCalled();
+    expect(client.messageDelete).toHaveBeenCalledTimes(1);
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  it('bulkPermanentDelete counts a uid no longer on the server as deleted, expunging nothing for it', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<a@example.test>']]));
+    const expectRows = new Map([[7, row({ message_id: '<a@example.test>' })], [8, row({ message_id: '<b@example.test>' })]]);
+    expect(await mgr.bulkPermanentDelete(account, [7, 8], 'Trash', { expectRows }))
+      .toEqual({ succeeded: [7, 8], failed: [], mismatched: [] });
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  it('bulkPermanentDelete expunges nothing when no server copy matches', async () => {
+    const { mgr, account, client } = arrange(new Map([[8, '<someone-elses@example.test>']]));
+    expect(await mgr.bulkPermanentDelete(account, [8], 'Trash', { expectRows: new Map([[8, row({ message_id: '<b@example.test>' })]]) }))
+      .toEqual({ succeeded: [], failed: [], mismatched: [8] });
+    expect(client.messageFlagsAdd).not.toHaveBeenCalled();
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  it('bulkPermanentDelete checks a row with no Message-ID by INTERNALDATE, sender and subject', async () => {
+    const { mgr, account, client } = arrange(new Map([
+      [7, '<a@example.test>'],
+      [8, scan()],
+      [9, scan({ messageId: '<z@example.test>' })],
+      [10, scan({ internalDate: LATER })],
+      [11, scan({ from: 'printer@example.test' })],
+    ]));
+    const expectRows = new Map([[7, row({ message_id: '<a@example.test>' })], [8, row()], [9, row({ message_id: '<>' })], [10, row()], [11, row()]]);
+    expect(await mgr.bulkPermanentDelete(account, [7, 8, 9, 10, 11], 'Trash', { expectRows }))
+      .toEqual({ succeeded: [7, 8], failed: [], mismatched: [9, 10, 11] });
+    expect(client.fetch).toHaveBeenCalledWith('7,8,9,10,11', { uid: true, envelope: true, internalDate: true }, { uid: true });
+    expect(client.messageDelete).toHaveBeenCalledWith('7,8', { uid: true });
+  });
+
+  it('bulkPermanentDelete leaves a row with no Message-ID that another message in the folder also matches', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, scan()], [8, scan()], [9, scan({ subject: 'Invoice' })]]));
+    const expectRows = new Map([[7, row()], [9, row({ subject: 'Invoice' })]]);
+    expect(await mgr.bulkPermanentDelete(account, [7, 9], 'Trash', { expectRows }))
+      .toEqual({ succeeded: [9], failed: [], mismatched: [7] });
+    // Both rows' dates fall on one day, so one search serves them both.
+    expect(client.search).toHaveBeenCalledTimes(1);
+    expect(client.messageDelete).toHaveBeenCalledWith('9', { uid: true });
+  });
+
+  it('bulkPermanentDelete reports the uids it tried, and those already gone, when the expunge fails and is verified', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<a@example.test>'], [8, '<someone-elses@example.test>'], [9, '<c@example.test>']]));
+    client.messageDelete.mockRejectedValueOnce(new Error('connection lost'));
+    client.search = vi.fn(async () => [9]); // 7 went, 9 is still there
+    const expectRows = new Map([7, 8, 9, 10].map(uid => [uid, row({ message_id: `<${'abcd'[uid - 7]}@example.test>` })]));
+    expect(await mgr.bulkPermanentDelete(account, [7, 8, 9, 10], 'Trash', { expectRows }))
+      .toEqual({ succeeded: [7, 10], failed: [9], mismatched: [8] });
+    expect(client.search).toHaveBeenCalledWith({ uid: '7,9' }, { uid: true });
+  });
+
+  it('bulkPermanentDelete counts every uid it tried as failed when the expunge fails and cannot be verified', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<a@example.test>'], [8, '<someone-elses@example.test>']]));
+    client.messageDelete.mockRejectedValueOnce(new Error('connection lost'));
+    client.search = vi.fn(async () => { throw new Error('connection lost'); });
+    const expectRows = new Map([7, 8, 9].map(uid => [uid, row({ message_id: `<${'abc'[uid - 7]}@example.test>` })]));
+    expect(await mgr.bulkPermanentDelete(account, [7, 8, 9], 'Trash', { expectRows }))
+      .toEqual({ succeeded: [9], failed: [7], mismatched: [8] });
+  });
+
+  it('a FETCH answered with an unsolicited flags-only response for the uid still finds its Message-ID', async () => {
+    const { mgr, account, client } = arrange(new Map());
+    client.fetch = vi.fn(async function* () {
+      yield { uid: 7, envelope: { messageId: '<a@example.test>' } };
+      yield { uid: 7, flags: new Set(['\\Seen']) };
+    });
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectMessageId: '<a@example.test>' })).toBe(true);
+    expect(await mgr.bulkPermanentDelete(account, [7], 'Trash', { expectRows: new Map([[7, row({ message_id: '<a@example.test>' })]]) }))
+      .toEqual({ succeeded: [7], failed: [], mismatched: [] });
+    expect(client.messageDelete).toHaveBeenCalledTimes(2);
+  });
+
+  it('bulkPermanentDelete without expected rows deletes as before, with no FETCH', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<a@example.test>'], [8, '<b@example.test>']]));
+    expect(await mgr.bulkPermanentDelete(account, [7, 8], 'Trash')).toEqual({ succeeded: [7, 8], failed: [], mismatched: [] });
+    expect(client.fetch).not.toHaveBeenCalled();
+    expect(client.messageDelete).toHaveBeenCalledWith('7,8', { uid: true });
   });
 });
 
