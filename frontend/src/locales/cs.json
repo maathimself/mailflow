@@ -567,8 +567,7 @@
       "aiReplyGenerate": "Vygenerovat",
       "aiReplyReading": "Čtení konverzace…",
       "aiReplyPartial": "Podle nejnovější části konverzace: zbytek byl příliš dlouhý na odeslání AI.",
-      "aiWritePlaceholder": "Co má e-mail říct? Např. požádej o cenovou nabídku",
-      "aiWriteInstruction": "Pokyn pro koncept AI",
+      "aiReplyLeftOut": "Podle {{count}} nejnovějších zpráv konverzace: starší byly vynechány.",
       "aiTooLong": "tento koncept má {{count}} znaků, víc než {{max}}, které AI zpracuje. Zkraťte ho nebo odstraňte citovaný text a zkuste to znovu.",
       "aiNotAllowed": "správce vypnul AI pro váš účet.",
       "aiFeatureOff": "správce vypnul asistenta psaní AI."

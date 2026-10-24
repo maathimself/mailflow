@@ -196,8 +196,7 @@
       "aiReplyGenerate": "Gerar",
       "aiReplyReading": "Lendo a conversa…",
       "aiReplyPartial": "Baseada na parte mais recente da conversa: o restante era longo demais para enviar à IA.",
-      "aiWritePlaceholder": "O que escrever? Ex.: peça um orçamento",
-      "aiWriteInstruction": "Instrução para o rascunho da IA",
+      "aiReplyLeftOut": "Baseada nas {{count}} mensagens mais recentes da conversa: as mais antigas ficaram de fora.",
       "aiTooLong": "este rascunho tem {{count}} caracteres, mais do que os {{max}} que a IA aceita. Encurte-o ou remova o texto citado e tente novamente.",
       "aiNotAllowed": "o administrador desativou a IA na sua conta.",
       "aiFeatureOff": "o administrador desativou o assistente de composição com IA."

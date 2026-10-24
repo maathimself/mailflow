@@ -450,6 +450,16 @@ describe('conversation actions', () => {
     const data = useStore.getState().composeData;
     assert.equal(data?.aiReply, true);
     assert.equal(data.inReplyTo, '<1@x>');
+    assert.equal(data.isReplyAll, false, 'a plain reply, the reply default');
+    await React.act(async () => { useStore.getState().closeCompose(); });
+  });
+
+  // As the reading pane's does (#577 review).
+  test('Reply with AI answers all when that is the user\'s reply default', async (t) => {
+    await React.act(async () => { useStore.setState({ replyDefault: 'replyAll' }); });
+    t.after(() => React.act(async () => { useStore.setState({ replyDefault: 'reply' }); }));
+    await click(button('m1', 'compose.toolbar.aiReply'));
+    assert.equal(useStore.getState().composeData?.isReplyAll, true);
     await React.act(async () => { useStore.getState().closeCompose(); });
   });
 

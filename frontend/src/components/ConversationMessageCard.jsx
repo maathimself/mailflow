@@ -51,6 +51,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
   const { t } = useTranslation();
   const accounts = useStore(s => s.accounts);
   const openCompose = useStore(s => s.openCompose);
+  const replyDefault = useStore(s => s.replyDefault);
   const addNotification = useStore(s => s.addNotification);
   const incrementUnread = useStore(s => s.incrementUnread);
   const decrementUnread = useStore(s => s.decrementUnread);
@@ -346,8 +347,9 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
             <CardBtn onClick={() => openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll: true })}>
               {t('message.replyAll')}
             </CardBtn>
+            {/* Like the reading pane's, it answers the way the user's reply default does. */}
             {aiReplyEnabled && (
-              <CardBtn onClick={() => openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll: false, aiReply: true })}>
+              <CardBtn onClick={() => openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll: replyDefault === 'replyAll', aiReply: true })}>
                 {t('compose.toolbar.aiReply')}
               </CardBtn>
             )}

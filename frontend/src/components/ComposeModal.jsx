@@ -30,7 +30,7 @@ import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } f
 import { resolveSignatureEnabled } from '../utils/composeSignature.js';
 import { UNDO_SEND_SECONDS, undoWindowMs, trackHeldSend, reopenCompose } from '../utils/heldSend.js';
 import { openSentMessage } from '../utils/openSentMessage.js';
-import { loadReplyConversation, buildReplyPrompt, buildDraftPrompt, MAX_INSTRUCTION_CHARS } from '../utils/aiReply.js';
+import { aiReplyAvailable, loadReplyConversation, buildReplyPrompt, MAX_INSTRUCTION_CHARS } from '../utils/aiReply.js';
 import { frameGeometry } from '../utils/frameGeometry.js';
 import { AI_MESSAGE_MAX_CHARS } from '../aiActions.js';
 import { stripTags } from '../utils/stripTags.js';
@@ -344,6 +344,9 @@ export default function ComposeModal() {
   const [htmlMode, setHtmlMode] = useState(false);
   const [htmlSource, setHtmlSource] = useState('');
   const [aiStatus, setAiStatus] = useState(null);
+  // A reply's AI menu offers Reply with AI in place of Write draft only where the reading pane
+  // offers it: with both the writing assistant and summaries on.
+  const aiReplyEnabled = isReply && aiReplyAvailable(aiStatus, plaintextEmail);
   // A reply opened by the message view's "Reply with AI" starts with the panel waiting for the
   // instruction.
   const [aiPanel, setAiPanel] = useState(() => (composeData?.aiReply && isReply
@@ -807,8 +810,8 @@ export default function ComposeModal() {
 
   const handleAiAction = async (action) => {
     aiAbortRef.current?.abort();
-    // "Reply with AI" and "Write draft" wait for the user's instruction before they ask for anything.
-    if (action === 'reply' || action === 'draft') {
+    // "Reply with AI" waits for the user's instruction before it asks for anything.
+    if (action === 'reply') {
       setAiPanel({ action, status: 'input', instruction: '', text: '' });
       return;
     }
@@ -821,7 +824,12 @@ export default function ComposeModal() {
     const currentText = plaintextEmail ? body
       : (htmlMode ? stripTags(htmlSource) : (editor?.getText({ blockSeparator: '\n' }) ?? ''));
 
+    const toStr = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])].join(', ');
     const PROMPTS = {
+      draft: {
+        system: 'You are a professional email writing assistant. Write a complete, well-structured email based on the provided subject and recipient context. Return only the email body text. Use plain text with no markdown or HTML. Use double newlines between paragraphs.',
+        user: `Subject: ${subject || '(none)'}\nTo: ${toStr || '(none)'}\n\nWrite a complete professional email.`,
+      },
       improve: {
         system: 'You are a professional email writing assistant. Improve the following email for clarity, tone, and professionalism. Return only the improved email body text. Use plain text with no markdown or HTML.',
         user: currentText.trim() || '(empty)',
@@ -835,8 +843,7 @@ export default function ComposeModal() {
         user: currentText.trim() || '(empty)',
       },
     };
-    if (!PROMPTS[action]) return;
-    const { system, user } = PROMPTS[action];
+    const { system, user } = PROMPTS[action] || PROMPTS.draft;
     // Improve, Shorten and Grammar replace the whole draft with their result (applyAiText), so
     // a draft cut to fit the request lost everything past the cut on Apply. One too long is
     // refused instead (#633).
@@ -870,57 +877,55 @@ export default function ComposeModal() {
     }
   };
 
-  // Writes from the user's instruction: a reply from the conversation, or a new email from its
-  // subject and recipients. For a reply the conversation is read first (the panel says so
-  // meanwhile); then the text streams in like the other actions.
-  const generateFromInstruction = async (action, instruction) => {
+  // Writes the reply from the conversation and the user's instruction. The conversation is read
+  // first (the panel says so meanwhile); then the text streams in like the other actions.
+  const generateReply = async (instruction) => {
     aiAbortRef.current?.abort();
     const controller = new AbortController();
     aiAbortRef.current = controller;
-    const replying = action === 'reply';
-    setAiPanel({ action, status: replying ? 'reading' : 'generating', instruction, text: '' });
-    const closing = {
-      senderName: fromAlias?.name || fromAccount?.sender_name || fromAccount?.name,
-      hasSignature: signatureEnabled && !!stripHtml(signatureContentRef.current || '').trim(),
-    };
+    setAiPanel({ action: 'reply', status: 'reading', instruction, text: '' });
 
     try {
-      let messages;
-      if (replying) {
-        if (!aiReplyConversationRef.current) {
-          const conversation = await loadReplyConversation({
-            threadId: composeData?.threadId,
-            inReplyTo: composeData?.inReplyTo,
-            accountId: composeData?.accountId,
-            quotedBody,
-            originalFrom: composeData?.originalFrom,
-            accounts,
-          }, { getThread: api.getThread, getMessageBody: api.getMessageBody, resolveMessage: api.resolveMessage });
-          // Kept only when something was found, so a failed load is tried again next time.
-          if (conversation.messages.length) aiReplyConversationRef.current = conversation;
-        }
-        if (controller.signal.aborted) return;
-        const loaded = aiReplyConversationRef.current || { messages: [], leftOut: 0 };
-        const reply = buildReplyPrompt({ conversation: loaded.messages, leftOut: loaded.leftOut, instruction, subject, ...closing });
-        messages = reply.messages;
-        // What did not fit is said under the suggestion, as a cut summary is (#633).
-        setAiPanel(p => p ? { ...p, status: 'generating', partial: reply.partial } : p);
-      } else {
-        const to = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])].join(', ');
-        messages = buildDraftPrompt({ instruction, subject, to, ...closing });
+      if (!aiReplyConversationRef.current) {
+        const conversation = await loadReplyConversation({
+          threadId: composeData?.threadId,
+          inReplyTo: composeData?.inReplyTo,
+          accountId: composeData?.accountId,
+          quotedBody,
+          originalFrom: composeData?.originalFrom,
+          subject,
+          accounts,
+        }, { getThread: api.getThread, getMessageBody: api.getMessageBody, resolveMessage: api.resolveMessage });
+        // Kept only when something was found, so a failed load is tried again next time.
+        if (conversation.messages.length) aiReplyConversationRef.current = conversation;
       }
+      if (controller.signal.aborted) return;
+      const loaded = aiReplyConversationRef.current || { messages: [], leftOut: 0 };
+      const { messages, partial } = buildReplyPrompt({
+        conversation: loaded.messages,
+        leftOut: loaded.leftOut,
+        instruction,
+        subject,
+        senderName: fromAlias?.name || fromAccount?.sender_name || fromAccount?.name,
+        hasSignature: signatureEnabled && !!stripHtml(signatureContentRef.current || '').trim(),
+      });
+      // What was left out is said under the suggestion, as a cut summary is (#633).
+      setAiPanel(p => p ? { ...p, status: 'generating', partial } : p);
       const fullText = await api.ai.chat(messages, {
-        // A reply is written from received mail, which the summaries switch covers; a new email
-        // only from what the user typed, which the writing assistant's does (#644).
-        purpose: replying ? 'summarize' : 'compose',
+        // A draft written from received mail: the server holds it to both the writing assistant
+        // and summaries switches (#644).
+        purpose: 'reply',
         signal: controller.signal,
         onDelta: (text) => setAiPanel(p => p ? { ...p, text } : p),
       });
       setAiPanel(p => p ? { ...p, status: 'done', text: fullText } : p);
     } catch (err) {
       if (err.name !== 'AbortError') {
+        // Refused: AI is off for this user, or one of the two switches is off for everyone, which
+        // the message names.
         const text = err.code === 'ai_user_disabled' ? t('compose.toolbar.aiNotAllowed')
-          : err.code === 'ai_feature_disabled' ? t('compose.toolbar.aiFeatureOff')
+          : err.code === 'ai_feature_disabled'
+            ? t(err.feature === 'summarize' ? 'message.aiFeatureOff' : 'compose.toolbar.aiFeatureOff')
             : err.message;
         setAiPanel(p => p ? { ...p, status: 'error', text } : p);
       }
@@ -1893,7 +1898,7 @@ export default function ComposeModal() {
                 }}
                 isMobile
                 aiEnabled={!htmlMode && aiStatus?.enabled && aiStatus?.features?.compose}
-                aiReplyEnabled={isReply}
+                aiReplyEnabled={aiReplyEnabled}
                 onAiAction={handleAiAction}
                 aiPanelOpen={!!aiPanel}
               />
@@ -1902,7 +1907,7 @@ export default function ComposeModal() {
                   mobile
                   panel={aiPanel}
                   onInstructionChange={instruction => setAiPanel(p => p ? { ...p, instruction } : p)}
-                  onGenerate={generateFromInstruction}
+                  onGenerate={generateReply}
                   onApply={applyAiText}
                   onClose={closeAiPanel}
                 />
@@ -2493,7 +2498,7 @@ export default function ComposeModal() {
           else { editor?.commands.setContent(htmlSource, false); setHtmlMode(false); }
         }}
         aiEnabled={!htmlMode && aiStatus?.enabled && aiStatus?.features?.compose}
-        aiReplyEnabled={isReply}
+        aiReplyEnabled={aiReplyEnabled}
         onAiAction={handleAiAction}
         aiPanelOpen={!!aiPanel}
       />}
@@ -2501,7 +2506,7 @@ export default function ComposeModal() {
         <ComposeAiPanel
           panel={aiPanel}
           onInstructionChange={instruction => setAiPanel(p => p ? { ...p, instruction } : p)}
-          onGenerate={generateFromInstruction}
+          onGenerate={generateReply}
           onApply={applyAiText}
           onClose={closeAiPanel}
         />
@@ -3021,16 +3026,14 @@ function ComposeAiPanel({ panel, mobile = false, onInstructionChange, onGenerate
     : { fontSize: 12, padding: '5px 14px', borderRadius: 6, cursor: 'pointer' };
   const primary = { ...buttonBase, background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', fontWeight: 500 };
   const secondary = { ...buttonBase, background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)' };
-  const generate = () => { if (!busy) onGenerate(panel.action, panel.instruction); };
+  const generate = () => { if (!busy) onGenerate(panel.instruction); };
   const replying = panel.action === 'reply';
-  // Writing a reply or a new email starts from an instruction; the other actions rework the text.
-  const instructed = replying || panel.action === 'draft';
 
   return (
     <div style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', padding: mobile ? '10px 16px' : '10px 14px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>
-          {replying ? t('compose.toolbar.aiReply') : instructed ? t('compose.toolbar.aiWriteDraft') : t('compose.toolbar.aiPanelTitle')}
+          {replying ? t('compose.toolbar.aiReply') : t('compose.toolbar.aiPanelTitle')}
         </span>
         <button
           onClick={onClose}
@@ -3038,15 +3041,15 @@ function ComposeAiPanel({ panel, mobile = false, onInstructionChange, onGenerate
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', fontSize: 16, lineHeight: 1, padding: '0 2px' }}
         >×</button>
       </div>
-      {instructed && (
+      {replying && (
         <div style={{ display: 'flex', gap: 8, marginBottom: panel.status === 'input' ? 0 : 8 }}>
           <input
             autoFocus
             value={panel.instruction}
             onChange={e => onInstructionChange(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); generate(); } }}
-            placeholder={replying ? t('compose.toolbar.aiReplyPlaceholder') : t('compose.toolbar.aiWritePlaceholder')}
-            aria-label={replying ? t('compose.toolbar.aiReplyInstruction') : t('compose.toolbar.aiWriteInstruction')}
+            placeholder={t('compose.toolbar.aiReplyPlaceholder')}
+            aria-label={t('compose.toolbar.aiReplyInstruction')}
             maxLength={MAX_INSTRUCTION_CHARS}
             style={{
               flex: 1, minWidth: 0, background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
@@ -3059,17 +3062,24 @@ function ComposeAiPanel({ panel, mobile = false, onInstructionChange, onGenerate
           </button>
         </div>
       )}
-      {panel.status === 'reading' && (
-        <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{t('compose.toolbar.aiReplyReading')}</div>
-      )}
-      {panel.status === 'generating' && !panel.text && (
-        <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{t('compose.toolbar.aiGenerating')}</div>
-      )}
-      {panel.partial && panel.text && panel.status !== 'error' && (
-        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6 }}>{t('compose.toolbar.aiReplyPartial')}</div>
-      )}
+      {/* Always there, so a screen reader announces each status line as it changes. */}
+      <div role="status" aria-live="polite">
+        {panel.status === 'reading' && (
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{t('compose.toolbar.aiReplyReading')}</div>
+        )}
+        {panel.status === 'generating' && !panel.text && (
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{t('compose.toolbar.aiGenerating')}</div>
+        )}
+        {panel.partial && panel.text && panel.status !== 'error' && (
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6 }}>
+            {panel.partial.tooLong
+              ? t('compose.toolbar.aiReplyPartial')
+              : t('compose.toolbar.aiReplyLeftOut', { count: panel.partial.read })}
+          </div>
+        )}
+      </div>
       {panel.status === 'error' ? (
-        <div style={{ fontSize: 12, color: 'var(--red)' }}>{t('compose.toolbar.aiError', { message: panel.text })}</div>
+        <div role="alert" style={{ fontSize: 12, color: 'var(--red)' }}>{t('compose.toolbar.aiError', { message: panel.text })}</div>
       ) : panel.text ? (
         <div style={{ fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', maxHeight: 160, overflowY: 'auto', lineHeight: 1.5 }}>
           {panel.text}

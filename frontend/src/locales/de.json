@@ -196,8 +196,7 @@
       "aiReplyGenerate": "Erstellen",
       "aiReplyReading": "Unterhaltung wird gelesen…",
       "aiReplyPartial": "Basiert auf dem neuesten Teil der Unterhaltung: Der Rest war zu lang, um ihn an die KI zu senden.",
-      "aiWritePlaceholder": "Was soll die E-Mail sagen? Z. B. um ein Angebot bitten",
-      "aiWriteInstruction": "Anweisung für den KI-Entwurf",
+      "aiReplyLeftOut": "Basiert auf den {{count}} neuesten Nachrichten der Unterhaltung: Ältere wurden weggelassen.",
       "aiTooLong": "Dieser Entwurf hat {{count}} Zeichen, mehr als die {{max}}, die die KI verarbeiten kann. Kürzen Sie ihn oder entfernen Sie den zitierten Text und versuchen Sie es erneut.",
       "aiNotAllowed": "Ihr Administrator hat KI für Ihr Konto ausgeschaltet.",
       "aiFeatureOff": "Ihr Administrator hat den KI-Schreibassistenten ausgeschaltet."

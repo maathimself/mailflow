@@ -988,7 +988,7 @@ describe('Reply with AI', () => {
   ];
   const bodies = {
     m1: { text: 'Here is the artwork for the new box.' },
-    m2: { text: 'Could the logo be bigger?\n\nOn Thu, Ana wrote:\n> Here is the artwork for the new box.' },
+    m2: { text: 'Could the logo be bigger?\n\nOn Thu, Oct 1, 2026 at 10:00 AM Ana <ana@example.invalid> wrote:\n> Here is the artwork for the new box.' },
     m3: { text: 'Done, the logo is bigger now. Can you approve?' },
   };
   const real = {};
@@ -1028,7 +1028,7 @@ describe('Reply with AI', () => {
     api.ai.chat = async (messages, { purpose, onDelta } = {}) => {
       chats.push(messages);
       purposes.push(purpose);
-      if (refusal) throw Object.assign(new Error('refused'), { status: 403, code: refusal });
+      if (refusal) throw Object.assign(new Error('refused'), { status: 403, ...refusal });
       onDelta?.(answer.slice(0, 5));
       return answer;
     };
@@ -1071,11 +1071,11 @@ describe('Reply with AI', () => {
 
       assert.equal(chats.length, 1);
       const request = chats[0].map(m => m.content).join('\n');
-      assert.match(request, /Here is the artwork for the new box\./);
-      assert.match(request, /From: Me <me@example\.invalid> \(the user\)\n[\s\S]*Could the logo be bigger\?/);
-      assert.match(request, /\(the one being answered\)[\s\S]*Can you approve\?/);
-      assert.match(request, /Instruction for the reply: approve it$/);
-      assert.equal(purposes.at(-1), 'summarize', 'asked for under summaries: it sends received mail');
+      assert.equal(request.split('Here is the artwork for the new box.').length - 1, 1, 'once: the quote under a reply is not sent again');
+      assert.match(request, /<<<EMAIL [0-9a-f]{24} 2 of 3; written by the user>>>\nFrom: Me <me@example\.invalid>\n[\s\S]*Could the logo be bigger\?/);
+      assert.match(request, /; the one being answered>>>[\s\S]*Can you approve\?/);
+      assert.deepEqual(chats[0].at(-1), { role: 'user', content: 'Instruction for the reply: approve it' }, 'the instruction in its own message');
+      assert.equal(purposes.at(-1), 'reply', 'asked for under both switches: a draft written from received mail');
       assert.match(document.body.textContent, /Approved, thank you\./, 'the suggestion is shown');
     });
 
@@ -1097,7 +1097,7 @@ describe('Reply with AI', () => {
       await click(button('message.aiRegenerate'));
       await React.act(async () => {});
       assert.equal(chats.length, 3);
-      assert.match(chats[2][1].content, /Instruction for the reply: approve it, and ask for the print date$/);
+      assert.equal(chats[2].at(-1).content, 'Instruction for the reply: approve it, and ask for the print date');
       assert.equal(threadLoads, 1, 'the conversation was read once');
     });
 
@@ -1109,6 +1109,67 @@ describe('Reply with AI', () => {
       const editor = document.querySelector('.ProseMirror').editor;
       assert.equal(document.querySelectorAll('.ProseMirror a').length, 0, 'no link was created');
       assert.equal(editor.getText(), 'Approved. Pay at <a href="https://evil.example">the portal</a>.');
+    });
+
+    // Reply with AI needs two switches, so the refusal says which one is off (#577 review).
+    test('a refusal names the switch that is off, and is announced', async () => {
+      await openAiMenu();
+      await press(button('compose.toolbar.aiReply'));
+      const cases = [
+        [{ code: 'ai_feature_disabled', feature: 'summarize' }, 'message.aiFeatureOff'],
+        [{ code: 'ai_feature_disabled', feature: 'compose' }, 'compose.toolbar.aiFeatureOff'],
+        [{ code: 'ai_user_disabled' }, 'compose.toolbar.aiNotAllowed'],
+      ];
+      for (const [refused, key] of cases) {
+        refusal = refused;
+        try {
+          await click(button('compose.toolbar.aiReplyGenerate') || button('message.aiRegenerate'));
+          await React.act(async () => {});
+        } finally { refusal = null; }
+        assert.equal(document.querySelector('[role="alert"]')?.textContent, `compose.toolbar.aiError ${key}`);
+      }
+    });
+
+    test('says what it is doing in a live region', async () => {
+      let release;
+      api.ai.chat = (messages, { onDelta } = {}) => new Promise((resolve) => { release = () => { onDelta?.('Hi'); resolve('Hi'); }; });
+      try {
+        await click(button('message.aiRegenerate'));
+        await React.act(async () => {});
+        const status = document.querySelector('[role="status"]');
+        assert.equal(status?.getAttribute('aria-live'), 'polite');
+        assert.equal(status.textContent, 'compose.toolbar.aiGenerating');
+        await React.act(async () => { release(); });
+      } finally {
+        api.ai.chat = async (messages, { purpose, onDelta } = {}) => {
+          chats.push(messages);
+          purposes.push(purpose);
+          if (refusal) throw Object.assign(new Error('refused'), { status: 403, ...refusal });
+          onDelta?.(answer.slice(0, 5));
+          return answer;
+        };
+      }
+    });
+  });
+
+  describe('in a reply, with summaries off', () => {
+    before(async () => {
+      api.ai.status = async () => ({ enabled: true, features: { compose: true, summarize: false } });
+      await mount({
+        accountId: 'acct', isReply: true, subject: 'Re: Artwork', body: '', cc: [],
+        to: [ANA], originalFrom: [ANA], inReplyTo: '<m3@example.invalid>',
+      });
+    });
+    after(async () => {
+      await unmount();
+      api.ai.status = async () => ({ enabled: true, features: { compose: true, summarize: true } });
+    });
+
+    // As the reading pane and the conversation view offer no Reply with AI then (#577 review).
+    test('offers Write draft, not Reply with AI', async () => {
+      await openAiMenu();
+      assert.ok(button('compose.toolbar.aiWriteDraft'));
+      assert.equal(button('compose.toolbar.aiReply'), undefined);
     });
   });
 
@@ -1136,8 +1197,40 @@ describe('Reply with AI', () => {
       await React.act(async () => {});
       const request = chats.at(-1)[1].content;
       assert.ok(request.length <= 32_000, `${request.length}`);
-      assert.match(request, /\[Only the first \d+ of \d+ characters of this message are included/);
+      assert.match(request, /; only its first \d+ of \d+ characters are included, to fit the AI request size limit>>>/);
       assert.match(document.body.textContent, /compose\.toolbar\.aiReplyPartial/);
+    });
+  });
+
+  describe('on a thread longer than the messages it reads', () => {
+    const stubs = {};
+    before(async () => {
+      Object.assign(stubs, { getThread: api.getThread, getMessageBody: api.getMessageBody });
+      const long = Array.from({ length: 12 }, (_, i) => ({
+        id: `l${i}`, message_id: `<l${i}@example.invalid>`, thread_id: '<l0@example.invalid>',
+        date: new Date(Date.UTC(2026, 9, 1 + i)).toISOString(), from_name: 'Ana', from_email: ANA.email,
+      }));
+      api.getThread = async () => ({ messages: long });
+      api.getMessageBody = async (id) => ({ text: `Body of ${id}.` });
+      await mount({
+        accountId: 'acct', isReply: true, subject: 'Re: Artwork', body: '', cc: [], threadId: '<l0@example.invalid>',
+        to: [ANA], originalFrom: [ANA], inReplyTo: '<l11@example.invalid>',
+      });
+    });
+    after(async () => {
+      await unmount();
+      Object.assign(api, stubs);
+    });
+
+    test('says the older messages were left out, not that they were too long to send', async () => {
+      await openAiMenu();
+      await press(button('compose.toolbar.aiReply'));
+      answer = 'Hi Ana,\n\nApproved.';
+      await click(button('compose.toolbar.aiReplyGenerate'));
+      await React.act(async () => {});
+      assert.match(chats.at(-1)[1].content, /\(oldest first; 2 earlier emails left out\):/);
+      assert.match(document.body.textContent, /compose\.toolbar\.aiReplyLeftOut/);
+      assert.doesNotMatch(document.body.textContent, /compose\.toolbar\.aiReplyPartial/);
     });
   });
 
@@ -1220,7 +1313,6 @@ describe('Reply with AI', () => {
   describe('in a new message', () => {
     before(() => mount({ accountId: 'acct', to: ['Bob <bob@example.invalid>'], cc: [], subject: 'Quote', body: '' }));
     after(() => unmount());
-    const draftField = () => document.querySelector('input[aria-label="compose.toolbar.aiWriteInstruction"]');
 
     test('Reply with AI is not offered, since there is nothing to reply to', async () => {
       await openAiMenu();
@@ -1228,45 +1320,15 @@ describe('Reply with AI', () => {
       assert.equal(button('compose.toolbar.aiReply'), undefined);
     });
 
-    test('Write draft asks what to write before it writes anything', async () => {
+    test('Write draft writes from the subject and recipients, without asking for an instruction', async () => {
       const asked = chats.length;
+      answer = 'Hi Bob,\n\nCould you send a quote?';
       await press(button('compose.toolbar.aiWriteDraft'));
-      assert.ok(draftField(), 'the instruction field is open');
-      assert.equal(document.activeElement?.getAttribute('aria-label'), 'compose.toolbar.aiWriteInstruction', 'and has the focus');
-      assert.equal(chats.length, asked, 'nothing is asked yet');
-      await typeInto(draftField(), 'ask for a quote for 500 boxes');
-      answer = 'Hi Bob,\n\nCould you send a quote for 500 boxes?\n\nThanks';
-      await click(button('compose.toolbar.aiReplyGenerate'));
       await React.act(async () => {});
-      const request = chats.at(-1).map(m => m.content).join('\n');
-      assert.match(request, /Subject: Quote\nTo: Bob <bob@example\.invalid>/);
-      assert.match(request, /Instruction for the email: ask for a quote for 500 boxes$/);
-      assert.equal(purposes.at(-1), 'compose', 'asked for under the writing assistant');
-    });
-
-    test('Apply keeps the blank lines between paragraphs', async () => {
-      await click(button('compose.toolbar.aiApply'));
-      const editor = document.querySelector('.ProseMirror').editor;
-      assert.equal(editor.getHTML(), '<p>Hi Bob,</p><p></p><p>Could you send a quote for 500 boxes?</p><p></p><p>Thanks</p>');
-    });
-
-    test('says so when the administrator has turned AI off for the user', async () => {
-      await openAiMenu();
-      await press(button('compose.toolbar.aiWriteDraft'));
-      refusal = 'ai_user_disabled';
-      try {
-        await click(button('compose.toolbar.aiReplyGenerate'));
-        await React.act(async () => {});
-      } finally { refusal = null; }
-      assert.match(document.body.textContent, /compose\.toolbar\.aiNotAllowed/);
-    });
-
-    test('with the field left empty, it writes from the subject on its own', async () => {
-      await openAiMenu();
-      await press(button('compose.toolbar.aiWriteDraft'));
-      await click(button('compose.toolbar.aiReplyGenerate'));
-      await React.act(async () => {});
-      assert.match(chats.at(-1)[1].content, /Instruction for the email: Write a suitable email for this subject\.$/);
+      assert.equal(instructionField(), null);
+      assert.equal(chats.length, asked + 1);
+      assert.match(chats.at(-1)[1].content, /^Subject: Quote\nTo: Bob <bob@example\.invalid>/);
+      assert.equal(purposes.at(-1), 'compose');
     });
   });
 });

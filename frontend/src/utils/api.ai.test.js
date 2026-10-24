@@ -90,4 +90,15 @@ describe('ChatGPT authorization API', () => {
     );
     assert.deepEqual(body, { messages: [{ role: 'user', content: 'Summarize' }], purpose: 'summarize' });
   });
+
+  // Reply with AI needs two switches, so the caller is told which one is off.
+  it('keeps the switch a feature refusal names', async () => {
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      error: 'AI summaries and actions are turned off by your administrator.', code: 'ai_feature_disabled', feature: 'summarize',
+    }), { status: 403 });
+    await assert.rejects(
+      streamAiChat([{ role: 'user', content: 'Reply' }], { purpose: 'reply' }),
+      (error) => error.code === 'ai_feature_disabled' && error.feature === 'summarize',
+    );
+  });
 });
