@@ -328,6 +328,40 @@ body, #root {
 }
 
 /* Tables in compose */
+.composer-context-scrim { position: fixed; inset: 0; z-index: 11999; }
+.composer-context-menu {
+  position: fixed;
+  z-index: 12000;
+  width: 232px;
+  max-width: calc(100vw - 8px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 5px 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-modal);
+}
+.composer-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.composer-context-menu button:hover, .composer-context-menu button:focus-visible { background: var(--bg-hover); outline: none; }
+.composer-context-menu button:disabled { color: var(--text-tertiary); opacity: .55; cursor: default; background: none; }
+.composer-context-check { width: 14px; flex-shrink: 0; color: var(--accent); }
+.composer-context-arrow { margin-left: auto; font-size: 17px; line-height: 1; color: var(--text-secondary); }
+.composer-context-separator { height: 1px; background: var(--border-subtle); margin: 4px 0; }
+.composer-context-emoji { position: fixed; z-index: 12000; }
 .table-insert-picker {
   position: fixed;
   z-index: 9900;
