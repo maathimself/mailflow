@@ -91,9 +91,10 @@ export function createStageTracker() {
   return { stage, transportOptions: { logger, transactionLog: true } };
 }
 
-// Each attempt records how far it got (createStageTracker), and the next address is tried only
-// when the failed attempt never sent MAIL FROM: a connection lost later may have delivered the
-// message already (#685). With `trackStage`, a failed send also carries that as err.smtpStage.
+// Every attempt, whatever the caller, records how far it got (createStageTracker), and the next
+// address is tried only when the failed attempt never sent MAIL FROM: a connection lost later may
+// have delivered the message already (#685). `trackStage` changes none of that; it only copies the
+// stage onto a failed send as err.smtpStage.
 async function runWithAddressFallback({
   resolved,
   transportOptions,
@@ -157,7 +158,8 @@ export function createSmtpTransport(resolved, transportOptions, createTransport 
   };
 }
 
-// `trackStage` is for scheduled send: it adds err.smtpStage to a failed send (createSmtpTransport).
+// Failover is gated on MAIL FROM for every send (runWithAddressFallback). `trackStage`, which
+// scheduled send passes, only adds err.smtpStage to a failed send.
 export async function createAccountSmtpTransport(inputAccount, { trackStage = false } = {}) {
   let account = inputAccount;
   const refreshers = { microsoft: refreshMicrosoftToken, google: refreshGoogleToken };

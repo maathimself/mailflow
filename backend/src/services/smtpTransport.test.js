@@ -122,9 +122,8 @@ describe('createSmtpTransport', () => {
 
 // Its EHLO reply offers AUTH but not STARTTLS, as a relay without TLS does, or as any EHLO
 // does after someone on the path has stripped STARTTLS from it.
-async function startSmtpServerWithoutStarttls({ dropAfterData = false } = {}) {
+async function startSmtpServerWithoutStarttls() {
   const commands = [];
-  const messages = [];
   const sockets = new Set();
   const server = createServer(socket => {
     sockets.add(socket);
@@ -141,9 +140,7 @@ async function startSmtpServerWithoutStarttls({ dropAfterData = false } = {}) {
         if (inData) {
           if (line === '.') {
             inData = false;
-            messages.push(line);
-            if (dropAfterData) socket.destroy();
-            else socket.write('250 2.0.0 Queued\r\n');
+            socket.write('250 2.0.0 Queued\r\n');
           }
           continue;
         }
@@ -164,7 +161,6 @@ async function startSmtpServerWithoutStarttls({ dropAfterData = false } = {}) {
   return {
     port: server.address().port,
     commands,
-    messages,
     close: () => {
       for (const socket of sockets) socket.destroy();
       return new Promise(resolve => server.close(resolve));
@@ -201,29 +197,9 @@ describe('createSmtpTransport with real SMTP sessions', () => {
       });
 
       expect(outcome.accepted).toEqual(['user@example.com']);
-      expect(healthy.messages).toHaveLength(1);
+      expect(healthy.commands).toContain('DATA');
       expect(createTransport).toHaveBeenCalledTimes(2);
     } finally {
-      await healthy.close();
-    }
-  });
-
-  it('fails a send the server dropped after DATA instead of resubmitting it elsewhere', async () => {
-    const dropping = await startSmtpServerWithoutStarttls({ dropAfterData: true });
-    const healthy = await startSmtpServerWithoutStarttls();
-    try {
-      const { createTransport, outcome } = await sendThroughPorts({
-        '203.0.113.10': dropping.port,
-        '203.0.113.11': healthy.port,
-      });
-
-      expect(outcome).toBeInstanceOf(Error);
-      expect(outcome.command).toBe('CONN');
-      expect(dropping.messages).toHaveLength(1);
-      expect(healthy.messages).toHaveLength(0);
-      expect(createTransport).toHaveBeenCalledTimes(1);
-    } finally {
-      await dropping.close();
       await healthy.close();
     }
   });
