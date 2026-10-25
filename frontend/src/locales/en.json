@@ -163,6 +163,26 @@
       "tooLate": "Too late to undo: the message is already being sent",
       "undoFailed": "Could not undo: no response from the server"
     },
+    "table": {
+      "cellProperties": "Cell properties",
+      "rows": "Rows",
+      "columns": "Columns",
+      "cellPadding": "Cell padding",
+      "cellSpacing": "Cell spacing",
+      "headerRow": "Header row",
+      "tableProperties": "Table properties",
+      "border": "Border",
+      "alignment": "Alignment",
+      "alignLeft": "Left",
+      "alignCenter": "Center",
+      "alignRight": "Right",
+      "width": "Width",
+      "widthUnit": "Width unit",
+      "percent": "Percent",
+      "pixels": "Pixels",
+      "size": "Table {{cols}} × {{rows}}",
+      "insertCustom": "Insert table…"
+    },
     "toolbar": {
       "removeTable": "Remove table",
       "typography": "Typography",

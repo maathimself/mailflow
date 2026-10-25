@@ -19,10 +19,9 @@ import Placeholder from '@tiptap/extension-placeholder';
 import { TextStyle, Color as TiptapColor, FontFamily, BackgroundColor } from '@tiptap/extension-text-style';
 import { TextAlign } from '@tiptap/extension-text-align';
 import Image from '@tiptap/extension-image';
-import { Table } from '@tiptap/extension-table';
+import { ComposerTable, ComposerTableCell, ComposerTableHeader, createTableContent } from '../utils/editorTable.js';
+import TableInsertMenu from './TableInsertMenu.jsx';
 import { TableRow } from '@tiptap/extension-table-row';
-import { TableHeader } from '@tiptap/extension-table-header';
-import { TableCell } from '@tiptap/extension-table-cell';
 import { ComposerLink } from '../utils/editorLink.js';
 import { PasteWithoutPageColors } from '../utils/editorPaste.js';
 import { pasteWithoutPageColors } from '../utils/contentEditablePaste.js';
@@ -157,10 +156,10 @@ export function createComposeExtensions(placeholder) {
     PasteWithoutPageColors,
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     ResizableImage.configure({ inline: true, allowBase64: true }),
-    Table.configure({ resizable: false }),
+    ComposerTable.configure({ resizable: false }),
     TableRow,
-    TableHeader,
-    TableCell,
+    ComposerTableHeader,
+    ComposerTableCell,
     Placeholder.configure({ placeholder }),
   ];
 }
@@ -4154,8 +4153,12 @@ export function RichToolbar({ editor, onAttach, onInsertImage, signatureControl,
   const openTable = (e) => {
     e.preventDefault();
     if (tablePos) { setTablePos(null); return; }
+    saveSelection();
     const r = tableBtnRef.current.getBoundingClientRect();
-    setTablePos({ top: r.bottom + 4, left: r.left });
+    const left = Math.max(4, Math.min(r.left, window.innerWidth - 234 * uiScale - 4));
+    const height = 326 * uiScale;
+    const top = window.innerHeight - r.bottom >= height ? r.bottom + 4 : Math.max(4, r.top - height);
+    setTablePos({ top, left });
     setTypeMenuPos(null); setEmojiPos(null); setLinkPos(null);
   };
 
@@ -4503,41 +4506,17 @@ export function RichToolbar({ editor, onAttach, onInsertImage, signatureControl,
       )}
 
       {tablePos && (
-        <div ref={tablePopRef} style={{
-          position: 'fixed', top: descale(tablePos.top, uiScale), left: descale(tablePos.left, uiScale), zIndex: 9900,
-          width: 'max-content', maxWidth: `calc(${100 / uiScale}vw - ${8 / uiScale}px)`, boxSizing: 'border-box',
-          background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-          borderRadius: 8, padding: '10px 12px', boxShadow: 'var(--shadow-popover)',
-          display: 'flex', flexDirection: 'column', gap: 8,
-        }}>
-          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>{t('compose.toolbar.insertTable')}</span>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {[
-              { label: '3×3', rows: 3, cols: 3 },
-              { label: '3×4', rows: 3, cols: 4 },
-              { label: '4×4', rows: 4, cols: 4 },
-            ].map(({ label, rows, cols }) => (
-              <button key={label} onMouseDown={e => {
-                e.preventDefault();
-                editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
-                setTablePos(null);
-              }} style={{
-                background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-                borderRadius: 5, padding: '5px 10px', cursor: 'pointer',
-                fontSize: 12, color: 'var(--text-primary)',
-              }}>{label}</button>
-            ))}
-          </div>
-          <button onMouseDown={e => {
-            e.preventDefault();
-            if (editor.isActive('table')) editor.chain().focus().deleteTable().run();
+        <TableInsertMenu position={tablePos} uiScale={uiScale} containerRef={tablePopRef}
+          onClose={() => setTablePos(null)}
+          onInsert={options => {
+            editor.chain().focus().setTextSelection(restoreSelection()).insertContent(createTableContent(options)).run();
             setTablePos(null);
-          }} style={{
-            background: 'none', border: 'none', color: 'var(--red)',
-            fontSize: 11, cursor: 'pointer', padding: 0, textAlign: 'left',
-            display: editor.isActive('table') ? 'block' : 'none',
-          }}>{t('compose.toolbar.removeTable')}</button>
-        </div>
+          }}
+          onRemove={editor.isActive('table') ? () => {
+            editor.chain().focus().deleteTable().run();
+            setTablePos(null);
+          } : undefined}
+        />
       )}
       {aiMenuPos && (
         <div ref={aiMenuRef} style={{

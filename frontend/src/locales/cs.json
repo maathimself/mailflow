@@ -703,6 +703,26 @@
       "tooLate": "Na vrácení je pozdě: zpráva se už odesílá",
       "undoFailed": "Nepodařilo se vrátit zpět: server neodpověděl"
     },
+    "table": {
+      "cellProperties": "Vlastnosti buněk",
+      "rows": "Řádky",
+      "columns": "Sloupce",
+      "cellPadding": "Vnitřní odsazení buněk",
+      "cellSpacing": "Mezery mezi buňkami",
+      "headerRow": "Řádek záhlaví",
+      "tableProperties": "Vlastnosti tabulky",
+      "border": "Ohraničení",
+      "alignment": "Zarovnání",
+      "alignLeft": "Vlevo",
+      "alignCenter": "Na střed",
+      "alignRight": "Vpravo",
+      "width": "Šířka",
+      "widthUnit": "Jednotka šířky",
+      "percent": "Procenta",
+      "pixels": "Pixely",
+      "size": "Tabulka {{cols}} × {{rows}}",
+      "insertCustom": "Vložit tabulku…"
+    },
     "toolbar": {
       "removeTable": "Odebrat tabulku",
       "typography": "Formátování písma",

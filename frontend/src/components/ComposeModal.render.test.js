@@ -45,12 +45,17 @@ Object.assign(globalThis, {
   window: dom.window, document: dom.window.document,
   localStorage: dom.window.localStorage, CustomEvent: dom.window.CustomEvent,
   Node: dom.window.Node, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement,
+  requestAnimationFrame: callback => setTimeout(callback, 0),
+  cancelAnimationFrame: id => clearTimeout(id),
   getComputedStyle: dom.window.getComputedStyle, matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
   ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
 dom.window.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+// jsdom has no text layout; editor focus and table insertion ask for range geometry.
+dom.window.Range.prototype.getClientRects = () => [];
+dom.window.Range.prototype.getBoundingClientRect = () => ({ top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 });
 globalThis.__VITE_ENV__ = { MODE: 'test', DEV: false, PROD: true };
 globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({}), text: async () => '' });
 
@@ -68,6 +73,130 @@ const ComposeModal = (await import('./ComposeModal.jsx')).default;
 const GMAIL_DRAFT = '<div dir="ltr">Hi Bob,<div><br></div><div>The contract is attached.</div></div>';
 
 const saved = [];
+
+describe('table insertion', () => {
+  const press = element => React.act(async () => {
+    element.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  });
+  const click = element => React.act(async () => { element.click(); });
+  const openPicker = () => press(document.querySelector('button[title="compose.toolbar.insertTable"]'));
+  const setField = (label, value) => React.act(async () => {
+    const field = [...document.querySelectorAll('.table-insert-field')]
+      .find(el => el.querySelector('span').textContent === label).querySelector('input, select');
+    const prototype = field.tagName === 'SELECT' ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, 'value').set.call(field, value);
+    field.dispatchEvent(new window.Event(field.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
+  });
+  const tableFrom = html => {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    return wrapper.querySelector('table');
+  };
+
+  test('the quick grid highlights the rectangle and inserts at the saved caret', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Before after</p>' });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await React.act(async () => { editor.commands.setTextSelection(8); });
+      await openPicker();
+      const cells = document.querySelectorAll('.table-insert-grid button');
+      assert.equal(cells.length, 64);
+      await React.act(async () => { cells[19].focus(); }); // Four columns by three rows.
+      assert.equal(document.querySelectorAll('.table-insert-grid .is-selected').length, 12);
+      await React.act(async () => { cells[19].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); });
+      assert.equal(document.activeElement, cells[20]);
+      await React.act(async () => { cells[19].focus(); });
+      await click(cells[19]);
+      const table = tableFrom(editor.getHTML());
+      assert.equal(table.rows.length, 3);
+      assert.equal(table.rows[0].cells.length, 4);
+      assert.equal(table.rows[0].cells[0].tagName, 'TH');
+      assert.equal(editor.state.doc.firstChild.textContent, 'Before ');
+      assert.equal(editor.state.doc.lastChild.textContent, 'after');
+      assert.equal(document.querySelector('.table-insert-picker'), null);
+    } finally { await close(); }
+  });
+
+  test('custom presentation survives HTML round trips and draft saves', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Draft</p>' });
+    try {
+      await openPicker();
+      await click(document.querySelector('.table-insert-action'));
+      assert.ok(document.querySelector('[role="dialog"]'));
+      assert.equal(document.activeElement, document.querySelector('.table-insert-dialog input'));
+      await React.act(async () => {
+        document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+      });
+      assert.equal(document.activeElement, document.querySelector('.table-insert-submit'));
+      await setField('compose.table.rows', '4');
+      await setField('compose.table.columns', '2');
+      await setField('compose.table.cellPadding', '6');
+      await setField('compose.table.cellSpacing', '4');
+      await setField('compose.table.border', '0');
+      await setField('compose.table.alignment', 'right');
+      await setField('compose.table.widthUnit', 'px');
+      await setField('compose.table.width', '498');
+      await click(document.querySelector('.table-insert-check input'));
+      await React.act(async () => {
+        document.querySelector('.table-insert-dialog').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+      });
+      const editor = document.querySelector('.ProseMirror').editor;
+      const assertTable = html => {
+        const table = tableFrom(html);
+        assert.equal(table.rows.length, 4);
+        assert.equal(table.rows[0].cells.length, 2);
+        assert.equal(table.querySelector('th'), null);
+        assert.equal(table.getAttribute('width'), '498');
+        assert.equal(table.style.width, '498px');
+        assert.equal(table.style.borderCollapse, 'separate');
+        assert.equal(table.style.borderSpacing, '4px');
+        assert.equal(table.getAttribute('align'), 'right');
+        assert.equal(table.style.marginLeft, 'auto');
+        assert.equal(table.getAttribute('cellpadding'), '6');
+        assert.equal(table.getAttribute('cellspacing'), '4');
+        assert.equal(table.getAttribute('border'), '0');
+        assert.equal(table.rows[0].cells[0].style.borderWidth, '0px');
+        assert.equal(table.rows[0].cells[0].style.padding, '6px');
+      };
+      assertTable(editor.getHTML());
+      await React.act(async () => { editor.commands.setContent(editor.getHTML()); });
+      assertTable(editor.getHTML());
+      await hideTab();
+      assertTable(saved.at(-1).body);
+    } finally { await close(); }
+  });
+
+  test('cancel and Escape leave the message unchanged', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Unchanged</p>' });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      const original = editor.getHTML();
+      await openPicker();
+      await click(document.querySelector('.table-insert-action'));
+      await click(document.querySelector('.table-insert-footer button'));
+      assert.equal(editor.getHTML(), original);
+      await openPicker();
+      await React.act(async () => {
+        document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      });
+      assert.equal(document.querySelector('.table-insert-picker'), null);
+      assert.equal(editor.getHTML(), original);
+      await hideTab();
+      assert.equal(saved.length, 0);
+    } finally { await close(); }
+  });
+
+  test('the picker still offers removal from inside an existing table', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<table><tr><td>Existing cell</td></tr></table>' });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await React.act(async () => { editor.commands.setTextSelection(4); });
+      await openPicker();
+      await click(document.querySelector('.table-insert-remove'));
+      assert.equal(tableFrom(editor.getHTML()), null);
+    } finally { await close(); }
+  });
+});
 
 // Autosave also runs when the tab is hidden, without waiting for the idle timer, which makes
 // it the deterministic way to ask the composer "would you save now?".

@@ -163,6 +163,26 @@
       "tooLate": "Tarde demais para desfazer: a mensagem já está sendo enviada",
       "undoFailed": "Não foi possível desfazer: o servidor não respondeu"
     },
+    "table": {
+      "cellProperties": "Propriedades das células",
+      "rows": "Linhas",
+      "columns": "Colunas",
+      "cellPadding": "Preenchimento das células",
+      "cellSpacing": "Espaçamento entre células",
+      "headerRow": "Linha de cabeçalho",
+      "tableProperties": "Propriedades da tabela",
+      "border": "Borda",
+      "alignment": "Alinhamento",
+      "alignLeft": "Esquerda",
+      "alignCenter": "Centralizado",
+      "alignRight": "Direita",
+      "width": "Largura",
+      "widthUnit": "Unidade de largura",
+      "percent": "Porcentagem",
+      "pixels": "Pixels",
+      "size": "Tabela {{cols}} × {{rows}}",
+      "insertCustom": "Inserir tabela…"
+    },
     "toolbar": {
       "removeTable": "Remover tabela",
       "typography": "Tipografia",
