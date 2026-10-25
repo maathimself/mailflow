@@ -76,7 +76,7 @@ const FOLDERS = [
 ];
 
 let root;
-async function mount({ collapsed = [], hidden = [] }) {
+async function mount({ collapsed = [], hidden = [], state = {} }) {
   if (root) await React.act(async () => root.unmount());
   useStore.setState({
     accounts: [ACCOUNT], accountsReady: true,
@@ -85,6 +85,8 @@ async function mount({ collapsed = [], hidden = [] }) {
     expandedAccounts: { 'acct-1': true },
     collapsedFolders: collapsed.map(p => `acct-1:${p}`),
     hiddenFolders: hidden.length ? { 'acct-1': hidden } : {},
+    scheduledCount: 0, scheduledAttention: 0,
+    ...state,
   });
   await React.act(async () => {
     root = createRoot(dom.window.document.getElementById('root'));
@@ -117,5 +119,46 @@ describe('Sidebar — collapsed folders show their subfolders\' unread mail (#53
   test('a collapsed folder with mail of its own adds it, and hidden subfolders stay out', async () => {
     await mount({ collapsed: ['Banking'], hidden: ['Banking/Muted'] });
     assert.equal(badgeOf('Banking'), '5');
+  });
+});
+
+// The Scheduled entry (#543, design 5.2): shown while anything is scheduled or needs attention, and
+// while the view is open; the badge is the pending count, a red dot says some need attention.
+describe('Sidebar: the Scheduled entry', () => {
+  const entry = () => [...dom.window.document.querySelectorAll('[data-mailbox-row]')]
+    .find(el => el.textContent.startsWith('sidebar.scheduled'));
+
+  test('hidden with nothing scheduled', async () => {
+    await mount({});
+    assert.equal(entry(), undefined);
+  });
+
+  test('shown with its pending count, and it opens the view with no account selected', async () => {
+    await mount({ state: { scheduledCount: 3 } });
+    assert.ok(entry());
+    assert.equal(entry().textContent, 'sidebar.scheduled3');
+    assert.equal(entry().querySelector('[data-nav-alert]'), null);
+    await React.act(async () => { entry().click(); });
+    assert.equal(useStore.getState().selectedAccountId, null);
+    assert.equal(useStore.getState().selectedFolder, '__scheduled__');
+  });
+
+  test('a red dot and its name say that some need attention', async () => {
+    await mount({ state: { scheduledCount: 0, scheduledAttention: 2 } });
+    assert.ok(entry().querySelector('[data-nav-alert]'));
+    assert.equal(entry().getAttribute('aria-label'), 'sidebar.scheduled, sidebar.scheduledAttention');
+  });
+
+  test('its name carries the pending count the badge shows, and the attention count', async () => {
+    await mount({ state: { scheduledCount: 1, scheduledAttention: 3 } });
+    assert.equal(entry().getAttribute('aria-label'), 'sidebar.scheduled, sidebar.scheduledPending, sidebar.scheduledAttention');
+    await mount({ state: { scheduledCount: 1, scheduledAttention: 0 } });
+    assert.equal(entry().getAttribute('aria-label'), 'sidebar.scheduled, sidebar.scheduledPending');
+  });
+
+  test('stays while the view is open, and is the active row, not All Inboxes', async () => {
+    await mount({ state: { selectedAccountId: null, selectedFolder: '__scheduled__' } });
+    assert.ok(entry());
+    assert.ok(entry().className.includes('nav-item-active'));
   });
 });

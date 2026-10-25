@@ -19,6 +19,17 @@ describe('compose send shortcut', () => {
   });
 });
 
+describe('compose send later shortcut', () => {
+  it('opens Send later for Command/Control+Shift+Enter, and only that', () => {
+    assert.equal(compose.isSendLaterShortcut({ key: 'Enter', ctrlKey: true, shiftKey: true }), true);
+    assert.equal(compose.isSendLaterShortcut({ key: 'Enter', metaKey: true, shiftKey: true }), true);
+    assert.equal(compose.isSendLaterShortcut({ key: 'Enter', ctrlKey: true }), false);
+    assert.equal(compose.isSendLaterShortcut({ key: 'Enter', ctrlKey: true, shiftKey: true, repeat: true }), false);
+    assert.equal(compose.isSendLaterShortcut({ key: 'Enter', ctrlKey: true, metaKey: true, shiftKey: true }), false);
+    assert.equal(compose.isSendLaterShortcut({ key: 'Enter', ctrlKey: true, shiftKey: true, altKey: true }), false);
+  });
+});
+
 function harness(body = null) {
   let payload = null;
   return {

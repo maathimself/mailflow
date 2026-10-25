@@ -846,15 +846,25 @@ function AccountsTab() {
   };
 
   const handleDelete = (id) => {
+    // Its scheduled messages go with it (#543, design 1.1): the dialog opens at once, and says how
+    // many when the count arrives; without it (the request failed) it says the rest.
+    const body = t('admin.accounts.deleteBody');
     setConfirmDialog({
-      title: 'Remove account?',
-      message: 'All synced messages for this account will be deleted. This cannot be undone.',
-      confirmLabel: 'Remove',
+      accountId: id,
+      title: t('admin.accounts.deleteTitle'),
+      message: body,
+      confirmLabel: t('admin.accounts.deleteConfirm'),
       onConfirm: async () => {
         await api.deleteAccount(id);
         setAccounts(accounts.filter(a => a.id !== id));
       },
     });
+    api.scheduled.count(id).then((r) => {
+      const scheduled = Number(r?.count) || 0;
+      if (scheduled <= 0) return;
+      setConfirmDialog(d => (d?.accountId === id
+        ? { ...d, message: `${body} ${t('admin.accounts.deleteScheduled', { n: scheduled })}` } : d));
+    }, () => {});
   };
 
   const handleReconnect = async (id) => {

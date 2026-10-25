@@ -71,18 +71,27 @@ export function scheduleMarkRead(msg) {
   const { markReadBehavior, markReadDelay } = useStore.getState();
   if (markReadBehavior === 'manual') return null;
   if (markReadBehavior === 'delay') {
-    const timer = setTimeout(() => {
-      const timers = scheduledByMessage.get(msg.id);
-      timers?.delete(timer);
-      scheduledMessageByTimer.delete(timer);
-      if (timers?.size === 0) scheduledByMessage.delete(msg.id);
-      applyMarkRead(msg);
-    }, (markReadDelay || 1) * 1000);
-    if (!scheduledByMessage.has(msg.id)) scheduledByMessage.set(msg.id, new Set());
-    scheduledByMessage.get(msg.id).add(timer);
-    scheduledMessageByTimer.set(timer, msg.id);
-    return timer;
+    return scheduleMarkReadTimer(msg.id, () => applyMarkRead(msg), (markReadDelay || 1) * 1000);
   }
   applyMarkRead(msg);
   return null;
+}
+
+// Every delayed automatic read goes through this registry, whoever schedules it, so that an
+// explicit read or unread on the message can cancel it with cancelScheduledMarkReadFor(id). The
+// list's own open-time delay was a bare setTimeout no other path could reach: marking the message
+// read by hand counted it twice when the delay ran out, and marking it unread again was undone by
+// it, on screen and on the server (#683).
+export function scheduleMarkReadTimer(id, run, delayMs) {
+  const timer = setTimeout(() => {
+    const timers = scheduledByMessage.get(id);
+    timers?.delete(timer);
+    scheduledMessageByTimer.delete(timer);
+    if (timers?.size === 0) scheduledByMessage.delete(id);
+    run();
+  }, delayMs);
+  if (!scheduledByMessage.has(id)) scheduledByMessage.set(id, new Set());
+  scheduledByMessage.get(id).add(timer);
+  scheduledMessageByTimer.set(timer, id);
+  return timer;
 }

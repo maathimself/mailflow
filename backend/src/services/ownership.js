@@ -104,6 +104,15 @@ export async function findOwnedContact(userId, contactId, { columns = 'c.*', cli
   return rows[0] || null;
 }
 
+// One of the user's scheduled messages. `forUpdate` locks the row for the rest of the
+// transaction, for a change that must see the status it checks.
+export async function findOwnedScheduledMessage(userId, scheduledId, { columns = '*', forUpdate = false, client = pool } = {}) {
+  let sql = `SELECT ${checkColumns(columns)} FROM scheduled_messages WHERE id = $1 AND user_id = $2`;
+  if (forUpdate) sql += ' FOR UPDATE';
+  const { rows } = await client.query(sql, [scheduledId, userId]);
+  return rows[0] || null;
+}
+
 // One of the user's address books.
 export async function findOwnedAddressBook(userId, bookId, { columns = '*', client = pool } = {}) {
   const { rows } = await client.query(

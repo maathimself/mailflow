@@ -23,6 +23,15 @@ import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.jsx';
 import { takePendingDeepLink, watchPendingDeepLink } from '../utils/pendingDeepLink.js';
+import { scheduledFeed } from '../utils/scheduledFeed.js';
+import { noticeToast, scheduledLinkId } from '../utils/scheduledView.js';
+import { openScheduledView } from '../utils/scheduledCompose.js';
+import { openSentMessage } from '../utils/openSentMessage.js';
+
+// Opens the Scheduled view at one message, highlighted (a notification link or a toast's Open).
+function openScheduledMessage(id) {
+  openScheduledView(useStore, id);
+}
 
 const ContactsPage = lazy(() => import('./ContactsPage.jsx'));
 const WindowLayer  = lazy(() => import('./WindowLayer.jsx'));
@@ -272,6 +281,20 @@ export default function MailApp() {
 
   const wsRef = useWebSocket();
 
+  // Scheduled messages (#543, design 5.3): the list and counts follow scheduled_changed, and a
+  // message the sender sent, failed or paused is told in a toast, with View or Open.
+  useEffect(() => scheduledFeed.start({
+    onNotices: (notices) => {
+      for (const notice of notices) {
+        useStore.getState().addNotification(noticeToast(notice, {
+          t,
+          openView: openScheduledMessage,
+          openSent: row => openSentMessage(useStore, { accountId: row.accountId, folder: row.result.sentFolder, messageId: row.result.messageId }),
+        }));
+      }
+    },
+  }), [t]);
+
   // Open a specific message by id (fetch → cache → select). Shared by the on-load
   // deep-link path and the service-worker notification-tap path so both behave
   // identically.
@@ -302,6 +325,9 @@ export default function MailApp() {
   // then open the message. IndexedDB is the reliable channel on iOS (postMessage can
   // be missed on a focus-with-reload, openWindow's URL is ignored on cold launch).
   const openPendingDeepLink = useCallback((url) => {
+    // A scheduled message's push (#543, design 5.3) opens the Scheduled view at that message.
+    const scheduledId = scheduledLinkId(url, window.location.origin);
+    if (scheduledId) { openScheduledMessage(scheduledId); return; }
     try {
       const id = new URL(url, window.location.origin).searchParams.get('m');
       if (id) openDeepLinkMessage(id);
@@ -315,6 +341,11 @@ export default function MailApp() {
   // stored id, plus any target the SW persisted for a notification tap.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const scheduledId = scheduledLinkId(window.location.href);
+    if (scheduledId) {
+      history.replaceState(null, '', window.location.pathname);
+      openScheduledMessage(scheduledId);
+    }
     const deepLinkId = params.get('m') || sessionStorage.getItem('mailflow_deep_link_id');
     if (deepLinkId) {
       sessionStorage.removeItem('mailflow_deep_link_id');

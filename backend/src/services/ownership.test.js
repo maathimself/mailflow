@@ -8,7 +8,7 @@ vi.mock('./db.js', () => ({ query: vi.fn() }));
 import { query } from './db.js';
 import {
   findOwnedAccount, findOwnedMessage, findOwnedMessages, findOwnedAlias, findOwnedContact, findOwnedAddressBook,
-  checkColumns, SIBLING_COUNT, CONTACT_READ_ONLY,
+  findOwnedScheduledMessage, checkColumns, SIBLING_COUNT, CONTACT_READ_ONLY,
 } from './ownership.js';
 
 const flat = sql => sql.replace(/\s+/g, ' ').trim();
@@ -60,6 +60,14 @@ describe('ownership lookups', () => {
     expect(flat(query.mock.calls[0][0])).toBe('SELECT ab.source FROM contacts c JOIN address_books ab ON ab.id = c.address_book_id WHERE c.id = $1 AND c.user_id = $2');
     expect(query.mock.calls[0][1]).toEqual(['c1', 'u1']);
     expect(query.mock.calls[1]).toEqual(['SELECT id FROM address_books WHERE id = $1 AND user_id = $2', ['b1', 'u1']]);
+  });
+
+  it('scopes a scheduled message by user, and locks it when asked', async () => {
+    await findOwnedScheduledMessage('u1', 's1', { columns: 'id, status' });
+    await findOwnedScheduledMessage('u1', 's1', { forUpdate: true });
+    expect(query.mock.calls[0]).toEqual(['SELECT id, status FROM scheduled_messages WHERE id = $1 AND user_id = $2', ['s1', 'u1']]);
+    expect(query.mock.calls[1]).toEqual(['SELECT * FROM scheduled_messages WHERE id = $1 AND user_id = $2 FOR UPDATE', ['s1', 'u1']]);
+    await expect(findOwnedScheduledMessage('u1', 's1', { columns: 'id; DROP TABLE users' })).rejects.toThrow(TypeError);
   });
 
   it('runs on a transaction client instead of the pool when given one', async () => {

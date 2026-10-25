@@ -208,7 +208,74 @@
     "recipientMenu": {
       "copy": "复制地址",
       "copyAll": "复制此栏全部"
-    }
+    },
+    "scheduleSend": {
+      "title": "稍后发送",
+      "tooltip": "稍后发送 (Ctrl+Shift+Enter)",
+      "tomorrowMorning": "明天上午",
+      "tomorrowAfternoon": "明天下午",
+      "mondayMorning": "周一上午",
+      "pick": "选择日期和时间",
+      "dateLabel": "日期",
+      "timeLabel": "时间",
+      "dateTimeLabel": "日期和时间",
+      "sendsAt": "将于 {{when}} 发送",
+      "timeZone": "时区：{{zone}}",
+      "schedule": "定时发送",
+      "scheduledFor": "已定时于 {{when}}",
+      "change": "更改",
+      "changeTime": "更改时间",
+      "errors": {
+        "invalid": "请输入日期和时间。",
+        "past": "该时间已过去。",
+        "tooSoon": "请选择至少一分钟之后的时间。",
+        "tooFar": "请选择未来 366 天内的时间。",
+        "clockBehind": "此设备的时钟比服务器慢 {{minutes}} 分钟，服务器时间为 {{time}}。",
+        "clockAhead": "此设备的时钟比服务器快 {{minutes}} 分钟，服务器时间为 {{time}}。",
+        "holdLost": "此邮件已在另一个窗口中打开，因此无法再在此处保存。你的文字仍保留在这里，可以复制。",
+        "versionConflict": "此邮件已在其他地方更改。请关闭后从“定时”中重新打开以查看最新版本。",
+        "notHeld": "此邮件未在此处打开编辑。请关闭后从“定时”中重新打开。",
+        "pickNewTime": "定时时间已过。请选择新的时间。",
+        "failed": "无法定时发送此邮件。",
+        "heldElsewhere": "此邮件已在另一个窗口中打开。"
+      },
+      "edit": {
+        "update": "更新",
+        "updating": "正在保存…",
+        "options": "定时选项",
+        "unschedule": "取消定时（存为草稿）",
+        "unscheduleTitle": "将此邮件移到草稿箱？",
+        "unscheduleGo": "存为草稿",
+        "unscheduled": "已移到草稿箱",
+        "unscheduleKept": "已存到草稿箱，但定时邮件仍处于定时状态：此窗口已不再持有它。如果不应发送，请在“定时”中删除它。",
+        "closeTitle": "保存对此定时邮件的更改？",
+        "saveChanges": "保存更改",
+        "discardChanges": "放弃更改",
+        "switchBlocked": "请先更新或关闭你正在编辑的定时邮件。",
+        "sendNow": "立即发送",
+        "pickNewTime": "选择新时间",
+        "keepPaused": "保持暂停",
+        "dueTitle": "此邮件原定于 {{when}} 发送。",
+        "dueBody": "现在关闭，它会保持暂停，未经你确认绝不会发出。",
+        "keptPaused": "已暂停。需要发送时，请在“定时”中恢复。",
+        "heldElsewhereBody": "改为在此处编辑，另一个窗口将无法再保存它。",
+        "takeOver": "改为在此编辑",
+        "close": "关闭"
+      },
+      "confirm": {
+        "title": "再次定时？",
+        "go": "仍然定时"
+      },
+      "laterToday": "今天稍晚",
+      "undoFailed": "无法撤销定时",
+      "sendNow": {
+        "undone": "未发送。它已按原样回到“定时”。",
+        "undoFailed": "无法撤销立即发送"
+      },
+      "scheduleAnyway": "仍要定时发送",
+      "undoFailedOpen": "撤销失败。请在“定时”中打开。"
+    },
+    "selectAccount": "请选择用于发送的账户"
   },
   "message": {
     "find": {
@@ -553,7 +620,138 @@
     "emptied": "文件夹已清空",
     "backToAccounts": "返回账户列表",
     "updateAvailable": "有可用更新：v{{version}}",
-    "snoozed": "已暂停"
+    "snoozed": "已暂停",
+    "scheduled": "定时",
+    "scheduledPending": "等待发送：{{n}}",
+    "scheduledAttention": "需要处理：{{n}}"
+  },
+  "scheduled": {
+    "refresh": "刷新",
+    "loadFailed": "无法加载定时邮件。",
+    "empty": "没有定时邮件",
+    "emptyDesc": "在撰写窗口中使用“稍后发送”。",
+    "moreSent": "不显示更早发送的邮件。",
+    "sentMessage": "已发送的邮件",
+    "to": "收件人：{{names}}",
+    "toMore": "收件人：{{names}} 等另外 {{more}} 人",
+    "detail": "给出的原因：{{detail}}",
+    "zoneTime": "{{time}}（{{zone}}）",
+    "sections": {
+      "attention": "需要处理",
+      "scheduled": "已定时",
+      "sent": "已发送",
+      "deleted": "已删除"
+    },
+    "when": {
+      "today": "今天 {{time}}",
+      "tomorrow": "明天 {{time}}",
+      "yesterday": "昨天 {{time}}"
+    },
+    "chip": {
+      "sending": "正在发送",
+      "editing": "正在编辑",
+      "failed": "失败",
+      "paused": "已暂停",
+      "uncertain": "请检查投递",
+      "sent": "已发送",
+      "sentLate": "延迟发送",
+      "retrying": "正在重试",
+      "deleted": "已删除"
+    },
+    "reason": {
+      "overdue": "已延迟超过 6 小时，因此 MailFlow 暂未发送。请立即发送或选择新时间。",
+      "restored": "恢复备份时已暂停。",
+      "editAbandoned": "到发送时间时它正处于编辑状态。",
+      "accountDisabled": "其账户已关闭。",
+      "needsReauth": "请重新登录该账户后再发送。",
+      "user": "你已将其暂停。",
+      "paused": "已暂停发送。",
+      "smtpRejected": "邮件服务器拒绝了它。",
+      "tooLarge": "对邮件服务器来说太大。",
+      "config": "该账户的发送设置需要检查。",
+      "tls": "与邮件服务器的安全连接失败。",
+      "invalidMessage": "无法生成该邮件。",
+      "aliasMissing": "原定的发件地址已不存在。",
+      "decryptFailed": "无法在此服务器上解密。",
+      "accountMissing": "其账户已不存在。",
+      "gaveUp": "邮件服务器一直出错，MailFlow 已停止重试。",
+      "failed": "无法发送。",
+      "uncertain": "MailFlow 在发送过程中停止，邮件可能已送达，也可能没有。请检查“已发送”文件夹。",
+      "retrying": "上次尝试失败。下次尝试：{{when}}。",
+      "deleted": "可在 {{when}} 前恢复。"
+    },
+    "sent": {
+      "markedSent": "你已将其标记为已发送。",
+      "late": "延迟发送：原定 {{scheduled}}，实际 {{sent}} 发送。",
+      "lateOffline": "延迟发送：原定 {{scheduled}}，因 MailFlow 离线，实际 {{sent}} 发送。",
+      "refused": "邮件服务器拒绝了以下收件人：{{list}}",
+      "deferred": "未送达 {{list}}：对方服务器要求稍后重试，而 MailFlow 不会重试。请重新发给他们。",
+      "noSentFolder": "未保存副本：该账户没有“已发送”文件夹。",
+      "noSentCopy": "无法在“已发送”中保存副本。"
+    },
+    "a11y": {
+      "scheduledFor": "定时于 {{when}}",
+      "sentAt": "已于 {{when}} 发送",
+      "to": "发给 {{names}}",
+      "toMore": "发给 {{names}} 等另外 {{more}} 人",
+      "subject": "主题 {{subject}}"
+    },
+    "actions": {
+      "edit": "编辑",
+      "reschedule": "重新定时",
+      "sendNow": "立即发送",
+      "resume": "恢复",
+      "retry": "重试",
+      "sendAnyway": "仍然发送",
+      "markSent": "标记为已发送",
+      "cancel": "删除",
+      "delete": "永久删除",
+      "viewSent": "在“已发送”中查看",
+      "remove": "从列表中移除",
+      "more": "更多操作",
+      "menu": "定时邮件操作",
+      "restore": "恢复邮件"
+    },
+    "confirm": {
+      "uncertainTitle": "可能已经送达",
+      "uncertainBody": "MailFlow 在发送时停止了。请先检查“已发送”文件夹。仍要再次发送吗？",
+      "restoredTitle": "因恢复备份而暂停",
+      "restoredBody": "恢复备份时已将其暂停。如果旧服务器仍在运行，它也可能发送这封邮件。要从这里发送吗？",
+      "restoredGo": "从这里发送",
+      "sendAnywayTitle": "要再次发送吗？",
+      "sendAnywayBody": "它可能已经送达：MailFlow 在发送时停止了。请先检查“已发送”文件夹。如果已发出，收件人会收到两次。",
+      "markSentTitle": "要标记为已发送吗？",
+      "markSentBody": "如果你已在“已发送”文件夹中找到它，再这样做。MailFlow 会删除其内容，且不会发送。",
+      "deleteTitle": "要永久删除吗？",
+      "deleteBody": "它不会被发送，且无法恢复。"
+    },
+    "toast": {
+      "resumed": "已恢复，正在发送。",
+      "sendingNow": "正在发送。",
+      "markedSent": "已标记为已发送",
+      "deleted": "已删除定时邮件",
+      "deletedForGood": "已永久删除",
+      "restored": "已恢复",
+      "sent": "定时邮件已发送",
+      "notSent": "未发送：{{reason}}",
+      "open": "打开",
+      "restoredPaused": "已恢复并暂停。需要发送时请恢复发送。"
+    },
+    "errors": {
+      "needsReauth": "请先重新登录该账户，然后再恢复。",
+      "accountDisabled": "请先重新开启该账户，然后再恢复。",
+      "undoExpired": "来不及撤销：邮件正在发出。",
+      "notFound": "这封定时邮件已不存在。",
+      "sending": "它正在发送中。",
+      "sent": "它已经发送。",
+      "cancelled": "它已被删除。",
+      "editing": "它正在另一个窗口中编辑。",
+      "failed": "无法更改定时邮件。",
+      "restoreFailed": "无法恢复",
+      "restoreExpired": "已无法恢复。",
+      "linkNotFound": "未找到该定时邮件。"
+    },
+    "serverReply": "服务器回复：{{detail}}"
   },
   "contextMenu": {
     "find": "查找",
@@ -1006,7 +1204,11 @@
       "trustedAuthservDetectedNone": "暂无数据——为该账户启用反垃圾邮件后才会分析邮件。",
       "trustedAuthservWarn": "只信任您确认为邮件服务商接收服务器的 ID。",
       "enabledGlobally": "已全局启用",
-      "microsoftImapNoteSignIn": "Microsoft 不再接受 Outlook.com、Hotmail、Live 和 MSN 邮箱的密码。请改用 Microsoft 登录：无需应用密码。"
+      "microsoftImapNoteSignIn": "Microsoft 不再接受 Outlook.com、Hotmail、Live 和 MSN 邮箱的密码。请改用 Microsoft 登录：无需应用密码。",
+      "deleteScheduled": "将随之删除的尚未发送的定时邮件：{{n}} 封。",
+      "deleteTitle": "要移除账户吗？",
+      "deleteBody": "此账户的所有已同步邮件都将被删除。此操作无法撤销。",
+      "deleteConfirm": "移除"
     },
     "folderMappings": {
       "title": "文件夹映射",

@@ -765,3 +765,121 @@ describe('MessageList — a conversation another account also received (#476)', 
     await settle();
   });
 });
+
+// A delayed read-on-open still pending when the reader marks the message read or unread by hand
+// (#683). The list's timer was a bare setTimeout nothing else could cancel: a manual read was
+// counted twice when it ran out, and a manual unread was undone by it, on the server too.
+describe('MessageList — a manual read or unread cancels the delayed read-on-open (#683)', () => {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const readCalls = () => CALLS.filter(c => /bulk-read/.test(c.path)).map(c => c.body.read);
+  let prefs;
+  // Each test opens its own message: a read leaves the id in the module's 10 s read guard, which
+  // would show the next test's copy of the same id as read.
+  let seq = 0;
+  let id;
+  const open = async () => {
+    const row = container.querySelector(`[data-msgid="${id}"]`);
+    const target = row.querySelector('[draggable]') || row;
+    await React.act(async () => {
+      target.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+  };
+  const start = async (opts = {}) => {
+    id = `delay-${++seq}`;
+    prefs = { markReadBehavior: useStore.getState().markReadBehavior, markReadDelay: useStore.getState().markReadDelay };
+    await mount({ rows: [{ ...MESSAGE, id, message_id: `<${id}@example.com>`, is_read: false }], threadedView: false, ...opts });
+    await React.act(async () => {
+      useStore.setState({ markReadBehavior: 'delay', markReadDelay: 1, unreadCounts: { byAccount: { 'acct-1': 1 }, total: 1 } });
+    });
+    CALLS = [];
+    await open();
+  };
+  const outlastDelay = () => React.act(async () => { await sleep(1300); });
+  const finish = async () => {
+    await React.act(async () => { useStore.setState({ ...prefs, selectedMessageId: null }); });
+  };
+
+  test('B: m marks it read once, not again when the delay runs out', async () => {
+    await start();
+    await React.act(async () => { shortcutBus.emit('toggleRead'); });
+    await outlastDelay();
+    assert.deepEqual(readCalls(), [true]);
+    assert.equal(useStore.getState().messages[0].is_read, true);
+    await finish();
+  });
+
+  test('A: m to read then m to unread stays unread after the delay', async () => {
+    await start();
+    await React.act(async () => { shortcutBus.emit('toggleRead'); });
+    await React.act(async () => { shortcutBus.emit('toggleRead'); });
+    await outlastDelay();
+    assert.deepEqual(readCalls(), [true, false]);
+    assert.equal(useStore.getState().messages[0].is_read, false);
+    await finish();
+  });
+
+  test('B: the context menu Mark as read sends one read, not two', async () => {
+    await start();
+    const row = container.querySelector(`[data-msgid="${id}"]`);
+    const target = row.querySelector('[draggable]') || row;
+    await React.act(async () => {
+      target.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
+    });
+    const item = [...dom.window.document.querySelectorAll('div, button')]
+      .filter(el => el.textContent === 'contextMenu.markRead').pop();
+    assert.ok(item, 'the context menu offers Mark as read');
+    await React.act(async () => { item.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); await sleep(10); });
+    await outlastDelay();
+    assert.deepEqual(readCalls(), [true]);
+    await finish();
+  });
+
+  test('u after opening keeps it unread past the delay', async () => {
+    await start();
+    await React.act(async () => { shortcutBus.emit('markUnread'); });
+    await outlastDelay();
+    assert.deepEqual(readCalls(), []);
+    assert.equal(useStore.getState().messages[0].is_read, false);
+    await finish();
+  });
+
+  test('left alone, the delayed read still happens once', async () => {
+    await start();
+    await outlastDelay();
+    assert.deepEqual(readCalls(), [true]);
+    await finish();
+  });
+});
+
+// A refresh that arrives while the list is loading (#682): it used to be dropped, so mail whose
+// new_messages event landed during the first load stayed hidden until the next event.
+describe('MessageList — a refresh during a load runs when the load finishes (#682)', () => {
+  test('the held refresh fetches again and shows the new mail', async () => {
+    const M2 = { ...MESSAGE, id: 'msg-new', uid: 2, message_id: '<new@example.com>', subject: 'Arrived during load' };
+    await mount({ rows: [MESSAGE], threadedView: false });
+    const realFetch = globalThis.fetch;
+    let release;
+    const held = new Promise(r => { release = r; });
+    let listCalls = 0;
+    globalThis.fetch = async (url, opts) => {
+      if (String(url).includes('/mail/messages?')) {
+        listCalls += 1;
+        // The first load is held; the refresh after it sees the mail that arrived meanwhile.
+        if (listCalls === 1) { await held; SERVED = [MESSAGE]; }
+        else SERVED = [M2, MESSAGE];
+      }
+      return realFetch(url, opts);
+    };
+    try {
+      // Reload the list as a change of folder does, and hold it.
+      await React.act(async () => { useStore.getState().setSelectedFolder?.('INBOX'); useStore.setState(s => ({ messagesRefreshToken: s.messagesRefreshToken + 1 })); });
+      assert.equal(useStore.getState().loadingMessages, true, 'the load is in flight');
+      await React.act(async () => { window.dispatchEvent(new dom.window.CustomEvent('mailflow:refresh')); });
+      await React.act(async () => { release(); await new Promise(r => setTimeout(r, 20)); });
+      assert.ok(listCalls >= 2, `the held refresh ran after the load (list fetches: ${listCalls})`);
+      assert.ok(container.querySelector('[data-msgid="msg-new"]'), 'the new mail is listed');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});

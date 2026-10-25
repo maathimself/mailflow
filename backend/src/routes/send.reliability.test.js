@@ -95,6 +95,12 @@ describe('send failure semantics', () => {
     expect((await post()).status).toBe(500);
     expect(redisClient.del).toHaveBeenCalledWith('send_idem:u1:send1');
   });
+  it('answers an SMTP rejection with the safe message only, whatever the error carries', async () => {
+    sendMail.mockRejectedValueOnce(Object.assign(new Error('550 5.1.1 <x@y.invalid> unknown'), { responseCode: 550, code: 'EENVELOPE', command: 'RCPT TO' }));
+    const res = await post();
+    expect(res.status).toBe(500);
+    expect(await res.text()).toBe(JSON.stringify({ error: 'Message was rejected by the mail server.' }));
+  });
   it('blocks a concurrent submission', async () => {
     redisClient.set.mockResolvedValueOnce(null);
     expect((await post()).status).toBe(409);

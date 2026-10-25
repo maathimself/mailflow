@@ -318,6 +318,16 @@ describe('createAccountSmtpTransport', () => {
     expect(result.account.oauth_access_token).toBe('valid-token');
   });
 
+  it('marks a host the connection policy refuses, so a scheduled send does not retry it', async () => {
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false, allowInsecureTls: false });
+    resolveForConnection.mockRejectedValue(new Error('Host resolves to a private or reserved IP address'));
+    const err = await createAccountSmtpTransport({
+      smtp_host: 'mail.internal', smtp_port: 465, smtp_tls: 'SSL', auth_user: 'u', auth_pass: 'p',
+    }).catch(e => e);
+    expect(err.message).toBe('Host resolves to a private or reserved IP address');
+    expect(err.hostRefused).toBe(true);
+  });
+
   it('returns a policy error instead of creating a plain-text transport', async () => {
     const result = await createAccountSmtpTransport({
       smtp_host: 'smtp.example.com',

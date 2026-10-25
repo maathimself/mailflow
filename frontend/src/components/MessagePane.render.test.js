@@ -1132,3 +1132,93 @@ describe('the arrows on a phone', () => {
     }
   });
 });
+
+// "Mark as unread" from the reading pane toolbar (#683): the toolbar button vanished once it had
+// worked, and the row's context menu, which reads unread_count, still offered "Mark as unread"
+// because the open had set unread_count to 0 and the pane changed only is_read.
+describe('the toolbar read toggle (#683)', () => {
+  const ContextMenuPromise = import('./ContextMenu.jsx');
+  const click = (el) => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+
+  async function openRead(t, extra = {}) {
+    // As the list leaves a row it marked read on open: is_read true, unread_count 0.
+    const msg = { ...MSG_A, id: 'toggle-683', uid: 683, is_read: true, unread_count: 0, ...extra };
+    const bulkRead = t.mock.method(api, 'bulkRead', async () => ({}));
+    await React.act(async () => { root.render(null); });
+    await React.act(async () => {
+      useStore.getState().setMessages([msg]);
+      useStore.getState().setSelectedMessage(msg.id);
+      root.render(React.createElement(MessagePane));
+    });
+    return { msg, bulkRead };
+  }
+
+  const toolbarButton = (title) => [...document.querySelectorAll('button.btn-press')].find(b => b.title === title);
+
+  async function menuLabels(message) {
+    const ContextMenu = (await ContextMenuPromise).default;
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const menuRoot = createRoot(host);
+    await React.act(async () => {
+      menuRoot.render(React.createElement(ContextMenu, { x: 0, y: 0, message, onClose() {}, onAction() {} }));
+    });
+    const text = host.textContent;
+    await React.act(async () => menuRoot.unmount());
+    host.remove();
+    return text;
+  }
+
+  test('after Mark as unread the toolbar offers Mark as read instead of nothing', async (t) => {
+    const { msg, bulkRead } = await openRead(t);
+    const unreadBtn = toolbarButton('contextMenu.markUnread');
+    assert.ok(unreadBtn, 'a read message offers Mark as unread');
+    await React.act(async () => { click(unreadBtn); });
+    assert.deepEqual(bulkRead.mock.calls[0].arguments, [[msg.id], false]);
+    assert.equal(toolbarButton('contextMenu.markUnread'), undefined);
+    const readBtn = toolbarButton('contextMenu.markRead');
+    assert.ok(readBtn, 'the button stays, now offering Mark as read');
+    await React.act(async () => { click(readBtn); });
+    assert.deepEqual(bulkRead.mock.calls[1].arguments, [[msg.id], true]);
+    assert.equal(useStore.getState().messages[0].is_read, true);
+    assert.ok(toolbarButton('contextMenu.markUnread'), 'and back again');
+  });
+
+  test('toolbar Mark as read cancels a delayed read the list scheduled on open', async (t) => {
+    // The list registers its read-on-open delay by message id; without the cancel the delay
+    // ran out after the manual read and marked the message read a second time.
+    const { scheduleMarkReadTimer } = await import('../utils/markRead.js');
+    const { msg, bulkRead } = await openRead(t, { is_read: false, unread_count: 1 });
+    let delayedRan = 0;
+    scheduleMarkReadTimer(msg.id, () => { delayedRan += 1; }, 30);
+    await React.act(async () => { click(toolbarButton('contextMenu.markRead')); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 60)); });
+    assert.equal(delayedRan, 0, 'the pending delayed read was cancelled');
+    assert.deepEqual(bulkRead.mock.calls.map(c => c.arguments[1]), [true]);
+  });
+
+  test('the toolbar toggle keeps the GTD rail copy of the thread in step', async (t) => {
+    const { msg } = await openRead(t, { message_id: '<gtd-683@example.com>' });
+    const rail = { ...msg, id: 'rail-683', is_read: true };
+    await React.act(async () => { useStore.setState({ gtdSections: { reference: { threads: [rail] } } }); });
+    try {
+      await React.act(async () => { click(toolbarButton('contextMenu.markUnread')); });
+      assert.equal(useStore.getState().gtdSections.reference.threads[0].is_read, false);
+      await React.act(async () => { click(toolbarButton('contextMenu.markRead')); });
+      assert.equal(useStore.getState().gtdSections.reference.threads[0].is_read, true);
+    } finally {
+      await React.act(async () => { useStore.setState({ gtdSections: null }); });
+    }
+  });
+
+  test("the row's context menu offers Mark as read once the pane marked it unread", async (t) => {
+    await openRead(t);
+    await React.act(async () => { click(toolbarButton('contextMenu.markUnread')); });
+    const row = useStore.getState().messages[0];
+    assert.equal(row.is_read, false);
+    assert.equal(row.unread_count, 1, 'unread_count follows is_read');
+    const labels = await menuLabels(row);
+    assert.ok(labels.includes('contextMenu.markRead'), `menu offers Mark as read, got ${labels}`);
+    assert.ok(!labels.includes('contextMenu.markUnread'));
+  });
+});

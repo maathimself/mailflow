@@ -43,7 +43,8 @@ globalThis.fetch = async (url, opts = {}) => {
 };
 
 const { useStore } = await import('../store/index.js');
-const { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } = await import('./markRead.js');
+const markRead = await import('./markRead.js');
+const { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } = markRead;
 const { pendingMarkReadMap, completedMarkReadMap } = await import('./pendingReads.js');
 
 const MSG = { id: 'm1', account_id: 'acct', category: 'primary', is_read: false };
@@ -145,5 +146,28 @@ describe('scheduleMarkRead', () => {
       globalThis.clearTimeout = originalClearTimeout;
       originalClearTimeout(timer);
     }
+  });
+});
+
+describe('scheduleMarkReadTimer (#683)', () => {
+  test("cancelScheduledMarkReadFor reaches another caller's timer for the message", async () => {
+    // The list's read-on-open delay is registered here, so the reading pane's and the
+    // hotkeys' explicit read or unread can cancel it by message id.
+    let ran = 0;
+    const timer = markRead.scheduleMarkReadTimer('reg-1', () => { ran += 1; }, 20);
+    assert.ok(timer);
+    markRead.cancelScheduledMarkReadFor('reg-1');
+    await new Promise(r => setTimeout(r, 40));
+    assert.equal(ran, 0);
+  });
+
+  test('runs once when nothing cancels it, and leaves nothing behind', async () => {
+    let ran = 0;
+    const timer = markRead.scheduleMarkReadTimer('reg-2', () => { ran += 1; }, 10);
+    await new Promise(r => setTimeout(r, 30));
+    assert.equal(ran, 1);
+    markRead.cancelScheduledMarkRead(timer);
+    markRead.cancelScheduledMarkReadFor('reg-2');
+    assert.equal(ran, 1);
   });
 });

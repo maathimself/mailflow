@@ -7,6 +7,7 @@ import { playNotificationSound } from '../utils/notificationSounds.js';
 import { accountAffectsUnifiedInbox } from '../utils/unifiedInbox.js';
 import { dispatchPluginWsMessage, dispatchPluginReconnect } from '../plugins/events.js';
 import { recordDiagEvent } from '../utils/diagEvents.js';
+import { scheduledFeed } from '../utils/scheduledFeed.js';
 
 function _applyServerCounts(counts) {
   useStore.getState().setUnreadCounts(counts);
@@ -94,6 +95,8 @@ export function useWebSocket() {
         // was down are lost, not buffered. Let each activated plugin resync (GTD refetches its
         // sections). Core stays plugin-agnostic.
         dispatchPluginReconnect();
+        // Scheduled messages that changed during the outage (#543): their list, once it is loaded.
+        if (useStore.getState().scheduledList) scheduledFeed.changed();
       }
     };
 
@@ -325,6 +328,13 @@ export function useWebSocket() {
         api.getUnreadCounts().then(counts => {
           useStore.getState().setUnreadCounts(counts);
         }).catch(() => {});
+        break;
+      }
+
+      // A scheduled message changed (#543, design 5.3): the event says only which one, so the
+      // Scheduled view's list and the counts are fetched again, once for a burst of changes.
+      case 'scheduled_changed': {
+        scheduledFeed.changed();
         break;
       }
 

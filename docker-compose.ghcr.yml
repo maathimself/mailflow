@@ -43,6 +43,8 @@ services:
     image: ghcr.io/maathimself/mailflow-backend:${MAILFLOW_VERSION:-latest}
     container_name: mailflow-backend
     restart: unless-stopped
+    # Room for a send in flight to finish on a restart (the backend waits up to 25 s).
+    stop_grace_period: 30s
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
       interval: 15s

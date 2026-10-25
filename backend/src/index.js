@@ -14,6 +14,7 @@ import { mountBodyParsers } from './middleware/bodyParsers.js';
 
 import sendRoutes from './routes/send.js';
 import draftRoutes from './routes/draft.js';
+import scheduledRoutes from './routes/scheduled.js';
 import oauthRoutes from './routes/oauth.js';
 import integrationsRoutes, { loadIntegrationConfigs } from './routes/integrations.js';
 import authRoutes from './routes/auth.js';
@@ -49,7 +50,8 @@ import { createWebSocketServer, setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
 import { getUpdateStatus } from './services/updateCheck.js';
 import { recordHttp } from './services/performanceMetrics.js';
-import { flushHeldSends } from './services/sendHold.js';
+import { flushSendsForShutdown } from './services/sendShutdown.js';
+import { startScheduledSender } from './services/scheduledSend.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta = {};
@@ -184,6 +186,7 @@ app.use('/api/spam', spamRoutes);
 app.use('/api/mail', mailRoutes);
 app.use('/api/mail', sendRoutes);
 app.use('/api/mail', draftRoutes);
+app.use('/api/mail', scheduledRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/admin/backup', backupRoutes);
 app.use('/api/admin', adminRoutes);
@@ -269,6 +272,10 @@ await loadIntegrationConfigs();
 // Start background snooze watcher — polls every 60 seconds to restore snoozed messages
 imapManager.startSnoozeWatcher();
 
+// Send scheduled messages as they fall due (#543). Its first tick recovers sends a previous
+// process left unfinished, before it claims anything.
+startScheduledSender();
+
 // Schedule periodic CardDAV contact sync for any connected accounts.
 startCardavScheduler();
 
@@ -305,16 +312,17 @@ httpServer.listen(PORT, () => {
 
 function exitAfterClose(code) {
   // A send held for its undo window lives only in this process: deliver it now rather than
-  // lose it with the restart (services/sendHold.js). Bounded to leave room for the rest.
-  const heldSendsFlushed = flushHeldSends(8000)
-    .catch(err => console.error('Flushing held sends failed:', err.message));
+  // lose it with the restart (services/sendHold.js). The scheduled sender stops claiming and
+  // its sends in flight finish in the same wait. Bounded to leave room for the rest, inside the
+  // 30 s stop_grace_period the compose files give the backend.
+  const sendsFlushed = flushSendsForShutdown(25_000);
   httpServer.close(async () => {
-    await heldSendsFlushed;
+    await sendsFlushed;
     try { await redisClient.quit(); } catch { /* ignore */ }
     process.exit(code);
   });
-  // Force exit if graceful shutdown takes more than 10 s
-  setTimeout(() => process.exit(code || 1), 10_000).unref();
+  // Force exit if graceful shutdown takes more than 28 s
+  setTimeout(() => process.exit(code || 1), 28_000).unref();
 }
 
 process.on('SIGTERM', () => {

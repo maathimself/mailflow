@@ -8,6 +8,7 @@ vi.mock('./db.js', () => ({ query: (text, params) => database.client.query(text,
 
 import {
   findOwnedAccount, findOwnedMessage, findOwnedMessages, findOwnedAlias, findOwnedContact, findOwnedAddressBook,
+  findOwnedScheduledMessage,
 } from './ownership.js';
 import { getOwnedAccount, loadOwnedMessage } from './mailAccess.js';
 
@@ -23,6 +24,7 @@ const OTHER_MESSAGE = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const ALIAS = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const BOOK = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const CONTACT = '44444444-4444-4444-8444-444444444444';
+const SCHEDULED = '55555555-5555-4555-8555-555555555555';
 
 describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('ownership lookups PostgreSQL', () => {
   beforeAll(async () => {
@@ -36,7 +38,8 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('ownership lookups Post
       CREATE TEMP TABLE account_aliases (id uuid PRIMARY KEY, account_id uuid, email text);
       CREATE TEMP TABLE address_books (id uuid PRIMARY KEY, user_id text, source text);
       CREATE TEMP TABLE contacts (id uuid PRIMARY KEY, user_id text, address_book_id uuid,
-        display_name text)`);
+        display_name text);
+      CREATE TEMP TABLE scheduled_messages (id uuid PRIMARY KEY, user_id text, status text)`);
     await database.client.query(`
       INSERT INTO email_accounts VALUES
         ('${ACCOUNT}', '${OWNER}', true, 'imap', 'me@example.com', '{"archive":"Archive"}'),
@@ -49,7 +52,8 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('ownership lookups Post
         ('${OTHER_MESSAGE}', '${OTHER_ACCOUNT}', 'Theirs', false);
       INSERT INTO account_aliases VALUES ('${ALIAS}', '${ACCOUNT}', 'alias@example.com');
       INSERT INTO address_books VALUES ('${BOOK}', '${OWNER}', 'local');
-      INSERT INTO contacts VALUES ('${CONTACT}', '${OWNER}', '${BOOK}', 'Ann')`);
+      INSERT INTO contacts VALUES ('${CONTACT}', '${OWNER}', '${BOOK}', 'Ann');
+      INSERT INTO scheduled_messages VALUES ('${SCHEDULED}', '${OWNER}', 'scheduled')`);
   });
   afterAll(async () => { await database.client?.end(); });
 
@@ -104,6 +108,20 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('ownership lookups Post
     expect(await findOwnedAlias(OWNER, ACCOUNT, ALIAS)).toEqual({ id: ALIAS, account_id: ACCOUNT });
     expect(await findOwnedAlias(OTHER, ACCOUNT, ALIAS)).toBeNull();
     expect(await findOwnedAlias(OWNER, DISABLED_ACCOUNT, ALIAS)).toBeNull();
+  });
+
+  it('finds a scheduled message for its owner only, locked inside a transaction when asked', async () => {
+    expect(await findOwnedScheduledMessage(OWNER, SCHEDULED, { columns: 'status' })).toEqual({ status: 'scheduled' });
+    expect(await findOwnedScheduledMessage(OTHER, SCHEDULED)).toBeNull();
+    await database.client.query('BEGIN');
+    try {
+      expect(await findOwnedScheduledMessage(OWNER, SCHEDULED, { columns: 'id', forUpdate: true })).toEqual({ id: SCHEDULED });
+      const { rows } = await database.client.query(
+        "SELECT 1 FROM pg_locks WHERE pid = pg_backend_pid() AND locktype = 'transactionid' AND mode = 'ExclusiveLock'");
+      expect(rows).toHaveLength(1);
+    } finally {
+      await database.client.query('ROLLBACK');
+    }
   });
 
   it('finds contacts and address books for their owner only', async () => {

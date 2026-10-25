@@ -208,7 +208,74 @@
     "recipientMenu": {
       "copy": "Copia indirizzo",
       "copyAll": "Copia tutti in questo campo"
-    }
+    },
+    "scheduleSend": {
+      "title": "Invia più tardi",
+      "tooltip": "Invia più tardi (Ctrl+Maiusc+Invio)",
+      "tomorrowMorning": "Domani mattina",
+      "tomorrowAfternoon": "Domani pomeriggio",
+      "mondayMorning": "Lunedì mattina",
+      "pick": "Scegli data e ora",
+      "dateLabel": "Data",
+      "timeLabel": "Ora",
+      "dateTimeLabel": "Data e ora",
+      "sendsAt": "Invio: {{when}}",
+      "timeZone": "Fuso orario: {{zone}}",
+      "schedule": "Programma invio",
+      "scheduledFor": "Programmato per {{when}}",
+      "change": "Cambia",
+      "changeTime": "Cambia orario",
+      "errors": {
+        "invalid": "Inserisci una data e un'ora.",
+        "past": "Quel momento è già passato.",
+        "tooSoon": "Scegli un momento ad almeno un minuto da adesso.",
+        "tooFar": "Scegli un momento entro i prossimi 366 giorni.",
+        "clockBehind": "L'orologio di questo dispositivo è indietro di {{minutes}} min rispetto a quello del server, secondo cui sono le {{time}}.",
+        "clockAhead": "L'orologio di questo dispositivo è avanti di {{minutes}} min rispetto a quello del server, secondo cui sono le {{time}}.",
+        "holdLost": "Questo messaggio è stato aperto in un'altra finestra e non può più essere salvato qui. Il tuo testo resta qui da copiare.",
+        "versionConflict": "Questo messaggio è stato modificato altrove. Chiudilo e riaprilo da Programmati per vedere la versione più recente.",
+        "notHeld": "Questo messaggio non è aperto per la modifica qui. Chiudilo e riaprilo da Programmati.",
+        "pickNewTime": "L'orario programmato è passato. Scegline uno nuovo.",
+        "failed": "Impossibile programmare il messaggio.",
+        "heldElsewhere": "Questo messaggio è aperto in un'altra finestra."
+      },
+      "edit": {
+        "update": "Aggiorna",
+        "updating": "Salvataggio…",
+        "options": "Opzioni di programmazione",
+        "unschedule": "Annulla programmazione (salva come bozza)",
+        "unscheduleTitle": "Spostare questo messaggio nelle bozze?",
+        "unscheduleGo": "Salva come bozza",
+        "unscheduled": "Spostato nelle bozze",
+        "unscheduleKept": "Salvato nelle bozze, ma il messaggio programmato è ancora programmato: questa finestra non lo teneva più. Eliminalo da Programmati se non deve partire.",
+        "closeTitle": "Salvare le modifiche a questo messaggio programmato?",
+        "saveChanges": "Salva modifiche",
+        "discardChanges": "Scarta modifiche",
+        "switchBlocked": "Prima aggiorna o chiudi il messaggio programmato che stai modificando.",
+        "sendNow": "Invia ora",
+        "pickNewTime": "Scegli un nuovo orario",
+        "keepPaused": "Lascia in pausa",
+        "dueTitle": "Questo messaggio era previsto per {{when}}.",
+        "dueBody": "Se lo chiudi ora resta in pausa e non parte mai senza di te.",
+        "keptPaused": "In pausa. Riprendilo da Programmati quando deve partire.",
+        "heldElsewhereBody": "Modificalo qui invece, e l'altra finestra non potrà più salvarlo.",
+        "takeOver": "Modifica qui invece",
+        "close": "Chiudi"
+      },
+      "confirm": {
+        "title": "Programmarlo di nuovo?",
+        "go": "Programma comunque"
+      },
+      "laterToday": "Più tardi oggi",
+      "undoFailed": "Impossibile annullare la programmazione",
+      "sendNow": {
+        "undone": "Non inviato. È di nuovo in Programmati come prima.",
+        "undoFailed": "Impossibile annullare l'invio immediato"
+      },
+      "scheduleAnyway": "Programma lo stesso",
+      "undoFailedOpen": "Annullamento non riuscito. Aprilo da Programmati."
+    },
+    "selectAccount": "Scegli un account da cui inviare"
   },
   "message": {
     "find": {
@@ -553,7 +620,138 @@
     "emptied": "Cartella svuotata",
     "backToAccounts": "Torna agli account",
     "updateAvailable": "Aggiornamento disponibile: v{{version}}",
-    "snoozed": "Posticipati"
+    "snoozed": "Posticipati",
+    "scheduled": "Programmati",
+    "scheduledPending": "In attesa di invio: {{n}}",
+    "scheduledAttention": "Richiedono attenzione: {{n}}"
+  },
+  "scheduled": {
+    "refresh": "Aggiorna",
+    "loadFailed": "Impossibile caricare i messaggi programmati.",
+    "empty": "Niente di programmato",
+    "emptyDesc": "Usa Invia più tardi nell'editor.",
+    "moreSent": "I messaggi inviati meno recenti non sono mostrati.",
+    "sentMessage": "Messaggio inviato",
+    "to": "A: {{names}}",
+    "toMore": "A: {{names}} +{{more}}",
+    "detail": "Motivo indicato: {{detail}}",
+    "zoneTime": "{{time}} ({{zone}})",
+    "sections": {
+      "attention": "Richiede attenzione",
+      "scheduled": "Programmato",
+      "sent": "Inviati",
+      "deleted": "Eliminati"
+    },
+    "when": {
+      "today": "Oggi {{time}}",
+      "tomorrow": "Domani {{time}}",
+      "yesterday": "Ieri {{time}}"
+    },
+    "chip": {
+      "sending": "Invio in corso",
+      "editing": "In modifica",
+      "failed": "Non riuscito",
+      "paused": "In pausa",
+      "uncertain": "Verifica la consegna",
+      "sent": "Inviato",
+      "sentLate": "Inviato in ritardo",
+      "retrying": "Nuovo tentativo",
+      "deleted": "Eliminato"
+    },
+    "reason": {
+      "overdue": "Era in ritardo di oltre 6 ore, quindi MailFlow l'ha trattenuto. Invialo ora o scegli un nuovo orario.",
+      "restored": "È stato messo in pausa al ripristino di un backup.",
+      "editAbandoned": "Era aperto in modifica quando doveva partire.",
+      "accountDisabled": "Il suo account è disattivato.",
+      "needsReauth": "Accedi di nuovo all'account per inviarlo.",
+      "user": "L'hai messo in pausa tu.",
+      "paused": "È in pausa.",
+      "smtpRejected": "Il server di posta l'ha rifiutato.",
+      "tooLarge": "È troppo grande per il server di posta.",
+      "config": "Le impostazioni di invio dell'account vanno controllate.",
+      "tls": "La connessione sicura al server di posta non è riuscita.",
+      "invalidMessage": "Non è stato possibile comporre il messaggio.",
+      "aliasMissing": "L'indirizzo da cui doveva partire non esiste più.",
+      "decryptFailed": "Non è stato possibile decifrarlo su questo server.",
+      "accountMissing": "Il suo account non esiste più.",
+      "gaveUp": "Il server di posta ha continuato a non rispondere, quindi MailFlow ha smesso di riprovare.",
+      "failed": "Non è stato possibile inviarlo.",
+      "uncertain": "MailFlow si è fermato durante l'invio. Potrebbe essere stato consegnato oppure no. Controlla la cartella Posta inviata.",
+      "retrying": "L'ultimo tentativo non è riuscito. Prossimo tentativo: {{when}}.",
+      "deleted": "Si può ripristinare fino a {{when}}."
+    },
+    "sent": {
+      "markedSent": "L'hai segnato come inviato.",
+      "late": "Inviato in ritardo: programmato per {{scheduled}}, inviato {{sent}}.",
+      "lateOffline": "Inviato in ritardo: programmato per {{scheduled}}, inviato {{sent}} perché MailFlow era offline.",
+      "refused": "Rifiutato dal server di posta per: {{list}}",
+      "deferred": "Non consegnato a {{list}}: il loro server ha chiesto di riprovare più tardi e MailFlow non riprova. Invialo di nuovo a loro.",
+      "noSentFolder": "Nessuna copia salvata: l'account non ha una cartella Posta inviata.",
+      "noSentCopy": "Non è stato possibile salvare una copia in Posta inviata."
+    },
+    "a11y": {
+      "scheduledFor": "Programmato per {{when}}",
+      "sentAt": "Inviato {{when}}",
+      "to": "a {{names}}",
+      "toMore": "a {{names}} e altri {{more}}",
+      "subject": "oggetto {{subject}}"
+    },
+    "actions": {
+      "edit": "Modifica",
+      "reschedule": "Riprogramma",
+      "sendNow": "Invia ora",
+      "resume": "Riprendi",
+      "retry": "Riprova",
+      "sendAnyway": "Invia comunque",
+      "markSent": "Segna come inviato",
+      "cancel": "Elimina",
+      "delete": "Elimina definitivamente",
+      "viewSent": "Vedi in Posta inviata",
+      "remove": "Rimuovi dall'elenco",
+      "more": "Altre azioni",
+      "menu": "Azioni del messaggio programmato",
+      "restore": "Ripristina"
+    },
+    "confirm": {
+      "uncertainTitle": "Potrebbe essere già stato consegnato",
+      "uncertainBody": "MailFlow si è fermato durante l'invio. Controlla prima la cartella Posta inviata. Inviarlo di nuovo comunque?",
+      "restoredTitle": "In pausa per un ripristino",
+      "restoredBody": "È stato messo in pausa al ripristino di un backup. Se il vecchio server è ancora attivo, potrebbe inviarlo anche lui. Inviarlo da qui?",
+      "restoredGo": "Invia da qui",
+      "sendAnywayTitle": "Inviarlo di nuovo?",
+      "sendAnywayBody": "Potrebbe essere già stato consegnato: MailFlow si è fermato durante l'invio. Controlla prima la cartella Posta inviata. Se è partito, i destinatari lo riceveranno due volte.",
+      "markSentTitle": "Segnarlo come inviato?",
+      "markSentBody": "Fallo se l'hai trovato nella cartella Posta inviata. MailFlow ne elimina il contenuto e non lo invia mai.",
+      "deleteTitle": "Eliminarlo definitivamente?",
+      "deleteBody": "Non verrà inviato e non potrà essere ripristinato."
+    },
+    "toast": {
+      "resumed": "Ripreso. Viene inviato ora.",
+      "sendingNow": "Viene inviato ora.",
+      "markedSent": "Segnato come inviato",
+      "deleted": "Messaggio programmato eliminato",
+      "deletedForGood": "Eliminato definitivamente",
+      "restored": "Ripristinato",
+      "sent": "Messaggio programmato inviato",
+      "notSent": "Non inviato: {{reason}}",
+      "open": "Apri",
+      "restoredPaused": "Ripristinato e in pausa. Riprendilo quando deve partire."
+    },
+    "errors": {
+      "needsReauth": "Prima accedi di nuovo all'account, poi riprendilo.",
+      "accountDisabled": "Prima riattiva l'account, poi riprendilo.",
+      "undoExpired": "Troppo tardi per annullare: il messaggio sta partendo.",
+      "notFound": "Questo messaggio programmato non esiste più.",
+      "sending": "È in fase di invio proprio ora.",
+      "sent": "È già stato inviato.",
+      "cancelled": "È stato eliminato.",
+      "editing": "È aperto in modifica in un'altra finestra.",
+      "failed": "Non è stato possibile modificare il messaggio programmato.",
+      "restoreFailed": "Impossibile ripristinarlo",
+      "restoreExpired": "Non può più essere ripristinato.",
+      "linkNotFound": "Quel messaggio programmato non è stato trovato."
+    },
+    "serverReply": "Risposta del server: {{detail}}"
   },
   "contextMenu": {
     "find": "Trova",
@@ -1006,7 +1204,11 @@
       "trustedAuthservDetectedNone": "Nessun dato ancora: i messaggi vengono esaminati quando l'antispam è attivo per questo account.",
       "trustedAuthservWarn": "Considera attendibile solo un ID che riconosci come il server di ricezione del tuo provider.",
       "enabledGlobally": "Abilitato globalmente",
-      "microsoftImapNoteSignIn": "Microsoft non accetta più password per le caselle Outlook.com, Hotmail, Live e MSN. Accedi invece con Microsoft: non serve una password per le app."
+      "microsoftImapNoteSignIn": "Microsoft non accetta più password per le caselle Outlook.com, Hotmail, Live e MSN. Accedi invece con Microsoft: non serve una password per le app.",
+      "deleteScheduled": "Messaggi programmati non ancora inviati che vengono eliminati con esso: {{n}}.",
+      "deleteTitle": "Rimuovere l'account?",
+      "deleteBody": "Tutti i messaggi sincronizzati di questo account verranno eliminati. L'operazione non può essere annullata.",
+      "deleteConfirm": "Rimuovi"
     },
     "folderMappings": {
       "title": "Mappatura cartelle",

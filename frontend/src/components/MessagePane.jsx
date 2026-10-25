@@ -745,10 +745,34 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         pendingMarkReadMap.delete(message.id);
         completedMarkReadMap.delete(message.id);
       },
-      update: updateMessage, incrementUnread, decrementUnread, adjustCategoryCount,
+      // The GTD rail shows its own copy of the thread, as the u hotkey keeps it in step.
+      update: (id, fields) => {
+        updateMessage(id, fields);
+        useStore.getState().markGtdThreadRead(message.message_id || message.id, fields.is_read);
+      },
+      incrementUnread, decrementUnread, adjustCategoryCount,
       patch: api.bulkRead,
     }) && isMobile) setSelectedMessage(null);
   }, [message, updateMessage, incrementUnread, decrementUnread, adjustCategoryCount, isMobile, setSelectedMessage]);
+
+  // The toolbar's read toggle. It used to render only for a read message, so it vanished the
+  // moment "Mark as unread" worked and the message could not be marked read again from here
+  // (#683). Explicit "mark read" ignores markReadBehavior, as the context menu's does.
+  const handleMarkRead = useCallback(() => {
+    if (!message || message.is_read) return;
+    // A delayed auto-read still pending would mark it read a second time and count it twice.
+    cancelScheduledMarkRead(autoMarkReadTimerRef.current);
+    autoMarkReadTimerRef.current = null;
+    cancelScheduledMarkReadFor(message.id);
+    applyMarkRead(message);
+    useStore.getState().markGtdThreadRead(message.message_id || message.id, true);
+  }, [message]);
+
+  const handleToggleRead = useCallback(() => {
+    if (!message) return;
+    if (message.is_read) handleMarkUnread();
+    else handleMarkRead();
+  }, [message, handleMarkUnread, handleMarkRead]);
 
   const handleEmailClick = useCallback((ev) => {
     const anchor = ev.target.closest('a[href]');
@@ -1074,7 +1098,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         break;
       case 'markRead':
         // Explicit "mark read" ignores markReadBehavior: the user just asked for it.
-        applyMarkRead(message);
+        handleMarkRead();
         break;
       case 'markUnread':
         handleMarkUnread();
@@ -1591,21 +1615,15 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                 borderRadius: 8, overflow: 'hidden', zIndex: 100,
                 boxShadow: '0 4px 20px rgba(0,0,0,0.4)', minWidth: 190,
               }}>
-                {message.is_read && (
-                  <div
-                    onClick={() => { setShowMoreMenu(false); handleMarkUnread(); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                      <path style={{strokeLinecap: 'round'}} d="M22,10.91v7.09c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V6c0-1.1.9-2,2-2h11"/>
-                      <polyline style={{strokeLinecap: 'round'} } points="16.36 9.95 12 13 2 6"/>
-                      <circle style={{strokeMiterlimit: 10, fill: 'currentColor'}} cx="19.96" cy="6" r="3"/>
-                    </svg>
-                    {t('contextMenu.markUnread')}
-                  </div>
-                )}
+                <div
+                  onClick={() => { setShowMoreMenu(false); handleToggleRead(); }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <ReadStateIcon isRead={message.is_read} />
+                  {message.is_read ? t('contextMenu.markUnread') : t('contextMenu.markRead')}
+                </div>
                 {hasSpamFolder && !inSpamFolder && message && (
                   <div
                     onClick={() => { performSingleSpamLabel('spam'); setShowMoreMenu(false); }}
@@ -1758,15 +1776,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                 </svg>
               </PaneBtn>
             )}
-            {message.is_read && (
-              <PaneBtn onClick={handleMarkUnread} title={t('contextMenu.markUnread')}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                  <path style={{strokeLinecap: 'round'}} d="M22,10.91v7.09c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V6c0-1.1.9-2,2-2h11"/>
-                  <polyline style={{strokeLinecap: 'round'} } points="16.36 9.95 12 13 2 6"/>
-                  <circle style={{strokeMiterlimit: 10, fill: 'currentColor'}} cx="19.96" cy="6" r="3"/>
-                </svg>
-              </PaneBtn>
-            )}
+            <PaneBtn onClick={handleToggleRead} title={message.is_read ? t('contextMenu.markUnread') : t('contextMenu.markRead')}>
+              <ReadStateIcon isRead={message.is_read} />
+            </PaneBtn>
             <PaneBtn onClick={() => setShowHeaderModal(true)} title={t('contextMenu.viewHeaders')}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
                 <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
@@ -2618,6 +2630,23 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
 // `disabled` is aria-disabled with the click ignored, not the native attribute, so the title still
 // shows on hover: it is what explains why.
+// The action the read toggle offers: an envelope with an unread dot for "Mark as unread", an
+// open envelope for "Mark as read". Same glyphs as the context menu.
+function ReadStateIcon({ isRead }) {
+  return isRead ? (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <path style={{strokeLinecap: 'round'}} d="M22,10.91v7.09c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V6c0-1.1.9-2,2-2h11"/>
+      <polyline style={{strokeLinecap: 'round'} } points="16.36 9.95 12 13 2 6"/>
+      <circle style={{strokeMiterlimit: 10, fill: 'currentColor'}} cx="19.96" cy="6" r="3"/>
+    </svg>
+  ) : (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <path style={{strokeLinecap: 'round'}} d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2v-9"/>
+      <polyline points="22 9 12 16 2 9"/><polyline points="2 9 12 2 22 9"/>
+    </svg>
+  );
+}
+
 function PaneBtn({ children, onClick, title, danger, style: extraStyle, 'aria-label': ariaLabel, 'aria-pressed': ariaPressed, disabled = false }) {
   const [hov, setHov] = useState(false);
   return (
