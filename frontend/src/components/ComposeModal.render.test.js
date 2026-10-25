@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { JSDOM } from 'jsdom';
 import { transform } from 'sucrase';
+import { CellSelection, TableMap } from '@tiptap/pm/tables';
 
 registerHooks({
   load(url, context, nextLoad) {
@@ -141,12 +142,12 @@ describe('composer context menu', () => {
       await select(editor, 1, 6);
       await openMenu(richTarget()); await clickAction('format'); await clickAction('numbering');
       assert.match(editor.getHTML(), /<ol>/);
-      await openMenu(richTarget()); await clickAction('justify'); await clickAction('align-justify');
-      assert.match(editor.getHTML(), /text-align: justify/);
+      await openMenu(richTarget()); await clickAction('justify'); await clickAction('align-center');
+      assert.match(editor.getHTML(), /text-align: center/);
       await openMenu(richTarget()); await clickAction('undo');
-      assert.doesNotMatch(editor.getHTML(), /text-align: justify/);
+      assert.doesNotMatch(editor.getHTML(), /text-align: center/);
       await openMenu(richTarget()); await clickAction('redo');
-      assert.match(editor.getHTML(), /text-align: justify/);
+      assert.match(editor.getHTML(), /text-align: center/);
     } finally { await close(); }
   });
 
@@ -324,6 +325,280 @@ describe('composer context menu', () => {
       assert.equal(document.querySelector('.composer-context-menu'), null);
       await hideTab();
       assert.equal(saved.length, 0);
+    } finally { await close(); }
+  });
+});
+
+describe('table context menu', () => {
+  const BODY = '<p>Before</p><table border="1" cellpadding="2" cellspacing="0"><tr><td>A</td><td>B</td><td>C</td></tr><tr><td>D</td><td>E</td><td>F</td></tr><tr><td>G</td><td>H</td><td>I</td></tr></table><p>After</p>';
+  const info = editor => {
+    let result;
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === 'table' && !result) result = { node, pos, map: TableMap.get(node) };
+    });
+    return result;
+  };
+  const cell = (editor, row, col) => {
+    const table = info(editor);
+    const offset = table.map.map[row * table.map.width + col];
+    return { node: table.node.nodeAt(offset), pos: table.pos + 1 + offset };
+  };
+  const selectCells = (editor, top, left, bottom = top, right = left) => React.act(async () => {
+    editor.view.dispatch(editor.state.tr.setSelection(CellSelection.create(editor.state.doc, cell(editor, top, left).pos, cell(editor, bottom, right).pos)));
+  });
+  const open = (editor, row = 0, col = 0) => React.act(async () => {
+    const target = editor.view.nodeDOM(cell(editor, row, col).pos);
+    target.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 40 }));
+  });
+  const click = id => React.act(async () => {
+    const button = document.querySelector(`.composer-context-menu [data-action="${id}"]`);
+    assert.ok(button, `${id} exists`);
+    assert.equal(button.disabled, false, `${id} is enabled`);
+    button.click();
+  });
+  const action = async (editor, group, id, row = 0, col = 0) => {
+    await open(editor, row, col); await click('table-menu');
+    if (group) await click(group);
+    await click(id);
+  };
+  const style = node => {
+    const element = document.createElement('td'); element.style.cssText = node.attrs.style || ''; return element.style;
+  };
+  const valid = editor => editor.state.doc.descendants(node => {
+    if (node.type.name === 'table') assert.equal(TableMap.get(node).problems, null, 'the table stays rectangular, including spans');
+  });
+  const field = (label, value) => React.act(async () => {
+    const input = [...document.querySelectorAll('.table-insert-field')].find(el => el.querySelector('span').textContent === label).querySelector('input, select');
+    const prototype = input.tagName === 'SELECT' ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, 'value').set.call(input, value);
+    input.dispatchEvent(new window.Event(input.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
+  });
+
+  test('Table appears immediately below Emoji only when the click is in a table', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await React.act(async () => {
+        editor.commands.setTextSelection(1);
+        editor.view.dom.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      });
+      assert.equal(document.querySelector('[data-action="table-menu"]'), null);
+      await open(editor, 1, 1);
+      const root = document.querySelector('.composer-context-menu');
+      assert.deepEqual([...root.querySelectorAll('button')].slice(0, 2).map(button => button.dataset.action), ['emoji', 'table-menu']);
+      assert.equal(editor.isActive('table'), true);
+    } finally { await close(); }
+  });
+
+  test('re-entering a parent keeps its nested submenu mounted and preserves focus', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 0, 0);
+      await open(editor); await click('table-menu'); await click('table-border');
+      const panels = [...document.querySelectorAll('.composer-context-menu')];
+      assert.equal(panels.length, 3);
+      const leaf = document.querySelector('[data-action="border-inside"]');
+      await React.act(async () => { leaf.focus(); });
+      for (const id of ['table-menu', 'table-border', 'border-inside']) {
+        await React.act(async () => {
+          document.querySelector(`[data-action="${id}"]`).dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true }));
+        });
+        assert.deepEqual([...document.querySelectorAll('.composer-context-menu')], panels, 'hovering the same branch must not remove its child panels');
+        assert.equal(document.activeElement, leaf, 'hover updates must not move keyboard focus');
+      }
+    } finally { await close(); }
+  });
+
+  test('submenus are measured while hidden and open outside the parent panel border', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    const originalObserver = globalThis.ResizeObserver;
+    const initialVisibility = [];
+    globalThis.ResizeObserver = class {
+      observe(element) { if (element.classList.contains('composer-context-menu')) initialVisibility.push(element.style.visibility); }
+      disconnect() {}
+    };
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 0, 0);
+      await open(editor);
+      const panel = document.querySelector('.composer-context-menu');
+      panel.getBoundingClientRect = () => ({ left: 100, right: 332, top: 10, bottom: 400, width: 232, height: 390 });
+      const trigger = document.querySelector('[data-action="table-menu"]');
+      trigger.getBoundingClientRect = () => ({ left: 101, right: 331, top: 50, bottom: 75, width: 230, height: 25 });
+      await React.act(async () => { trigger.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })); });
+      const child = document.querySelectorAll('.composer-context-menu')[1];
+      assert.equal(child.style.left, '332px', 'the submenu clears the parent panel border');
+      assert.equal(child.style.top, '50px');
+      assert.equal(child.style.visibility, 'visible');
+      assert.deepEqual(initialVisibility, ['hidden', 'hidden'], 'unpositioned panels must not cover the trigger and generate hover events');
+    } finally { await close(); globalThis.ResizeObserver = originalObserver; }
+  });
+
+  test('shading uses the highlight palette and alignment affects only selected cells', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 0, 0, 1, 1);
+      await open(editor); await click('table-menu'); await click('table-shading');
+      await React.act(async () => { document.querySelector('.composer-context-menu button[title="#ffd43b"]').click(); });
+      assert.equal(editor.state.selection instanceof CellSelection, true);
+      assert.equal(style(cell(editor, 1, 1).node).backgroundColor, 'rgb(255, 212, 59)');
+      assert.equal(style(cell(editor, 2, 2).node).backgroundColor, '');
+      await action(editor, 'table-align', 'cell-align-bottom-right');
+      assert.equal(style(cell(editor, 1, 1).node).verticalAlign, 'bottom');
+      assert.equal(style(cell(editor, 1, 1).node).textAlign, 'right');
+      assert.equal(cell(editor, 1, 1).node.firstChild.attrs.textAlign, 'right');
+      assert.equal(style(cell(editor, 2, 2).node).textAlign, '');
+      const html = editor.getHTML();
+      await React.act(async () => { editor.commands.setContent(html); });
+      assert.equal(style(cell(editor, 1, 1).node).backgroundColor, 'rgb(255, 212, 59)');
+      assert.equal(style(cell(editor, 1, 1).node).verticalAlign, 'bottom');
+      await selectCells(editor, 0, 0, 1, 1);
+      await open(editor); await click('table-menu'); await click('table-shading');
+      assert.notEqual(document.querySelector('.composer-context-menu button[title="#ffd43b"]').style.outline, 'none');
+      await React.act(async () => { document.querySelector('.composer-context-menu button[title="compose.toolbar.removeHighlight"]').click(); });
+      assert.equal(style(cell(editor, 1, 1).node).backgroundColor, '');
+      // Reapply for the draft-serialization assertion below.
+      await open(editor); await click('table-menu'); await click('table-shading');
+      await React.act(async () => { document.querySelector('.composer-context-menu button[title="#ffd43b"]').click(); });
+      await hideTab();
+      assert.match(saved.at(-1).body, /background-color: rgb\(255, 212, 59\)/);
+    } finally { await close(); }
+  });
+
+  test('border presets distinguish perimeter and internal edges and mirror shared borders', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 0, 0, 2, 2);
+      await action(editor, 'table-border', 'border-none');
+      assert.equal(style(cell(editor, 1, 1).node).borderTopWidth, '0px');
+      assert.equal(style(info(editor).node).borderWidth, '0px');
+      await action(editor, 'table-border', 'border-outside');
+      assert.equal(style(cell(editor, 0, 0).node).borderTopWidth, '1px');
+      assert.equal(style(cell(editor, 0, 0).node).borderRightWidth, '0px');
+      await action(editor, 'table-border', 'border-inside');
+      assert.equal(style(cell(editor, 0, 0).node).borderTopWidth, '0px');
+      assert.equal(style(cell(editor, 0, 0).node).borderRightWidth, '1px');
+      await action(editor, 'table-border', 'border-all');
+      for (const side of ['Top', 'Bottom', 'Left', 'Right']) assert.equal(style(cell(editor, 1, 1).node)[`border${side}Width`], '1px');
+      await selectCells(editor, 0, 0);
+      await action(editor, 'table-border', 'border-bottom');
+      assert.equal(style(cell(editor, 0, 0).node).borderBottomWidth, '0px');
+      assert.equal(style(cell(editor, 1, 0).node).borderTopWidth, '0px');
+      valid(editor);
+    } finally { await close(); }
+  });
+
+  test('row and column insertion and deletion retain a valid table', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      for (const [id, width, height] of [['column-left', 4, 3], ['column-right', 5, 3], ['row-above', 5, 4], ['row-below', 5, 5]]) {
+        await selectCells(editor, 1, 1);
+        await action(editor, 'table-insert', id, 1, 1);
+        assert.equal(info(editor).map.width, width); assert.equal(info(editor).map.height, height);
+        valid(editor);
+      }
+      assert.equal(info(editor).node.textContent, 'ABCDEFGHI');
+      await selectCells(editor, 1, 1);
+      await action(editor, 'table-delete', 'delete-rows', 1, 1);
+      assert.equal(info(editor).map.height, 4);
+      await selectCells(editor, 1, 1);
+      await action(editor, 'table-delete', 'delete-columns', 1, 1);
+      assert.equal(info(editor).map.width, 4); valid(editor);
+      await action(editor, 'table-delete', 'delete-table', 1, 1);
+      assert.equal(info(editor), undefined);
+      assert.equal(editor.state.doc.textContent, 'BeforeAfter');
+    } finally { await close(); }
+  });
+
+  test('single-cell horizontal and vertical splits add local divisions without losing text', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 1, 1);
+      await action(editor, 'table-split-cells', 'split-vertical', 1, 1);
+      assert.equal(info(editor).map.width, 4); assert.equal(info(editor).map.height, 3);
+      assert.equal(cell(editor, 0, 1).node.attrs.colspan, 2); valid(editor);
+      await selectCells(editor, 1, 1);
+      await action(editor, 'table-split-cells', 'split-horizontal', 1, 1);
+      assert.equal(info(editor).map.width, 4); assert.equal(info(editor).map.height, 4);
+      assert.equal(cell(editor, 1, 0).node.attrs.rowspan, 2);
+      assert.equal(info(editor).node.textContent, 'ABCDEFGHI'); valid(editor);
+    } finally { await close(); }
+  });
+
+  test('merged cell splits divide existing spans and retain their contents', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 0, 0, 1, 1);
+      await action(editor, null, 'table-merge');
+      assert.equal(cell(editor, 0, 0).node.attrs.colspan, 2);
+      assert.equal(cell(editor, 0, 0).node.attrs.rowspan, 2);
+      const text = info(editor).node.textContent;
+      await action(editor, 'table-split-cells', 'split-horizontal');
+      assert.equal(info(editor).map.height, 3);
+      assert.equal(cell(editor, 0, 0).node.attrs.rowspan, 1);
+      await action(editor, 'table-split-cells', 'split-vertical');
+      assert.equal(info(editor).map.width, 3);
+      assert.equal(cell(editor, 0, 0).node.attrs.colspan, 1);
+      assert.equal(info(editor).node.textContent, text); valid(editor);
+    } finally { await close(); }
+  });
+
+  test('Split Table preserves spanning cells and all text across the two tables', async () => {
+    const body = '<table><tr><td rowspan="3">A</td><td>B</td></tr><tr><td>C</td></tr><tr><td>D</td></tr></table>';
+    const close = await openDraft({ plaintextEmail: false, body });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 0, 1);
+      await open(editor, 0, 1); await click('table-menu');
+      assert.equal(document.querySelector('[data-action="table-split"]').disabled, true);
+      await selectCells(editor, 1, 1);
+      await action(editor, null, 'table-split', 1, 1);
+      const tables = [];
+      editor.state.doc.forEach(node => { if (node.type.name === 'table') tables.push(node); });
+      assert.equal(tables.length, 2);
+      assert.equal(TableMap.get(tables[0]).height, 1);
+      assert.equal(TableMap.get(tables[1]).height, 2);
+      assert.equal(editor.state.doc.textContent, 'ABCD'); valid(editor);
+    } finally { await close(); }
+  });
+
+  test('Properties opens the existing modal, edits the table and preserves retained contents', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 1, 1);
+      await action(editor, null, 'table-properties', 1, 1);
+      assert.ok(document.querySelector('.table-insert-dialog'));
+      assert.equal(document.querySelector('.table-insert-dialog h3').textContent, 'compose.tableMenu.properties');
+      await field('compose.table.rows', '4'); await field('compose.table.columns', '4');
+      await field('compose.table.cellPadding', '6'); await field('compose.table.border', '2');
+      await field('compose.table.alignment', 'center'); await field('compose.table.widthUnit', 'px');
+      await field('compose.table.width', '480');
+      await React.act(async () => { document.querySelector('.table-insert-submit').click(); });
+      assert.equal(info(editor).map.width, 4); assert.equal(info(editor).map.height, 4);
+      assert.equal(info(editor).node.textContent, 'ABCDEFGHI');
+      assert.equal(style(info(editor).node).width, '480px');
+      assert.equal(style(cell(editor, 1, 1).node).padding, '6px');
+      assert.equal(style(cell(editor, 1, 1).node).borderWidth, '2px');
+      assert.equal(info(editor).node.attrs.align, 'center'); valid(editor);
+      await selectCells(editor, 1, 1);
+      await action(editor, null, 'table-properties', 1, 1);
+      await field('compose.table.rows', '2'); await field('compose.table.columns', '2');
+      await React.act(async () => {
+        document.querySelector('.table-insert-check input').click();
+        document.querySelector('.table-insert-submit').click();
+      });
+      assert.equal(info(editor).map.width, 2); assert.equal(info(editor).map.height, 2);
+      assert.equal(info(editor).node.textContent, 'ABDE');
+      assert.equal(cell(editor, 0, 0).node.type.name, 'tableHeader'); valid(editor);
+      await hideTab();
+      assert.match(saved.at(-1).body, /width: 480px/);
     } finally { await close(); }
   });
 });

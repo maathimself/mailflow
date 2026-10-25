@@ -14,6 +14,7 @@ import { useEditor, EditorContent, useEditorState, NodeViewWrapper, ReactNodeVie
 import { Extension } from '@tiptap/core';
 import { DOMSerializer } from '@tiptap/pm/model';
 import { closeHistory } from '@tiptap/pm/history';
+import { Selection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import { TextStyle, Color as TiptapColor, FontFamily, BackgroundColor } from '@tiptap/extension-text-style';
@@ -22,6 +23,8 @@ import Image from '@tiptap/extension-image';
 import { ComposerTable, ComposerTableCell, ComposerTableHeader, createTableContent } from '../utils/editorTable.js';
 import TableInsertMenu from './TableInsertMenu.jsx';
 import ComposerContextMenu from './ComposerContextMenu.jsx';
+import ColorMenuSection, { HIGHLIGHT_COLORS } from './ColorMenuSection.jsx';
+import { tableOptions, updateTableProperties } from '../utils/editorTableActions.js';
 import { Superscript, Subscript, ParagraphIndent } from '../utils/editorFormatting.js';
 import { TableRow } from '@tiptap/extension-table-row';
 import { ComposerLink } from '../utils/editorLink.js';
@@ -3750,7 +3753,6 @@ export default function ComposeModal() {
 }
 
 const COLORS = ['#000000','#444444','#888888','#ffffff','#e03131','#f76707','#f59f00','#2f9e44','#1971c2','#7048e8','#c2255c'];
-const HIGHLIGHT_COLORS = ['#ffd43b','#ffa94d','#ff8787','#f783ac','#da77f2','#748ffc','#4dabf7','#38d9a9','#69db7c','#a9e34b'];
 const FontSize = Extension.create({
   name: 'fontSize',
   addOptions() { return { types: ['textStyle'] }; },
@@ -3852,74 +3854,6 @@ const TBtn = forwardRef(function TBtn({ active, title, onMouseDown, children }, 
 
 function Sep() {
   return <span style={{ width: 1, background: 'var(--border-subtle)', margin: '2px 4px', alignSelf: 'stretch' }} />;
-}
-
-function ColorMenuSection({ title, colors, activeColor, onColor, onClear, clearLabel, customColorLabel, noColorLabel, showNoColor, showClear = true }) {
-  const customInputRef = useRef(null);
-  const customColor = /^#[0-9a-f]{6}$/i.test(activeColor || '') ? activeColor : '#000000';
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 500 }}>{title}</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 18px)', gap: 5 }}>
-        {colors.map(c => (
-          <button key={`${title}-${c}`} onMouseDown={e => { e.preventDefault(); onColor(c); }}
-            title={c}
-            style={{
-              width: 18, height: 18, borderRadius: 2, background: c,
-              border: c === '#ffffff' || c === '#f5f5f5' ? '1px solid var(--border)' : '1px solid transparent',
-              cursor: 'pointer', padding: 0,
-              outline: activeColor === c ? '2px solid var(--accent)' : 'none', outlineOffset: 1,
-            }}>
-            {activeColor === c && (
-              <span style={{
-                display: 'block', width: 10, height: 10, margin: 3,
-                border: c === '#000000' || c === '#222222' || c === '#0c343d' || c === '#073763' || c === '#20124d' || c === '#4c1130'
-                  ? '2px solid white'
-                  : '2px solid #111',
-                borderTop: 'none', borderLeft: 'none', transform: 'rotate(45deg)',
-              }} />
-            )}
-          </button>
-        ))}
-      </div>
-      <button onMouseDown={e => { e.preventDefault(); customInputRef.current?.click(); }}
-        style={{
-          alignSelf: 'flex-start', background: 'none', border: 'none', color: 'var(--accent)',
-          fontSize: 12, padding: '2px 0', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5,
-        }}>
-        <span style={{ width: 16, height: 16, background: customColor, border: '1px solid var(--border)', display: 'inline-block' }} />
-        {customColorLabel}
-      </button>
-      <input ref={customInputRef} type="color" value={customColor}
-        onChange={e => onColor(e.target.value)}
-        style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 1, height: 1 }} />
-      {showNoColor && (
-        <button onMouseDown={e => { e.preventDefault(); onClear(); }}
-          title={clearLabel}
-          style={{
-            alignSelf: 'flex-start', background: 'none', border: 'none', color: 'var(--accent)',
-            fontSize: 12, padding: '0 0 2px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5,
-          }}>
-          <span style={{
-            width: 16, height: 16, border: '1px solid var(--border)', display: 'inline-block',
-            background: 'linear-gradient(to bottom right, transparent calc(50% - 1px), #e03131 calc(50% - 1px), #e03131 calc(50% + 1px), transparent calc(50% + 1px))',
-          }} />
-          {noColorLabel}
-        </button>
-      )}
-      {showClear && !showNoColor && (
-        <button onMouseDown={e => { e.preventDefault(); onClear(); }}
-          title={clearLabel}
-          style={{
-            alignSelf: 'flex-start', background: 'none', border: 'none', color: 'var(--accent)',
-            fontSize: 12, padding: '0 0 2px', cursor: 'pointer',
-          }}>
-          {clearLabel}
-        </button>
-      )}
-    </div>
-  );
 }
 
 // The AI's suggestion above the editor, with Apply and Dismiss once it is ready. For "Reply with
@@ -4113,7 +4047,10 @@ export function RichToolbar({ editor, onAttach, onInsertImage, signatureControl,
     if (!editor || !contextToolRequest || handledContextRequestRef.current === contextToolRequest) return;
     handledContextRequestRef.current = contextToolRequest;
     onContextToolHandled?.(null);
-    editor.commands.setTextSelection(contextToolRequest.selection);
+    editor.commands.command(({ tr }) => {
+      tr.setSelection(Selection.fromJSON(tr.doc, contextToolRequest.selection.toJSON()));
+      return true;
+    });
     savedSelectionRef.current = contextToolRequest.selection;
     const { x, y } = contextToolRequest;
     const event = { preventDefault() {}, anchorRect: { left: x, right: x, top: y, bottom: y } };
@@ -4123,10 +4060,13 @@ export function RichToolbar({ editor, onAttach, onInsertImage, signatureControl,
   if (!editor) return null;
 
   const saveSelection = () => {
-    const { from, to } = editor.state.selection;
-    savedSelectionRef.current = { from, to };
+    savedSelectionRef.current = editor.state.selection;
   };
-  const restoreSelection = () => savedSelectionRef.current ?? editor.state.selection;
+  const restoreSelection = chain => chain.command(({ tr }) => {
+    const selection = savedSelectionRef.current ?? editor.state.selection;
+    tr.setSelection(Selection.fromJSON(tr.doc, selection.toJSON()));
+    return true;
+  });
 
   const openTypeMenu = (e) => {
     e.preventDefault();
@@ -4192,7 +4132,7 @@ export function RichToolbar({ editor, onAttach, onInsertImage, signatureControl,
     setLinkUrl('');
   };
 
-  const openTable = (e) => {
+  const openTable = (e, properties = false) => {
     e.preventDefault();
     if (tablePos) { setTablePos(null); return; }
     saveSelection();
@@ -4200,35 +4140,34 @@ export function RichToolbar({ editor, onAttach, onInsertImage, signatureControl,
     const left = Math.max(4, Math.min(r.left, window.innerWidth - 234 * uiScale - 4));
     const height = 326 * uiScale;
     const top = window.innerHeight - r.bottom >= height ? r.bottom + 4 : Math.max(4, r.top - height);
-    setTablePos({ top, left });
+    setTablePos({ top, left, properties });
     setTypeMenuPos(null); setEmojiPos(null); setLinkPos(null);
   };
 
   const applyFontFamily = (family) => {
-    const sel = restoreSelection();
+    const chain = restoreSelection(editor.chain().focus());
     if (family) {
-      editor.chain().focus().setTextSelection(sel).setFontFamily(family).run();
+      chain.setFontFamily(family).run();
       localStorage.setItem('mailflow_compose_font_family', family);
     } else {
-      editor.chain().focus().setTextSelection(sel).unsetFontFamily().run();
+      chain.unsetFontFamily().run();
       localStorage.removeItem('mailflow_compose_font_family');
     }
   };
 
   const applyFontSize = (size) => {
-    const sel = restoreSelection();
-    editor.chain().focus().setTextSelection(sel).setFontSize(size).run();
+    restoreSelection(editor.chain().focus()).setFontSize(size).run();
     localStorage.setItem('mailflow_compose_font_size', size);
   };
 
   const applyTextColor = (color) => {
-    const chain = editor.chain().focus().setTextSelection(restoreSelection());
+    const chain = restoreSelection(editor.chain().focus());
     if (color) chain.setColor(color).run();
     else chain.unsetColor().run();
   };
 
   const applyBackgroundColor = (color) => {
-    const chain = editor.chain().focus().setTextSelection(restoreSelection());
+    const chain = restoreSelection(editor.chain().focus());
     if (color) chain.setBackgroundColor(color).run();
     else chain.unsetBackgroundColor().run();
   };
@@ -4237,7 +4176,7 @@ export function RichToolbar({ editor, onAttach, onInsertImage, signatureControl,
     <TBtn key={title} active={active} title={title} onMouseDown={onMD}>{children}</TBtn>
   );
 
-  contextToolActionsRef.current = { font: openTypeMenu, emoji: openEmoji, link: openLink, table: openTable };
+  contextToolActionsRef.current = { font: openTypeMenu, emoji: openEmoji, link: openLink, table: openTable, tableProperties: event => openTable(event, true) };
 
   const mtb = (active, title, onMD, children) => (
     <button key={title} title={title} onMouseDown={onMD} style={{ background: active ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', color: active ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, WebkitTapHighlightColor: 'transparent' }}>{children}</button>
@@ -4550,10 +4489,14 @@ export function RichToolbar({ editor, onAttach, onInsertImage, signatureControl,
       )}
 
       {tablePos && (
-        <TableInsertMenu position={tablePos} uiScale={uiScale} containerRef={tablePopRef}
+        <TableInsertMenu key={tablePos.properties ? 'properties' : 'insert'} position={tablePos} uiScale={uiScale} containerRef={tablePopRef}
+          initialAdvanced={tablePos.properties} editing={tablePos.properties}
+          initialValues={tablePos.properties ? tableOptions(editor.state) : undefined}
           onClose={() => setTablePos(null)}
           onInsert={options => {
-            editor.chain().focus().setTextSelection(restoreSelection()).insertContent(createTableContent(options)).run();
+            const chain = restoreSelection(editor.chain().focus());
+            if (tablePos.properties) chain.command(({ state, dispatch }) => updateTableProperties(options)(state, dispatch)).run();
+            else chain.insertContent(createTableContent(options)).run();
             setTablePos(null);
           }}
           onRemove={editor.isActive('table') ? () => {

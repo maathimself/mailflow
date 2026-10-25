@@ -3,29 +3,46 @@ import { useTranslation } from 'react-i18next';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { copyEditorSelection, readComposerClipboard, textParagraphs } from '../utils/composerClipboard.js';
+import { CellSelection, isInTable } from '@tiptap/pm/tables';
+import { TextSelection } from '@tiptap/pm/state';
+import ColorMenuSection, { HIGHLIGHT_COLORS } from './ColorMenuSection.jsx';
+import { selectedTableCells, shadeTableCells, alignTableCells, setTableBorders, splitTableCell, splitTable, deleteTablePart } from '../utils/editorTableActions.js';
 
-function MenuPanel({ items, point, anchor, scale, autoFocus, onSubmenu, onBack, onClose, onScroll }) {
+function submenuAnchor(button) {
+  const row = button.getBoundingClientRect();
+  const panel = button.closest('[role="menu"]').getBoundingClientRect();
+  // Anchor to the panel edge so adjacent menus do not cover the parent's hover area.
+  return { left: panel.left, right: panel.right, top: row.top, bottom: row.bottom };
+}
+
+function MenuPanel({ items = [], content, point, anchor, scale, autoFocus, onSubmenu, onBack, onClose, onScroll }) {
   const ref = useRef(null);
-  const [position, setPosition] = useState(point);
+  const [position, setPosition] = useState(null);
+  const positioned = position !== null;
   useLayoutEffect(() => {
     const panel = ref.current;
     const measure = () => {
       const rect = panel.getBoundingClientRect();
       const x = anchor ? (anchor.right + rect.width <= window.innerWidth - 4 ? anchor.right : anchor.left - rect.width) : point.x;
       const y = anchor ? anchor.top : point.y;
-      setPosition({ x: Math.max(4, Math.min(x, window.innerWidth - rect.width - 4)), y: Math.max(4, Math.min(y, window.innerHeight - rect.height - 4)) });
+      const next = { x: Math.max(4, Math.min(x, window.innerWidth - rect.width - 4)), y: Math.max(4, Math.min(y, window.innerHeight - rect.height - 4)) };
+      setPosition(previous => previous?.x === next.x && previous?.y === next.y ? previous : next);
     };
     measure();
-    if (autoFocus) panel.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
     const observer = new ResizeObserver(measure);
     observer.observe(panel);
     window.addEventListener('resize', measure);
     return () => { observer.disconnect(); window.removeEventListener('resize', measure); };
-  }, [point, anchor, autoFocus]);
+  }, [point, anchor, scale]);
+
+  useLayoutEffect(() => {
+    if (positioned && autoFocus) ref.current.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
+  }, [positioned, autoFocus]);
 
   return (
     <div ref={ref} role="menu" className="composer-context-menu" onScroll={onScroll} onContextMenu={event => event.preventDefault()}
-      style={{ left: descale(position.x, scale), top: descale(position.y, scale), maxHeight: descale(window.innerHeight - 8, scale) }}
+      style={{ left: descale(position?.x ?? 0, scale), top: descale(position?.y ?? 0, scale),
+        visibility: positioned ? 'visible' : 'hidden', maxHeight: descale(window.innerHeight - 8, scale) }}
       onKeyDown={event => {
         const buttons = [...ref.current.querySelectorAll('button:not(:disabled)')];
         const index = buttons.indexOf(document.activeElement);
@@ -39,21 +56,22 @@ function MenuPanel({ items, point, anchor, scale, autoFocus, onSubmenu, onBack, 
         if (event.key === 'Escape' || event.key === 'Tab') { event.preventDefault(); onClose(); }
         event.stopPropagation();
       }}>
+      {content}
       {items.map((item, index) => item == null ? <div key={`sep-${index}`} role="separator" className="composer-context-separator" /> : (
         <button key={item.id} type="button" role={item.checked == null ? 'menuitem' : 'menuitemcheckbox'}
-          data-action={item.id} aria-checked={item.checked} aria-haspopup={item.children ? 'menu' : undefined}
+          data-action={item.id} aria-checked={item.checked} aria-haspopup={item.children || item.render ? 'menu' : undefined}
           disabled={item.disabled} onMouseDown={event => event.preventDefault()}
-          onMouseEnter={event => onSubmenu?.(item.children && !item.disabled ? { item, anchor: event.currentTarget.getBoundingClientRect(), trigger: event.currentTarget } : null)}
+          onMouseEnter={event => onSubmenu?.((item.children || item.render) && !item.disabled ? { item, anchor: submenuAnchor(event.currentTarget), trigger: event.currentTarget } : null)}
           onKeyDown={event => {
-            if (event.key === 'ArrowRight' && item.children) {
+            if (event.key === 'ArrowRight' && (item.children || item.render)) {
               event.preventDefault(); event.stopPropagation();
-              onSubmenu?.({ item, anchor: event.currentTarget.getBoundingClientRect(), trigger: event.currentTarget, keyboard: true });
+              onSubmenu?.({ item, anchor: submenuAnchor(event.currentTarget), trigger: event.currentTarget, keyboard: true });
             }
           }}
-          onClick={event => item.children ? onSubmenu?.({ item, anchor: event.currentTarget.getBoundingClientRect(), trigger: event.currentTarget, keyboard: true }) : item.action()}>
+          onClick={event => item.children || item.render ? onSubmenu?.({ item, anchor: submenuAnchor(event.currentTarget), trigger: event.currentTarget, keyboard: true }) : item.action()}>
           <span className="composer-context-check" aria-hidden="true">{item.checked ? '✓' : ''}</span>
           <span>{item.label}</span>
-          {item.children && <span className="composer-context-arrow" aria-hidden="true">›</span>}
+          {(item.children || item.render) && <span className="composer-context-arrow" aria-hidden="true">›</span>}
         </button>
       ))}
     </div>
@@ -68,7 +86,7 @@ export default function ComposerContextMenu({ editor, textTargetRef, plain, html
   const { t } = useTranslation();
   const scale = useUiScale();
   const [menu, setMenu] = useState(null);
-  const [submenu, setSubmenu] = useState(null);
+  const [submenus, setSubmenus] = useState([]);
   const [emoji, setEmoji] = useState(null);
   const history = useRef({ entries: [], index: 0, applying: false });
   const rich = !plain && !htmlMode;
@@ -86,30 +104,42 @@ export default function ComposerContextMenu({ editor, textTargetRef, plain, html
     const open = event => {
       event.preventDefault(); event.stopPropagation();
       if (rich) {
+        const clickedCell = event.target.closest?.('td, th');
+        let cellPosition = null;
+        if (clickedCell && target.contains(clickedCell)) cellPosition = editor.view.posAtDOM(clickedCell, 0) - 1;
+        const insideSelectedCell = cellPosition != null && selectedTableCells(editor.state).some(cell => cell.pos === cellPosition);
+        const keepCells = editor.state.selection instanceof CellSelection && insideSelectedCell;
         try {
           const hit = editor.view.posAtCoords({ left: event.clientX, top: event.clientY });
           const { from, to, empty } = editor.state.selection;
-          if (hit && (empty || hit.pos < from || hit.pos > to)) editor.commands.setTextSelection(hit.pos);
-        } catch { /* Keyboard context menus may not have a hit-tested position. */ }
+          if (!keepCells && hit && (empty || hit.pos < from || hit.pos > to || (clickedCell && !isInTable(editor.state)))) editor.commands.setTextSelection(hit.pos);
+          else if (!keepCells && !hit && cellPosition != null && !insideSelectedCell) {
+            editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(cellPosition + 1))));
+          }
+        } catch {
+          if (cellPosition != null && !keepCells && !insideSelectedCell) {
+            editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(cellPosition + 1))));
+          }
+        }
       }
       const rect = target.getBoundingClientRect();
       setMenu({
         x: event.clientX || rect.left + 16, y: event.clientY || rect.top + 16,
-        selection: rich ? { from: editor.state.selection.from, to: editor.state.selection.to } : { from: target.selectionStart, to: target.selectionEnd },
+        selection: rich ? editor.state.selection : { from: target.selectionStart, to: target.selectionEnd },
         doc: rich ? editor.state.doc : null, value: target.value, target,
       });
-      setSubmenu(null); setEmoji(null);
+      setSubmenus([]); setEmoji(null);
     };
     target.addEventListener('contextmenu', open);
     if (!rich) target.addEventListener('input', record);
     return () => { target.removeEventListener('contextmenu', open); target.removeEventListener('input', record); };
   }, [editor, rich, htmlMode, textTargetRef, disabled]);
 
-  useEffect(() => { setMenu(null); setSubmenu(null); setEmoji(null); }, [rich, htmlMode, disabled]);
+  useEffect(() => { setMenu(null); setSubmenus([]); setEmoji(null); }, [rich, htmlMode, disabled]);
 
   if (!menu && !emoji) return null;
   const close = (focus = false) => {
-    setMenu(null); setSubmenu(null); setEmoji(null);
+    setMenu(null); setSubmenus([]); setEmoji(null);
     if (focus) {
       if (rich) editor.view.focus();
       else textTargetRef.current?.focus({ preventScroll: true });
@@ -128,7 +158,7 @@ export default function ComposerContextMenu({ editor, textTargetRef, plain, html
   };
   const command = action => {
     if (!editor || editor.isDestroyed || editor.state.doc !== menu.doc) return;
-    action(editor.chain().focus().setTextSelection(menu.selection)).run();
+    action(editor.chain().focus().command(({ tr }) => { tr.setSelection(menu.selection); return true; })).run();
   };
   const run = action => () => {
     close(true);
@@ -213,7 +243,7 @@ export default function ComposerContextMenu({ editor, textTargetRef, plain, html
   ];
   const justifyItems = [
     ['left', t('compose.table.alignLeft')], ['center', t('compose.table.alignCenter')],
-    ['right', t('compose.table.alignRight')], ['justify', t('compose.context.bothSides')],
+    ['right', t('compose.table.alignRight')],
   ].map(([alignment, label]) => item(`align-${alignment}`, label, () => command(chain => chain.setTextAlign(alignment)), { checked: rich && editor.isActive({ textAlign: alignment }) }));
   const insertItems = [
     item('signature', t('compose.context.signature'), onSignature, { disabled: !signatureAvailable, checked: signatureEnabled }),
@@ -222,8 +252,60 @@ export default function ComposerContextMenu({ editor, textTargetRef, plain, html
     { id: 'link', label: t('compose.context.link'), action: tool('link'), disabled: !rich },
     { id: 'table', label: t('compose.context.table'), action: tool('table'), disabled: !rich },
   ];
+  const inTable = rich && isInTable(editor.state);
+  const tableCommand = action => () => command(chain => chain.command(({ state, dispatch }) => action(state, dispatch)));
+  const tableAction = (id, label, action) => item(id, label, tableCommand(action), { disabled: !inTable || !action(editor.state) });
+  const cellStyle = document.createElement('td').style;
+  if (inTable) cellStyle.cssText = selectedTableCells(editor.state)[0]?.node.attrs.style || '';
+  const tableItems = [
+    { id: 'table-shading', label: t('compose.tableMenu.shading'), render: () => (
+      <div style={{ padding: '8px 12px' }}>
+        <ColorMenuSection title={t('compose.tableMenu.shading')} colors={HIGHLIGHT_COLORS}
+          activeColor={cellStyle.backgroundColor}
+          onColor={color => { close(true); tableCommand(shadeTableCells(color))(); }}
+          onClear={() => { close(true); tableCommand(shadeTableCells(null))(); }}
+          clearLabel={t('compose.toolbar.removeHighlight')} customColorLabel={t('compose.toolbar.customColor')}
+          noColorLabel={t('compose.toolbar.noColor')} showNoColor />
+      </div>
+    ) },
+    { id: 'table-align', label: t('compose.tableMenu.align'), children: [
+      ['top', 'left', t('compose.tableMenu.topLeft')], ['top', 'center', t('compose.tableMenu.topCenter')], ['top', 'right', t('compose.tableMenu.topRight')],
+      ['middle', 'left', t('compose.tableMenu.centerLeft')], ['middle', 'center', t('compose.table.alignCenter')], ['middle', 'right', t('compose.tableMenu.centerRight')],
+      ['bottom', 'left', t('compose.tableMenu.bottomLeft')], ['bottom', 'center', t('compose.tableMenu.bottomCenter')], ['bottom', 'right', t('compose.tableMenu.bottomRight')],
+    ].map(([vertical, horizontal, label]) => ({ ...tableAction(`cell-align-${vertical}-${horizontal}`, label, alignTableCells(vertical, horizontal)),
+      checked: (cellStyle.verticalAlign || 'top') === vertical && (cellStyle.textAlign || 'left') === horizontal })) },
+    { id: 'table-border', label: t('compose.table.border'), children: [
+      tableAction('border-bottom', t('compose.tableMenu.bottomBorder'), setTableBorders('Bottom')),
+      tableAction('border-top', t('compose.tableMenu.topBorder'), setTableBorders('Top')),
+      tableAction('border-left', t('compose.tableMenu.leftBorder'), setTableBorders('Left')),
+      tableAction('border-right', t('compose.tableMenu.rightBorder'), setTableBorders('Right')), null,
+      tableAction('border-none', t('compose.tableMenu.noBorder'), setTableBorders('none')),
+      tableAction('border-all', t('compose.tableMenu.allBorders'), setTableBorders('all')),
+      tableAction('border-outside', t('compose.tableMenu.outsideBorders'), setTableBorders('outside')),
+      tableAction('border-inside', t('compose.tableMenu.insideBorders'), setTableBorders('inside')),
+    ] }, null,
+    { id: 'table-insert', label: t('compose.context.insert'), children: [
+      item('column-left', t('compose.tableMenu.columnLeft'), () => command(chain => chain.addColumnBefore())),
+      item('column-right', t('compose.tableMenu.columnRight'), () => command(chain => chain.addColumnAfter())),
+      item('row-above', t('compose.tableMenu.rowAbove'), () => command(chain => chain.addRowBefore())),
+      item('row-below', t('compose.tableMenu.rowBelow'), () => command(chain => chain.addRowAfter())),
+    ] },
+    { id: 'table-delete', label: t('common.delete'), children: [
+      tableAction('delete-rows', t('compose.table.rows'), deleteTablePart('rows')),
+      tableAction('delete-columns', t('compose.table.columns'), deleteTablePart('columns')),
+      item('delete-table', t('compose.context.table'), () => command(chain => chain.deleteTable())),
+    ] },
+    { id: 'table-split-cells', label: t('compose.tableMenu.splitCells'), children: [
+      tableAction('split-horizontal', t('compose.tableMenu.horizontally'), splitTableCell('horizontal')),
+      tableAction('split-vertical', t('compose.tableMenu.vertically'), splitTableCell('vertical')),
+    ] },
+    item('table-merge', t('compose.tableMenu.mergeCells'), () => command(chain => chain.mergeCells()), { disabled: !inTable || !editor.can().mergeCells() }),
+    tableAction('table-split', t('compose.tableMenu.splitTable'), splitTable), null,
+    { id: 'table-properties', label: t('compose.tableMenu.properties'), action: tool('tableProperties') },
+  ];
   const items = [
-    item('emoji', t('compose.context.emoji'), showEmoji), null,
+    item('emoji', t('compose.context.emoji'), showEmoji),
+    ...(inTable ? [{ id: 'table-menu', label: t('compose.context.table'), children: tableItems }] : []), null,
     item('cut', t('compose.context.cut'), () => copy(true), { disabled: !selected }),
     item('copy', t('common.copy'), () => copy(false), { disabled: !selected }),
     item('paste', t('compose.context.paste'), () => paste('paste')),
@@ -244,11 +326,24 @@ export default function ComposerContextMenu({ editor, textTargetRef, plain, html
     item('source', t('compose.context.source'), onToggleHtml, { disabled: plain, checked: htmlMode }),
   ];
   const point = menu;
+  const openSubmenu = (level, value) => setSubmenus(current => {
+    if (!value) return current.length <= level ? current : current.slice(0, level);
+    const existing = current[level];
+    if (existing?.item.id === value.item.id && existing.trigger === value.trigger) {
+      if (value.keyboard && !existing.keyboard) {
+        return current.map((entry, index) => index === level ? { ...entry, keyboard: true } : entry);
+      }
+      return current;
+    }
+    return [...current.slice(0, level), value];
+  });
   return <>
     <div className="composer-context-scrim" onMouseDown={() => close(true)} onContextMenu={event => { event.preventDefault(); close(true); }} />
-    <MenuPanel items={items} point={point} scale={scale} autoFocus onSubmenu={setSubmenu} onClose={() => close(true)} onScroll={() => setSubmenu(null)} />
-    {submenu && <MenuPanel items={submenu.item.children} point={point} anchor={submenu.anchor} scale={scale}
-      autoFocus={submenu.keyboard} onClose={() => close(true)}
-      onBack={() => { submenu.trigger.focus(); setSubmenu(null); }} />}
+    <MenuPanel items={items} point={point} scale={scale} autoFocus onSubmenu={value => openSubmenu(0, value)} onClose={() => close(true)} onScroll={() => openSubmenu(0, null)} />
+    {submenus.map((submenu, level) => <MenuPanel key={`${level}-${submenu.item.id}`} items={submenu.item.children}
+      content={submenu.item.render?.()} point={point} anchor={submenu.anchor} scale={scale}
+      autoFocus={submenu.keyboard} onClose={() => close(true)} onSubmenu={value => openSubmenu(level + 1, value)}
+      onScroll={() => openSubmenu(level + 1, null)}
+      onBack={() => { submenu.trigger.focus(); openSubmenu(level, null); }} />)}
   </>;
 }

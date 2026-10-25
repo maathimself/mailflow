@@ -5,12 +5,12 @@ import { TABLE_DEFAULTS } from '../utils/editorTable.js';
 
 const GRID_SIZE = 8;
 
-export default function TableInsertMenu({ position, uiScale, containerRef, onInsert, onClose, onRemove }) {
+export default function TableInsertMenu({ position, uiScale, containerRef, onInsert, onClose, onRemove, initialAdvanced = false, initialValues = TABLE_DEFAULTS, editing = false }) {
   const { t } = useTranslation();
   const titleId = useId();
   const [selection, setSelection] = useState({ rows: 1, cols: 1 });
-  const [advanced, setAdvanced] = useState(false);
-  const [values, setValues] = useState(TABLE_DEFAULTS);
+  const [advanced, setAdvanced] = useState(initialAdvanced);
+  const [values, setValues] = useState(initialValues);
   const dialogRef = useRef(null);
 
   useEffect(() => {
@@ -55,7 +55,7 @@ export default function TableInsertMenu({ position, uiScale, containerRef, onIns
           <form ref={dialogRef} className="table-insert-dialog" role="dialog" aria-modal="true"
             aria-labelledby={titleId} onKeyDown={trapFocus}
             onSubmit={event => { event.preventDefault(); onInsert(values); }}>
-            <h3 id={titleId}>{t('compose.toolbar.insertTable')}</h3>
+            <h3 id={titleId}>{editing ? t('compose.tableMenu.properties') : t('compose.toolbar.insertTable')}</h3>
             <fieldset>
               <legend>{t('compose.table.cellProperties')}</legend>
               <div className="table-insert-fields">
@@ -97,7 +97,7 @@ export default function TableInsertMenu({ position, uiScale, containerRef, onIns
             </fieldset>
             <div className="table-insert-footer">
               <button type="button" onClick={onClose}>{t('common.cancel')}</button>
-              <button type="submit" className="table-insert-submit">{t('compose.toolbar.insertTable')}</button>
+              <button type="submit" className="table-insert-submit">{editing ? t('compose.toolbar.apply') : t('compose.toolbar.insertTable')}</button>
             </div>
           </form>
         </div>
