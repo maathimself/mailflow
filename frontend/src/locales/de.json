@@ -163,6 +163,26 @@
       "tooLate": "Zu spät zum Rückgängigmachen: Die Nachricht wird bereits gesendet",
       "undoFailed": "Rückgängigmachen nicht möglich: keine Antwort vom Server"
     },
+    "table": {
+      "cellProperties": "Zelleigenschaften",
+      "rows": "Zeilen",
+      "columns": "Spalten",
+      "cellPadding": "Zellinnenabstand",
+      "cellSpacing": "Zellabstand",
+      "headerRow": "Kopfzeile",
+      "tableProperties": "Tabelleneigenschaften",
+      "border": "Rahmen",
+      "alignment": "Ausrichtung",
+      "alignLeft": "Links",
+      "alignCenter": "Zentriert",
+      "alignRight": "Rechts",
+      "width": "Breite",
+      "widthUnit": "Breiteneinheit",
+      "percent": "Prozent",
+      "pixels": "Pixel",
+      "size": "Tabelle {{cols}} × {{rows}}",
+      "insertCustom": "Tabelle einfügen…"
+    },
     "toolbar": {
       "removeTable": "Tabelle entfernen",
       "typography": "Typografie",

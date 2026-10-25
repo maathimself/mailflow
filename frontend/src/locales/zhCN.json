@@ -163,6 +163,26 @@
       "tooLate": "来不及撤销：邮件已在发送中",
       "undoFailed": "无法撤销：服务器没有响应"
     },
+    "table": {
+      "cellProperties": "单元格属性",
+      "rows": "行数",
+      "columns": "列数",
+      "cellPadding": "单元格内边距",
+      "cellSpacing": "单元格间距",
+      "headerRow": "表头行",
+      "tableProperties": "表格属性",
+      "border": "边框",
+      "alignment": "对齐方式",
+      "alignLeft": "左对齐",
+      "alignCenter": "居中",
+      "alignRight": "右对齐",
+      "width": "宽度",
+      "widthUnit": "宽度单位",
+      "percent": "百分比",
+      "pixels": "像素",
+      "size": "表格 {{cols}} × {{rows}}",
+      "insertCustom": "插入表格…"
+    },
     "toolbar": {
       "removeTable": "删除表格",
       "typography": "排版",

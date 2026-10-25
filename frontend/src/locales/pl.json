@@ -163,6 +163,26 @@
       "tooLate": "Za późno na cofnięcie: wiadomość jest już wysyłana",
       "undoFailed": "Nie udało się cofnąć: serwer nie odpowiedział"
     },
+    "table": {
+      "cellProperties": "Właściwości komórek",
+      "rows": "Wiersze",
+      "columns": "Kolumny",
+      "cellPadding": "Margines wewnętrzny komórek",
+      "cellSpacing": "Odstępy między komórkami",
+      "headerRow": "Wiersz nagłówka",
+      "tableProperties": "Właściwości tabeli",
+      "border": "Obramowanie",
+      "alignment": "Wyrównanie",
+      "alignLeft": "Do lewej",
+      "alignCenter": "Wyśrodkowane",
+      "alignRight": "Do prawej",
+      "width": "Szerokość",
+      "widthUnit": "Jednostka szerokości",
+      "percent": "Procenty",
+      "pixels": "Piksele",
+      "size": "Tabela: {{cols}} × {{rows}}",
+      "insertCustom": "Wstaw tabelę…"
+    },
     "toolbar": {
       "removeTable": "Usuń tabelę",
       "typography": "Typografia",

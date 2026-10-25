@@ -163,6 +163,26 @@
       "tooLate": "Demasiado tarde para deshacer: el mensaje ya se está enviando",
       "undoFailed": "No se pudo deshacer: el servidor no respondió"
     },
+    "table": {
+      "cellProperties": "Propiedades de celda",
+      "rows": "Filas",
+      "columns": "Columnas",
+      "cellPadding": "Relleno de celda",
+      "cellSpacing": "Espacio entre celdas",
+      "headerRow": "Fila de encabezado",
+      "tableProperties": "Propiedades de tabla",
+      "border": "Borde",
+      "alignment": "Alineación",
+      "alignLeft": "Izquierda",
+      "alignCenter": "Centro",
+      "alignRight": "Derecha",
+      "width": "Ancho",
+      "widthUnit": "Unidad de ancho",
+      "percent": "Porcentaje",
+      "pixels": "Píxeles",
+      "size": "Tabla {{cols}} × {{rows}}",
+      "insertCustom": "Insertar tabla…"
+    },
     "toolbar": {
       "removeTable": "Eliminar tabla",
       "typography": "Tipografía",

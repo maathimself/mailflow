@@ -163,6 +163,26 @@
       "tooLate": "Trop tard pour annuler : le message est déjà en cours d'envoi",
       "undoFailed": "Impossible d'annuler : le serveur n'a pas répondu"
     },
+    "table": {
+      "cellProperties": "Propriétés des cellules",
+      "rows": "Lignes",
+      "columns": "Colonnes",
+      "cellPadding": "Marge intérieure des cellules",
+      "cellSpacing": "Espacement des cellules",
+      "headerRow": "Ligne d’en-tête",
+      "tableProperties": "Propriétés du tableau",
+      "border": "Bordure",
+      "alignment": "Alignement",
+      "alignLeft": "Gauche",
+      "alignCenter": "Centré",
+      "alignRight": "Droite",
+      "width": "Largeur",
+      "widthUnit": "Unité de largeur",
+      "percent": "Pourcentage",
+      "pixels": "Pixels",
+      "size": "Tableau {{cols}} × {{rows}}",
+      "insertCustom": "Insérer un tableau…"
+    },
     "toolbar": {
       "removeTable": "Supprimer le tableau",
       "typography": "Typographie",
