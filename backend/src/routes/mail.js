@@ -379,8 +379,23 @@ router.get('/unread-counts', async (req, res) => {
   } catch (err) {
     console.warn('Snoozed count failed:', err.message);
   }
+  // Scheduled messages (#543): pending (scheduled, being edited or sent) and those that need the
+  // user (failed, paused, uncertain), for the sidebar's Scheduled view. Secondary like snoozed.
+  const scheduled = { pending: 0, attention: 0 };
+  try {
+    const r = await query(
+      `SELECT COUNT(*) FILTER (WHERE status IN ('scheduled', 'editing', 'sending'))::int AS pending,
+              COUNT(*) FILTER (WHERE status IN ('failed', 'paused', 'uncertain'))::int AS attention
+         FROM scheduled_messages WHERE user_id = $1`,
+      [req.session.userId]
+    );
+    scheduled.pending = r?.rows?.[0]?.pending ?? 0;
+    scheduled.attention = r?.rows?.[0]?.attention ?? 0;
+  } catch (err) {
+    console.warn('Scheduled count failed:', err.message);
+  }
   res.set('Cache-Control', 'no-store');
-  res.json({ total, byAccount, snapshots, complete, snoozed });
+  res.json({ total, byAccount, snapshots, complete, snoozed, scheduled });
 });
 
 // Hard cap on a live IMAP body fetch. Connection acquisition is already bounded at 30s

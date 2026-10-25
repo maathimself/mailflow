@@ -36,6 +36,9 @@ export const SETUP_TABLES = [
   'plugin_account_config',
   'plugin_data',
   'push_subscriptions',
+  // User content that exists nowhere else, so even a setup-only backup carries it.
+  'scheduled_message_attachments',
+  'scheduled_messages',
   'snoozed_messages',
   'spam_models',
   'spam_training_deletions',
@@ -485,6 +488,28 @@ async function restoreLines(client, reader, { beforeWrite, onProgress }) {
       const here = await sequencePosition(client, name);
       const next = (BigInt(value) > here ? BigInt(value) : here) + 1n;
       await client.query(`ALTER SEQUENCE ${ident(name)} RESTART WITH ${next}`);
+    }
+    // The server the backup came from may still be running and sending, so a scheduled message
+    // it still holds must not go out from here as well. Claims and edit holds from that server
+    // are dropped, and a message that was being sent is settled by how far it got (as the
+    // scheduler's crash recovery would): one SMTP had accepted stays sending, unclaimed, for the
+    // sender to finish recording and never to send again; one handed to SMTP without an answer
+    // may have gone out and becomes uncertain, for the user to decide. Every other message not
+    // yet sent comes back paused, for the user to resume.
+    if (present.has('scheduled_messages')) {
+      const released = `claim_token = NULL, claimed_at = NULL, edit_token = NULL, edit_lease_until = NULL, updated_at = NOW()`;
+      await client.query(
+        `UPDATE scheduled_messages SET ${released}
+          WHERE status = 'sending' AND smtp_accepted_at IS NOT NULL`,
+      );
+      await client.query(
+        `UPDATE scheduled_messages SET status = 'uncertain', ${released}
+          WHERE status = 'sending' AND smtp_started_at IS NOT NULL AND smtp_accepted_at IS NULL`,
+      );
+      await client.query(
+        `UPDATE scheduled_messages SET status = 'paused', pause_reason = 'restored', ${released}
+          WHERE status IN ('scheduled', 'editing') OR (status = 'sending' AND smtp_accepted_at IS NULL)`,
+      );
     }
     await client.query('COMMIT');
   } catch (err) {

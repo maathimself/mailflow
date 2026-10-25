@@ -19,7 +19,7 @@ vi.mock('../services/redis.js', () => ({
 vi.mock('../index.js', () => ({ imapManager: {} }));
 vi.mock('../services/smtpTransport.js', () => ({ createAccountSmtpTransport: vi.fn() }));
 vi.mock('../utils/mailUtils.js', () => ({ resolveSentFolder: vi.fn() }));
-vi.mock('./draft.js', () => ({ deleteSentDraft: vi.fn() }));
+vi.mock('../services/draftCopies.js', () => ({ deleteSentDraft: vi.fn() }));
 import express from 'express';
 import routes from './send.js';
 import { query } from '../services/db.js';
@@ -27,7 +27,7 @@ import { redisClient } from '../services/redis.js';
 import { createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { resolveSentFolder } from '../utils/mailUtils.js';
 import { flushHeldSends, heldSendCount } from '../services/sendHold.js';
-import { deleteSentDraft } from './draft.js';
+import { deleteSentDraft } from '../services/draftCopies.js';
 
 const account = { id: 'a1', email_address: 'me@example.com', name: 'Me', oauth_provider: 'google' };
 const sendMail = vi.fn();

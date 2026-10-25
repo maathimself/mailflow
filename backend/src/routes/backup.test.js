@@ -25,6 +25,11 @@ vi.mock('../index.js', () => ({
   restartAfterRestore: vi.fn(),
 }));
 
+vi.mock('../services/scheduledSend.js', () => ({
+  stopScheduledSender: vi.fn(async () => {}),
+  startScheduledSender: vi.fn(),
+}));
+
 import express from 'express';
 
 let server;
@@ -50,6 +55,7 @@ beforeEach(async () => {
     db: await import('../services/db.js'),
     backup: await import('../services/backup.js'),
     index: await import('../index.js'),
+    scheduled: await import('../services/scheduledSend.js'),
     router: (await import('./backup.js')).default,
   };
   vi.clearAllMocks();
@@ -134,6 +140,12 @@ describe('POST /api/admin/backup/restore', () => {
     expect(await ndjson(res)).toEqual([{ table: 'users', rows: 2 }, { ok: true, ...RESULT, warnings: ['note'] }]);
     expect(m.index.imapManager.disconnectUser.mock.calls.map(c => c[0])).toEqual(['u1', 'u2']);
     expect(m.index.imapManager.connectAllForUser).not.toHaveBeenCalled();
+    // The scheduled sender stopped, its sends in flight finished, before the accounts went,
+    // and stays stopped for the restart.
+    expect(m.scheduled.stopScheduledSender).toHaveBeenCalledTimes(1);
+    expect(m.scheduled.stopScheduledSender.mock.invocationCallOrder[0])
+      .toBeLessThan(m.index.imapManager.disconnectUser.mock.invocationCallOrder[0]);
+    expect(m.scheduled.startScheduledSender).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(m.index.restartAfterRestore).toHaveBeenCalledTimes(1), { timeout: 3000 });
     expect(client.release).toHaveBeenCalled();
   });
@@ -161,6 +173,7 @@ describe('POST /api/admin/backup/restore', () => {
     await wait(600);
     expect(m.index.restartAfterRestore).not.toHaveBeenCalled();
     expect(m.index.imapManager.disconnectUser).not.toHaveBeenCalled();
+    expect(m.scheduled.stopScheduledSender).not.toHaveBeenCalled();
   });
 
   it('answers a refused upload even when most of it is still unread', async () => {
@@ -182,6 +195,9 @@ describe('POST /api/admin/backup/restore', () => {
     expect(res.status).toBe(200);
     expect(await ndjson(res)).toEqual([{ error: 'lock timeout' }]);
     await vi.waitFor(() => expect(m.index.imapManager.connectAllForUser.mock.calls.map(c => c[0])).toEqual(['u1', 'u2']));
+    // Nothing was committed, so the scheduled sender starts again.
+    expect(m.scheduled.stopScheduledSender).toHaveBeenCalledTimes(1);
+    expect(m.scheduled.startScheduledSender).toHaveBeenCalledTimes(1);
     await wait(600);
     expect(m.index.restartAfterRestore).not.toHaveBeenCalled();
   });

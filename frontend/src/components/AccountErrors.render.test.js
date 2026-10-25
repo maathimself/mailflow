@@ -71,7 +71,16 @@ const doc = dom.window.document;
 const text = () => doc.getElementById('root').textContent;
 const click = (el) => React.act(async () => { el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
 const byText = (sel, s) => [...doc.querySelectorAll(sel)].find(el => el.textContent.trim() === s);
-const wait = (ms) => React.act(() => new Promise(r => setTimeout(r, ms)));
+// Waits until `predicate` holds, letting React and the sign-in poll run between checks, instead of
+// a fixed sleep that a busy machine can outlast. Throws with the page's last text on timeout.
+async function waitFor(predicate, { timeout = 2000, step = 10 } = {}) {
+  const until = Date.now() + timeout;
+  for (;;) {
+    if (predicate()) return;
+    if (Date.now() >= until) throw new Error(`waitFor timed out after ${timeout} ms; the page said: ${text()}`);
+    await React.act(() => new Promise(r => setTimeout(r, step)));
+  }
+}
 
 const account = (code, extra = {}) => ({
   id: 'acct-1', name: 'Maria', email_address: 'maria.lopez@outlook.com', color: '#0078d4', enabled: true,
@@ -191,8 +200,9 @@ describe('Settings > Accounts: the callout on the account row', () => {
     await click(byText('button', 'accountErrors.action.signIn'));
     assert.deepEqual(deviceStarts, ['acct-1']);
     assert.ok(text().includes('K7QWZP2M'));
-    await wait(80);
-    assert.ok(text().includes('accountErrors.wrongAccount {"signedInAs":"other@hotmail.com","expected":"maria.lopez@outlook.com"}'));
+    const wrong = 'accountErrors.wrongAccount {"signedInAs":"other@hotmail.com","expected":"maria.lopez@outlook.com"}';
+    await waitFor(() => text().includes(wrong));
+    assert.ok(text().includes(wrong));
   });
 
   test('a successful repair reloads the accounts', async () => {
@@ -201,7 +211,7 @@ describe('Settings > Accounts: the callout on the account row', () => {
     await openAccounts(account('oauth_reauth'));
     api.getAccounts = async () => { reloaded++; return [account(null)]; };
     await click(byText('button', 'accountErrors.action.signIn'));
-    await wait(80);
+    await waitFor(() => text().includes('msSignIn.connected {"email":"maria.lopez@outlook.com"}') && reloaded === 1);
     assert.ok(text().includes('msSignIn.connected {"email":"maria.lopez@outlook.com"}'));
     assert.equal(reloaded, 1);
   });

@@ -4,6 +4,7 @@ import { pool, query } from '../services/db.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { BACKUP_SCOPES, BackupFileError, restoreBackup, unclassifiedTables, writeBackup } from '../services/backup.js';
 import { APP_VERSION, imapManager, restartAfterRestore } from '../index.js';
+import { startScheduledSender, stopScheduledSender } from '../services/scheduledSend.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -109,6 +110,9 @@ router.post('/restore', async (req, res) => {
         res.setHeader('Cache-Control', 'no-store');
         res.setHeader('X-Accel-Buffering', 'no');
         res.flushHeaders();
+        // The scheduled sender first: its sends in flight finish (they write their outcome
+        // and their Sent copy) before the rows and the IMAP connections go away under them.
+        await stopScheduledSender();
         await quiesceImap();
       },
       onProgress: progress => {
@@ -143,6 +147,7 @@ router.post('/restore', async (req, res) => {
       // now rather than after the rest of the upload has been read off.
       line({ error: message });
       resumeImap();
+      startScheduledSender();
       await discardBody(req);
       res.end();
     }

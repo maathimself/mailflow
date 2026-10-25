@@ -23,6 +23,8 @@ import LogoMark from './LogoMark.jsx';
 import ProfileModal from './ProfileModal.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import { SNOOZED_FOLDER } from '../utils/snoozeActions.js';
+import { SCHEDULED_VIEW } from '../utils/scheduledCompose.js';
+import { SendLaterIcon } from './SendLater.jsx';
 import { describeAccountError, needsSignIn } from '../utils/accountErrors.js';
 
 const ICONS = {
@@ -521,6 +523,9 @@ export default function Sidebar() {
 
   const isUnified = selectedAccountId === null;
   const snoozedCount = useStore(s => s.snoozedCount);
+  const scheduledCount = useStore(s => s.scheduledCount);
+  const scheduledAttention = useStore(s => s.scheduledAttention);
+  const isScheduledView = isUnified && selectedFolder === SCHEDULED_VIEW;
 
   // Focus rename/create inputs when they appear
   useEffect(() => {
@@ -937,7 +942,7 @@ export default function Sidebar() {
             mailboxRow
             icon={ICONS.inbox}
             label={t('sidebar.allInboxes')}
-            active={isUnified && selectedFolder !== SNOOZED_FOLDER && !showContacts}
+            active={isUnified && selectedFolder !== SNOOZED_FOLDER && !isScheduledView && !showContacts}
             collapsed={sidebarCollapsed}
             badge={unreadCounts.total}
             badgeStale={!unreadCounts.complete}
@@ -956,6 +961,23 @@ export default function Sidebar() {
             active={isUnified && selectedFolder === SNOOZED_FOLDER && !showContacts}
             collapsed={sidebarCollapsed}
             onClick={() => setSelectedAccount(null, SNOOZED_FOLDER)}
+          />
+        )}
+
+        {/* Scheduled (#543, design 5.2): every account's scheduled messages. Shown, like Snoozed,
+            while there is any (pending or needing attention) and while it is open. The badge is the
+            pending count; a red dot and the tooltip say how many need attention. */}
+        {(scheduledCount > 0 || scheduledAttention > 0 || isScheduledView) && (
+          <NavItem
+            mailboxRow
+            icon={<SendLaterIcon size={16} />}
+            label={t('sidebar.scheduled')}
+            active={isScheduledView && !showContacts}
+            collapsed={sidebarCollapsed}
+            badge={scheduledCount}
+            badgeTitle={t('sidebar.scheduledPending', { n: scheduledCount })}
+            alert={scheduledAttention > 0 ? t('sidebar.scheduledAttention', { n: scheduledAttention }) : null}
+            onClick={() => setSelectedAccount(null, SCHEDULED_VIEW)}
           />
         )}
 
@@ -2102,8 +2124,13 @@ export default function Sidebar() {
   );
 }
 
-function NavItem({ icon, label, active, collapsed, badge, badgeStale = false, onClick, mailboxRow = false }) {
+// `alert` (the Scheduled entry's "2 need attention") adds a red dot and is said with the label.
+function NavItem({ icon, label, active, collapsed, badge, badgeStale = false, badgeTitle, alert = null, onClick, mailboxRow = false }) {
   const navBadge = unreadBadge({ count: badge, stale: badgeStale, max: 999 });
+  // The name says what the badge and the dot show: "Scheduled, Waiting to be sent: 1, Need
+  // attention: 3". Only an entry with its own badge title (Scheduled) names its count.
+  const parts = [label, badgeTitle && navBadge ? badgeTitle : null, alert].filter(Boolean);
+  const name = parts.length > 1 ? parts.join(', ') : null;
   return (
     <div
       data-mailbox-row={mailboxRow ? '' : undefined}
@@ -2112,8 +2139,8 @@ function NavItem({ icon, label, active, collapsed, badge, badgeStale = false, on
       onKeyDown={activateOnKey(onClick)}
       role="button"
       tabIndex={0}
-      title={collapsedTooltip(label, collapsed)}
-      aria-label={collapsedTooltip(label, collapsed)}
+      title={name || collapsedTooltip(label, collapsed)}
+      aria-label={name || collapsedTooltip(label, collapsed)}
       style={{
         display: 'flex', alignItems: 'center',
         gap: 8, padding: collapsed ? '9px' : '8px 10px',
@@ -2135,8 +2162,11 @@ function NavItem({ icon, label, active, collapsed, badge, badgeStale = false, on
       {!collapsed && (
         <>
           <span style={{ fontSize: 13, fontWeight: active ? 500 : 400, flex: 1 }}>{label}</span>
+          {alert && (
+            <span data-nav-alert="" aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', flexShrink: 0 }} />
+          )}
           {navBadge && (
-            <span title={navBadge.title} style={{
+            <span title={badgeTitle || navBadge.title} style={{
               fontSize: 11, fontWeight: 600, color: 'var(--accent-text)',
               background: 'var(--accent)', padding: '1px 7px',
               borderRadius: 10, minWidth: 20, textAlign: 'center',
@@ -2146,11 +2176,11 @@ function NavItem({ icon, label, active, collapsed, badge, badgeStale = false, on
           )}
         </>
       )}
-      {collapsed && navBadge && (
+      {collapsed && (navBadge || alert) && (
         <div style={{
           position: 'absolute', top: 6, right: 6,
           width: 7, height: 7, borderRadius: '50%',
-          background: 'var(--accent)',
+          background: alert ? 'var(--red)' : 'var(--accent)',
         }} />
       )}
     </div>

@@ -118,6 +118,36 @@ describe('POST /api/mail/draft — local row persistence', () => {
     expect(meta.bodyText).toBe('Fish & chips <5>\n\ncafé\n\n-- \nMe | A & B');
   });
 
+  it('removes the scheduled message it was made from, only once it is stored and still held (#543)', async () => {
+    const id = '33333333-3333-4333-8333-333333333333';
+    const editToken = '44444444-4444-4444-8444-444444444444';
+    query.mockResolvedValueOnce({ rows: [{ id }] });
+    imapManager.broadcast.mockReset();
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: [], subject: 's', body: 'b', fromScheduled: { id, editToken } }),
+    });
+    expect(await res.json()).toEqual({ uid: 5, folder: 'Drafts', scheduledRemoved: true });
+    const del = query.mock.calls.find(([sql]) => sql.includes('DELETE FROM scheduled_messages'));
+    expect(del[0]).toMatch(/WHERE id = \$1 AND user_id = \$2 AND status = 'editing' AND edit_token = \$3/);
+    expect(del[1]).toEqual([id, 'user-1', editToken]);
+    // After the APPEND: the draft is the copy before the scheduled one goes.
+    expect(imapManager.appendToFolder.mock.invocationCallOrder[0]).toBeLessThan(query.mock.invocationCallOrder.at(-1));
+    expect(imapManager.broadcast).toHaveBeenCalledWith({ type: 'scheduled_changed', id, status: 'deleted' }, 'user-1');
+  });
+
+  it('keeps the scheduled message when the draft could not be stored', async () => {
+    imapManager.appendToFolder.mockRejectedValue(new Error('NO append'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: [], subject: 's', body: 'b',
+        fromScheduled: { id: '33333333-3333-4333-8333-333333333333', editToken: '44444444-4444-4444-8444-444444444444' } }),
+    });
+    expect(res.status).toBe(500);
+    expect(query.mock.calls.some(([sql]) => sql.includes('scheduled_messages'))).toBe(false);
+  });
+
   it('returns the newly appended RFC identity when requested', async () => {
     const res = await fetch(`${base}/api/mail/draft`, {
       method: 'POST', headers: { 'content-type': 'application/json' },

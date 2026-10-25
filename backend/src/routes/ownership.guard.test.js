@@ -22,7 +22,7 @@ import * as espree from 'espree';
 // matches anything fails too, so the list cannot outlive what it excuses.
 const SRC = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 
-const TABLES = { email_accounts: 'account', messages: 'message', account_aliases: 'alias', contacts: 'contact', address_books: 'address book' };
+const TABLES = { email_accounts: 'account', messages: 'message', account_aliases: 'alias', contacts: 'contact', address_books: 'address book', scheduled_messages: 'scheduled message' };
 const NOT_ALIAS = new Set(['on', 'where', 'join', 'left', 'right', 'inner', 'outer', 'full', 'cross', 'natural', 'using', 'order', 'group', 'limit', 'offset', 'having', 'union', 'lateral', 'for', 'returning', 'set', 'window']);
 const PARAM = String.raw`\$\d+(?:\s*::\s*\w+(?:\[\])?)?`;
 const ID_VALUE = String.raw`(?:${PARAM}|any\s*\(\s*${PARAM}\s*\))`;
@@ -145,6 +145,7 @@ describe('the guard\'s matcher', () => {
     ['contact', 'SELECT * FROM contacts WHERE id = $1 AND user_id = $2'],
     ['contact', 'SELECT k.* FROM contacts k WHERE k.user_id = $2 AND k.id = $1'],
     ['address book', 'SELECT * FROM address_books ab WHERE ab.id = $1 AND ab.user_id = $2'],
+    ['scheduled message', 'SELECT status FROM scheduled_messages WHERE id = $1 AND user_id = $2 FOR UPDATE'],
   ])('finds a hand-written %s lookup: %s', (kind, sql) => {
     expect(ownershipLookup(sql)).toBe(kind);
   });
@@ -153,6 +154,7 @@ describe('the guard\'s matcher', () => {
     'DELETE FROM email_accounts WHERE id = $1 AND user_id = $2',
     'UPDATE messages m SET is_read = true FROM email_accounts a WHERE m.id = $1 AND a.user_id = $2',
     'DELETE FROM inbox_rules WHERE id = $1 AND user_id = $2 RETURNING id',
+    "UPDATE scheduled_messages SET status = 'cancelled' WHERE id = $1 AND user_id = $2 AND status = ANY($3) RETURNING id",
     'INSERT INTO contacts (id, user_id) SELECT $1, $2',
     'SELECT id FROM inbox_rules WHERE id = ANY($1::uuid[]) AND user_id = $2',
     'SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true',

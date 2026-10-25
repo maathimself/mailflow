@@ -10,6 +10,12 @@ export function isComposeSendShortcut(event) {
     && (!!event.ctrlKey !== !!event.metaKey);
 }
 
+// Ctrl/Cmd+Shift+Enter opens Send later (#543, design 5.1); it schedules nothing by itself.
+export function isSendLaterShortcut(event) {
+  return event?.key === 'Enter' && !event.repeat && !!event.shiftKey && !event.altKey
+    && (!!event.ctrlKey !== !!event.metaKey);
+}
+
 function parseAddressField(raw) {
   try {
     const arr = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');

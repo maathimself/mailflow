@@ -88,6 +88,12 @@ function readGtdCollapsedSections() {
 }
 
 let pendingCountTimer;
+
+// The Scheduled view's state (#543), cleared with the user's other mail state on a sign-out or
+// a lock: subjects and recipients are the user's content.
+const SCHEDULED_RESET = {
+  scheduledCount: 0, scheduledAttention: 0, scheduledList: null, scheduledSummaries: {}, scheduledHighlight: null,
+};
 function expirePendingCounts() {
   clearTimeout(pendingCountTimer);
   const deadlines = Object.values(useStore.getState().pendingCounts).map(p => p.expiresAt);
@@ -144,6 +150,7 @@ export const useStore = create((set, get) => ({
         serverUnreadCounts: { total: 0, byAccount: {}, snapshots: {} }, pendingCounts: {},
         unreadCounts: { total: 0, byAccount: {}, snapshots: {}, complete: false },
         snoozedCount: 0,
+        ...SCHEDULED_RESET,
         senderFaviconsLoaded: false,
         senderFavicons: false,
         senderFaviconsSaving: false,
@@ -219,6 +226,7 @@ export const useStore = create((set, get) => ({
         folders: {}, selectedMessageId: null,
         unreadCounts: { total: 0, byAccount: {} },
         snoozedCount: 0,
+        ...SCHEDULED_RESET,
         notifications: [], threadMessages: {}, expandedThreadId: null,
         backfillProgress: {},
         gtdSections: null, categoryCounts: {}, activeGtdTab: null,
@@ -399,6 +407,22 @@ export const useStore = create((set, get) => ({
   unreadCounts: { total: 0, byAccount: {}, snapshots: {}, complete: false },
   // How many messages are snoozed (#269), from the same server count as the badges.
   snoozedCount: 0,
+  // Scheduled send (#543, design 5.3): the pending count and how many need attention, from the
+  // same server count; the Scheduled view's list as GET /mail/scheduled last returned it (null
+  // until it is loaded), the subjects and recipients seen for each message (the server deletes them
+  // once it is sent, so a message sent while this tab was open still shows what it was), and the
+  // message a notification link asked to show.
+  ...SCHEDULED_RESET,
+  setScheduledList: (list) => set(state => {
+    if (state.isLocked) return {};
+    const summaries = {};
+    for (const m of list?.messages || []) {
+      const summary = m.summary || state.scheduledSummaries[m.id];
+      if (summary) summaries[m.id] = summary;
+    }
+    return { scheduledList: list, scheduledSummaries: summaries };
+  }),
+  setScheduledHighlight: (id) => set({ scheduledHighlight: id || null }),
   setUnreadCounts: (counts) => set(state => {
     if (state.isLocked) return {};
     const server = mergeCountSnapshots(state.serverUnreadCounts, counts);
@@ -409,7 +433,10 @@ export const useStore = create((set, get) => ({
     if (!Object.keys(pending).length) { clearTimeout(pendingCountTimer); pendingCountTimer = null; }
     return { serverUnreadCounts: server, pendingCounts: pending,
       unreadCounts: displayCountSnapshot(server, pending, state.accounts),
-      ...(typeof counts?.snoozed === 'number' ? { snoozedCount: counts.snoozed } : {}) };
+      ...(typeof counts?.snoozed === 'number' ? { snoozedCount: counts.snoozed } : {}),
+      ...(counts?.scheduled && typeof counts.scheduled.pending === 'number' ? {
+        scheduledCount: counts.scheduled.pending, scheduledAttention: Number(counts.scheduled.attention) || 0,
+      } : {}) };
   }),
   adjustUnread: (accountId, delta) => {
     set(state => {

@@ -201,7 +201,74 @@
     "recipientMenu": {
       "copy": "Copiar endereço",
       "copyAll": "Copiar todos deste campo"
-    }
+    },
+    "scheduleSend": {
+      "title": "Enviar mais tarde",
+      "tooltip": "Enviar mais tarde (Ctrl+Shift+Enter)",
+      "tomorrowMorning": "Amanhã de manhã",
+      "tomorrowAfternoon": "Amanhã à tarde",
+      "mondayMorning": "Segunda de manhã",
+      "pick": "Escolher data e hora",
+      "dateLabel": "Data",
+      "timeLabel": "Horário",
+      "dateTimeLabel": "Data e hora",
+      "sendsAt": "Envia em {{when}}",
+      "timeZone": "Fuso horário: {{zone}}",
+      "schedule": "Agendar envio",
+      "scheduledFor": "Agendado para {{when}}",
+      "change": "Alterar",
+      "changeTime": "Alterar horário",
+      "errors": {
+        "invalid": "Informe uma data e um horário.",
+        "past": "Esse horário já passou.",
+        "tooSoon": "Escolha um horário pelo menos um minuto a partir de agora.",
+        "tooFar": "Escolha um horário dentro dos próximos 366 dias.",
+        "clockBehind": "O relógio deste dispositivo está {{minutes}} min atrasado em relação ao do servidor, que diz que são {{time}}.",
+        "clockAhead": "O relógio deste dispositivo está {{minutes}} min adiantado em relação ao do servidor, que diz que são {{time}}.",
+        "holdLost": "Esta mensagem foi aberta em outra janela e não pode mais ser salva aqui. Seu texto continua aqui para copiar.",
+        "versionConflict": "Esta mensagem foi alterada em outro lugar. Feche-a e abra de novo em Agendados para ver a versão mais recente.",
+        "notHeld": "Esta mensagem não está aberta para edição aqui. Feche-a e abra de novo em Agendados.",
+        "pickNewTime": "O horário agendado já passou. Escolha um novo.",
+        "failed": "Não foi possível agendar a mensagem.",
+        "heldElsewhere": "Esta mensagem está aberta em outra janela."
+      },
+      "edit": {
+        "update": "Atualizar",
+        "updating": "Salvando…",
+        "options": "Opções de agendamento",
+        "unschedule": "Desagendar (salvar como rascunho)",
+        "unscheduleTitle": "Mover esta mensagem para Rascunhos?",
+        "unscheduleGo": "Salvar como rascunho",
+        "unscheduled": "Movida para Rascunhos",
+        "unscheduleKept": "Salva em Rascunhos, mas a mensagem agendada continua agendada: esta janela não a tinha mais. Exclua-a em Agendados se ela não deve ser enviada.",
+        "closeTitle": "Salvar as alterações desta mensagem agendada?",
+        "saveChanges": "Salvar alterações",
+        "discardChanges": "Descartar alterações",
+        "switchBlocked": "Primeiro atualize ou feche a mensagem agendada que você está editando.",
+        "sendNow": "Enviar agora",
+        "pickNewTime": "Escolher um novo horário",
+        "keepPaused": "Manter pausada",
+        "dueTitle": "Esta mensagem era para {{when}}.",
+        "dueBody": "Se fechar agora, ela fica pausada e nunca sai sem você.",
+        "keptPaused": "Pausada. Retome-a em Agendados quando ela deve ser enviada.",
+        "heldElsewhereBody": "Edite-a aqui em vez disso, e a outra janela não poderá mais salvá-la.",
+        "takeOver": "Editar aqui em vez disso",
+        "close": "Fechar"
+      },
+      "confirm": {
+        "title": "Agendar de novo?",
+        "go": "Agendar mesmo assim"
+      },
+      "laterToday": "Mais tarde hoje",
+      "undoFailed": "Não foi possível desfazer o agendamento",
+      "sendNow": {
+        "undone": "Não enviada. Ela voltou para Agendados como estava.",
+        "undoFailed": "Não foi possível desfazer o envio imediato"
+      },
+      "scheduleAnyway": "Agendar assim mesmo",
+      "undoFailedOpen": "Não foi possível desfazer. Abra-a em Agendados."
+    },
+    "selectAccount": "Escolha uma conta para enviar"
   },
   "message": {
     "find": {
@@ -546,7 +613,138 @@
     "emptied": "Pasta esvaziada",
     "backToAccounts": "Voltar às contas",
     "updateAvailable": "Atualização disponível: v{{version}}",
-    "snoozed": "Adiados"
+    "snoozed": "Adiados",
+    "scheduled": "Agendados",
+    "scheduledPending": "Aguardando envio: {{n}}",
+    "scheduledAttention": "Precisam de atenção: {{n}}"
+  },
+  "scheduled": {
+    "refresh": "Atualizar",
+    "loadFailed": "Não foi possível carregar as mensagens agendadas.",
+    "empty": "Nada agendado",
+    "emptyDesc": "Use Enviar mais tarde no editor.",
+    "moreSent": "Mensagens enviadas mais antigas não são exibidas.",
+    "sentMessage": "Mensagem enviada",
+    "to": "Para: {{names}}",
+    "toMore": "Para: {{names}} +{{more}}",
+    "detail": "Motivo informado: {{detail}}",
+    "zoneTime": "{{time}} ({{zone}})",
+    "sections": {
+      "attention": "Precisa de atenção",
+      "scheduled": "Agendado",
+      "sent": "Enviadas",
+      "deleted": "Excluídas"
+    },
+    "when": {
+      "today": "Hoje {{time}}",
+      "tomorrow": "Amanhã {{time}}",
+      "yesterday": "Ontem {{time}}"
+    },
+    "chip": {
+      "sending": "Enviando",
+      "editing": "Em edição",
+      "failed": "Falhou",
+      "paused": "Pausada",
+      "uncertain": "Verifique a entrega",
+      "sent": "Enviada",
+      "sentLate": "Enviada com atraso",
+      "retrying": "Tentando de novo",
+      "deleted": "Excluída"
+    },
+    "reason": {
+      "overdue": "Estava mais de 6 horas atrasada, então o MailFlow a reteve. Envie agora ou escolha um novo horário.",
+      "restored": "Foi pausada quando um backup foi restaurado.",
+      "editAbandoned": "Estava aberta para edição na hora do envio.",
+      "accountDisabled": "A conta dela está desativada.",
+      "needsReauth": "Entre na conta de novo para enviá-la.",
+      "user": "Você a pausou.",
+      "paused": "Está pausada.",
+      "smtpRejected": "O servidor de e-mail a recusou.",
+      "tooLarge": "É grande demais para o servidor de e-mail.",
+      "config": "As configurações de envio da conta precisam de atenção.",
+      "tls": "A conexão segura com o servidor de e-mail falhou.",
+      "invalidMessage": "Não foi possível montar a mensagem.",
+      "aliasMissing": "O endereço de onde ela seria enviada não existe mais.",
+      "decryptFailed": "Não foi possível descriptografá-la neste servidor.",
+      "accountMissing": "A conta dela não existe mais.",
+      "gaveUp": "O servidor de e-mail continuou falhando, então o MailFlow parou de tentar.",
+      "failed": "Não foi possível enviá-la.",
+      "uncertain": "O MailFlow parou durante o envio. Ela pode ou não ter sido entregue. Confira a pasta Enviados.",
+      "retrying": "A última tentativa falhou. Próxima tentativa: {{when}}.",
+      "deleted": "Pode ser restaurada até {{when}}."
+    },
+    "sent": {
+      "markedSent": "Você a marcou como enviada.",
+      "late": "Enviada com atraso: agendada para {{scheduled}}, enviada {{sent}}.",
+      "lateOffline": "Enviada com atraso: agendada para {{scheduled}}, enviada {{sent}} porque o MailFlow estava fora do ar.",
+      "refused": "Recusada pelo servidor de e-mail para: {{list}}",
+      "deferred": "Não entregue a {{list}}: o servidor deles pediu para tentar mais tarde, e o MailFlow não tenta de novo. Envie para eles outra vez.",
+      "noSentFolder": "Nenhuma cópia foi salva: a conta não tem pasta Enviados.",
+      "noSentCopy": "Não foi possível salvar uma cópia em Enviados."
+    },
+    "a11y": {
+      "scheduledFor": "Agendada para {{when}}",
+      "sentAt": "Enviada {{when}}",
+      "to": "destinatários {{names}}",
+      "toMore": "destinatários {{names}} e mais {{more}}",
+      "subject": "assunto {{subject}}"
+    },
+    "actions": {
+      "edit": "Editar",
+      "reschedule": "Reagendar",
+      "sendNow": "Enviar agora",
+      "resume": "Retomar",
+      "retry": "Tentar de novo",
+      "sendAnyway": "Enviar mesmo assim",
+      "markSent": "Marcar como enviada",
+      "cancel": "Excluir",
+      "delete": "Excluir para sempre",
+      "viewSent": "Ver em Enviados",
+      "remove": "Remover da lista",
+      "more": "Mais ações",
+      "menu": "Ações da mensagem agendada",
+      "restore": "Restaurar"
+    },
+    "confirm": {
+      "uncertainTitle": "Ela pode já ter sido entregue",
+      "uncertainBody": "O MailFlow parou durante o envio. Confira primeiro a pasta Enviados. Enviar de novo mesmo assim?",
+      "restoredTitle": "Pausada por uma restauração de backup",
+      "restoredBody": "Ela foi pausada quando um backup foi restaurado. Se o servidor antigo ainda estiver no ar, ele pode enviá-la também. Enviar daqui?",
+      "restoredGo": "Enviar daqui",
+      "sendAnywayTitle": "Enviar de novo?",
+      "sendAnywayBody": "Ela pode já ter sido entregue: o MailFlow parou durante o envio. Confira primeiro a pasta Enviados. Se ela saiu, os destinatários vão recebê-la duas vezes.",
+      "markSentTitle": "Marcar como enviada?",
+      "markSentBody": "Faça isso se você a encontrou na pasta Enviados. O MailFlow apaga o conteúdo e nunca a envia.",
+      "deleteTitle": "Excluir para sempre?",
+      "deleteBody": "Ela não será enviada e não poderá ser restaurada."
+    },
+    "toast": {
+      "resumed": "Retomada. Ela está sendo enviada agora.",
+      "sendingNow": "Ela está sendo enviada agora.",
+      "markedSent": "Marcada como enviada",
+      "deleted": "Mensagem agendada excluída",
+      "deletedForGood": "Excluída para sempre",
+      "restored": "Restaurada",
+      "sent": "Mensagem agendada enviada",
+      "notSent": "Não enviada: {{reason}}",
+      "open": "Abrir",
+      "restoredPaused": "Restaurada e pausada. Retome-a quando ela deve ser enviada."
+    },
+    "errors": {
+      "needsReauth": "Entre na conta de novo primeiro e depois retome-a.",
+      "accountDisabled": "Ative a conta de novo primeiro e depois retome-a.",
+      "undoExpired": "Tarde demais para desfazer: a mensagem está saindo.",
+      "notFound": "Esta mensagem agendada não existe mais.",
+      "sending": "Ela está sendo enviada neste momento.",
+      "sent": "Ela já foi enviada.",
+      "cancelled": "Ela foi excluída.",
+      "editing": "Ela está aberta para edição em outra janela.",
+      "failed": "Não foi possível alterar a mensagem agendada.",
+      "restoreFailed": "Não foi possível restaurá-la",
+      "restoreExpired": "Ela não pode mais ser restaurada.",
+      "linkNotFound": "Essa mensagem agendada não foi encontrada."
+    },
+    "serverReply": "Resposta do servidor: {{detail}}"
   },
   "contextMenu": {
     "find": "Localizar",
@@ -999,7 +1197,11 @@
       "trustedAuthservDetectedNone": "Sem dados ainda — as mensagens são inspecionadas assim que o antispam for ativado para esta conta.",
       "trustedAuthservWarn": "Confie apenas em um ID que você reconheça como o servidor de recebimento do seu provedor de e-mail.",
       "enabledGlobally": "Ativado globalmente",
-      "microsoftImapNoteSignIn": "A Microsoft não aceita mais senhas para caixas do Outlook.com, Hotmail, Live e MSN. Entre com a Microsoft: não é preciso senha de app."
+      "microsoftImapNoteSignIn": "A Microsoft não aceita mais senhas para caixas do Outlook.com, Hotmail, Live e MSN. Entre com a Microsoft: não é preciso senha de app.",
+      "deleteScheduled": "Mensagens agendadas ainda não enviadas que são excluídas com ela: {{n}}.",
+      "deleteTitle": "Remover a conta?",
+      "deleteBody": "Todas as mensagens sincronizadas desta conta serão excluídas. Isso não pode ser desfeito.",
+      "deleteConfirm": "Remover"
     },
     "folderMappings": {
       "title": "Mapeamento de pastas",
