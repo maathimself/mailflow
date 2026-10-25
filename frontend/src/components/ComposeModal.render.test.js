@@ -74,6 +74,260 @@ const GMAIL_DRAFT = '<div dir="ltr">Hi Bob,<div><br></div><div>The contract is a
 
 const saved = [];
 
+describe('composer context menu', () => {
+  const clickAction = id => React.act(async () => {
+    const button = document.querySelector(`.composer-context-menu button[data-action="${id}"]`);
+    assert.ok(button, `${id} is available`);
+    button.click();
+  });
+  const openMenu = target => React.act(async () => {
+    target.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 40 }));
+  });
+  const richTarget = () => document.querySelector('.ProseMirror');
+  const select = (editor, from, to) => React.act(async () => { editor.commands.setTextSelection({ from, to }); });
+  const clipboard = value => Object.defineProperty(globalThis.navigator, 'clipboard', { configurable: true, value });
+  const originalClipboard = Object.getOwnPropertyDescriptor(globalThis.navigator, 'clipboard');
+  after(() => {
+    if (originalClipboard) Object.defineProperty(globalThis.navigator, 'clipboard', originalClipboard);
+    else delete globalThis.navigator.clipboard;
+  });
+
+  test('formats the original selection and Normal clears its formatting', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello world</p>' });
+    try {
+      const editor = richTarget().editor;
+      await select(editor, 1, 6);
+      await openMenu(richTarget());
+      assert.equal(document.querySelector('[data-action="ai"]'), null);
+      assert.equal(document.querySelector('[data-action="cut"]').disabled, false);
+      await clickAction('format');
+      await clickAction('bold');
+      assert.match(editor.getHTML(), /<strong>Hello<\/strong> world/);
+      await openMenu(richTarget());
+      await clickAction('format');
+      await clickAction('normal');
+      assert.doesNotMatch(editor.getHTML(), /<strong>/);
+      assert.equal(editor.getText(), 'Hello world');
+    } finally { await close(); }
+  });
+
+  test('superscript, subscript, font size and indentation survive HTML parsing', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello world</p>' });
+    try {
+      const editor = richTarget().editor;
+      await select(editor, 1, 6);
+      for (const action of ['superscript', 'subscript', 'fontIncrease', 'indentIncrease']) {
+        await openMenu(richTarget()); await clickAction('format'); await clickAction(action);
+      }
+      let html = editor.getHTML();
+      assert.match(html, /<sub>/);
+      assert.doesNotMatch(html, /<sup>/);
+      assert.match(html, /font-size: 16px/);
+      assert.match(html, /margin-left: 40px/);
+      await React.act(async () => { editor.commands.setContent(html); });
+      html = editor.getHTML();
+      assert.match(html, /<sub>/);
+      assert.match(html, /margin-left: 40px/);
+      await select(editor, 1, 6);
+      await openMenu(richTarget()); await clickAction('format'); await clickAction('indentDecrease');
+      assert.doesNotMatch(editor.getHTML(), /margin-left: 40px/);
+    } finally { await close(); }
+  });
+
+  test('list, justification and history actions execute editor commands', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello</p>' });
+    try {
+      const editor = richTarget().editor;
+      await select(editor, 1, 6);
+      await openMenu(richTarget()); await clickAction('format'); await clickAction('numbering');
+      assert.match(editor.getHTML(), /<ol>/);
+      await openMenu(richTarget()); await clickAction('justify'); await clickAction('align-justify');
+      assert.match(editor.getHTML(), /text-align: justify/);
+      await openMenu(richTarget()); await clickAction('undo');
+      assert.doesNotMatch(editor.getHTML(), /text-align: justify/);
+      await openMenu(richTarget()); await clickAction('redo');
+      assert.match(editor.getHTML(), /text-align: justify/);
+    } finally { await close(); }
+  });
+
+  test('Cut deletes only after copying succeeds', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello world</p>' });
+    try {
+      const editor = richTarget().editor;
+      await select(editor, 1, 6);
+      clipboard({ writeText: async () => { throw new Error('denied'); } });
+      await openMenu(richTarget()); await clickAction('cut');
+      assert.equal(editor.getText(), 'Hello world');
+      const copied = [];
+      clipboard({ writeText: async value => copied.push(value) });
+      await openMenu(richTarget()); await clickAction('cut');
+      assert.deepEqual(copied, ['Hello']);
+      assert.equal(editor.getText(), ' world');
+    } finally { await close(); }
+  });
+
+  test('Paste as Text and Paste as Quote keep markup literal', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Original</p>' });
+    try {
+      const editor = richTarget().editor;
+      clipboard({ readText: async () => '<b>Literal</b>\nSecond line' });
+      await select(editor, 1, 9);
+      await openMenu(richTarget()); await clickAction('pasteText');
+      assert.equal(editor.getText({ blockSeparator: '\n' }), '<b>Literal</b>\nSecond line');
+      assert.doesNotMatch(editor.getHTML(), /<b>|<strong>/);
+      await React.act(async () => { editor.commands.selectAll(); });
+      await openMenu(richTarget()); await clickAction('pasteQuote');
+      assert.match(editor.getHTML(), /<blockquote>/);
+      assert.match(editor.getHTML(), /&lt;b&gt;Literal&lt;\/b&gt;/);
+    } finally { await close(); }
+  });
+
+  test('Copy preserves rich formatting when the clipboard supports HTML', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p><strong>Hello</strong> world</p>' });
+    const originalItem = Object.getOwnPropertyDescriptor(globalThis, 'ClipboardItem');
+    try {
+      Object.defineProperty(globalThis, 'ClipboardItem', { configurable: true, value: class {
+        constructor(data) { this.data = data; }
+      } });
+      const copied = [];
+      clipboard({ write: async values => copied.push(...values) });
+      await select(richTarget().editor, 1, 6);
+      await openMenu(richTarget()); await clickAction('copy');
+      assert.equal(await copied[0].data['text/plain'].text(), 'Hello');
+      assert.match(await copied[0].data['text/html'].text(), /<strong>Hello<\/strong>/);
+      assert.equal(richTarget().editor.getText(), 'Hello world');
+    } finally {
+      if (originalItem) Object.defineProperty(globalThis, 'ClipboardItem', originalItem);
+      else delete globalThis.ClipboardItem;
+      await close();
+    }
+  });
+
+  test('Insert uses the existing file, image and per-message signature controls', async () => {
+    const accounts = useStore.getState().accounts;
+    useStore.setState({ accounts: accounts.map(account => ({ ...account, signature: '<p>My signature</p>', signature_enabled: true })) });
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello</p>' });
+    try {
+      const opened = [];
+      document.querySelector('input[type="file"][multiple]').click = () => opened.push('file');
+      document.querySelector('input[type="file"][accept="image/*"]').click = () => opened.push('image');
+      await openMenu(richTarget()); await clickAction('insert'); await clickAction('file');
+      await openMenu(richTarget()); await clickAction('insert'); await clickAction('image');
+      assert.deepEqual(opened, ['file', 'image']);
+      await openMenu(richTarget()); await clickAction('insert'); await clickAction('signature');
+      assert.equal(document.querySelector('button[aria-label="compose.insertSignature"]').getAttribute('aria-pressed'), 'false');
+    } finally { await close(); useStore.setState({ accounts }); }
+  });
+
+  test('AI appears only when enabled and invokes the existing writing assistant', async () => {
+    const realStatus = api.ai.status;
+    const realChat = api.ai.chat;
+    const requests = [];
+    api.ai.status = async () => ({ enabled: true, features: { compose: true } });
+    api.ai.chat = async messages => { requests.push(messages); return 'Improved'; };
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello</p>' });
+    try {
+      await openMenu(richTarget()); await clickAction('ai'); await clickAction('improve');
+      assert.equal(requests.length, 1);
+      assert.equal(requests[0][1].content, 'Hello');
+      assert.ok([...document.querySelectorAll('button')].some(button => button.textContent === 'compose.toolbar.aiApply'));
+    } finally { await close(); api.ai.status = realStatus; api.ai.chat = realChat; }
+  });
+
+  test('rich paste is sanitized and an outstanding read cannot overwrite later edits', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Original</p>' });
+    try {
+      const editor = richTarget().editor;
+      clipboard({ read: async () => [{ types: ['text/html'], getType: async () => new Blob(['<p><strong>Safe</strong><script>alert(1)</script></p>']) }] });
+      await select(editor, 1, 9);
+      await openMenu(richTarget()); await clickAction('paste');
+      assert.match(editor.getHTML(), /<strong>Safe<\/strong>/);
+      assert.doesNotMatch(editor.getHTML(), /script|alert/);
+      let finish;
+      clipboard({ readText: () => new Promise(resolve => { finish = resolve; }) });
+      await openMenu(richTarget()); await clickAction('pasteText');
+      await React.act(async () => { editor.commands.insertContent('later'); });
+      const later = editor.getHTML();
+      await React.act(async () => { finish('stale clipboard'); });
+      assert.equal(editor.getHTML(), later);
+    } finally { await close(); }
+  });
+
+  test('Insert opens the existing table, link and typography pickers', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello</p>' });
+    try {
+      const editor = richTarget().editor;
+      await select(editor, 1, 6);
+      await openMenu(richTarget()); await clickAction('insert'); await clickAction('table');
+      assert.equal(document.querySelectorAll('.table-insert-grid button').length, 64);
+      await React.act(async () => { document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+      await openMenu(richTarget()); await clickAction('insert'); await clickAction('link');
+      assert.ok(document.querySelector('input[placeholder="https://..."]'));
+      await openMenu(richTarget()); await clickAction('format'); await clickAction('font');
+      assert.ok([...document.querySelectorAll('select')].some(select => [...select.options].some(option => option.textContent === 'compose.toolbar.fontDefault')));
+      assert.deepEqual({ from: editor.state.selection.from, to: editor.state.selection.to }, { from: 1, to: 6 });
+    } finally { await close(); }
+  });
+
+  test('plain-text paste, quote, undo and redo update the actual composer body', async () => {
+    const close = await openDraft({ plaintextEmail: true, body: 'Hello world' });
+    try {
+      const target = document.querySelector('textarea[placeholder="compose.bodyPh"]');
+      target.setSelectionRange(6, 11);
+      clipboard({ readText: async () => 'quoted\ntext' });
+      await openMenu(target);
+      assert.equal(document.querySelector('[data-action="format"]').disabled, true);
+      assert.equal(document.querySelector('[data-action="source"]').disabled, true);
+      await clickAction('pasteQuote');
+      assert.equal(target.value, 'Hello > quoted\n> text');
+      await openMenu(target); await clickAction('undo');
+      assert.equal(target.value, 'Hello world');
+      await openMenu(target); await clickAction('redo');
+      assert.equal(target.value, 'Hello > quoted\n> text');
+      await hideTab();
+      assert.equal(saved.at(-1).body, target.value);
+    } finally { await close(); }
+  });
+
+  test('Source toggles HTML mode and offers text editing without rich formatting', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Original</p>' });
+    try {
+      await openMenu(richTarget()); await clickAction('source');
+      const target = [...document.querySelectorAll('textarea')].find(el => el.value.includes('<p>Original</p>'));
+      assert.ok(target);
+      await openMenu(target);
+      assert.equal(document.querySelector('[data-action="format"]').disabled, true);
+      assert.equal(document.querySelector('[data-action="source"]').getAttribute('aria-checked'), 'true');
+      await clickAction('selectAll');
+      assert.equal(target.selectionEnd, target.value.length);
+      clipboard({ readText: async () => '<p>Updated</p>' });
+      await openMenu(target); await clickAction('pasteText');
+      assert.equal(target.value, '<p>Updated</p>');
+      await openMenu(target); await clickAction('source');
+      assert.equal(richTarget().editor.getText(), 'Updated');
+    } finally { await close(); }
+  });
+
+  test('keyboard submenus, Escape and outside dismissal preserve the draft', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Unchanged</p>' });
+    try {
+      await openMenu(richTarget());
+      const format = document.querySelector('[data-action="format"]');
+      await React.act(async () => { format.focus(); format.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); });
+      assert.equal(document.activeElement.dataset.action, 'font');
+      await React.act(async () => { document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })); });
+      assert.equal(document.activeElement, format);
+      await React.act(async () => { format.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+      assert.equal(document.querySelector('.composer-context-menu'), null);
+      await openMenu(richTarget());
+      await React.act(async () => { document.querySelector('.composer-context-scrim').dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true })); });
+      assert.equal(document.querySelector('.composer-context-menu'), null);
+      await hideTab();
+      assert.equal(saved.length, 0);
+    } finally { await close(); }
+  });
+});
+
 describe('table insertion', () => {
   const press = element => React.act(async () => {
     element.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
