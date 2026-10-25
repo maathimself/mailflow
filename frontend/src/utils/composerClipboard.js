@@ -5,12 +5,13 @@ import { withoutPageColors } from './pageColors.js';
 
 export async function copyEditorSelection(editor, selection) {
   const { from, to } = selection;
-  const text = editor.state.doc.textBetween(from, to, '\n');
+  const fragment = typeof selection.content === 'function' ? selection.content().content : editor.state.doc.slice(from, to).content;
+  const text = fragment.textBetween(0, fragment.size, '\n');
   const clipboard = globalThis.navigator?.clipboard;
   const Item = globalThis.ClipboardItem;
   if (clipboard?.write && Item) {
     const wrapper = document.createElement('div');
-    wrapper.appendChild(DOMSerializer.fromSchema(editor.schema).serializeFragment(editor.state.doc.slice(from, to).content));
+    wrapper.appendChild(DOMSerializer.fromSchema(editor.schema).serializeFragment(fragment));
     try {
       await clipboard.write([new Item({
         'text/plain': new Blob([text], { type: 'text/plain' }),
