@@ -7,7 +7,7 @@ import { JSDOM } from 'jsdom';
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
-const { buildPrintDocument, openPrintWindow, printInWindow } = await import('./printMessage.js');
+const { buildPrintDocument, capturePrintSelection, openPrintWindow, printInWindow } = await import('./printMessage.js');
 
 const A = {
   subject: 'Invoice <42> & receipt', from_name: 'Ana', from_email: 'ana@example.test',
@@ -89,6 +89,66 @@ function fakeWindow() {
 }
 
 describe('print window', () => {
+  it('captures selected email HTML and the current accent before opening a desktop preview', async () => {
+    document.body.innerHTML = '<div id="email"><p>Keep <b>this part</b></p></div><p id="other">Other content</p>';
+    const root = document.getElementById('email');
+    const range = document.createRange();
+    range.selectNodeContents(root.querySelector('b'));
+    document.getSelection().removeAllRanges();
+    document.getSelection().addRange(range);
+    document.documentElement.style.setProperty('--accent', '#123abc');
+    const win = fakeWindow();
+    let context;
+    dom.window.open = () => { document.getSelection().removeAllRanges(); return win; };
+    dom.window.mailflowNative = { printing: { preview: async (_name, metadata) => { context = metadata; } } };
+    try {
+      await printInWindow(openPrintWindow('', root), '<html>full email</html>');
+      assert.equal(context.selectionHtml, 'this part');
+      assert.equal(context.accent, '#123abc');
+      range.selectNodeContents(document.getElementById('other'));
+      document.getSelection().addRange(range);
+      assert.equal(capturePrintSelection(root), '', 'selection elsewhere is excluded');
+    } finally {
+      delete dom.window.mailflowNative;
+      document.getSelection().removeAllRanges();
+      document.body.replaceChildren();
+      document.documentElement.style.removeProperty('--accent');
+    }
+  });
+
+  it('captures iframe selections, strips handlers, and preserves plain-text whitespace', () => {
+    document.body.innerHTML = '<div id="email"><iframe></iframe><pre>first\nsecond</pre></div>';
+    const root = document.getElementById('email');
+    const frameDoc = root.querySelector('iframe').contentDocument;
+    frameDoc.body.innerHTML = '<p onclick="bad()">Selected <b>email</b><script>bad()</script></p>';
+    const range = frameDoc.createRange();
+    range.selectNodeContents(frameDoc.body);
+    frameDoc.getSelection().addRange(range);
+    const html = capturePrintSelection(root);
+    assert.match(html, /Selected <b>email<\/b>/);
+    assert.doesNotMatch(html, /onclick|script/);
+    frameDoc.getSelection().removeAllRanges();
+    const textRange = document.createRange();
+    textRange.selectNodeContents(root.querySelector('pre'));
+    document.getSelection().addRange(textRange);
+    assert.match(capturePrintSelection(root), /<pre style="white-space: pre-wrap;">first\nsecond<\/pre>/);
+    document.getSelection().removeAllRanges();
+    document.body.replaceChildren();
+  });
+
+  it('uses the desktop preview without focusing or printing the hidden document', async () => {
+    const win = fakeWindow();
+    win.name = 'mailflow-print-42';
+    let previewName;
+    dom.window.mailflowNative = { printing: { preview: async name => { previewName = name; } } };
+    try {
+      await printInWindow(win, '<html>email</html>');
+      assert.equal(previewName, win.name);
+      assert.deepEqual(win.writes, ['<html>email</html>']);
+      assert.equal(win.printed, 0);
+    } finally { delete dom.window.mailflowNative; }
+  });
+
   it('opens uniquely named blank windows permitted by the desktop shell', () => {
     const calls = [];
     dom.window.open = (...args) => { calls.push(args); return fakeWindow(); };

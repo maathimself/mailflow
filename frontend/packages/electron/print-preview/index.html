@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data: blob:; font-src 'self'; object-src 'none'; base-uri 'none'">
+  <title>Print Preview</title>
+  <link rel="stylesheet" href="preview.css">
+  <script type="module" src="preview.js"></script>
+</head>
+<body>
+  <header><svg class="print-icon" aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 9V3h12v6M6 17H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2"/><path d="M6 14h12v7H6zM17 12h1"/></svg><h1>Print Preview</h1><button id="close" class="icon-button" aria-label="Close print preview">×</button></header>
+  <main>
+    <aside aria-label="Print settings">
+      <form id="settings">
+        <label class="setting"><span>Printer</span><select id="printer" aria-label="Printer"><option value="">Loading printers…</option></select></label>
+        <fieldset><legend>Pages</legend><div class="choices">
+          <label><input type="radio" name="pagesMode" value="all" checked> All</label>
+          <label><input type="radio" name="pagesMode" value="custom"> <span>Custom range</span></label>
+          <input id="pages" aria-label="Page range" placeholder="e.g. 1–3, 5, 7–10" disabled>
+        </div></fieldset>
+        <label class="setting"><span>Margins</span><select id="margins"><option value="default">Default</option><option value="minimum">Minimum</option><option value="none">None</option><option value="custom">Custom…</option></select></label>
+        <label id="custom-margin-row" class="setting" hidden><span>Inches</span><input id="custom-margin" type="number" min="0" max="2" step="0.05" value="0.4"></label>
+        <label class="setting"><span>Orientation</span><select id="orientation"><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
+        <label class="setting"><span>Paper size</span><select id="paper"><option>Letter</option><option>A4</option><option>Legal</option><option>A5</option><option>Tabloid</option></select></label>
+        <label class="setting"><span>Copies</span><input id="copies" type="number" min="1" max="999" value="1"></label>
+        <div class="toggles">
+          <label><input id="headers" type="checkbox"> Show header / footer</label>
+          <label id="selection-label" title="Select part of the email before opening print preview."><input id="selection-only" type="checkbox" disabled> Print Selection Only</label>
+          <label><input id="background" type="checkbox"> Print background graphics</label>
+        </div>
+        <p id="error" role="alert" hidden></p>
+        <div class="actions"><button id="cancel" type="button">Cancel</button><button id="print" class="primary" type="submit" disabled>Print</button></div>
+      </form>
+      <button id="save" type="button" disabled>Save as PDF…</button>
+    </aside>
+    <section class="preview" aria-label="Document preview">
+      <nav aria-label="Preview navigation">
+        <button id="previous" class="icon-button" aria-label="Previous page" disabled>‹</button>
+        <label>Page <input id="page" type="number" min="1" value="1" aria-label="Preview page" disabled></label><span id="page-count">of —</span>
+        <button id="next" class="icon-button" aria-label="Next page" disabled>›</button>
+        <span class="divider"></span>
+        <label class="zoom-label">Zoom <select id="zoom" aria-label="Preview zoom"><option value="fit">Fit width</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.25">125%</option><option value="1.5">150%</option></select></label>
+      </nav>
+      <div id="viewport"><div id="status" role="status">Preparing preview…</div><canvas id="paper-preview" aria-label="Printed page preview" hidden></canvas></div>
+    </section>
+  </main>
+</body>
+</html>

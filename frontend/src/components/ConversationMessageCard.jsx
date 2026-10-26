@@ -71,6 +71,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
   const shownDark = bodyDark && !darkRefused;
   const [loading, setLoading] = useState(false);
   const iframeRef = useRef(null);
+  const printRootRef = useRef(null);
   const emailScaleRef = useRef(1);
   const remoteRequestedRef = useRef(null);
   const unsubscribingRef = useRef(false);
@@ -197,7 +198,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
 
   const handlePrint = () => {
     if (!body) return;
-    printInWindow(openPrintWindow(), buildPrintDocument([{ message, body }]));
+    printInWindow(openPrintWindow('', printRootRef.current), buildPrintDocument([{ message, body }]));
   };
   // Remote images for this message, as the reading pane's "Load images" and the shortcut do.
   const loadRemoteImages = () => {
@@ -312,6 +313,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
     <div
       // The pane scrolls to this when the reader picks this message in the list.
       data-message-id={message.id}
+      ref={printRootRef}
       style={{
         border: `1px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
         borderRadius: 6, marginBottom: 8, background: 'var(--bg-primary)',

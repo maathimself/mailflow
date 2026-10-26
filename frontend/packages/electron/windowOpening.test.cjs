@@ -66,3 +66,16 @@ test('opens print windows and continues routing external links to the browser', 
   assert.equal(prevented, 3);
   assert.deepEqual(opened, ['https://example.test', 'https://link.test', 'https://navigation.test']);
 });
+
+test('keeps the email document hidden when a custom preview is registered', () => {
+  const contents = fakeContents();
+  let registered;
+  configureWindowOpening(contents, {
+    getHost: () => host, isAllowedExternalUrl: () => false, openExternal() {},
+    onPrintWindow: (child, name) => { registered = { child, name }; },
+  });
+  assert.deepEqual(contents.openWindow(printRequest), { action: 'allow', overrideBrowserWindowOptions: { show: false } });
+  const child = { webContents: fakeContents() };
+  contents.emit('did-create-window', child, printRequest);
+  assert.deepEqual(registered, { child, name: printRequest.frameName });
+});

@@ -82,7 +82,44 @@ ${bodyHtml(body)}
 
 // Opened from the click itself, before any await: browsers block a window opened later.
 let printWindowId = 0;
-export function openPrintWindow(placeholder = '') {
+const printContext = new WeakMap();
+
+export function capturePrintSelection(root = document.body) {
+  const capture = (doc, scope) => {
+    const selection = doc.getSelection?.();
+    if (!selection?.rangeCount || selection.isCollapsed) return '';
+    const fragment = doc.createElement('div');
+    for (let i = 0; i < selection.rangeCount; i++) {
+      const range = selection.getRangeAt(i);
+      if (!scope?.contains(range.startContainer) || !scope.contains(range.endContainer)) continue;
+      const content = range.cloneContents();
+      const ancestor = range.commonAncestorContainer;
+      const element = ancestor.nodeType === 1 ? ancestor : ancestor.parentElement;
+      if (element?.closest('pre')) {
+        const pre = doc.createElement('pre');
+        pre.style.whiteSpace = 'pre-wrap';
+        pre.append(content);
+        fragment.append(pre);
+      } else fragment.append(content);
+    }
+    return DOMPurify.sanitize(fragment.innerHTML);
+  };
+  for (const frame of root?.querySelectorAll('iframe') || []) {
+    try {
+      const html = capture(frame.contentDocument, frame.contentDocument.body);
+      if (html) return html;
+    } catch { /* A cross-origin frame cannot supply printable selection. */ }
+  }
+  return capture(document, root);
+}
+
+export function openPrintWindow(placeholder = '', root = document.body) {
+  // Capture before window.open changes focus, and before conversation loading can change it.
+  const context = window.mailflowNative?.printing?.preview ? {
+    selectionHtml: capturePrintSelection(root),
+    accent: window.getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),
+    accentText: window.getComputedStyle(document.documentElement).getPropertyValue('--accent-text').trim(),
+  } : null;
   // The desktop shell permits only these blank print windows. A unique name keeps a new
   // print from replacing a document that is still open in another print dialog.
   const win = window.open('', `mailflow-print-${++printWindowId}`);
@@ -99,6 +136,11 @@ export function printInWindow(win, html) {
   win.document.open();
   win.document.write(html);
   win.document.close();
+  if (window.mailflowNative?.printing?.preview) {
+    // The desktop shell keeps this document hidden and opens its own PDF preview.
+    // Errors are displayed by the shell, so event handlers need no async plumbing.
+    return window.mailflowNative.printing.preview(win.name, printContext.get(win)).catch(() => {});
+  }
   win.focus();
   win.print();
 }

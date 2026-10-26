@@ -3,6 +3,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js';
 import { createBoundedActionIdTracker, isTrustedNativeMessage } from '../utils/nativeActionSecurity.js';
+import { shortcutBus } from '../utils/shortcutBus.js';
 
 function linuxInstructionPath(filePath) {
   const normalized = String(filePath || '').replace(/\\/g, '/');
@@ -62,6 +63,11 @@ export default function ElectronNotificationBridge() {
     if (!nativeBridgeReady) return;
     window.mailflowNative?.badges?.setUnreadCount?.(totalUnread || 0);
   }, [nativeBridgeReady, totalUnread]);
+
+  useEffect(() => {
+    if (!nativeBridgeReady) return;
+    return window.mailflowNative?.printing?.onContextPrint?.(() => shortcutBus.emit('printMessage'));
+  }, [nativeBridgeReady]);
 
   useEffect(() => {
     if (!nativeBridgeReady) return undefined;

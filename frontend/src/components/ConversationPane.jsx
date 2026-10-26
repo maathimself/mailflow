@@ -249,7 +249,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   // one at a time: collapsed messages have none yet, and a session-limited provider serves the
   // account over a single connection.
   const printConversation = async () => {
-    const win = openPrintWindow(t('message.preparingPrint'));
+    const win = openPrintWindow(t('message.preparingPrint'), paneRef.current);
     if (!win) return;
     const entries = [];
     for (const message of messages) {

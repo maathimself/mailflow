@@ -626,7 +626,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handlePrint = () => {
     if (!message) return;
-    printInWindow(openPrintWindow(), buildPrintDocument([{ message, body }]));
+    printInWindow(openPrintWindow('', paneRef.current), buildPrintDocument([{ message, body }]));
   };
 
   // In-flight runs are deliberately not aborted when the reader moves on: they persist their own
