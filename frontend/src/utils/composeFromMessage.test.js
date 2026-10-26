@@ -406,6 +406,30 @@ describe('quote headers escape what the sender wrote', () => {
     assert.match(h.payload().quotedBody, /Ann <img src="https:\/\/t\.example\/x\.gif"> <ann@x\.com> wrote:/);
   });
 
+  it('attributes the latest reply body and date to its representative, preserving the display sender', async () => {
+    const message = { from_name: 'Oldest', from_email: 'owner@example.test', reply_from_name: 'Latest <Team>', reply_from_email: 'sender@example.test', date: '2026-10-20T12:00:00Z' };
+    const h = harness({ text: 'Latest body', html: '<p>Latest body</p>' });
+    await openReplyFromMessage(message, { accounts: [], openCompose: h.openCompose, getMessageBody: h.getMessageBody });
+    assert.match(h.payload().quotedBody, /Latest <Team> <sender@example\.test> wrote:\n> Latest body/);
+    assert.ok(h.payload().quotedBody.includes(new Date(message.date).toLocaleString()));
+    assert.match(h.payload().quotedBodyHtml, /Latest &lt;Team&gt; &lt;sender@example\.test&gt; wrote:/);
+    assert.ok(h.payload().quotedBodyHtml.endsWith('<p>Latest body</p></div>'));
+    assert.deepEqual(h.payload().to, [{ name: 'Latest <Team>', email: 'sender@example.test' }]);
+    assert.equal(message.from_name, 'Oldest');
+    assert.equal(message.from_email, 'owner@example.test');
+  });
+
+  for (const reply_from_name of [null, '']) {
+    it(`keeps a nameless representative separate from the display name (${JSON.stringify(reply_from_name)})`, async () => {
+      const h = harness({ text: 'Latest body', html: '<p>Latest body</p>' });
+      await openReplyFromMessage({ from_name: 'Oldest', from_email: 'owner@example.test', reply_from_email: 'sender@example.test', reply_from_name }, {
+        accounts: [], openCompose: h.openCompose, getMessageBody: h.getMessageBody,
+      });
+      assert.match(h.payload().quotedBody, /, sender@example\.test wrote:\n> Latest body/);
+      assert.match(h.payload().quotedBodyHtml, /, sender@example\.test wrote:/);
+    });
+  }
+
   it('in a forward: From, Subject and To are escaped too', async () => {
     const h = harness(body);
     await openForwardFromMessage(sender, { openCompose: h.openCompose, getMessageBody: h.getMessageBody });
@@ -439,4 +463,90 @@ describe('openForwardFromMessage and fitted inline images', () => {
     await openForwardFromMessage(message, { openCompose: h.openCompose, getMessageBody: h.getMessageBody });
     assert.deepEqual(asked, []);
   }));
+});
+
+
+describe('sent reply recipients', () => {
+  const account = { id: 'a', email_address: 'owner@example.test', aliases: [{ id: 'alias', email: 'alias@example.test' }] };
+  const to = [{ name: 'First', email: 'first@example.test' }, { email: 'second@example.test' }];
+  const cc = [{ email: 'extra@example.test' }];
+  const message = { account_id: 'a', from_email: account.email_address, to_addresses: to, cc_addresses: cc, bcc_addresses: [{ email: 'hidden@example.test' }] };
+
+  it('continues to external To before considering self or team Reply-To on either Sent copy', async () => {
+    for (const from_email of [account.email_address, 'ALIAS@example.test']) {
+      for (const reply_to of [undefined, [{ email: account.email_address }], '[{"email":"team@example.test"}]']) {
+        for (const replyAll of [false, true]) {
+          const h = harness();
+          await openReplyFromMessage({ ...message, from_email, reply_to }, {
+            accounts: [account], openCompose: h.openCompose, getMessageBody: h.getMessageBody, replyAll,
+          });
+          assert.deepEqual(h.payload().to, to);
+          assert.deepEqual(h.payload().originalFrom, to);
+          assert.deepEqual(h.payload().cc, replyAll ? cc : []);
+          assert.deepEqual(h.payload().allRecipients, cc);
+        }
+      }
+    }
+  });
+
+  it('uses Cc-only external recipients, then preserves self-only notes', () => {
+    const resolve = compose.resolveReplyRecipients;
+    assert.deepEqual(resolve({ ...message, to_addresses: [{ email: account.email_address }] }, account).to, cc);
+    assert.deepEqual(resolve({ ...message, to_addresses: [{ email: 'ALIAS@example.test' }], cc_addresses: [] }, account).to, [{ email: 'ALIAS@example.test' }]);
+    assert.deepEqual(resolve({ ...message, to_addresses: [], cc_addresses: [{ email: 'ALIAS@example.test' }] }, account).to, [{ email: 'ALIAS@example.test' }]);
+  });
+
+  it('keeps received Reply-To and does not own another connected account', async () => {
+    const h = harness();
+    const target = [{ email: 'reply@example.test' }];
+    await openReplyFromMessage({ ...message, from_email: 'other@example.test', reply_to: target }, {
+      accounts: [account, { id: 'other', email_address: 'other@example.test' }], openCompose: h.openCompose, getMessageBody: h.getMessageBody,
+    });
+    assert.deepEqual(h.payload().to, target);
+    assert.deepEqual(compose.resolveReplyRecipients({ ...message, from_email: 'other@example.test' }, account).to, [{ name: '', email: 'other@example.test' }]);
+  });
+
+  it('uses the representative sender for ownership, Reply-To and sending alias', async () => {
+    for (const [from_email, reply_from_email, target] of [
+      [account.email_address, 'sender@example.test', 'reply@example.test'],
+      [account.email_address, 'sender@example.test', 'sender@example.test'],
+      ['sender@example.test', 'ALIAS@example.test', null],
+    ]) {
+      const h = harness();
+      await openReplyFromMessage({ ...message, from_email, reply_from_email, reply_from_name: 'Latest', reply_to: [{ email: target || account.email_address }] }, {
+        accounts: [account], openCompose: h.openCompose, getMessageBody: h.getMessageBody,
+      });
+      assert.deepEqual(h.payload().to, target ? [{ email: target }] : to);
+      assert.equal(h.payload().aliasId, target ? null : 'alias');
+    }
+  });
+
+  it('falls back to received From for malformed headers and keeps a valid mixed Reply-To', async () => {
+    for (const raw of [null, 'null', '{}', 'broken', [null, {}, { email: 42 }]]) {
+      const h = harness();
+      await openReplyFromMessage({ ...message, from_email: 'sender@example.test', reply_to: raw, to_addresses: raw, cc_addresses: raw, delivery_addresses: raw }, {
+        accounts: [account], openCompose: h.openCompose, getMessageBody: h.getMessageBody,
+      });
+      assert.deepEqual(h.payload().to, [{ name: '', email: 'sender@example.test' }]);
+      assert.deepEqual(h.payload().allRecipients, []);
+      assert.equal(h.payload().aliasId, null);
+    }
+    assert.deepEqual(compose.resolveReplyRecipients({ from_email: 'sender@example.test', reply_to: [null, { email: 'reply@example.test' }] }, account).to, [{ email: 'reply@example.test' }]);
+    assert.deepEqual(compose.resolveReplyRecipients({}, account).to, []);
+  });
+
+  it('rejects malformed entries and deduplicates across To and Cc without exposing Bcc', async () => {
+    for (const raw of [null, 'null', '{}', 'broken', [null, {}, { email: 42 }, { email: '' }]]) {
+      const h = harness();
+      await openReplyFromMessage({ ...message, reply_to: raw, to_addresses: raw }, {
+        accounts: [account], openCompose: h.openCompose, getMessageBody: h.getMessageBody,
+      });
+      assert.deepEqual(h.payload().to, cc);
+    }
+    const result = compose.resolveReplyRecipients({ ...message,
+      to_addresses: JSON.stringify([...to, { email: 'FIRST@example.test' }, { email: account.email_address }]),
+      cc_addresses: [...cc, { email: 'SECOND@example.test' }, { email: 'EXTRA@example.test' }],
+    }, account);
+    assert.deepEqual(result, { to, originalFrom: to, cc, allRecipients: cc });
+  });
 });

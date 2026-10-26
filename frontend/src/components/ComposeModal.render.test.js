@@ -707,6 +707,29 @@ describe('automatic Cc and Bcc (#491)', () => {
     } finally { await close(); }
   });
 
+  test('sent Reply -> Reply All -> Reply retains external To and only toggles extras', async () => {
+    const { openReplyFromMessage } = await import('../utils/composeFromMessage.js');
+    const owner = account('A');
+    owner.email_address = 'owner@example.test';
+    const to = [{ email: 'first@example.test' }, { email: 'second@example.test' }];
+    const cc = [{ email: 'extra@example.test' }];
+    let data;
+    await openReplyFromMessage({ account_id: 'A', from_email: owner.email_address, reply_to: [{ email: owner.email_address }], to_addresses: to, cc_addresses: cc }, {
+      accounts: [owner], openCompose: p => { data = p; }, getMessageBody: async () => null,
+    });
+    const close = await mountCompose(data, { accounts: [owner] });
+    try {
+      assert.deepEqual(chips('compose.to'), to.map(a => a.email));
+      assert.deepEqual(chips('compose.cc') ?? [], []);
+      await switchReplyType('compose.replyAll');
+      assert.deepEqual(chips('compose.to'), to.map(a => a.email));
+      assert.deepEqual(chips('compose.cc'), cc.map(a => a.email));
+      await switchReplyType('compose.reply');
+      assert.deepEqual(chips('compose.to'), to.map(a => a.email));
+      assert.deepEqual(chips('compose.cc') ?? [], []);
+    } finally { await close(); }
+  });
+
   test('Reply to Reply All keeps the automatic Cc and leaves no address in both Cc and Bcc', async () => {
     const close = await mountCompose(reply(THREAD), { accounts: [account('A', BOTH_LISTS)] });
     try {

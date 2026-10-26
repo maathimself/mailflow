@@ -109,6 +109,22 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('threaded Inbox message
     });
   }
 
+  it('keeps the oldest display sender and the latest physical reply sender', async () => {
+    await insert('INBOX', '<old@example.test>', '<thread@example.test>', '2026-10-01T10:00Z', 'Question');
+    await insert('INBOX', '<latest@example.test>', '<thread@example.test>', '2026-10-01T11:00Z', 'Re: Question');
+    await database.query(`UPDATE messages SET
+      from_email = CASE WHEN message_id = '<old@example.test>' THEN 'owner@example.test' ELSE 'sender@example.test' END,
+      from_name = CASE WHEN message_id = '<old@example.test>' THEN 'Oldest' ELSE 'Latest' END,
+      reply_to = '[{"email":"reply@example.test"}]'::jsonb`);
+    const row = (await inboxRows(account))['<thread@example.test>'];
+    expect(row.from_email).toBe('owner@example.test');
+    expect(row.from_name).toBe('Oldest');
+    expect(row.reply_from_email).toBe('sender@example.test');
+    expect(row.reply_from_name).toBe('Latest');
+    expect(row.message_id).toBe('<latest@example.test>');
+    expect(row.reply_to).toEqual([{ email: 'reply@example.test' }]);
+  });
+
   // A count of 2 makes the row a conversation, and deleting a conversation expunges its drafts:
   // a saved reply must not turn a lone message into one.
   it('does not count a saved reply draft, by its \\Draft flag', async () => {

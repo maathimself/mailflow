@@ -31,46 +31,60 @@ const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[c]));
 
-export async function openReplyFromMessage(message, { accounts, openCompose, getMessageBody, replyAll = false }) {
-  const replyToArr = Array.isArray(message.reply_to)
-    ? message.reply_to
-    : (() => { try { return JSON.parse(message.reply_to || '[]'); } catch { return []; } })();
-  const replyTarget = (replyToArr.length && replyToArr[0].email)
-    ? replyToArr[0]
-    : { name: message.from_name || '', email: message.from_email || '' };
-  const sender = replyTarget.email ? [replyTarget] : [];
+const emailKey = value => typeof value === 'string' ? value.trim().toLowerCase() : '';
 
-  const myAccount = accounts.find(a => a.id === message.account_id);
-  const myEmail = myAccount?.email_address || '';
-  const myAddresses = new Set([
-    myEmail.toLowerCase(),
-    ...(myAccount?.aliases || []).map(al => al.email.toLowerCase()),
-  ]);
+function arrayField(raw) {
+  try {
+    const list = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');
+    return Array.isArray(list) ? list : [];
+  } catch { return []; }
+}
 
-  // Delivered-To first, then the same To/Cc/From scan this used to do inline. Replying
-  // from the list and from the reading pane must choose the same alias, and the pane's
-  // version was the one that had been fixed.
-  const replyAliasId = pickReplyAlias({
-    aliases: myAccount?.aliases || [],
-    deliveryAddresses: message.delivery_addresses,
-    toAddresses: message.to_addresses,
-    ccAddresses: message.cc_addresses,
-    fromEmail: message.from_email,
+const addressList = raw => arrayField(raw).filter(a => a && emailKey(a.email));
+
+const replySender = message => Object.hasOwn(message, 'reply_from_email')
+  ? { email: message.reply_from_email, name: message.reply_from_name || '' }
+  : { email: message.from_email, name: message.from_name || '' };
+
+export function pickMessageReplyAlias(message, account) {
+  const { email } = replySender(message);
+  return pickReplyAlias({
+    aliases: account?.aliases || [],
+    deliveryAddresses: arrayField(message.delivery_addresses).filter(a => typeof a === 'string'),
+    toAddresses: addressList(message.to_addresses),
+    ccAddresses: addressList(message.cc_addresses),
+    fromEmail: typeof email === 'string' ? email : '',
   });
+}
 
-  const allRecipients = (() => {
-    try {
-      const toArr = Array.isArray(message.to_addresses)
-        ? message.to_addresses
-        : JSON.parse(message.to_addresses || '[]');
-      const ccArr = Array.isArray(message.cc_addresses)
-        ? message.cc_addresses
-        : JSON.parse(message.cc_addresses || '[]');
-      return [...toArr, ...ccArr].filter(
-        t => t.email && !myAddresses.has(t.email.toLowerCase()) && t.email !== replyTarget.email
-      );
-    } catch { return []; }
-  })();
+export function resolveReplyRecipients(message, account) {
+  const owned = new Set([account?.email_address, ...(account?.aliases || []).map(a => a?.email)].map(emailKey).filter(Boolean));
+  const unique = (list, excluded = new Set()) => list.filter(a => {
+    const key = emailKey(a.email);
+    if (excluded.has(key)) return false;
+    excluded.add(key);
+    return true;
+  });
+  const to = unique(addressList(message.to_addresses));
+  const cc = unique(addressList(message.cc_addresses));
+  const external = list => list.filter(a => !owned.has(emailKey(a.email)));
+  const from = addressList([replySender(message)]);
+  const externalTo = external(to);
+  const externalCc = external(cc);
+  // Authorship belongs to this account, even when its sent copy carries a team Reply-To.
+  const targets = owned.has(emailKey(from[0]?.email))
+    ? (externalTo.length ? externalTo : externalCc.length ? externalCc : to.length ? to : cc)
+    : addressList(message.reply_to).slice(0, 1);
+  const replyTo = targets.length ? targets : from;
+  const extras = unique([...externalTo, ...externalCc], new Set(replyTo.map(a => emailKey(a.email))));
+  return { to: replyTo, cc: extras, originalFrom: replyTo, allRecipients: extras };
+}
+
+export async function openReplyFromMessage(message, { accounts, openCompose, getMessageBody, replyAll = false }) {
+  const myAccount = accounts.find(a => a.id === message.account_id);
+  const { to: sender, allRecipients } = resolveReplyRecipients(message, myAccount);
+
+  const replyAliasId = pickMessageReplyAlias(message, myAccount);
 
   const referencesChain = [message.in_reply_to, message.message_id]
     .filter(Boolean).join(' ').trim() || null;
@@ -78,10 +92,12 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
 
   const replyBody = await getMessageBody(message.id).catch(() => null);
   const replyDate = message.date ? new Date(message.date).toLocaleString() : '';
-  const replySafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
+  const replyAuthor = replySender(message);
+  const replyEmail = replyAuthor.email || '';
+  const replySafeName = replyAuthor.name.replace(/[\r\n]+/g, ' ');
   const replyFromStr = replySafeName
-    ? `${replySafeName} <${message.from_email}>`
-    : message.from_email || '';
+    ? `${replySafeName} <${replyEmail}>`
+    : replyEmail;
   const quotedText = replyBody?.text
     ? `\n\n---\nOn ${replyDate}, ${replyFromStr} wrote:\n${replyBody.text.split('\n').map(l => '> ' + l).join('\n')}`
     : '';
