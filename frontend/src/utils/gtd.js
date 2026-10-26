@@ -696,8 +696,10 @@ export async function unclassifyThread(id, state, { gtdUnclassify, addNotificati
     addNotification({ title: t('gtd.removed'), body: t(`gtd.state.${state}`) });
   } catch (err) {
     console.error('GTD unclassify failed:', err.message);
-    // 409: the GTD folder holds the message's only copy, so removing the label would delete it.
-    addNotification({ title: t('gtd.removeFailed'), body: err.status === 409 ? t('gtd.onlyCopy') : t(`gtd.state.${state}`) });
+    // 409 is a refusal: the label row named another message on the server (`changed`), or the
+    // GTD folder holds the message's only copy, so removing the label would delete it.
+    const refusal = err.changed ? t('gtd.labelChanged') : t('gtd.onlyCopy');
+    addNotification({ title: t('gtd.removeFailed'), body: err.status === 409 ? refusal : t(`gtd.state.${state}`) });
   } finally {
     gtdRowChanged(message || id, metadataSession);
   }

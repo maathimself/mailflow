@@ -64,7 +64,7 @@ describe('GET /api/integrations/status (non-admin capability check)', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       microsoft: { configured: true, builtinApp: false, builtinAppShipped: false, personalAccounts: true, personalVia: 'own', workAccounts: true, workRedirect: false, personalRedirect: false },
-      google: { configured: false, signIn: false },
+      google: { configured: false, signIn: false, envRedirectUri: false },
     });
   });
 
@@ -75,7 +75,7 @@ describe('GET /api/integrations/status (non-admin capability check)', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       microsoft: { configured: false, builtinApp: false, builtinAppShipped: false, personalAccounts: false, personalVia: null, workAccounts: false, workRedirect: false, personalRedirect: false },
-      google: { configured: false, signIn: false },
+      google: { configured: false, signIn: false, envRedirectUri: false },
     });
   });
 
@@ -85,7 +85,7 @@ describe('GET /api/integrations/status (non-admin capability check)', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       microsoft: { configured: false, builtinApp: false, builtinAppShipped: false, personalAccounts: false, personalVia: null, workAccounts: false, workRedirect: false, personalRedirect: false },
-      google: { configured: true, signIn: false },
+      google: { configured: true, signIn: false, envRedirectUri: false },
     });
   });
 
@@ -120,9 +120,9 @@ describe('GET /api/integrations/status (non-admin capability check)', () => {
   it('reports Google sign-in only with client ID, secret and redirect URI', async () => {
     Object.assign(process.env, { GOOGLE_CLIENT_ID: 'g', GOOGLE_CLIENT_SECRET: 's' });
     try {
-      expect((await (await fetch(`${base}/api/integrations/status`)).json()).google).toEqual({ configured: true, signIn: false });
+      expect((await (await fetch(`${base}/api/integrations/status`)).json()).google).toEqual({ configured: true, signIn: false, envRedirectUri: false });
       process.env.GOOGLE_REDIRECT_URI = 'https://mail.example/oauth/google/callback';
-      expect((await (await fetch(`${base}/api/integrations/status`)).json()).google).toEqual({ configured: true, signIn: true });
+      expect((await (await fetch(`${base}/api/integrations/status`)).json()).google).toEqual({ configured: true, signIn: true, envRedirectUri: false });
     } finally {
       delete process.env.GOOGLE_CLIENT_SECRET;
       delete process.env.GOOGLE_REDIRECT_URI;

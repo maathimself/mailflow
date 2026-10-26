@@ -90,16 +90,6 @@ export default function MailApp() {
   const scale = fontSize / 100;
   const hasNativeBridge = Boolean(window.mailflowNative || window.Capacitor?.isNativePlatform?.());
 
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
-      }
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, []);
-
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [labelPickerMessage, setLabelPickerMessage] = useState(null);
@@ -460,10 +450,13 @@ export default function MailApp() {
     const stopResume = installResumeRefresh({
       doc: document, win: window,
       shouldSkip: () => useStore.getState().isLocked,
+      // The counts request stands for the whole resync: the list reload and the folder requests
+      // fail on their own without saying so, and when the network is not back yet, all of them
+      // do. Its failure has installResumeRefresh run the resync again.
       onResync: () => {
-        refreshCounts();
         refreshFolders();
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        return api.getUnreadCounts().then(setUnreadCounts);
       },
     });
 

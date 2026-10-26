@@ -6,6 +6,9 @@ import { importPet, decodeUploadedSheet, getPetMeta, getPetSheet, parsePetSlug, 
 import { getGtdConfig, resolveGtdStateFolder, sanitizeGtdFolders, sanitizeGtdFoldersDetailed, DEFAULT_GTD_FOLDERS, planGtdFolderPersist, invalidateGtdConfigCache } from './gtdConfig.js';
 import { applyLabel, hasMessageCopy, resolveLabelCopyUid, removeExactLabelCopy, removeLabel, markThreadRead, markCopySeen, isLabelStoreAccount, supportsUidPlus, ensureLabelFolders, archiveInboxCopy, broadcast, loadOwnedMessage, getOwnedAccount, getMessageCopyFolders, getLabelMetadata, getMessagesByThreadKeys, getAccountConfig, setAccountConfig, resolveAllDraftsPaths, resolveAllTrashPaths, resolveAllSpamPaths } from '../api.js';
 
+// removeMessageCopy refused a label row whose uid holds another message on the server (#665).
+const LABEL_CHANGED = 'This label changed on the server and was not removed. Refresh and try again.';
+
 const router = Router();
 router.use(requireAuth);
 
@@ -285,6 +288,11 @@ router.post('/classify', async (req, res) => {
     }
   } catch (err) {
     console.error(`GTD classify failed for message ${messageId} -> ${toFolder}:`, err.message);
+    // An old label row named another message on the server, so that label was not removed (see
+    // DELETE /classify). The new label stays; a retry after the refresh removes the old one.
+    if (err.copyChanged) {
+      return res.status(409).json({ error: LABEL_CHANGED, changed: true });
+    }
     return res.status(500).json({ error: 'Failed to apply GTD label' });
   }
 
@@ -565,6 +573,11 @@ router.delete('/classify', async (req, res) => {
     if (!removed) return res.json({ ok: true, removed: false });
   } catch (err) {
     console.error(`GTD unclassify failed for message ${messageId} in ${stateFolder}:`, err.message);
+    // The label row named another message on the server. Nothing was removed; the row was dropped
+    // and the folder pulled, so a retry after the refresh finds the copy where it really is.
+    if (err.copyChanged) {
+      return res.status(409).json({ error: LABEL_CHANGED, changed: true });
+    }
     return res.status(500).json({ error: 'Failed to remove GTD label' });
   }
 
@@ -701,10 +714,25 @@ router.post('/done', async (req, res) => {
   // removeLabel removes one copy per folder. A second row with the acted Message-ID in a stripped
   // folder stays: some senders reuse a Message-ID for different mail, so it may not be a duplicate
   // at all. The re-check below reports it as threadRemains.
+  // A label row that names another message on the server is skipped, not fatal: nothing was
+  // removed for it, its row was dropped and its folder pulled, and the rest of done (the other
+  // labels, the archive) acts on copies checked on their own. Stopping here instead would leave
+  // the labels already stripped and the INBOX copy unarchived. The thread stays in that section
+  // until the copy is re-filed, so it is reported as threadRemains and in `changed`.
+  const changed = [];
   try {
     for (const folder of stripOrder) {
       if (keepActed && folder === msg.folder) continue;
-      const { removed: didRemove } = await removeLabel(msg, folder);
+      let didRemove;
+      try {
+        ({ removed: didRemove } = await removeLabel(msg, folder));
+      } catch (err) {
+        if (!err.copyChanged) throw err;
+        console.warn(`GTD done: the ${folder} copy of ${id} changed on the server, leaving it:`, err.message);
+        changed.push(folder);
+        threadRemains = true;
+        continue;
+      }
       if (didRemove && !removed.includes(folder)) removed.push(folder);
     }
   } catch (err) {
@@ -827,7 +855,7 @@ router.post('/done', async (req, res) => {
   // also emits mid-op, but this covers the archive that follows it).
   broadcast({ type: 'gtd_sections_updated', accountId: msg.account_id }, account.user_id);
 
-  res.json({ ok: true, removed, archived, noArchiveFolder, archiveFailed, threadRemains });
+  res.json({ ok: true, removed, archived, noArchiveFolder, archiveFailed, threadRemains, changed });
 });
 
 // POST /api/gtd/folders/ensure { accountId, folders } — create any of the account's

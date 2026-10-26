@@ -3,8 +3,8 @@ import { api } from '../utils/api.js';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { fetchMessageBodyWithRetry } from '../utils/messageBody.js';
-import { scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } from '../utils/markRead.js';
-import { pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
+import { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } from '../utils/markRead.js';
+import { clearReadGuard } from '../utils/pendingReads.js';
 import { markMessageUnread } from '../utils/messageHotkeys.js';
 import { downloadEml } from '../utils/downloadEml.js';
 import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/printMessage.js';
@@ -18,6 +18,13 @@ import { useAiActions } from '../hooks/useAiActions.js';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { formatDateTime } from '../utils/formatDate.js';
 import { bodyCache } from '../utils/bodyCache.js';
+import { useMobile } from '../hooks/useMobile.js';
+import MessageHeaderModal from './MessageHeaderModal.jsx';
+import TodoistTaskModal from './TodoistTaskModal.jsx';
+import {
+  ActionBtn, MessageTools, ReplySplitButton, RemoteImagesNotice, UnsubscribeNotice,
+  AiReplyIcon, ForwardIcon, TodoistIcon, ReadStateIcon, HeadersIcon, DownloadIcon, PrintIcon, DarkToggleIcon, StarIcon,
+} from './MessageActions.jsx';
 
 // One message inside a conversation.
 //
@@ -26,23 +33,6 @@ import { bodyCache } from '../utils/bodyCache.js';
 // document and a thread can run to dozens of messages. Only what the reader has opened is
 // ever rendered, which is how Gmail and Thunderbird handle the same problem.
 //
-// `disabled` is aria-disabled with the click ignored, so its title still explains why on hover.
-function CardBtn({ onClick, children, disabled = false, title }) {
-  return (
-    <button
-      onClick={disabled ? undefined : onClick}
-      title={title}
-      aria-disabled={disabled || undefined}
-      style={{
-        padding: '4px 10px', background: 'none', border: '1px solid var(--border)',
-        borderRadius: 4, color: 'var(--text-primary)', font: 'inherit', fontSize: 13,
-        cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1,
-      }}
-    >
-      {children}
-    </button>
-  );
-}
 
 // Design from #317 by YunQue0912.
 // `onUpdate(id, patch)` applies a flag change to the conversation's own copy of the message and to
@@ -51,11 +41,19 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
   const { t } = useTranslation();
   const accounts = useStore(s => s.accounts);
   const openCompose = useStore(s => s.openCompose);
-  const replyDefault = useStore(s => s.replyDefault);
   const addNotification = useStore(s => s.addNotification);
   const incrementUnread = useStore(s => s.incrementUnread);
   const decrementUnread = useStore(s => s.decrementUnread);
   const adjustCategoryCount = useStore(s => s.adjustCategoryCount);
+  const replyDefault = useStore(s => s.replyDefault);
+  const todoistConnected = useStore(s => s.todoistConnected);
+  const addToImageWhitelist = useStore(s => s.addToImageWhitelist);
+  const isMobile = useMobile();
+  const [showHeaderModal, setShowHeaderModal] = useState(false);
+  const [showTodoistModal, setShowTodoistModal] = useState(false);
+  const [savingAllow, setSavingAllow] = useState(false);
+  // null | 'loading' | 'done' | 'error', as the reading pane's unsubscribe notice.
+  const [unsubscribeStatus, setUnsubscribeStatus] = useState(null);
   const [body, setBody] = useState(null);
   const [error, setError] = useState(null);
   // Dark email bodies (#228): the setting, and this card's own choice made with its toggle.
@@ -80,6 +78,8 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
   // identity that changes on every list poll.
   const messageRef = useRef(message);
   messageRef.current = message;
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
 
   // Which message id this card has already scheduled a mark-read for, so a
   // re-render cannot decrement the unread badge twice for one open.
@@ -92,7 +92,9 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
   useEffect(() => {
     if (!expanded || markScheduledRef.current === message.id) return;
     markScheduledRef.current = message.id;
-    const timer = scheduleMarkRead(messageRef.current);
+    // The card's copy of the message follows the read, so its read toggle offers the right thing.
+    const id = message.id;
+    const timer = scheduleMarkRead(messageRef.current, { onChange: read => onUpdateRef.current?.(id, { is_read: read }) });
     // A null timer means it was applied already, or there was nothing to do. Only a
     // deferred mark needs cancelling, and cancelling it un-books the card so that
     // reopening starts the delay again instead of never marking it at all.
@@ -146,8 +148,6 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
 
   const loadedBody = async () => body;
   const ai = useAiActions(message.id, body, message.subject);
-  const [showAiMenu, setShowAiMenu] = useState(false);
-  const runAi = (action) => { setShowAiMenu(false); ai.run(action); };
 
   // Fills at once, as in the list and the reading pane; put back if the server refuses it.
   const handleStar = async () => {
@@ -167,8 +167,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
     markMessageUnread(message, {
       cancel: () => {
         cancelScheduledMarkReadFor(message.id);
-        pendingMarkReadMap.delete(message.id);
-        completedMarkReadMap.delete(message.id);
+        clearReadGuard(message.id);
         markScheduledRef.current = null;
       },
       update: onUpdate, incrementUnread, decrementUnread, adjustCategoryCount,
@@ -176,52 +175,95 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
     });
   };
 
+  // The read toggle's other half: a card marked unread could not be marked read again (#650).
+  // Explicit, so it ignores markReadBehavior, as the reading pane's does, and a delayed auto-read
+  // still pending is cancelled first so the message is not counted twice.
+  const handleMarkRead = () => {
+    if (message.is_read) return;
+    cancelScheduledMarkReadFor(message.id);
+    applyMarkRead(message, { onChange: read => onUpdate?.(message.id, { is_read: read }) });
+  };
+  const handleToggleRead = () => (message.is_read ? handleMarkUnread() : handleMarkRead());
+
   const handlePrint = () => {
     if (!body) return;
     printInWindow(openPrintWindow(), buildPrintDocument([{ message, body }]));
   };
-  const printRef = useRef(handlePrint);
-  printRef.current = handlePrint;
+  // Remote images for this message, as the reading pane's "Load images" and the shortcut do.
+  const loadRemoteImages = () => {
+    if (!body?.hasBlockedRemoteImages || remoteRequestedRef.current === message.id) return;
+    remoteRequestedRef.current = message.id;
+    const id = message.id;
+    api.getMessageBody(id, true)
+      .then(data => {
+        bodyCache.set(id, data);
+        if (mountedRef.current && messageRef.current.id === id) setBody(data);
+      })
+      .catch(() => { remoteRequestedRef.current = null; });
+  };
+
+  // Always load them from this sender, or its domain: the server lets them through from now on.
+  const allowImagesFrom = async (entry) => {
+    if (!entry.value) return;
+    setSavingAllow(true);
+    try {
+      await addToImageWhitelist(entry);
+      bodyCache.evict(cached => cached.hasBlockedRemoteImages);
+      const id = message.id;
+      const data = await api.getMessageBody(id);
+      bodyCache.set(id, data);
+      if (mountedRef.current && messageRef.current.id === id) setBody(data);
+    } catch {
+      addNotification({ title: t('message.whitelistFail.title'), body: t('message.whitelistFail.body') });
+    } finally {
+      if (mountedRef.current) setSavingAllow(false);
+    }
+  };
+  const senderEmail = message.from_email?.toLowerCase() || '';
+  const senderDomain = senderEmail.includes('@') ? senderEmail.split('@')[1] : '';
+
+  const handleUnsubscribe = async () => {
+    if (!message.list_unsubscribe || message.unsubscribed_at || unsubscribingRef.current) return;
+    unsubscribingRef.current = true;
+    setUnsubscribeStatus('loading');
+    try {
+      const result = await api.unsubscribeMessage(message.id);
+      if (!['one-click', 'url', 'mailto'].includes(result.type)) {
+        if (mountedRef.current) setUnsubscribeStatus('error');
+        unsubscribingRef.current = false;
+        return;
+      }
+      const url = result.type === 'url' ? result.url : result.type === 'mailto' ? result.mailto : null;
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+      if (mountedRef.current) setUnsubscribeStatus('done');
+      addNotification({
+        title: t('message.unsubscribe.done'),
+        actionLabel: t('message.unsubscribe.moveToTrash'),
+        onAction: () => {
+          const { removeMessage, decrementUnread, restoreMessages, incrementUnread } = useStore.getState();
+          removeMessage(message.id);
+          if (!message.is_read) decrementUnread(message.account_id);
+          api.deleteMessage(message.id).catch(() => {
+            restoreMessages([message]);
+            if (!message.is_read) incrementUnread(message.account_id);
+          });
+        },
+      });
+    } catch {
+      if (mountedRef.current) setUnsubscribeStatus('error');
+      addNotification({ type: 'error', title: t('message.unsubscribe.error') });
+      unsubscribingRef.current = false;
+    }
+  };
+
+  const shortcutRef = useRef(null);
+  shortcutRef.current = { loadRemoteImages, handleUnsubscribe, print: handlePrint };
   useEffect(() => {
     if (!selected) return;
-    const onLoadImages = () => {
-      if (!expanded || !body?.hasBlockedRemoteImages || remoteRequestedRef.current === message.id) return;
-      remoteRequestedRef.current = message.id;
-      api.getMessageBody(message.id, true)
-        .then(data => {
-          bodyCache.set(message.id, data);
-          if (messageRef.current.id === message.id) setBody(data);
-        })
-        .catch(() => { remoteRequestedRef.current = null; });
-    };
-    const onUnsubscribe = async () => {
-      if (!message.list_unsubscribe || message.unsubscribed_at || unsubscribingRef.current) return;
-      unsubscribingRef.current = true;
-      try {
-        const result = await api.unsubscribeMessage(message.id);
-        if (!['one-click', 'url', 'mailto'].includes(result.type)) return;
-        const url = result.type === 'url' ? result.url : result.type === 'mailto' ? result.mailto : null;
-        if (url) window.open(url, '_blank', 'noopener,noreferrer');
-        addNotification({
-          title: t('message.unsubscribe.done'),
-          actionLabel: t('message.unsubscribe.moveToTrash'),
-          onAction: () => {
-            const { removeMessage, decrementUnread, restoreMessages, incrementUnread } = useStore.getState();
-            removeMessage(message.id);
-            if (!message.is_read) decrementUnread(message.account_id);
-            api.deleteMessage(message.id).catch(() => {
-              restoreMessages([message]);
-              if (!message.is_read) incrementUnread(message.account_id);
-            });
-          },
-        });
-      } catch {
-        addNotification({ type: 'error', title: t('message.unsubscribe.error') });
-        unsubscribingRef.current = false;
-      }
-    };
+    const onLoadImages = () => { if (expanded) shortcutRef.current.loadRemoteImages(); };
+    const onUnsubscribe = () => shortcutRef.current.handleUnsubscribe();
     // Print the selected message, as the print shortcut does in the single-message pane.
-    const onPrint = () => { if (expanded) printRef.current(); };
+    const onPrint = () => { if (expanded) shortcutRef.current.print(); };
     shortcutBus.on('loadRemoteImages', onLoadImages);
     shortcutBus.on('unsubscribe', onUnsubscribe);
     shortcutBus.on('printMessage', onPrint);
@@ -230,7 +272,29 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
       shortcutBus.off('unsubscribe', onUnsubscribe);
       shortcutBus.off('printMessage', onPrint);
     };
-  }, [selected, expanded, body, message, addNotification, t]);
+  }, [selected, expanded]);
+
+  // The message's tools, the reading pane's minus what the conversation does for all of it
+  // (spam, archive, move, delete: ConversationPane).
+  const darkLabel = darkRefused ? t('message.cannotShowDark') : shownDark ? t('message.showOriginal') : t('message.showDark');
+  // By Reply, or in More on a phone, as in the reading pane.
+  const aiReply = () => openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll: replyDefault === 'replyAll', aiReply: true });
+  const toolItems = [
+    aiReplyEnabled && isMobile && { key: 'aiReply', label: t('compose.toolbar.aiReply'), icon: <AiReplyIcon />, onClick: aiReply },
+    todoistConnected && { key: 'todoist', label: t('todoist.title'), icon: <TodoistIcon />, onClick: () => setShowTodoistModal(true) },
+    { key: 'read', label: message.is_read ? t('contextMenu.markUnread') : t('contextMenu.markRead'), icon: <ReadStateIcon isRead={message.is_read} />, onClick: handleToggleRead },
+    { key: 'headers', label: t('contextMenu.viewHeaders'), icon: <HeadersIcon />, onClick: () => setShowHeaderModal(true) },
+    { key: 'eml', label: t('message.downloadEml'), icon: <DownloadIcon />, onClick: () => downloadEml(message.id) },
+    { key: 'print', label: t('message.print'), icon: <PrintIcon />, onClick: handlePrint },
+    darkToggleShown && { key: 'dark', label: darkLabel, icon: <DarkToggleIcon shownDark={shownDark} />, onClick: () => setDarkChoice(bodyDark ? 'original' : 'dark'), pressed: shownDark, disabled: darkRefused },
+  ].filter(Boolean);
+  const aiTools = aiEnabled && body ? {
+    items: [{ ...BUILTIN_SUMMARIZE, label: t('message.summarize') }, ...(ai.aiActions || [])],
+    results: ai.results,
+    onRun: action => ai.run(action),
+    onManage: () => { const st = useStore.getState(); st.setAdminTab('ai-actions'); st.setShowAdmin(true); },
+  } : null;
+
   const when = formatDateTime(message.date);
   const who = message.from_name || message.from_email || '';
 
@@ -263,6 +327,34 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
 
       {expanded && (
         <div style={{ padding: '0 12px 12px' }}>
+          {/* The reading pane's toolbar, from the same buttons in the same order (#650), less what the
+              conversation's own bar does for all of it. Reply and forward are per message, not per
+              thread: replying to a conversation means replying to one message in it, and which one
+              decides the recipients and the References chain. The body is already loaded here, so
+              it is handed over, not refetched. Keyed by message, as the reading pane's. */}
+          <div role="group" aria-label={t('shortcuts.groups.messageActions')} style={{
+            display: 'flex', alignItems: 'center', gap: isMobile ? 0 : 6, margin: '0 -4px 8px',
+          }}>
+            <ReplySplitButton
+              key={`reply-${message.id}`}
+              defaultReplyAll={replyDefault === 'replyAll'}
+              onReply={replyAll => openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll })}
+              touch={isMobile}
+            />
+            {aiReplyEnabled && !isMobile && (
+              <ActionBtn onClick={aiReply} label={t('compose.toolbar.aiReply')}>
+                <AiReplyIcon />
+              </ActionBtn>
+            )}
+            <ActionBtn onClick={() => openForwardFromMessage(message, { openCompose, getMessageBody: loadedBody })} label={t('message.forward')} touch={isMobile}>
+              <ForwardIcon />
+            </ActionBtn>
+            <div style={{ flex: 1 }} />
+            <MessageTools key={`tools-${message.id}`} isMobile={isMobile} items={toolItems} ai={aiTools} />
+            <ActionBtn onClick={handleStar} label={t('message.star')} pressed={Boolean(message.is_starred)} touch={isMobile}>
+              <StarIcon filled={message.is_starred} />
+            </ActionBtn>
+          </div>
           {loading && (
             <div style={{ padding: '12px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div className="skeleton-line" style={{ height: 13, width: '62%', borderRadius: 4 }} />
@@ -271,6 +363,9 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
             </div>
           )}
           {error && <div style={{ color: 'var(--red, #e03131)', fontSize: 13 }}>{error}</div>}
+          {/* Attachments, the reading pane's strip (#634), where the reading pane has it: above the
+              message. The body response already carries them. */}
+          <AttachmentStrip messageId={message.id} attachments={body?.attachments} style={{ marginBottom: 12 }} />
           {/* AI results pinned above the message, as in the reading pane (#204). */}
           {Object.keys(ai.results).length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '4px 0 12px' }}>
@@ -287,6 +382,20 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
                 );
               })}
             </div>
+          )}
+          {/* The reading pane's notices, above the message as there: unsubscribe for any body,
+              remote images only for HTML, which is all that has any. */}
+          {body && (body.html || body.text) && message.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'done' && (
+            <UnsubscribeNotice status={unsubscribeStatus} onUnsubscribe={handleUnsubscribe} />
+          )}
+          {body?.html && body.hasBlockedRemoteImages && (
+            <RemoteImagesNotice
+              fromEmail={message.from_email}
+              onLoad={loadRemoteImages}
+              onAllowSender={() => allowImagesFrom({ type: 'address', value: senderEmail })}
+              onAllowDomain={() => allowImagesFrom({ type: 'domain', value: senderDomain })}
+              saving={savingAllow}
+            />
           )}
           {body?.html && (
             // The same white padded card the reading pane wraps its body in. The frame's
@@ -330,78 +439,19 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
             }}>{body.text}</div>
           )}
 
-          {/* Attachments, the reading pane's strip (#634): the body response already
-              carries them — without this the card dropped the files on the floor and a
-              grouped thread gave no way to see or download an attachment at all. The card
-              owes the strip its spacing; the reading pane's wrapper keeps its own. */}
-          <AttachmentStrip messageId={message.id} attachments={body?.attachments} style={{ marginTop: 12 }} />
-
-          {/* Reply and forward are per message, not per thread: replying to a conversation
-              means replying to one message in it, and which one decides the recipients and
-              the References chain. Gmail puts these under the open message for the same
-              reason. The body is already loaded here, so it is handed over, not refetched. */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-            <CardBtn onClick={() => openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll: false })}>
-              {t('message.reply')}
-            </CardBtn>
-            <CardBtn onClick={() => openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll: true })}>
-              {t('message.replyAll')}
-            </CardBtn>
-            {/* Like the reading pane's, it answers the way the user's reply default does. */}
-            {aiReplyEnabled && (
-              <CardBtn onClick={() => openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll: replyDefault === 'replyAll', aiReply: true })}>
-                {t('compose.toolbar.aiReply')}
-              </CardBtn>
-            )}
-            <CardBtn onClick={() => openForwardFromMessage(message, { openCompose, getMessageBody: loadedBody })}>
-              {t('message.forward')}
-            </CardBtn>
-            <CardBtn onClick={handleStar}>
-              {message.is_starred ? t('contextMenu.unstar') : t('contextMenu.star')}
-            </CardBtn>
-            {message.is_read && (
-              <CardBtn onClick={handleMarkUnread}>{t('contextMenu.markUnread')}</CardBtn>
-            )}
-            <CardBtn onClick={handlePrint}>{t('message.print')}</CardBtn>
-            {darkToggleShown && (
-              <CardBtn
-                onClick={() => setDarkChoice(bodyDark ? 'original' : 'dark')}
-                disabled={darkRefused}
-                title={darkRefused ? t('message.cannotShowDark') : undefined}
-              >
-                {shownDark ? t('message.showOriginal') : t('message.showDark')}
-              </CardBtn>
-            )}
-            <CardBtn onClick={() => downloadEml(message.id)}>{t('message.downloadEml')}</CardBtn>
-            {aiEnabled && body && (
-              <div style={{ position: 'relative' }}>
-                <CardBtn onClick={() => setShowAiMenu(v => !v)}>{t('message.aiActions')}</CardBtn>
-                {showAiMenu && (
-                  <div role="menu" style={{
-                    position: 'absolute', bottom: 'calc(100% + 4px)', left: 0, zIndex: 20, minWidth: 180,
-                    background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8,
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.25)', padding: 4,
-                  }}>
-                    {[{ ...BUILTIN_SUMMARIZE, label: t('message.summarize') }, ...(ai.aiActions || [])].map(action => (
-                      <button
-                        key={action.id}
-                        role="menuitem"
-                        onClick={() => runAi(action)}
-                        style={{
-                          display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px',
-                          background: 'none', border: 'none', borderRadius: 6, cursor: 'pointer',
-                          color: 'var(--text-primary)', font: 'inherit', fontSize: 13,
-                        }}
-                      >
-                        {action.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
         </div>
+      )}
+
+      {showHeaderModal && (
+        <MessageHeaderModal
+          messageId={message.id}
+          subject={message.subject}
+          onClose={() => setShowHeaderModal(false)}
+          onSubjectResolved={subject => onUpdate?.(message.id, { subject })}
+        />
+      )}
+      {showTodoistModal && (
+        <TodoistTaskModal message={message} onClose={() => setShowTodoistModal(false)} />
       )}
     </div>
   );

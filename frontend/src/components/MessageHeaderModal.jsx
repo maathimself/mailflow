@@ -94,7 +94,10 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
             {copied ? t('contextMenu.headers.copied') : t('contextMenu.headers.copyRaw')}
           </button>
           <button
+            type="button"
             onClick={onClose}
+            aria-label={t('window.close')}
+            title={t('window.close')}
             style={{
               flexShrink: 0, background: 'none', border: 'none', padding: 6,
               color: 'var(--text-tertiary)', cursor: 'pointer', borderRadius: 6,
@@ -102,7 +105,7 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
               WebkitTapHighlightColor: 'transparent',
             }}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
           </button>
@@ -201,14 +204,17 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
               {copied ? t('contextMenu.headers.copied') : t('contextMenu.headers.copyRaw')}
             </button>
             <button
+              type="button"
               onClick={onClose}
+              aria-label={t('window.close')}
+              title={t('window.close')}
               style={{
                 background: 'none', border: 'none', padding: 6,
                 color: 'var(--text-tertiary)', cursor: 'pointer', borderRadius: 6,
                 display: 'flex', alignItems: 'center',
               }}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
               </svg>
             </button>

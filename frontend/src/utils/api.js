@@ -1,3 +1,5 @@
+import { orderedRead } from './readOrder.js';
+
 const BASE = '/api';
 
 // Sent on every /api request so the backend CSRF guard accepts it. A cross-site
@@ -7,6 +9,8 @@ const BASE = '/api';
 export const CSRF_HEADER = 'X-Requested-With';
 export const CSRF_VALUE = 'MailFlow';
 const messageBodyRequests = new Map();
+// Hover prefetches of bodies under way (prefetchMessageBody), by the same keys.
+const prefetchRequests = new Map();
 
 async function request(method, path, body, extraHeaders) {
   const opts = {
@@ -36,6 +40,8 @@ async function request(method, path, body, extraHeaders) {
       ...(typeof err.serverNow === 'string' ? { serverNow: err.serverNow } : {}),
       // What a scheduled message is doing when the server refused to change it (sending, sent...).
       ...(typeof err.status === 'string' ? { state: err.status } : {}),
+      // A GTD label row that named another message on the server, so nothing was removed (#665).
+      ...(err.changed === true ? { changed: true } : {}),
     });
   }
   // No Content (a DELETE): there is no body to read.
@@ -123,9 +129,35 @@ function getMessageBody(id, remoteImages = false, { original = false } = {}) {
   const existing = messageBodyRequests.get(key);
   if (existing) return existing;
   const params = [remoteImages && 'remoteImages=1', original && 'original=1'].filter(Boolean).join('&');
-  const promise = request('GET', `/mail/messages/${id}/body${params ? `?${params}` : ''}`)
+  const load = () => request('GET', `/mail/messages/${id}/body${params ? `?${params}` : ''}`);
+  // A click during a hover prefetch of the same body waits for it, and takes the body when it
+  // brings one; when the server declined it or it failed, the click fetches as always.
+  const prefetching = prefetchRequests.get(key);
+  const promise = (prefetching ? prefetching.then(r => r.body ?? load(), load) : load())
     .finally(() => messageBodyRequests.delete(key));
   messageBodyRequests.set(key, promise);
+  return promise;
+}
+
+// A hover prefetch of a body (#677, utils/hoverPrefetch.js): ?prefetch=1, always with remote
+// images blocked by the user's setting. Resolves to { body } with the body, or { body: null, hint }
+// when the server declined it (a 204 whose X-Prefetch says why: 'later', 'never' or 'repair');
+// rejects with the status when it failed. Joins a view's request for the same
+// body already under way.
+function prefetchMessageBody(id) {
+  const key = `${id}:blocked`;
+  const viewing = messageBodyRequests.get(key);
+  if (viewing) return viewing.then(body => ({ body }));
+  const existing = prefetchRequests.get(key);
+  if (existing) return existing;
+  const promise = fetch(`${BASE}/mail/messages/${id}/body?prefetch=1`, { credentials: 'include', headers: { [CSRF_HEADER]: CSRF_VALUE } })
+    .then(async (res) => {
+      if (res.status === 204) return { body: null, hint: res.headers.get('X-Prefetch') || '' };
+      if (!res.ok) throw Object.assign(new Error('Prefetch failed'), { status: res.status });
+      return { body: await res.json() };
+    })
+    .finally(() => prefetchRequests.delete(key));
+  prefetchRequests.set(key, promise);
   return promise;
 }
 
@@ -338,6 +370,11 @@ export const api = {
     return request('GET', `/mail/resolve-message?${qs}`);
   },
   getMessageBody,
+  prefetchMessageBody,
+  // Body requests a view made that are under way (hover prefetches are not counted), and a promise
+  // for when they have all settled.
+  bodyRequestsInFlight: () => messageBodyRequests.size,
+  bodyRequestsSettled: () => Promise.allSettled([...messageBodyRequests.values()]),
   // The id rides in the query string, not the path: GitHub's Message-IDs contain slashes, which
   // some reverse proxies reject when encoded in a path (#509).
   getThread: (threadId, folder, unified = false) => {
@@ -346,7 +383,9 @@ export const api = {
     if (unified) qs.set('unified', 'true');
     return request('GET', `/mail/thread?${qs}`);
   },
-  bulkRead: (ids, read) => request('POST', '/mail/messages/bulk-read', { ids, read }),
+  // Per message, in the order the user acted (utils/readOrder.js). `since`, from reserveReadIntent,
+  // leaves out the messages acted on after it was taken.
+  bulkRead: (ids, read, { since } = {}) => orderedRead(ids, list => request('POST', '/mail/messages/bulk-read', { ids: list, read }), { since }),
   bulkStar: (ids, starred) => request('POST', '/mail/messages/bulk-star', { ids, starred }),
   markStarred: (id, starred) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
   markAllRead: (accountId, folder) => request('POST', '/mail/mark-all-read', { accountId, folder }),

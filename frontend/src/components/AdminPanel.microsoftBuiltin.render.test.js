@@ -73,6 +73,7 @@ let root;
 let saved;
 let switched;
 let status;
+let googleStatus;
 afterEach(() => React.act(async () => root.unmount()));
 
 beforeEach(() => {
@@ -82,7 +83,8 @@ beforeEach(() => {
   api.todoist.status = async () => ({ connected: false });
   api.getIntegrations = async () => ({});
   api.saveIntegration = async (provider, config) => { saved.push([provider, config]); return { ok: true }; };
-  api.getIntegrationsStatus = async () => ({ microsoft: status, google: { configured: false } });
+  googleStatus = { configured: false };
+  api.getIntegrationsStatus = async () => ({ microsoft: status, google: googleStatus });
 });
 
 async function openTab(tab, { isAdmin, microsoft = BUILTIN }) {
@@ -188,6 +190,47 @@ describe('Email providers > Google', () => {
     await click(button('mailSignIn.google.setupToggle'));
     assert.ok(text().includes('admin.integrations.google.setupTitle'));
     assert.ok(!text().includes('admin.integrations.google.connect'));
+  });
+
+  // Google signs in only on its own page, so an app saved without a redirect URI looked
+  // configured while every sign-in failed (#676). One in .env will do instead.
+  const fill = async (placeholder, value) => {
+    const input = [...document.querySelectorAll('input')].find(i => i.placeholder === placeholder);
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    await React.act(async () => { setter.call(input, value); input.dispatchEvent(new window.Event('input', { bubbles: true })); });
+  };
+  const CALLBACK = 'https://mail.example.invalid/oauth/google/callback';
+  async function fillGoogle() {
+    await openTab('mail-signin', { isAdmin: true });
+    await click(button('mailSignIn.google.setupToggle'));
+    await fill('admin.integrations.google.clientIdPh', 'g-id');
+    await fill('admin.integrations.google.clientSecretPh', 'g-secret');
+  }
+
+  test('will not save without a redirect URI', async () => {
+    await fillGoogle();
+    await click(button('admin.integrations.google.save'));
+    assert.equal(saved.length, 0);
+    assert.ok(text().includes('mailSignIn.required'));
+    await fill(CALLBACK, CALLBACK);
+    await click(button('admin.integrations.google.save'));
+    assert.deepEqual(saved, [['google', { clientId: 'g-id', clientSecret: 'g-secret', redirectUri: CALLBACK }]]);
+  });
+
+  test('the server refusing it for want of a redirect URI says so in the reader\'s language', async () => {
+    googleStatus = { configured: false, envRedirectUri: true };
+    api.saveIntegration = async () => { throw Object.assign(new Error('Google needs a redirect URI'), { status: 400, code: 'redirect_uri_required' }); };
+    await fillGoogle();
+    await click(button('admin.integrations.google.save'));
+    assert.ok(text().includes('mailSignIn.redirectRequired'));
+    assert.ok(!text().includes('common.error'));
+  });
+
+  test('saves without one when .env has a usable redirect URI', async () => {
+    googleStatus = { configured: false, envRedirectUri: true };
+    await fillGoogle();
+    await click(button('admin.integrations.google.save'));
+    assert.deepEqual(saved, [['google', { clientId: 'g-id', clientSecret: 'g-secret', redirectUri: '' }]]);
   });
 });
 

@@ -6,12 +6,11 @@ import { api } from '../utils/api.js';
 import { formatMessageDateTime } from '../utils/formatDate.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { canHandlePaneShortcut } from '../utils/shortcutApplicability.js';
-import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/defaultShortcuts.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useSwipeBack } from '../hooks/useSwipeBack.js';
 import SwipePager from './SwipePager.jsx';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
-import { pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.js';
+import { clearReadGuard } from '../utils/pendingReads.js';
 import { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } from '../utils/markRead.js';
 import { advanceSelectionAfterRemoval, adjacentRow, openAdjacentRow } from '../utils/listSelection.js';
 import { selectListedMessage } from '../utils/conversation.js';
@@ -35,6 +34,11 @@ import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/pri
 import AiResultBox from './AiResultBox.jsx';
 import { useAiActions } from '../hooks/useAiActions.js';
 import AttachmentStrip from './AttachmentStrip.jsx';
+import {
+  ActionBtn, MessageTools, ReplySplitButton, RemoteImagesNotice, UnsubscribeNotice,
+  AiReplyIcon, ForwardIcon, ArchiveIcon, MoveIcon, SpamIcon, HamIcon, TodoistIcon, ReadStateIcon, HeadersIcon,
+  DownloadIcon, PrintIcon, DarkToggleIcon, StarIcon, TrashIcon, useShortcutTitle,
+} from './MessageActions.jsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
@@ -75,7 +79,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     messages, searchResults, searchQuery, selectedMessageId: globalSelectedId, setSelectedMessage,
     updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
     imageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
-    replyDefault, shortcuts, recentFolders, favoriteFolders, todoistConnected,
+    replyDefault, recentFolders, favoriteFolders, todoistConnected,
     categorizationEnabled, setCategoryCounts, adjustCategoryCount,
     aiActions, setShowAdmin, setAdminTab, plaintextEmail,
   } = useStore();
@@ -93,15 +97,10 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   }, [windowMode, onWindowClose]);
 
   const isMobile = useMobile();
+  // A tooltip with the action's keyboard shortcut, on a desktop.
+  const withShortcut = useShortcutTitle();
   const defaultReplyAll = replyDefault === 'replyAll';
 
-  const effectiveShortcuts = getEffectiveShortcuts(shortcuts);
-  const shortcutLabel = (action) => {
-    const k = effectiveShortcuts[action];
-    if (!k) return null;
-    const mod = parseModKey(k);
-    return mod ? `${modCompactLabel(mod.mod)}${mod.bare.toUpperCase()}` : k.toUpperCase();
-  };
   // Navigate to a message and mark it as read in one shot.
   // The arrow buttons bypass handleSelect in MessageList, so they must pick the row as it
   // does and duplicate the mark-as-read logic here to keep state consistent.
@@ -125,15 +124,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   useLayoutEffect(() => {
     if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
     if (iframeRef.current) iframeRef.current.style.height = '300px';
-  }, [selectedMessageId]);
-
-  useEffect(() => {
-    // Deliberately does NOT abort in-flight actions. They persist their own result against the
-    // message they were started from, so leaving a message lets the work finish instead of
-    // discarding it (#428). Only dismissal, re-running the same action, and an identity change
-    // (logout, account switch, lock) cancel a run. Unmount deliberately does not.
-    // Pinned results are restored per message by useAiActions (#204).
-    setShowAiMenu(false);
   }, [selectedMessageId]);
 
   const allMessages = searchQuery.trim() ? searchResults : messages;
@@ -221,7 +211,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [bodyError, setBodyError] = useState(null);
   const [retryKey, setRetryKey] = useState(0);
   const [loadingBody, setLoadingBody] = useState(false);
-  const [showReplyMenu, setShowReplyMenu] = useState(false);
   const [savingAllow, setSavingAllow] = useState(false);
   const [paneScrolled, setPaneScrolled] = useState(false);
   const [showHeaderModal, setShowHeaderModal] = useState(false);
@@ -230,7 +219,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [movePickerFolders, setMovePickerFolders] = useState([]);
   const [movePickerLoading, setMovePickerLoading] = useState(false);
   const [moveSearch, setMoveSearch] = useState('');
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  // Bumped to close the toolbar's menus, which are remounted under a new key.
+  const [menuEpoch, setMenuEpoch] = useState(0);
   const [contextMenu, setContextMenu] = useState(null);
   const [spamExplainMessageId, setSpamExplainMessageId] = useState(null);
   const [findDialogOpen, setFindDialogOpen] = useState(false);
@@ -244,12 +234,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // status: 'loading' | 'done' | 'error'. Restored from localStorage on message change.
   const ai = useAiActions(selectedMessageId, body, message?.subject);
   const aiResults = ai.results;
-  const [showAiMenu, setShowAiMenu] = useState(false);
   const [aiClassifying, setAiClassifying] = useState(false);
   const [unsubscribeStatus, setUnsubscribeStatus] = useState(null); // null | 'loading' | 'done' | 'error'
   const moveBtnRef = useRef(null);
-  const moreMenuRef = useRef(null);
-  const aiMenuRef = useRef(null);
   // In-flight AI actions live in a module-level registry, keyed by message AND action, so they
   // outlive this component. Navigating, closing a pop-out and changing layout all deliberately
   // leave them running: the result is saved against the message it was started from, so letting
@@ -300,10 +287,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const openPaneContextMenu = useCallback((x, y, options = {}) => {
     if (!message) return;
-    setShowReplyMenu(false);
     setShowMovePicker(false);
-    setShowMoreMenu(false);
-    setShowAiMenu(false);
+    setMenuEpoch(e => e + 1);
     setContextMenu({
       x,
       y,
@@ -606,7 +591,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handleReply = (replyAll = false, { aiReply = false } = {}) => {
     if (!message) return;
-    setShowReplyMenu(false);
     openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll, aiReply });
   };
 
@@ -635,31 +619,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     printInWindow(openPrintWindow(), buildPrintDocument([{ message, body }]));
   };
 
-  // Running an action from the menu also closes it.
-  const runAiAction = (action, opts) => {
-    setShowAiMenu(false);
-    return ai.run(action, opts);
-  };
+  // In-flight runs are deliberately not aborted when the reader moves on: they persist their own
+  // result against the message they were started from (#428), restored per message by useAiActions
+  // (#204). Only dismissal, re-running the same action, and an identity change cancel a run.
+  const runAiAction = (action, opts) => ai.run(action, opts);
   const dismissAiResult = ai.dismiss;
-
-  // A single row in the AI actions dropdown. Shows an accent dot when a result
-  // for that action already exists on the current message.
-  const renderAiItem = (key, label, onClick, opts = {}) => (
-    <div
-      key={key}
-      onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-        padding: '8px 10px', cursor: 'pointer', fontSize: 13, borderRadius: 6,
-        color: opts.muted ? 'var(--text-secondary)' : 'var(--text-primary)',
-      }}
-      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-    >
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-      {aiResults[key]?.status === 'done' && <span style={{ fontSize: 9, color: 'var(--accent)', flexShrink: 0 }}>●</span>}
-    </div>
-  );
 
   // Keep pane action refs current every render
   paneActionsRef.current = {
@@ -742,8 +706,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         cancelScheduledMarkRead(autoMarkReadTimerRef.current);
         autoMarkReadTimerRef.current = null;
         cancelScheduledMarkReadFor(message.id);
-        pendingMarkReadMap.delete(message.id);
-        completedMarkReadMap.delete(message.id);
+        clearReadGuard(message.id);
       },
       // The GTD rail shows its own copy of the thread, as the u hotkey keeps it in step.
       update: (id, fields) => {
@@ -911,7 +874,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   useEffect(() => {
     setShowMovePicker(false);
     setShowHeaderModal(false);
-    setShowMoreMenu(false);
     setContextMenu(null);
     setUnsubscribeStatus(null);
     setAiClassifying(false);
@@ -1329,16 +1291,30 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     setDarkChoice(choice => ({ ...choice, [message.id]: bodyDark ? 'original' : 'dark' }));
   };
   const darkToggleLabel = darkRefused ? t('message.cannotShowDark') : shownDark ? t('message.showOriginal') : t('message.showDark');
-  // A sun to go back to the original colors, a moon to show it dark.
-  const darkToggleIcon = shownDark ? (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
-      <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
-    </svg>
-  ) : (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
-      <path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/>
-    </svg>
-  );
+
+  // The toolbar's tools, in order: buttons on a desktop, the More menu on a phone (MessageTools).
+  // Reply with AI sits by Reply. A phone's toolbar has no room for another 44 px button, so there it
+  // is in More.
+  const aiReplyShown = aiReplyAvailable(aiStatus, plaintextEmail);
+  const handleAiReply = () => handleReply(defaultReplyAll, { aiReply: true });
+  const toolItems = message ? [
+    aiReplyShown && isMobile && { key: 'aiReply', label: t('compose.toolbar.aiReply'), icon: <AiReplyIcon />, onClick: handleAiReply },
+    hasSpamFolder && !inSpamFolder && { key: 'spam', label: t('contextMenu.markAsSpam'), icon: <SpamIcon />, onClick: () => performSingleSpamLabel('spam') },
+    inSpamFolder && { key: 'ham', label: t('contextMenu.markAsHam'), icon: <HamIcon />, onClick: () => performSingleSpamLabel('ham') },
+    todoistConnected && { key: 'todoist', label: t('todoist.title'), icon: <TodoistIcon />, onClick: () => setShowTodoistModal(true) },
+    { key: 'read', label: message.is_read ? t('contextMenu.markUnread') : t('contextMenu.markRead'), icon: <ReadStateIcon isRead={message.is_read} />, onClick: handleToggleRead },
+    { key: 'headers', label: t('contextMenu.viewHeaders'), icon: <HeadersIcon />, onClick: () => setShowHeaderModal(true) },
+    // The raw RFC 822 source as an .eml file (#381).
+    { key: 'eml', label: t('message.downloadEml'), icon: <DownloadIcon />, onClick: () => downloadEml(message.id) },
+    { key: 'print', label: t('message.print'), title: withShortcut(t('message.print'), 'printMessage'), icon: <PrintIcon />, onClick: handlePrint },
+    darkToggleShown && { key: 'dark', label: darkToggleLabel, icon: <DarkToggleIcon shownDark={shownDark} />, onClick: toggleDark, pressed: shownDark, disabled: darkRefused },
+  ].filter(Boolean) : [];
+  const aiTools = aiStatus?.enabled && aiStatus?.features?.summarize && body ? {
+    items: [{ ...BUILTIN_SUMMARIZE, label: t('message.summarize') }, ...(aiActions || [])],
+    results: aiResults,
+    onRun: action => runAiAction(action),
+    onManage: () => { setAdminTab('ai-actions'); setShowAdmin(true); },
+  } : null;
 
   // Only messages you sent (or drafts you saved) have a Bcc on record (#585).
   const bccList = Array.isArray(body?.bccAddresses) ? body.bccAddresses : [];
@@ -1420,107 +1396,43 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         </div>
       )}
 
-      {/* Toolbar — always pinned at top, never scrolls */}
-      <div style={{
-        padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)',
-        display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+      {/* Toolbar, always pinned at top, never scrolls. The buttons are MessageActions', which every
+          message of a conversation shares (#650). On a phone each is a 44 px touch target, edge to edge.
+          A labeled group of plain buttons, each its own Tab stop, rather than role="toolbar", which
+          promises arrow-key movement between them that the pane has never had. */}
+      <div role="group" aria-label={t('shortcuts.groups.messageActions')} style={{
+        padding: isMobile ? '0 8px' : '8px 16px', borderBottom: '1px solid var(--border-subtle)',
+        display: 'flex', alignItems: 'center', gap: isMobile ? 0 : 6, flexShrink: 0,
         boxShadow: paneScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
         transition: 'box-shadow 0.2s ease',
       }}>
-        {/* Split Reply button */}
-        <div style={{ position: 'relative', display: 'flex' }}>
-          <PaneBtn onClick={() => handleReply(defaultReplyAll)} style={{ borderRadius: '6px 0 0 6px' }} title={isMobile ? (defaultReplyAll ? t('message.replyAll') : t('message.reply')) : `${defaultReplyAll ? t('message.replyAll') : t('message.reply')}${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply') ? ` (${shortcutLabel(defaultReplyAll ? 'replyAll' : 'reply')})` : ''}`}>
-            {defaultReplyAll ? (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                <polyline points="7 17 2 12 7 7"/><polyline points="13 17 8 12 13 7"/><path d="M20 18v-2a4 4 0 00-4-4H2"/>
-              </svg>
-            ) : (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/>
-              </svg>
-            )}
-          </PaneBtn>
-          <button
-            onClick={() => setShowReplyMenu(v => !v)}
-            title={t('message.replyOptions')}
-            style={{
-              background: 'transparent', border: '1px solid transparent',
-              borderLeft: '1px solid var(--border-subtle)',
-              borderRadius: '0 6px 6px 0', padding: '5px 6px',
-              color: 'var(--text-secondary)', cursor: 'pointer',
-              display: 'flex', alignItems: 'center',
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="6 9 12 15 18 9"/>
-            </svg>
-          </button>
-          {showReplyMenu && (<>
-            <div onClick={() => setShowReplyMenu(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 99 }} />
-            <div
-              style={{
-                position: 'absolute', top: '100%', left: 0, marginTop: 4,
-                background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                borderRadius: 8, overflow: 'hidden', zIndex: 100,
-                boxShadow: '0 4px 20px rgba(0,0,0,0.4)', minWidth: 150,
-              }}
-              onMouseLeave={() => setShowReplyMenu(false)}
-            >
-              {[
-                defaultReplyAll
-                  ? { label: t('message.reply'), replyAll: false }
-                  : { label: t('message.replyAll'), replyAll: true },
-              ].map(opt => (
-                <div
-                  key={opt.label}
-                  onClick={() => handleReply(opt.replyAll)}
-                  style={{
-                    padding: '9px 14px', cursor: 'pointer', fontSize: 13,
-                    color: 'var(--text-primary)',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                >
-                  {opt.label}
-                </div>
-              ))}
-            </div>
-          </>)}
-        </div>
+        <ReplySplitButton
+          key={`reply-${message.id}-${menuEpoch}`}
+          defaultReplyAll={defaultReplyAll}
+          onReply={handleReply}
+          title={withShortcut(defaultReplyAll ? t('message.replyAll') : t('message.reply'), defaultReplyAll ? 'replyAll' : 'reply')}
+          touch={isMobile}
+        />
 
-        {aiReplyAvailable(aiStatus, plaintextEmail) && (
-          <PaneBtn onClick={() => handleReply(defaultReplyAll, { aiReply: true })} title={t('compose.toolbar.aiReply')}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-              <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
-            </svg>
-            {!isMobile && <span>{t('compose.toolbar.aiReply')}</span>}
-          </PaneBtn>
+        {aiReplyShown && !isMobile && (
+          <ActionBtn onClick={handleAiReply} label={t('compose.toolbar.aiReply')}>
+            <AiReplyIcon />
+          </ActionBtn>
         )}
 
-        <PaneBtn onClick={handleForward} title={isMobile ? t('message.forward') : `${t('message.forward')}${shortcutLabel('forward') ? ` (${shortcutLabel('forward')})` : ''}`}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-            <polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/>
-          </svg>
-        </PaneBtn>
+        <ActionBtn onClick={handleForward} label={t('message.forward')} title={withShortcut(t('message.forward'), 'forward')} touch={isMobile}>
+          <ForwardIcon />
+        </ActionBtn>
 
-        <PaneBtn onClick={handleArchive} title={isMobile ? t('message.archive') : `${t('message.archive')}${shortcutLabel('archive') ? ` (${shortcutLabel('archive')})` : ''}`}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-            <rect x="2" y="3" width="20" height="5" rx="1"/>
-            <path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/>
-            <polyline points="9 13 12 16 15 13"/>
-            <line x1="12" y1="11" x2="12" y2="16"/>
-          </svg>
-        </PaneBtn>
+        <ActionBtn onClick={handleArchive} label={t('message.archive')} title={withShortcut(t('message.archive'), 'archive')} touch={isMobile}>
+          <ArchiveIcon />
+        </ActionBtn>
 
         {/* Move to folder */}
         <div style={{ position: 'relative' }} ref={moveBtnRef}>
-          <PaneBtn onClick={handleOpenMovePicker} title={t('contextMenu.moveToFolder')}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-            </svg>
-          </PaneBtn>
+          <ActionBtn onClick={handleOpenMovePicker} label={t('contextMenu.moveToFolder')} touch={isMobile} popup expanded={showMovePicker}>
+            <MoveIcon />
+          </ActionBtn>
           {/* Desktop dropdown */}
           {showMovePicker && !isMobile && (<>
             <div onClick={() => setShowMovePicker(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 199 }} />
@@ -1600,253 +1512,16 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
         <div style={{ flex: 1 }} />
 
-        {isMobile ? (
-          <div style={{ position: 'relative' }} ref={moreMenuRef}>
-            <PaneBtn onClick={() => setShowMoreMenu(v => !v)} title={t('message.more')}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
-              </svg>
-            </PaneBtn>
-            {showMoreMenu && (<>
-              <div onClick={() => setShowMoreMenu(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 99 }} />
-              <div style={{
-                position: 'absolute', top: '100%', right: 0, marginTop: 4,
-                background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                borderRadius: 8, overflow: 'hidden', zIndex: 100,
-                boxShadow: '0 4px 20px rgba(0,0,0,0.4)', minWidth: 190,
-              }}>
-                <div
-                  onClick={() => { setShowMoreMenu(false); handleToggleRead(); }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                >
-                  <ReadStateIcon isRead={message.is_read} />
-                  {message.is_read ? t('contextMenu.markUnread') : t('contextMenu.markRead')}
-                </div>
-                {hasSpamFolder && !inSpamFolder && message && (
-                  <div
-                    onClick={() => { performSingleSpamLabel('spam'); setShowMoreMenu(false); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                      <path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/>
-                      <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-                    </svg>
-                    {t('contextMenu.markAsSpam')}
-                  </div>
-                )}
-                {inSpamFolder && message && (
-                  <div
-                    onClick={() => { performSingleSpamLabel('ham'); setShowMoreMenu(false); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                      <path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/>
-                      <polyline points="9 12 11 14 15 10"/>
-                    </svg>
-                    {t('contextMenu.markAsHam')}
-                  </div>
-                )}
-                {todoistConnected && (
-                  <div
-                    onClick={() => { setShowTodoistModal(true); setShowMoreMenu(false); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M21 0H3C1.35 0 0 1.35 0 3v3.858s3.854 2.24 4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.608 8.136-4.675.279-.161.58-.107.748-.01.164.097.606.348.84.48.232.134.221.502.013.622l-9.712 5.59c-.346.2-.69.204-1.048.002C3.478 10.907.998 9.463 0 8.882v2.02l4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.609 8.136-4.676.279-.16.58-.106.748-.008.164.096.606.347.84.48.232.133.221.5.013.62-.208.121-9.288 5.346-9.712 5.59-.346.2-.69.205-1.048.002C3.478 14.951.998 13.506 0 12.926v2.02l4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.609 8.136-4.676.279-.16.58-.106.748-.009.164.097.606.348.84.48.232.133.221.502.013.622l-9.712 5.59c-.346.199-.69.204-1.048.001C3.478 18.994.998 17.55 0 16.97V21c0 1.65 1.35 3 3 3h18c1.65 0 3-1.35 3-3V3c0-1.65-1.35-3-3-3z"/>
-                    </svg>
-                    {t('todoist.title')}
-                  </div>
-                )}
-                <div
-                  onClick={() => { setShowHeaderModal(true); setShowMoreMenu(false); }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                    <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-                    <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
-                  </svg>
-                  {t('contextMenu.viewHeaders')}
-                </div>
-                <div
-                  onClick={() => { handlePrint(); setShowMoreMenu(false); }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                    <polyline points="6 9 6 2 18 2 18 9"/>
-                    <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
-                    <rect x="6" y="14" width="12" height="8"/>
-                  </svg>
-                  {t('message.print')}
-                </div>
-                {darkToggleShown && (
-                  <div
-                    onClick={() => { toggleDark(); setShowMoreMenu(false); }}
-                    aria-disabled={darkRefused || undefined}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: darkRefused ? 'default' : 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)', opacity: darkRefused ? 0.55 : 1 }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    {darkToggleIcon}
-                    {darkToggleLabel}
-                  </div>
-                )}
-                {/* Download the raw RFC 822 source as an .eml file (#381). */}
-                <div
-                  onClick={() => {
-                    setShowMoreMenu(false);
-                    downloadEml(message.id);
-                  }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', borderBottom: aiStatus?.enabled && aiStatus?.features?.summarize && body ? '1px solid var(--border-subtle)' : 'none' }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                  {t('message.downloadEml')}
-                </div>
-                {aiStatus?.enabled && aiStatus?.features?.summarize && body && (
-                  <div
-                    onClick={() => { setShowMoreMenu(false); runAiAction(BUILTIN_SUMMARIZE); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
-                      <path d="M5 3v4M19 17v4M3 5h4M17 19h4"/>
-                    </svg>
-                    {t('message.summarize')}
-                  </div>
-                )}
-                {aiStatus?.enabled && aiStatus?.features?.summarize && body && (aiActions || []).map(a => (
-                  <div
-                    key={a.id}
-                    onClick={() => { setShowMoreMenu(false); runAiAction(a); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
-                      <path d="M5 3v4M19 17v4M3 5h4M17 19h4"/>
-                    </svg>
-                    {a.label}
-                  </div>
-                ))}
-              </div>
-            </>)}
-          </div>
-        ) : (
-          <>
-            {hasSpamFolder && !inSpamFolder && message && (
-              <PaneBtn onClick={() => performSingleSpamLabel('spam')} title={t('contextMenu.markAsSpam')}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                  <path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/>
-                  <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-                </svg>
-              </PaneBtn>
-            )}
-            {inSpamFolder && message && (
-              <PaneBtn onClick={() => performSingleSpamLabel('ham')} title={t('contextMenu.markAsHam')}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                  <path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/>
-                  <polyline points="9 12 11 14 15 10"/>
-                </svg>
-              </PaneBtn>
-            )}
-            {todoistConnected && (
-              <PaneBtn onClick={() => setShowTodoistModal(true)} title={t('todoist.title')}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M21 0H3C1.35 0 0 1.35 0 3v3.858s3.854 2.24 4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.608 8.136-4.675.279-.161.58-.107.748-.01.164.097.606.348.84.48.232.134.221.502.013.622l-9.712 5.59c-.346.2-.69.204-1.048.002C3.478 10.907.998 9.463 0 8.882v2.02l4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.609 8.136-4.676.279-.16.58-.106.748-.008.164.096.606.347.84.48.232.133.221.5.013.62-.208.121-9.288 5.346-9.712 5.59-.346.2-.69.205-1.048.002C3.478 14.951.998 13.506 0 12.926v2.02l4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.609 8.136-4.676.279-.16.58-.106.748-.009.164.097.606.348.84.48.232.133.221.502.013.622l-9.712 5.59c-.346.199-.69.204-1.048.001C3.478 18.994.998 17.55 0 16.97V21c0 1.65 1.35 3 3 3h18c1.65 0 3-1.35 3-3V3c0-1.65-1.35-3-3-3z"/>
-                </svg>
-              </PaneBtn>
-            )}
-            <PaneBtn onClick={handleToggleRead} title={message.is_read ? t('contextMenu.markUnread') : t('contextMenu.markRead')}>
-              <ReadStateIcon isRead={message.is_read} />
-            </PaneBtn>
-            <PaneBtn onClick={() => setShowHeaderModal(true)} title={t('contextMenu.viewHeaders')}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-                <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
-              </svg>
-            </PaneBtn>
-            {/* Desktop has no More menu, so the .eml download (#381) gets its own button. */}
-            <PaneBtn onClick={() => downloadEml(message.id)} title={t('message.downloadEml')}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                <polyline points="7 10 12 15 17 10"/>
-                <line x1="12" y1="15" x2="12" y2="3"/>
-              </svg>
-            </PaneBtn>
-            <PaneBtn onClick={handlePrint} title={`${t('message.print')}${shortcutLabel('printMessage') ? ` (${shortcutLabel('printMessage')})` : ''}`}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                <polyline points="6 9 6 2 18 2 18 9"/>
-                <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
-                <rect x="6" y="14" width="12" height="8"/>
-              </svg>
-            </PaneBtn>
-            {darkToggleShown && (
-              <PaneBtn onClick={toggleDark} title={darkToggleLabel} aria-label={darkToggleLabel} aria-pressed={shownDark} disabled={darkRefused}>
-                {darkToggleIcon}
-              </PaneBtn>
-            )}
-            {aiStatus?.enabled && aiStatus?.features?.summarize && body && (
-              <div style={{ position: 'relative' }} ref={aiMenuRef}>
-                <PaneBtn onClick={() => setShowAiMenu(v => !v)} title={t('message.aiActions')}
-                  style={Object.keys(aiResults).length ? { color: 'var(--accent)' } : {}}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
-                    <path d="M5 3v4M19 17v4M3 5h4M17 19h4"/>
-                  </svg>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                </PaneBtn>
-                {showAiMenu && (<>
-                  <div onClick={() => setShowAiMenu(false)} aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 49 }} />
-                  <div style={{
-                    position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 50, minWidth: 220,
-                    background: 'var(--bg-elevated, var(--bg-secondary))', border: '1px solid var(--border)',
-                    borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.25)', padding: 4,
-                  }}>
-                    {renderAiItem(BUILTIN_SUMMARIZE.id, t('message.summarize'), () => runAiAction(BUILTIN_SUMMARIZE))}
-                    {(aiActions || []).map(a => renderAiItem(a.id, a.label, () => runAiAction(a)))}
-                    <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
-                    {renderAiItem('__manage', t('message.manageAiActions'), () => { setShowAiMenu(false); setAdminTab('ai-actions'); setShowAdmin(true); }, { muted: true })}
-                  </div>
-                </>)}
-              </div>
-            )}
-          </>
-        )}
+        {/* Keyed by message, so a menu left open does not carry over to the next one. */}
+        <MessageTools key={`tools-${message.id}-${menuEpoch}`} isMobile={isMobile} items={toolItems} ai={aiTools} />
 
-        <PaneBtn onClick={handleStarToggle} title={t('message.star')}>
-          <svg width="15" height="15" viewBox="0 0 24 24"
-            fill={message.is_starred ? 'var(--amber)' : 'none'}
-            stroke={message.is_starred ? 'var(--amber)' : 'currentColor'} strokeWidth="1.75">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-          </svg>
-        </PaneBtn>
+        <ActionBtn onClick={handleStarToggle} label={t('message.star')} pressed={Boolean(message.is_starred)} touch={isMobile}>
+          <StarIcon filled={message.is_starred} />
+        </ActionBtn>
 
-        <PaneBtn onClick={handleDelete} title={t('message.delete')} danger>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-            <polyline points="3 6 5 6 21 6"/>
-            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
-          </svg>
-        </PaneBtn>
+        <ActionBtn onClick={handleDelete} label={t('message.delete')} danger touch={isMobile}>
+          <TrashIcon />
+        </ActionBtn>
       </div>
 
       {/* Swiping between messages on a phone (#229): the next and previous rows of the list, opened
@@ -2172,33 +1847,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         <div style={{ padding: isMobile ? '0 0 16px' : '0 28px 24px' }}>
           {/* Unsubscribe banner — shown for newsletter messages that have a List-Unsubscribe header */}
           {message.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'done' && (
-            <div className="msg-notice" style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)',
-              borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <span style={{ flex: 1 }}>{t('message.unsubscribe.info')}</span>
-              <button
-                onClick={handleUnsubscribe}
-                disabled={unsubscribeStatus === 'loading'}
-                style={{
-                  background: 'none', border: '1px solid var(--border)',
-                  borderRadius: 5, padding: '3px 9px',
-                  cursor: unsubscribeStatus === 'loading' ? 'default' : 'pointer',
-                  color: unsubscribeStatus === 'error' ? 'var(--red, #e53e3e)' : 'var(--text-primary)',
-                  fontSize: 11, fontWeight: 500,
-                  opacity: unsubscribeStatus === 'loading' ? 0.5 : 1,
-                }}
-              >
-                {unsubscribeStatus === 'loading' ? t('common.loading') :
-                 unsubscribeStatus === 'error' ? t('message.unsubscribe.error') :
-                 t('message.unsubscribe.button')}
-              </button>
-            </div>
+            <UnsubscribeNotice status={unsubscribeStatus} onUnsubscribe={handleUnsubscribe} />
           )}
 
           {/* AI classify banner — shown for messages with no category signal when AI is available */}
@@ -2231,45 +1880,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           )}
 
           {body.hasBlockedRemoteImages && (
-            <div className="msg-notice" style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--accent)',
-              borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                stroke="var(--accent)" strokeWidth="2" style={{ flexShrink: 0 }}>
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              </svg>
-              <span>{t('message.remoteImagesBlocked')}</span>
-              <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
-                {[
-                  { label: t('message.loadImages'), handler: handleLoadImages, disabled: false },
-                  message.from_email && {
-                    label: t('message.allowSender', { email: message.from_email }),
-                    handler: handleAllowSender, disabled: savingAllow,
-                  },
-                  (message.from_email?.includes('@')) && {
-                    label: t('message.allowDomain', { domain: message.from_email.split('@')[1] }),
-                    handler: handleAllowDomain, disabled: savingAllow,
-                  },
-                ].filter(Boolean).map(({ label, handler, disabled }) => (
-                  <button key={label} onClick={handler} disabled={disabled}
-                    style={{
-                      background: 'none', border: '1px solid var(--border)',
-                      borderRadius: 5, padding: '3px 9px', cursor: disabled ? 'default' : 'pointer',
-                      color: 'var(--accent)', fontSize: 11, fontWeight: 500,
-                      opacity: disabled ? 0.5 : 1,
-                    }}
-                    onMouseEnter={e => { if (!disabled) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
-                  >{label}</button>
-                ))}
-              </div>
-            </div>
+            <RemoteImagesNotice
+              fromEmail={message.from_email}
+              onLoad={handleLoadImages}
+              onAllowSender={handleAllowSender}
+              onAllowDomain={handleAllowDomain}
+              saving={savingAllow}
+            />
           )}
           <div className="msg-card" style={{
             position: 'relative',
@@ -2332,26 +1949,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           padding: isMobile ? '0 0px 16px' : '0 28px 24px',
         }}>
           {message.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'done' && (
-            <div className="msg-notice" style={{
-              marginBottom: 10, padding: '9px 14px',
-              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              borderLeft: '3px solid var(--text-tertiary)', borderRadius: 8,
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              fontSize: 12, color: 'var(--text-secondary)',
-            }}>
-              <span style={{ flex: 1 }}>{t('message.unsubscribe.info')}</span>
-              <button onClick={handleUnsubscribe} disabled={unsubscribeStatus === 'loading'}
-                style={{
-                  background: 'none', border: '1px solid var(--border)', borderRadius: 5,
-                  padding: '3px 9px', cursor: unsubscribeStatus === 'loading' ? 'default' : 'pointer',
-                  color: unsubscribeStatus === 'error' ? 'var(--red, #e53e3e)' : 'var(--text-primary)',
-                  fontSize: 11, fontWeight: 500, opacity: unsubscribeStatus === 'loading' ? 0.5 : 1,
-                }}>
-                {unsubscribeStatus === 'loading' ? t('common.loading') :
-                 unsubscribeStatus === 'error' ? t('message.unsubscribe.error') :
-                 t('message.unsubscribe.button')}
-              </button>
-            </div>
+            <UnsubscribeNotice status={unsubscribeStatus} onUnsubscribe={handleUnsubscribe} />
           )}
           {!message.category && (categorizationEnabled || accounts.find(a => a.id === message.account_id)?.categorization_enabled) && aiStatus?.enabled && (
             <div className="msg-notice" style={{
@@ -2627,52 +2225,3 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     </div>
   );
 }
-
-// `disabled` is aria-disabled with the click ignored, not the native attribute, so the title still
-// shows on hover: it is what explains why.
-// The action the read toggle offers: an envelope with an unread dot for "Mark as unread", an
-// open envelope for "Mark as read". Same glyphs as the context menu.
-function ReadStateIcon({ isRead }) {
-  return isRead ? (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-      <path style={{strokeLinecap: 'round'}} d="M22,10.91v7.09c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2V6c0-1.1.9-2,2-2h11"/>
-      <polyline style={{strokeLinecap: 'round'} } points="16.36 9.95 12 13 2 6"/>
-      <circle style={{strokeMiterlimit: 10, fill: 'currentColor'}} cx="19.96" cy="6" r="3"/>
-    </svg>
-  ) : (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-      <path style={{strokeLinecap: 'round'}} d="M22,9v9c0,1.1-.9,2-2,2H4c-1.1,0-2-.9-2-2v-9"/>
-      <polyline points="22 9 12 16 2 9"/><polyline points="2 9 12 2 22 9"/>
-    </svg>
-  );
-}
-
-function PaneBtn({ children, onClick, title, danger, style: extraStyle, 'aria-label': ariaLabel, 'aria-pressed': ariaPressed, disabled = false }) {
-  const [hov, setHov] = useState(false);
-  return (
-    <button
-      onClick={disabled ? undefined : onClick}
-      title={title}
-      aria-label={ariaLabel}
-      aria-pressed={ariaPressed}
-      aria-disabled={disabled || undefined}
-      className="btn-press"
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      style={{
-        background: hov ? (danger ? 'rgba(248,113,113,0.1)' : 'var(--bg-tertiary)') : 'transparent',
-        border: '1px solid ' + (hov ? (danger ? 'rgba(248,113,113,0.3)' : 'var(--border)') : 'transparent'),
-        borderRadius: 6, padding: '6px 8px',
-        color: danger ? (hov ? 'var(--red)' : 'var(--text-tertiary)') : 'var(--text-secondary)',
-        cursor: disabled ? 'default' : 'pointer', fontSize: 13,
-        display: 'flex', alignItems: 'center', gap: 5,
-        transition: 'all 0.1s',
-        opacity: disabled ? 0.45 : 1,
-        ...extraStyle,
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-

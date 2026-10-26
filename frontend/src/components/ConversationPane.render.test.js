@@ -105,8 +105,10 @@ let root;
 before(() => { root = createRoot(document.getElementById('root')); });
 after(async () => { await React.act(async () => root.unmount()); });
 
-const cards = () => document.querySelectorAll('[aria-expanded]');
-const openCards = () => document.querySelectorAll('[aria-expanded="true"]');
+// A card's header is the button that opens it; menu buttons inside a card carry aria-expanded too.
+const CARD_TOGGLE = '[data-message-id] > button[aria-expanded]';
+const cards = () => document.querySelectorAll(CARD_TOGGLE);
+const openCards = () => document.querySelectorAll(`${CARD_TOGGLE.slice(0, -1)}="true"]`);
 
 describe('conversation pane', () => {
   // These cards show HTML emails as sent. Dark email bodies (#228), on by default, are covered
@@ -179,7 +181,7 @@ describe('conversation pane', () => {
   });
 
   test('opening another card renders a second body', async () => {
-    const collapsed = document.querySelector('[aria-expanded="false"]');
+    const collapsed = document.querySelector(`${CARD_TOGGLE.slice(0, -1)}="false"]`);
     await React.act(async () => { collapsed.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
     await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
 
@@ -209,7 +211,7 @@ describe('conversation pane', () => {
 
   test('collapsing and reopening does not refetch', async () => {
     const before = bodyRequests.length;
-    const open = document.querySelector('[aria-expanded="true"]');
+    const open = document.querySelector(`${CARD_TOGGLE.slice(0, -1)}="true"]`);
     await React.act(async () => { open.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
     await React.act(async () => { open.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
     await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
@@ -248,7 +250,7 @@ describe('conversation pane', () => {
       root.render(React.createElement(ConversationPane, { key: 'text-only', threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm1' }));
     });
     await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
-    const body = [...document.querySelectorAll('div')].find(el => el.textContent === 'plain body of m1');
+    const body = [...document.querySelectorAll('div')].filter(el => el.textContent === 'plain body of m1').at(-1);
     assert.ok(body, 'the plain-text body is rendered');
     assert.equal(body.getAttribute('translate'), 'yes');
   });
@@ -311,8 +313,8 @@ describe('conversation pane', () => {
       root.render(React.createElement(ConversationPane, { key: 'text-dark', threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm1' }));
     });
     await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
-    const body = () => [...document.querySelectorAll('div')].find(el => el.textContent === 'plain body of m1');
-    const button = label => [...document.querySelectorAll('button')].find(b => b.textContent === label);
+    const body = () => [...document.querySelectorAll('div')].filter(el => el.textContent === 'plain body of m1').at(-1);
+    const button = label => document.querySelector(`button[aria-label="${label}"]`);
     assert.equal(body().style.background, '', 'themed, as before');
     await React.act(async () => { button('message.showOriginal').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
     assert.equal(body().style.background, 'white');
@@ -334,6 +336,47 @@ describe('conversation pane', () => {
     await React.act(async () => { shortcutBus.emit('loadRemoteImages'); shortcutBus.emit('unsubscribe'); await new Promise(r => setTimeout(r, 50)); });
     assert.deepEqual(remoteBodyRequests, ['m3']);
     assert.deepEqual(unsubscribed, ['m3']);
+  });
+
+  // The reading pane's notices, which a card did not show at all: remote images were blocked with
+  // no way to load them but the shortcut (#650).
+  test('a plain-text newsletter gets the unsubscribe notice in a card too', async (t) => {
+    textOnly = true;
+    THREAD[2].list_unsubscribe = '<https://example.invalid/unsubscribe>';
+    t.after(() => { textOnly = false; delete THREAD[2].list_unsubscribe; });
+    await React.act(async () => {
+      root.render(React.createElement(ConversationPane, { key: 'text-newsletter', threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm3' }));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    assert.match(document.querySelector('[data-message-id="m3"]').textContent, /message\.unsubscribe\.info/);
+  });
+
+  test('an open card shows the reading pane\'s notices, and their buttons work', async (t) => {
+    blockImages = true;
+    THREAD[2].list_unsubscribe = '<https://example.invalid/unsubscribe>';
+    const unsubscribed = [];
+    const oldUnsubscribe = api.unsubscribeMessage;
+    api.unsubscribeMessage = async id => { unsubscribed.push(id); return { type: 'one-click' }; };
+    t.after(() => { api.unsubscribeMessage = oldUnsubscribe; blockImages = false; delete THREAD[2].list_unsubscribe; });
+    await React.act(async () => {
+      root.render(React.createElement(ConversationPane, { key: 'notices-card', threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm3' }));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    const card = document.querySelector('[data-message-id="m3"]');
+    const byText = text => [...card.querySelectorAll('button')].find(b => b.textContent === text);
+    assert.match(card.textContent, /message\.remoteImagesBlocked/);
+    assert.ok(byText('message.allowSender'), 'images can be allowed from the sender');
+    assert.ok(byText('message.allowDomain'), 'and from its domain');
+    const remoteBefore = remoteBodyRequests.length;
+    await React.act(async () => { byText('message.loadImages').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    assert.deepEqual(remoteBodyRequests.slice(remoteBefore), ['m3'], 'Load images fetches the body with them');
+    assert.doesNotMatch(card.textContent, /message\.remoteImagesBlocked/, 'and the notice goes');
+    assert.match(card.textContent, /message\.unsubscribe\.info/);
+    await React.act(async () => { byText('message.unsubscribe.button').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    assert.deepEqual(unsubscribed, ['m3']);
+    assert.doesNotMatch(card.textContent, /message\.unsubscribe\.info/, 'unsubscribed, the notice goes');
   });
 });
 
@@ -374,29 +417,51 @@ describe('conversation actions', () => {
   after(() => { globalThis.fetch = realFetch; });
 
   const card = id => document.querySelector(`[data-message-id="${id}"]`);
-  const button = (id, label) => [...card(id).querySelectorAll('button')].find(b => b.textContent === label);
+  const button = (id, label) => card(id).querySelector(`button[aria-label="${label}"]`) ?? undefined;
+  const starred = id => button(id, 'message.star').getAttribute('aria-pressed') === 'true';
   const click = async el => {
     await React.act(async () => { el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
     await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
   };
 
-  test('an open message offers star, mark unread, print and .eml', async () => {
+  // The reading pane's buttons, in its order (#650): what the conversation does for all of it
+  // (archive, move, spam, delete) is the conversation's own bar.
+  test('an open message offers the reading pane\'s buttons, in its order', async () => {
     await React.act(async () => {
       root.render(React.createElement(ConversationPane, { key: 'actions', threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm1' }));
     });
     await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
-    for (const label of ['contextMenu.star', 'contextMenu.markUnread', 'message.print', 'message.downloadEml']) {
-      assert.ok(button('m1', label), `${label} is offered`);
-    }
+    const toolbar = card('m1').querySelector('[role="group"]');
+    assert.equal(toolbar.getAttribute('aria-label'), 'shortcuts.groups.messageActions');
+    assert.deepEqual([...toolbar.querySelectorAll('button')].map(b => b.getAttribute('aria-label')), [
+      'message.reply', 'message.replyOptions', 'compose.toolbar.aiReply', 'message.forward', 'contextMenu.markUnread', 'contextMenu.viewHeaders',
+      // The dark toggle: a theme test before this one leaves the theme dark.
+      'message.downloadEml', 'message.print', 'message.showDark', 'message.aiActions', 'message.star',
+    ]);
+    for (const b of toolbar.querySelectorAll('button')) assert.equal(b.textContent.trim(), '', `${b.getAttribute('aria-label')} is an icon`);
   });
 
-  test('star goes through the server and the button flips to unstar', async () => {
-    await click(button('m1', 'contextMenu.star'));
+  test('the reply menu closes when the pointer leaves it, and focus goes back to its button', async () => {
+    const options = button('m1', 'message.replyOptions');
+    await click(options);
+    const menu = card('m1').querySelector('[role="menu"]');
+    assert.ok(menu, 'the reply menu is open');
+    assert.equal(document.activeElement, menu.querySelector('[role="menuitem"]'), 'on its item');
+    await React.act(async () => {
+      menu.dispatchEvent(new dom.window.MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+    });
+    assert.equal(card('m1').querySelector('[role="menu"]'), null, 'it closed');
+    assert.equal(document.activeElement, options, 'focus is back on the arrow that opened it');
+  });
+
+  test('star goes through the server and the button is pressed', async () => {
+    assert.equal(starred('m1'), false);
+    await click(button('m1', 'message.star'));
     const star = requests.find(r => r.url.includes('/mail/messages/m1/star'));
     assert.ok(star, 'the star was sent to the server');
     assert.equal(star.method, 'PATCH');
     assert.deepEqual(JSON.parse(star.body), { starred: true });
-    assert.ok(button('m1', 'contextMenu.unstar'), 'the card now offers unstar');
+    assert.equal(starred('m1'), true, 'the button now shows the message starred');
   });
 
   // The server answers only once the mail server has the flag, which takes seconds on Gmail.
@@ -404,20 +469,39 @@ describe('conversation actions', () => {
     let answer;
     starAnswer = new Promise(resolve => { answer = resolve; });
     t.after(() => { starAnswer = null; });
-    await click(button('m1', 'contextMenu.unstar'));
-    assert.ok(button('m1', 'contextMenu.star'), 'unstarred before the server answered');
+    await click(button('m1', 'message.star'));
+    assert.equal(starred('m1'), false, 'unstarred before the server answered');
     await React.act(async () => { answer(false); await new Promise(r => setTimeout(r, 20)); });
-    assert.ok(button('m1', 'contextMenu.unstar'), 'starred again once the server refused');
+    assert.equal(starred('m1'), true, 'starred again once the server refused');
   });
 
-  test('mark unread sends the unread change and hides the button', async () => {
+  test('mark unread sends the unread change and the button offers mark read', async () => {
     await click(button('m1', 'contextMenu.markUnread'));
     assert.deepEqual(bulkReads.at(-1), { ids: ['m1'], read: false });
     assert.equal(button('m1', 'contextMenu.markUnread'), undefined, 'an unread message offers no mark unread');
+    assert.ok(button('m1', 'contextMenu.markRead'), 'but it can be marked read again (#650)');
+  });
+
+  test('mark read sends the read change once and the button offers mark unread again', async () => {
+    const { useStore } = await import('../store/index.js');
+    const before = bulkReads.length;
+    await click(button('m1', 'contextMenu.markRead'));
+    assert.deepEqual(bulkReads.slice(before), [{ ids: ['m1'], read: true }]);
+    assert.ok(button('m1', 'contextMenu.markUnread'));
+    assert.notEqual(useStore.getState().messages.find(m => m.id === 'm1')?.is_read, false, 'the list copy is not left unread');
+  });
+
+  test('the headers dialog opens from a card and its close button has a name', async () => {
+    await click(button('m1', 'contextMenu.viewHeaders'));
+    assert.match(document.body.textContent, /contextMenu\.headers\.title/, 'the headers dialog is open');
+    const close = document.querySelector('button[aria-label="window.close"]');
+    assert.ok(close, 'its close button is named');
+    await click(close);
+    assert.doesNotMatch(document.body.textContent, /contextMenu\.headers\.title/, 'and closes it');
   });
 
   test('print conversation loads every body in order and prints once', async () => {
-    const printAll = [...document.querySelectorAll('button')].find(b => b.textContent === 'message.printConversation');
+    const printAll = document.querySelector('button[aria-label="message.printConversation"]');
     await click(printAll);
     await React.act(async () => { await new Promise(r => setTimeout(r, 100)); });
     assert.equal(printWin.printed, 1);
@@ -463,6 +547,34 @@ describe('conversation actions', () => {
     await React.act(async () => { useStore.getState().closeCompose(); });
   });
 
+  // A phone's toolbar has no room for another 44 px button (#650), so there it is in More.
+  test('Reply with AI is in More on a phone', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    dom.window.innerWidth = 375;
+    const mobileRoot = createRoot(container);
+    try {
+      await React.act(async () => {
+        mobileRoot.render(React.createElement(ConversationPane, { threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm1' }));
+      });
+      await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+      const toolbar = container.querySelector('[data-message-id="m1"] [role="group"]');
+      assert.deepEqual([...toolbar.querySelectorAll('button')].map(b => b.getAttribute('aria-label')),
+        ['message.reply', 'message.replyOptions', 'message.forward', 'message.more', 'message.star']);
+      await click(toolbar.querySelector('button[aria-label="message.more"]'));
+      const items = [...toolbar.querySelectorAll('[role="menuitem"]')];
+      assert.equal(items[1]?.textContent, 'compose.toolbar.aiReply', 'after the read toggle');
+      await click(items[1]);
+      assert.equal(useStore.getState().composeData?.aiReply, true);
+      assert.equal(useStore.getState().composeData.inReplyTo, '<1@x>');
+    } finally {
+      await React.act(async () => { useStore.getState().closeCompose(); });
+      await React.act(async () => mobileRoot.unmount());
+      container.remove();
+      dom.window.innerWidth = 1024;
+    }
+  });
+
   test('Reply with AI is not offered to a user who writes in plain text', async () => {
     await React.act(async () => { useStore.setState({ plaintextEmail: true }); });
     assert.equal(button('m1', 'compose.toolbar.aiReply'), undefined);
@@ -482,7 +594,7 @@ describe('conversation actions', () => {
   // Archive takes the conversation out of the folder it is shown from, as the list's archive does:
   // the reply in Sent stays put.
   test('archive moves the Inbox copies and leaves the Sent reply', async () => {
-    const archiveButton = [...document.querySelectorAll('button')].find(b => b.getAttribute('title') === 'message.archive');
+    const archiveButton = document.querySelector('button[aria-label="message.archive"]');
     assert.ok(archiveButton, 'the pane offers Archive');
     await click(archiveButton);
     await React.act(async () => { await new Promise(r => setTimeout(r, 4700)); });
@@ -500,13 +612,93 @@ describe('conversation actions', () => {
       { id: 'n1', thread_id: '<9@x>', account_id: 'acct', folder: 'INBOX', is_read: true },
     ]);
     useStore.getState().setSelectedMessage('m1');
-    const deleteButton = [...document.querySelectorAll('button')].find(b => b.getAttribute('title') === 'message.delete');
+    const deleteButton = document.querySelector('button[aria-label="message.delete"]');
     await click(deleteButton);
     assert.equal(useStore.getState().selectedMessageId, 'n1');
   });
 });
 
 describe('conversation pane on a phone', () => {
+  // The reading pane's phone toolbar (#650): the tools in a More menu, every button a 44 px target.
+  test('a card has the reading pane\'s phone toolbar, with 44 px touch targets', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    dom.window.innerWidth = 375;
+    const mobileRoot = createRoot(container);
+    try {
+      await React.act(async () => {
+        mobileRoot.render(React.createElement(ConversationPane, { threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm1' }));
+      });
+      await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+      const toolbar = container.querySelector('[data-message-id="m1"] [role="group"]');
+      const buttons = [...toolbar.querySelectorAll('button')];
+      assert.deepEqual(buttons.map(b => b.getAttribute('aria-label')),
+        ['message.reply', 'message.replyOptions', 'message.forward', 'message.more', 'message.star']);
+      for (const b of buttons) assert.equal(b.style.minHeight, '44px', `${b.getAttribute('aria-label')} is 44 px tall`);
+      for (const b of buttons.filter(b => b.getAttribute('aria-label') !== 'message.replyOptions')) {
+        assert.equal(b.style.minWidth, '44px', `${b.getAttribute('aria-label')} is 44 px wide`);
+      }
+      const threadBar = container.querySelector('[role="group"][aria-label="message.conversationActions"]');
+      assert.deepEqual([...threadBar.querySelectorAll('button')].map(b => b.getAttribute('aria-label')), [
+        'message.archive', 'contextMenu.moveToFolder', 'contextMenu.snooze.label',
+        'contextMenu.markAsSpam', 'message.printConversation', 'message.delete',
+      ]);
+      const more = buttons.find(b => b.getAttribute('aria-label') === 'message.more');
+      assert.equal(more.getAttribute('aria-expanded'), 'false');
+      await React.act(async () => { more.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+      assert.equal(more.getAttribute('aria-expanded'), 'true');
+      const items = [...toolbar.querySelectorAll('[role="menuitem"]')];
+      assert.deepEqual(items.map(i => i.textContent),
+        // The reading pane's phone order, the dark toggle too: an earlier test leaves the theme dark.
+        ['contextMenu.markUnread', 'contextMenu.viewHeaders', 'message.print', 'message.showDark', 'message.downloadEml']);
+      for (const i of items) assert.equal(i.style.minHeight, '44px');
+      // The role="menu" keyboard contract.
+      const key = async (k, el = document.activeElement) => {
+        await React.act(async () => { el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true })); });
+      };
+      const menuItems = () => [...toolbar.querySelectorAll('[role="menuitem"]')];
+      const focused = () => menuItems().indexOf(document.activeElement);
+      assert.equal(focused(), 0, 'opening focuses the first item');
+      await key('ArrowDown');
+      assert.equal(focused(), 1);
+      await key('End');
+      assert.equal(focused(), 4);
+      await key('ArrowDown');
+      assert.equal(focused(), 0, 'Arrow Down wraps');
+      await key('ArrowUp');
+      assert.equal(focused(), 4, 'Arrow Up wraps');
+      await key('Home');
+      assert.equal(focused(), 0);
+      // Escape closes the menu and hands focus back to its button.
+      await key('Escape');
+      assert.equal(menuItems().length, 0);
+      assert.equal(document.activeElement, more);
+      const reopen = async () => {
+        await React.act(async () => { more.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+        assert.equal(menuItems().length, 5);
+      };
+      // So does a click outside it.
+      await reopen();
+      const backdrop = toolbar.querySelector('[role="menu"]').previousElementSibling;
+      await React.act(async () => { backdrop.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+      assert.equal(menuItems().length, 0);
+      assert.equal(document.activeElement, more);
+      // Tab closes it and leaves focus to move on.
+      await reopen();
+      await key('Tab');
+      assert.equal(menuItems().length, 0);
+      // Picking an item closes it, runs it and puts focus back on the button.
+      await reopen();
+      await React.act(async () => { menuItems()[3].dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+      assert.equal(menuItems().length, 0);
+      assert.equal(document.activeElement, more);
+    } finally {
+      await React.act(async () => mobileRoot.unmount());
+      container.remove();
+      dom.window.innerWidth = 1024;
+    }
+  });
+
   test('the thread actions sit below a back bar with safe-area padding', async () => {
     // jsdom does no layout, so "a phone" is stated the way useMobile reads it:
     // innerWidth. A root of its own, because the shared one never remounts, so its
@@ -530,8 +722,7 @@ describe('conversation pane on a phone', () => {
       assert.equal(
         back.parentElement.style.paddingTop, 'calc(var(--sat) + 10px)',
         'the bar clears the status bar drawn over a standalone PWA');
-      const actionsRow = [...container.querySelectorAll('button')]
-        .find(b => b.textContent === 'message.archive');
+      const actionsRow = container.querySelector('button[aria-label="message.archive"]');
       assert.ok(actionsRow, 'the thread actions still render');
       assert.ok(
         back.parentElement.compareDocumentPosition(actionsRow) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -619,7 +810,7 @@ describe('a conversation another account also received', () => {
   // Every request to the endpoint, so ids sent in a second request are not missed.
   const sentIds = pattern => requests.filter(r => pattern.test(r.url)).flatMap(r => r.body?.ids || []).sort();
   const threadFetches = () => requests.filter(r => r.url.includes('/mail/thread?'));
-  const button = title => document.querySelector(`button[title="${title}"]`);
+  const button = label => document.querySelector(`button[aria-label="${label}"]`);
   const openIds = () => [...openCards()].map(c => c.closest('[data-message-id]')?.dataset.messageId).sort();
   const cardIds = () => [...document.querySelectorAll('[data-message-id]')].map(c => c.dataset.messageId).sort();
   // A boolean, not the element: a failing assertion on a jsdom node makes assert diff the whole
@@ -735,7 +926,7 @@ describe('a conversation another account also received', () => {
     // Which message was picked decides the card that opens when the conversation arrives, but a
     // pick within it is not a reason to fetch it again.
     await open({ threadMessages: EXPANDED });
-    await click(document.querySelector('[data-message-id="m1"] [aria-expanded]'));
+    await click(document.querySelector('[data-message-id="m1"] > button[aria-expanded]'));
     assert.deepEqual(openIds(), ['m1', 'm3'], 'the reader opened m1 beside m3');
     const fetched = threadFetches().length;
     await React.act(async () => { useStore.setState({ selectedMessageId: 'm2' }); });
@@ -973,7 +1164,7 @@ describe('a conversation another account also received', () => {
     // unified row. The pane must not refetch, close the cards the reader opened, or change what
     // its buttons act on.
     await open({ selectedAccountId: null, selected: B3, threadMessages: { '__dl_b3': [B3] }, rows: [] });
-    await click(document.querySelector('[data-message-id="m1"] [aria-expanded]'));
+    await click(document.querySelector('[data-message-id="m1"] > button[aria-expanded]'));
     assert.deepEqual(openIds(), ['b3', 'm1']);
     const fetched = threadFetches().length;
     await React.act(async () => { useStore.setState({ messages: [{ ...B3, message_count: 2, unread_count: 0 }] }); });

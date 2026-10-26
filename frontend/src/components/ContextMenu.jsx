@@ -6,6 +6,7 @@ import { api } from '../utils/api.js';
 import { getContextMenuPolicy, resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
 import { downloadEml } from '../utils/downloadEml.js';
 import { isSnoozed } from '../utils/snoozeActions.js';
+import { SNOOZE_DEFAULT_TIME, snoozeCustomUntil, snoozeDefaultDate, snoozeMinDate } from '../utils/snoozeTimes.js';
 import { usePluginCollected } from '../plugins/PluginSlot.jsx';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
@@ -49,7 +50,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   const snoozeAction = isSnoozed(message) ? 'changeSnooze' : 'snooze';
   const [customSnoozeView, setCustomSnoozeView] = useState(false);
   const [customDate, setCustomDate] = useState('');
-  const [customTime, setCustomTime] = useState('09:00');
+  const [customTime, setCustomTime] = useState(SNOOZE_DEFAULT_TIME);
   // false, or which category list is open: 'message' (this message), 'sender' or 'domain' (#490).
   const [categorizeView, setCategorizeView] = useState(false);
   const [folderSearch, setFolderSearch] = useState('');
@@ -551,7 +552,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                   <input
                     type="date"
                     value={customDate}
-                    min={new Date().toISOString().slice(0, 10)}
+                    min={snoozeMinDate()}
                     onChange={e => setCustomDate(e.target.value)}
                     style={{
                       flex: 1, background: 'var(--bg-hover)', border: '1px solid var(--border)',
@@ -573,8 +574,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
                 <button
                   disabled={!customDate || !customTime}
                   onClick={() => {
-                    const d = new Date(`${customDate}T${customTime}`);
-                    if (isNaN(d.getTime())) return;
+                    const d = snoozeCustomUntil(customDate, customTime);
+                    if (!d) return;
                     onAction(snoozeAction, d.toISOString());
                     onClose();
                   }}
@@ -635,10 +636,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
               ))}
               <div
                 onClick={() => {
-                  const d = new Date();
-                  d.setDate(d.getDate() + 1);
-                  setCustomDate(d.toISOString().slice(0, 10));
-                  setCustomTime('09:00');
+                  setCustomDate(snoozeDefaultDate());
+                  setCustomTime(SNOOZE_DEFAULT_TIME);
                   setCustomSnoozeView(true);
                 }}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)' }}

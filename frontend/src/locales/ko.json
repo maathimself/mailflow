@@ -279,6 +279,7 @@
   },
   "message": {
     "printConversation": "대화 인쇄",
+    "conversationActions": "대화 작업",
     "preparingPrint": "인쇄 준비 중…",
     "find": {
       "title": "검색",
@@ -2113,6 +2114,7 @@
     "removed": "라벨이 삭제됨",
     "removeFailed": "라벨을 삭제할 수 없습니다.",
     "onlyCopy": "이 메시지의 유일한 사본이므로 라벨을 삭제하면 메시지도 삭제됩니다. 대신 보관하거나 이동하세요.",
+    "labelChanged": "이 라벨이 서버에서 변경되어 삭제되지 않았습니다. 새로고침한 후 다시 시도하세요.",
     "doneArchiveFailed": "완료로 표시했지만 보관에 실패했습니다. 여전히 받은편지함에 있습니다.",
     "doneThreadRemains": "이 대화의 일부 메시지를 정리하지 못해 GTD 섹션에 그대로 남아 있습니다"
   },
@@ -2261,6 +2263,7 @@
     "title": "이메일 제공업체",
     "description": "MailFlow가 Microsoft 및 Google 사서함에 연결하는 방식입니다. MailFlow 자체에 로그인하는 방식인 SSO와는 별개입니다. 각자 계정 > 계정 추가에서 자신의 계정을 추가합니다.",
     "required": "먼저 필수 항목을 채우세요.",
+    "redirectRequired": "Google에는 리디렉션 URI가 필요합니다. OAuth 클라이언트에 등록된, /oauth/google/callback으로 끝나는 URI를 입력하세요.",
     "saved": "저장했습니다.",
     "ms": {
       "title": "Microsoft",

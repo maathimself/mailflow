@@ -71,6 +71,9 @@ async function database(sql, params = []) {
     if (target) Object.assign(target, { folder: params[0], uid: params[1] });
     return { rows: [], rowCount: target ? 1 : 0 };
   }
+  if (sql.startsWith('SELECT message_id, date, subject, from_email FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3')) {
+    return { rows: rows.filter(r => r.account_id === params[0] && Number(r.uid) === Number(params[1]) && r.folder === params[2]).map(r => ({ message_id: r.message_id, date: r.date, subject: r.subject, from_email: r.from_email })) };
+  }
   if (sql.startsWith('SELECT id, uid, is_read FROM messages')) return { rows: rows.filter(r => r.folder === params[1] && r.message_id === params[2] && !r.is_deleted).map(r => ({ ...r })) };
   if (sql.includes('FROM email_accounts')) return { rows: [otherAccounts.find(a => a.id === params[0]) || account] };
   if (sql.includes('FROM messages m') && sql.includes('JOIN email_accounts')) {

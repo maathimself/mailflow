@@ -12,6 +12,7 @@
 // whatever MS_CLIENT_ID happens to be now.
 
 import { MAILFLOW_MS_CLIENT_ID } from './microsoftBuiltinApp.js';
+import { oauthEnv } from './oauthEnv.js';
 
 export const MS_BUILTIN_TENANT_ID = 'consumers';
 
@@ -29,10 +30,10 @@ export function msBuiltinAppEnabled() {
 
 export function getMsConfig() {
   return {
-    clientId: process.env.MS_CLIENT_ID,
-    clientSecret: process.env.MS_CLIENT_SECRET,
-    tenantId: process.env.MS_TENANT_ID || 'common',
-    redirectUri: process.env.MS_REDIRECT_URI,
+    clientId: oauthEnv('MS_CLIENT_ID'),
+    clientSecret: oauthEnv('MS_CLIENT_SECRET'),
+    tenantId: oauthEnv('MS_TENANT_ID') || 'common',
+    redirectUri: oauthEnv('MS_REDIRECT_URI'),
   };
 }
 

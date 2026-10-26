@@ -3,7 +3,8 @@ import { query } from '../services/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { encrypt, decrypt, isEncrypted } from '../services/encryption.js';
 import { clearRefreshFailure } from '../services/accountErrorCode.js';
-import { msBuiltinAppEnabled, msBuiltinAppShipped, msPersonalAccountsAvailable, msPersonalSignInVia, msWorkAccountsAvailable } from '../services/microsoftOAuthClient.js';
+import { getMsConfig, msBuiltinAppEnabled, msBuiltinAppShipped, msPersonalAccountsAvailable, msPersonalSignInVia, msWorkAccountsAvailable } from '../services/microsoftOAuthClient.js';
+import { getGoogleConfig, isOAuthSetting } from '../services/oauthEnv.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -56,20 +57,47 @@ const PROVIDER_ENV = {
 // config, so removing the instance's own app does not quietly turn the shared app back on.
 // Once set, it takes precedence over MS_BUILTIN_APP in .env.
 const MS_BUILTIN_APP_KEY = 'ms_builtin_app';
+
+// What .env gave each variable, before any stored config was applied over it. A field left
+// empty in Settings, or a provider's config removed there, falls back to it, as it does on
+// the next restart (#676).
+const ENV_DEFAULTS = Object.fromEntries(
+  Object.values(PROVIDER_ENV).flatMap(Object.values).map(envVar => [envVar, process.env[envVar]]),
+);
+
+function restoreEnvDefault(envVar) {
+  if (ENV_DEFAULTS[envVar] === undefined) delete process.env[envVar];
+  else process.env[envVar] = ENV_DEFAULTS[envVar];
+}
+
+// A stored value wins field by field; a field without one keeps what .env says. "Without one"
+// is the test the OAuth routes read with (isOAuthSetting), so a blank stored value does not
+// hide the .env value behind something the routes then treat as unset.
 function applyConfigToEnv(provider, config) {
   const map = PROVIDER_ENV[provider];
   if (!map) return;
   for (const [key, envVar] of Object.entries(map)) {
-    if (!config[key]) continue;
     // clientSecret is stored encrypted; decrypt() passes plaintext through unchanged
-    process.env[envVar] = key === 'clientSecret' ? decrypt(config[key]) : config[key];
+    const value = key === 'clientSecret' && config[key] ? decrypt(config[key]) : config[key];
+    if (isOAuthSetting(value)) process.env[envVar] = value;
+    else restoreEnvDefault(envVar);
   }
+}
+
+// Google's only sign-in is on its own page, which needs a redirect URI. Saved without one, the
+// app looked configured while every sign-in failed with redirect_uri_mismatch, or fell back to
+// a placeholder from .env. A real one in .env will do. Microsoft's redirect URI stays optional:
+// without it the instance's app signs in over the device-code flow, which needs none.
+function missingRequired(provider, config) {
+  if (provider !== 'google') return null;
+  if (isOAuthSetting(config.redirectUri) || isOAuthSetting(ENV_DEFAULTS.GOOGLE_REDIRECT_URI)) return null;
+  return 'Google needs a redirect URI: the one registered on the OAuth client, ending in /oauth/google/callback.';
 }
 
 function clearConfigFromEnv(provider) {
   const map = PROVIDER_ENV[provider];
   if (!map) return;
-  for (const envVar of Object.values(map)) delete process.env[envVar];
+  for (const envVar of Object.values(map)) restoreEnvDefault(envVar);
 }
 
 // Get all integration configs (secrets redacted) — admin only (exposes OAuth client IDs)
@@ -100,9 +128,11 @@ router.get('/', requireAdmin, async (req, res) => {
 // an own app, personal accounts connect through the built-in one over the device-code flow.
 // personalAccounts says whether a personal account can sign in at all right now. (#674)
 router.get('/status', async (req, res) => {
+  const msConfig = getMsConfig();
+  const google = getGoogleConfig();
   res.json({
     microsoft: {
-      configured: !!process.env.MS_CLIENT_ID,
+      configured: !!msConfig.clientId,
       builtinApp: msBuiltinAppEnabled(),
       builtinAppShipped: msBuiltinAppShipped(),
       personalAccounts: msPersonalAccountsAvailable(),
@@ -111,15 +141,17 @@ router.get('/status', async (req, res) => {
       // Work and school accounts need the instance's own app on a tenant that admits them;
       // with a secret and redirect URI it can also sign in through Microsoft's page (redirect).
       workAccounts: msWorkAccountsAvailable(),
-      workRedirect: msWorkAccountsAvailable() && !!process.env.MS_CLIENT_SECRET && !!process.env.MS_REDIRECT_URI,
+      workRedirect: msWorkAccountsAvailable() && !!msConfig.clientSecret && !!msConfig.redirectUri,
       // The same for personal accounts when the own app signs them in: its page is then the
       // main path, as in v4.0.4, since such an app may not allow public client flows.
-      personalRedirect: msPersonalSignInVia() === 'own' && !!process.env.MS_CLIENT_SECRET && !!process.env.MS_REDIRECT_URI,
+      personalRedirect: msPersonalSignInVia() === 'own' && !!msConfig.clientSecret && !!msConfig.redirectUri,
     },
     google: {
-      configured: !!process.env.GOOGLE_CLIENT_ID,
+      configured: !!google.clientId,
       // Everything the sign-in on Google's page needs: Add account offers it only then.
-      signIn: !!process.env.GOOGLE_CLIENT_ID && !!process.env.GOOGLE_CLIENT_SECRET && !!process.env.GOOGLE_REDIRECT_URI,
+      signIn: !!google.clientId && !!google.clientSecret && !!google.redirectUri,
+      // A usable redirect URI in .env, so Settings may leave the field empty.
+      envRedirectUri: isOAuthSetting(ENV_DEFAULTS.GOOGLE_REDIRECT_URI),
     },
   });
 });
@@ -146,6 +178,8 @@ router.post('/:provider', requireAdmin, async (req, res) => {
   if (!PROVIDER_ENV[provider]) return res.status(400).json({ error: 'Unknown provider' });
 
   const config = req.body;
+  const missing = missingRequired(provider, config);
+  if (missing) return res.status(400).json({ error: missing, code: 'redirect_uri_required' });
 
   // If clientSecret is redacted, keep the existing stored value (already encrypted or legacy plaintext)
   if (config.clientSecret === '••••••••') {

@@ -325,6 +325,7 @@
     "showOriginal": "Afficher les couleurs d'origine",
     "cannotShowDark": "Cet e-mail ne peut pas être affiché en sombre sans rendre le texte difficile à lire",
     "printConversation": "Imprimer la conversation",
+    "conversationActions": "Actions sur la conversation",
     "preparingPrint": "Préparation de l'impression…",
     "more": "Plus",
     "summarize": "Résumer",
@@ -2108,6 +2109,7 @@
     "removed": "Étiquette retirée",
     "removeFailed": "Impossible de retirer l'étiquette",
     "onlyCopy": "C'est la seule copie du message : retirer le libellé la supprimerait. Archivez-le ou déplacez-le plutôt.",
+    "labelChanged": "Ce libellé a changé sur le serveur et n'a pas été retiré. Actualisez et réessayez.",
     "done": "Marquer comme terminé",
     "doneFailed": "Impossible de marquer comme terminé",
     "doneArchiveFailed": "Marqué comme terminé, mais l'archivage a échoué — toujours dans la boîte de réception",
@@ -2261,6 +2263,7 @@
     "title": "Fournisseurs de messagerie",
     "description": "Comment MailFlow se connecte aux boîtes Microsoft et Google. C'est distinct de l'authentification unique (SSO), qui permet de se connecter à MailFlow lui-même. Chacun ajoute ses propres comptes dans Comptes > Ajouter un compte.",
     "required": "Remplissez d'abord les champs obligatoires.",
+    "redirectRequired": "Google a besoin d'un URI de redirection : celui enregistré sur le client OAuth, qui se termine par /oauth/google/callback.",
     "saved": "Enregistré.",
     "ms": {
       "title": "Microsoft",

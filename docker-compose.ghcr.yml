@@ -71,6 +71,15 @@ services:
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-}
       # false stops offering MailFlow's built-in Microsoft app for personal accounts (#674).
       MS_BUILTIN_APP: ${MS_BUILTIN_APP:-}
+      # Your own OAuth apps (#676). Values saved under Settings > Email providers take
+      # precedence, field by field; an empty value here counts as not set.
+      MS_CLIENT_ID: ${MS_CLIENT_ID:-}
+      MS_CLIENT_SECRET: ${MS_CLIENT_SECRET:-}
+      MS_TENANT_ID: ${MS_TENANT_ID:-}
+      MS_REDIRECT_URI: ${MS_REDIRECT_URI:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
     depends_on:
       postgres:
         condition: service_healthy

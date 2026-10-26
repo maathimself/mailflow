@@ -3,7 +3,7 @@ import { extractImapError } from './imapError.js';
 import { recordUnfetchable, suppressedUids, clearUnfetchable, hasRealGap } from './unfetchableUids.js';
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
-import { parseMessage, parseMailboxList, snippetFromBody, detectBulkFromParsedHeaders, ALIAS_FORWARDER_HEADERS, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata, renderCalendarInvite } from './messageParser.js';
+import { parseMessage, parseMailboxList, snippetFromBody, detectBulkFromParsedHeaders, ALIAS_FORWARDER_HEADERS, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata, renderCalendarInvite, MAX_HEADER_FIELD } from './messageParser.js';
 import { headerIds, searchReplyDraftUids, draftFolderPaths } from './replyDraftLookup.js';
 import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } from './categorizer.js';
 import { pluginRegistry } from '../plugins/registry.js';
@@ -1255,6 +1255,8 @@ function walkNode(node, results, inRelated) {
       type: type === 'text/plain' ? 'text/plain' : 'text/html',
       encoding: node.encoding || '',
       charset: node.parameters?.charset || 'utf-8',
+      // Its size as the structure gives it: 0 is an empty part, which no fetch fills (fetchMessageBody).
+      bytes: node.size,
       // A filename marks a possible attached file; walkStructure's post-pass
       // decides once the whole tree is known.
       ...(filename ? {
@@ -2137,15 +2139,29 @@ const poolSecondaryGate = {
 export function registerPoolSecondaryGate(gate) { Object.assign(poolSecondaryGate, gate); }
 
 // Exported for imapPool.test.js, which pins how many connections a stalled pool opens.
-export async function acquirePooledClient(account) {
+//
+// `background` work (body prefetch) leaves the last idle session to the user: it takes one only
+// while another stays idle, and otherwise opens a session of its own while the pool may grow, so
+// the prefetch pays for the login rather than the click that follows it. A click on a generic
+// IMAP account right after its list loaded used to queue behind the prefetch that list started
+// and wait out a fresh login (0.7 s alone, 1.4 s behind the prefetch). At the ceiling, or while
+// the provider refuses logins, it takes the last idle session as before rather than wait, so it
+// queues only when nothing is idle at the ceiling. A background grow that fails transiently is
+// retried by fetchMessageBody on a fresh login, so it can cost two logins (never while the backoff
+// is armed, which stops the grow).
+export async function acquirePooledClient(account, { background = false } = {}) {
   const id = account.id;
   if (!connectionPools.has(id)) {
     connectionPools.set(id, { clients: [], inUse: new Set(), waiters: [], pending: 0 });
   }
   const pool = connectionPools.get(id);
+  const poolCap = Math.min(POOL_SIZE, providerProfile(account).poolSize ?? POOL_SIZE);
 
   // Find an idle client
-  const idle = pool.clients.find(c => !pool.inUse.has(c));
+  const idleClients = pool.clients.filter(c => !pool.inUse.has(c));
+  const leaveForUser = background && idleClients.length === 1
+    && pool.clients.length + pool.pending < poolCap && !poolSecondaryGate.isBlocked(id);
+  const idle = leaveForUser ? null : idleClients[0];
   if (idle) {
     pool.inUse.add(idle);
     return handOutPooledClient(pool, idle);
@@ -2160,7 +2176,6 @@ export async function acquirePooledClient(account) {
   // Per-provider clamp. Yahoo refuses logins past a small per-account session ceiling
   // (#474), so a provider profile may cap its pool below the global size; anything the
   // clamp turns away waits in the queue below exactly like a full pool.
-  const poolCap = Math.min(POOL_SIZE, providerProfile(account).poolSize ?? POOL_SIZE);
   if (pool.clients.length + pool.pending < poolCap) {
     // A grow is a fresh AUTHENTICATE. While the secondary backoff is armed the provider is
     // refusing exactly that, so fail fast with the same typed error fetchMessageBody's gate
@@ -2309,8 +2324,8 @@ function guardPoolLease(client) {
 
 // Exported for imapPoolStall.test.js. stallTimeout: false keeps the lease on the normal
 // timeout, for an operation the stall timer cannot judge (appendToFolder).
-export async function withFreshClient(account, fn, { stallTimeout = true } = {}) {
-  const client = await acquirePooledClient(account);
+export async function withFreshClient(account, fn, { stallTimeout = true, background = false } = {}) {
+  const client = await acquirePooledClient(account, { background });
   const lease = stallTimeout ? guardPoolLease(client) : { stalled: false, end() {} };
   try {
     return await fn(client);
@@ -2443,8 +2458,8 @@ async function resolveServerFolderCasing(client, knownPath) {
 // Decide the outcome of a bulk move whose UIDPLUS map was unavailable, from what a follow-up
 // UID SEARCH found. `remainingUids` are the requested UIDs still present in the source after the
 // move; `destArrived` is the count of new UIDs that landed in the destination (null when that
-// check could not run). Returns which UIDs to treat as succeeded/failed, the inferred number of
-// stale UIDs, and whether the destination UIDs can be mapped 1:1 by sorted order.
+// check could not run). Returns which UIDs to treat as succeeded/failed and the inferred number of
+// stale UIDs. It never maps them to destination UIDs: see pairMovedCopies.
 //
 // The #407 case: some servers (e.g. Dovecot/PurelyMail) return NO uidMap when the batch contains
 // a stale UID, so afterwards every requested UID is absent from the source — the moved ones
@@ -2452,28 +2467,216 @@ async function resolveServerFolderCasing(client, knownPath) {
 // tell them apart. When fewer messages arrived in the destination than left the source, a stale
 // UID is in the batch, so the WHOLE batch is reported failed (nothing is deleted or misfiled
 // locally; the next sync reconciles) rather than guessing which UID was stale and losing the rest.
-export function classifyMoveBySearch(uids, remainingUids, destArrived) {
+//
+// `presentBefore`, the UIDs a FETCH found in the source just before the move, tells them apart
+// exactly, and replaces the count: a UID that was not there is stale and failed, one that was
+// there and left moved. The count alone can be fooled, because whatever else reaches the
+// destination meanwhile (new mail, another client's move, another move of ours) arrives in the
+// same UID range and makes up for a stale UID.
+export function classifyMoveBySearch(uids, remainingUids, destArrived, presentBefore = null) {
   // Total in the non-array case as well. The caller guards this and logs, but search() can
   // resolve to undefined or false rather than throwing, and this function moves mail: any
   // future caller that forgets must not silently read a non-array as "the source is empty",
   // which would mean the whole batch moved. Report everything failed and let the next sync
   // reconcile, matching the caller's own failed-search path.
   if (!Array.isArray(remainingUids)) {
-    return { succeeded: [], failed: uids.slice(), staleCount: null, mappable: false };
+    return { succeeded: [], failed: uids.slice(), staleCount: null };
   }
   const remaining = new Set(remainingUids.map(Number));
   const gone = uids.filter(u => !remaining.has(Number(u)));
   const stillPresent = uids.filter(u => remaining.has(Number(u)));
   if (!gone.length) {
-    return { succeeded: [], failed: uids.slice(), staleCount: 0, mappable: false };
+    return { succeeded: [], failed: uids.slice(), staleCount: 0 };
+  }
+  if (presentBefore) {
+    const moved = gone.filter(u => presentBefore.has(Number(u)));
+    const stale = gone.filter(u => !presentBefore.has(Number(u)));
+    return { succeeded: moved, failed: uids.filter(u => !moved.includes(u)), staleCount: stale.length };
   }
   if (destArrived == null) {
-    return { succeeded: gone, failed: stillPresent, staleCount: null, mappable: false };
+    return { succeeded: gone, failed: stillPresent, staleCount: null };
   }
   if (destArrived < gone.length) {
-    return { succeeded: [], failed: uids.slice(), staleCount: gone.length - destArrived, mappable: false };
+    return { succeeded: [], failed: uids.slice(), staleCount: gone.length - destArrived };
   }
-  return { succeeded: gone, failed: stillPresent, staleCount: 0, mappable: destArrived === gone.length };
+  return { succeeded: gone, failed: stillPresent, staleCount: 0 };
+}
+
+const bareMessageId = id => String(id ?? '').replace(/[<>]/g, '').trim();
+
+// Whether a server copy's Message-ID is the one its row stored. Rows keep the envelope's
+// Message-ID cut at MAX_HEADER_FIELD characters, so a stored one that long matches a live one
+// that starts with it. Angle brackets and outer whitespace are ignored; an empty ID matches
+// nothing.
+function carriesMessageId(liveId, storedId) {
+  const live = bareMessageId(liveId);
+  const stored = bareMessageId(storedId);
+  if (!live || !stored) return false;
+  return live === stored || (String(storedId).length >= MAX_HEADER_FIELD - 1 && live.startsWith(stored));
+}
+
+const timeOf = d => (d == null ? NaN : new Date(d).getTime());
+
+// A server copy's first From address, as parseMessage derives a row's from_email from it.
+function senderOf(copy) {
+  const from = copy.envelope.from?.[0] || {};
+  return sanitizeStr(from.address || (from.mailbox && from.host ? `${from.mailbox}@${from.host}` : ''));
+}
+
+// Whether a server copy, FETCHed with its envelope and INTERNALDATE, is the message a row of the
+// messages table describes, before a permanent delete. If either has a Message-ID ('<>' and
+// blanks are none), both must carry the same one. If neither does, the copy's INTERNALDATE must
+// be the row's date, which sync stores from it, its sender the row's from_email, in any case, and
+// its subject the row's, derived as resolveSubject does, when its envelope has one: without one,
+// sync took the row's from the Subject header, which is not fetched here. A row matched that way
+// can still be another message's twin (see hasOtherMatch).
+//
+// A Message-ID is not unique. A message filed twice in a folder, or two messages that share an
+// ID, can be taken for each other, so a row whose uid now holds the other copy deletes that one.
+// That is an accepted limit of identifying mail by Message-ID.
+export function isRowsMessage(row, copy) {
+  if (!row || !copy?.envelope) return false;
+  const liveId = copy.envelope.messageId;
+  if (bareMessageId(row.message_id) || bareMessageId(liveId)) return carriesMessageId(liveId, row.message_id);
+  if (timeOf(row.date) !== timeOf(copy.internalDate)) return false; // NaN, for a missing one, equals nothing
+  if (senderOf(copy).toLowerCase() !== String(row.from_email ?? '').toLowerCase()) return false;
+  const subject = copy.envelope.subject ? sanitizeStr(decodeMimeWords(copy.envelope.subject).trim()) : '';
+  return !subject || subject === row.subject;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Whether a message in the selected mailbox other than the one at `uid` also matches a row with
+// no Message-ID (see isRowsMessage). Without a stored size, nothing such a row holds tells the two
+// apart, so it could be either and must not be deleted. Every match has the row's date as its
+// INTERNALDATE, so only the days around it are searched, wide enough for any server's time zone;
+// a search that fails counts as a match. `searched` keeps each day's copies for the next row.
+async function hasOtherMatch(client, row, uid, searched = new Map()) {
+  const day = Math.floor(timeOf(row.date) / DAY_MS);
+  if (!searched.has(day)) {
+    const found = await client.search({ since: new Date((day - 2) * DAY_MS), before: new Date((day + 3) * DAY_MS) }, { uid: true });
+    if (!Array.isArray(found)) return true;
+    const copies = [];
+    if (found.length) {
+      for await (const msg of client.fetch(found.join(','), { uid: true, envelope: true, internalDate: true }, { uid: true })) copies.push(msg);
+    }
+    searched.set(day, copies);
+  }
+  return searched.get(day).some(copy => copy.uid !== Number(uid) && isRowsMessage(row, copy));
+}
+
+// What a moved message is known by in its new folder. Everything here is part of the message
+// itself, which MOVE and COPY carry over unchanged: the envelope's Message-ID, sender, subject and
+// Date header, and the size. A server may give the new copy its own INTERNALDATE, so that is left
+// out. Two copies of one message share all of it.
+function contentKey(copy) {
+  const e = copy.envelope;
+  return JSON.stringify([bareMessageId(e.messageId), senderOf(copy).toLowerCase(), e.subject ?? '', timeOf(e.date) || null, copy.size ?? null]);
+}
+
+// Pairs each moved message, as a FETCH of the source found it before the move, with its copy among
+// the destination's arrivals, by content (contentKey), and returns source uid -> destination uid.
+// Whatever else reached the folder meanwhile (new mail, another client's move, another move of
+// ours) is among the arrivals too, so nothing is paired by count or order. A message that shares
+// its content with another moved message or another arrival is left out, since either could be it.
+export function pairMovedCopies(moved, arrivals) {
+  const byKey = (copies) => {
+    const groups = new Map();
+    for (const c of copies) {
+      if (!c?.envelope) continue;
+      const k = contentKey(c);
+      groups.set(k, [...(groups.get(k) || []), c]);
+    }
+    return groups;
+  };
+  const landed = byKey(arrivals);
+  const uidMap = new Map();
+  for (const [k, sources] of byKey(moved)) {
+    const found = landed.get(k);
+    if (sources.length === 1 && found?.length === 1) uidMap.set(Number(sources[0].uid), Number(found[0].uid));
+  }
+  return uidMap;
+}
+
+const COPY_IDENTITY = { uid: true, envelope: true, size: true };
+
+// The server copies at `range` in the selected mailbox, by uid, or null when the FETCH fails. An
+// unsolicited FETCH (a flag change) carries no envelope and is not one.
+async function fetchCopies(client, range) {
+  try {
+    const copies = new Map();
+    for await (const msg of client.fetch(range, COPY_IDENTITY, { uid: true })) {
+      if (msg.envelope) copies.set(msg.uid, msg);
+    }
+    return copies;
+  } catch (err) {
+    console.warn(`FETCH of ${client.mailbox?.path} UID(s) ${range} for a move failed: ${err.message}`);
+    return null;
+  }
+}
+
+// `toFolder`'s UIDNEXT, read while another mailbox is selected, or null when STATUS fails.
+async function uidNextOf(client, toFolder) {
+  try {
+    return (await client.status(toFolder, { uidNext: true }))?.uidNext ?? null;
+  } catch (err) {
+    console.warn(`STATUS ${toFolder} before a move failed: ${err.message}`);
+    return null;
+  }
+}
+
+// The messages that reached `toFolder` from `uidNext` on, FETCHed. Selects toFolder, and throws
+// when it cannot be searched or FETCHed. The filter guards the RFC 3501 `n:*`
+// quirk: when nothing arrived, the server still returns the folder's newest message.
+async function fetchArrivals(client, toFolder, uidNext) {
+  const lock = await client.getMailboxLock(toFolder);
+  try {
+    const found = await client.search({ uid: `${uidNext}:*` }, { uid: true });
+    if (!Array.isArray(found)) throw new Error(`destination UID SEARCH returned ${found}`);
+    const arrived = found.filter(u => u >= uidNext);
+    if (!arrived.length) return new Map();
+    const copies = await fetchCopies(client, arrived.join(','));
+    if (!copies) throw new Error(`FETCH of the arrivals in ${toFolder} failed`);
+    return copies;
+  } finally {
+    lock.release();
+  }
+}
+
+// Moves one UID from `fromFolder` to `toFolder` and returns its uid there, or null when that is
+// not known. Without UIDPLUS the server names no new uid, and the source uid is no stand-in for
+// it: in the destination it can belong to another message, which every later action on the row
+// would then reach (#665). So the message is FETCHed before the move and found among the
+// destination's arrivals afterwards, on the same session (pairMovedCopies).
+async function moveOneUid(client, uid, fromFolder, toFolder) {
+  const follow = !client.capabilities?.has('UIDPLUS');
+  let result;
+  let uidNext = null;
+  let before = null;
+  const lock = await client.getMailboxLock(fromFolder);
+  try {
+    if (follow) {
+      uidNext = await uidNextOf(client, toFolder);
+      if (uidNext != null) before = await fetchCopies(client, String(uid));
+    }
+    result = await moveUids(client, String(uid), toFolder);
+  } finally {
+    lock.release();
+  }
+  if (result === false) throw new Error('messageMove returned false: the server did not confirm the move');
+  if (result?.uidMap) return result.uidMap.get(Number(uid)) || null;
+  const moved = before?.get(Number(uid));
+  if (!moved) return null;
+  try {
+    const arrivals = await fetchArrivals(client, toFolder, uidNext);
+    return pairMovedCopies([moved], [...arrivals.values()]).get(Number(uid)) || null;
+  } catch (err) {
+    // The move went through, so this does not throw; but the session may be the reason it
+    // failed (a stall, a dropped socket), so close it rather than hand it back to the pool.
+    console.warn(`Moved UID ${uid} to ${toFolder}, but its new UID could not be found: ${err.message}`);
+    try { client.close(); } catch { /* already closed */ }
+    return null;
+  }
 }
 
 // client.messageMove without its data loss. On a server without MOVE (RFC 6851) imapflow
@@ -3543,6 +3746,19 @@ export class ImapManager {
     return null;
   }
 
+  // Whether a body prefetch (a list row the pointer rests on, #677) may fetch from the mail server:
+  // 'yes'; 'later' while the secondary backoff is armed; or 'never', for a provider whose body
+  // fetches open a login of their own (PurelyMail), or one with a single pooled connection (Yahoo),
+  // where a click would queue behind the prefetch. It is a guess at a click, so it never adds to a
+  // provider's trouble or stands in a click's way.
+  prefetchBodyVerdict(account) {
+    const profile = providerProfile(account);
+    if (profile.preferFreshBodyFetch) return 'never';
+    if (Math.min(POOL_SIZE, profile.poolSize ?? POOL_SIZE) <= 1) return 'never';
+    if (this._secondaryConnectBlocked(account.id)) return 'later';
+    return 'yes';
+  }
+
   // Everything a successful RECONNECT is allowed to clean up. Deliberately the account
   // error only: the refusal ladder is NOT cleared by a login, because #474's provider
   // accepts every login and starves the session after, which kept the ladder at
@@ -4501,6 +4717,8 @@ export class ImapManager {
             this._autoMoveSem.release(key);
           }
         },
+        // With this account's full row, which the pool needs to log in.
+        syncFolderOnDemand: (_acct, folder) => this.syncFolderOnDemand(account, folder),
         broadcast: (...args) => this.broadcast(...args),
         _guardMoveUid: (...args) => this._guardMoveUid(...args),
         _unguardMoveUid: (...args) => this._unguardMoveUid(...args),
@@ -6451,7 +6669,7 @@ export class ImapManager {
         if (existing.rows.length) continue;
 
         const { html, text, attachments, cidsComplete } = await this.fetchMessageBody(
-          account, msg.uid, msg.folder || 'INBOX'
+          account, msg.uid, msg.folder || 'INBOX', { background: true }
         );
         const safeHtml = (html && sanitizeEmail(html)) || null;
         if (safeHtml || text) {
@@ -6514,7 +6732,7 @@ export class ImapManager {
         );
         if (existing.rows.length) continue;
 
-        const { html, text, attachments, cidsComplete } = await this.fetchMessageBody(account, msg.uid, msg.folder);
+        const { html, text, attachments, cidsComplete } = await this.fetchMessageBody(account, msg.uid, msg.folder, { background: true });
         const safeHtml = (html && sanitizeEmail(html)) || null;
         if (safeHtml || text) {
           const snip = snippetFromBody(text, safeHtml || html);
@@ -6586,7 +6804,9 @@ export class ImapManager {
   // Uses a fresh connection to avoid lock contention with sync connection.
   // Auto-retries once on transient connection errors (stale pool connection, NAT
   // timeout, half-open TCP, etc.) so a single click is enough in all common cases.
-  async fetchMessageBody(account, uid, folder) {
+  // `background`: a prefetch nobody is waiting on, which leaves the pool's last idle session to
+  // the user (see acquirePooledClient).
+  async fetchMessageBody(account, uid, folder, { background = false } = {}) {
     // While the provider is refusing secondary logins, a body click can only succeed over a
     // session that already exists. If the pool holds an idle client, use it (no new LOGIN);
     // otherwise fail fast with a typed error the route turns into a clear 503, instead of
@@ -6676,6 +6896,7 @@ export class ImapManager {
             type: (rootType === 'text/html' || rootType === 'text/plain' || rootType === 'application/xhtml+xml') ? 'text/html' : 'text/plain',
             encoding: structure.encoding || '',
             charset: structure.parameters?.charset || 'utf-8',
+            bytes: structure.size,
           });
         }
 
@@ -6685,18 +6906,14 @@ export class ImapManager {
         // a multipart/alternative invite keeps its normal text/html rendering.
         const calendarParts = results.textParts.length === 0 ? results.calendarParts : [];
 
-        // Fetch any text/image parts not already obtained from the speculative fetch
+        // Fetch any calendar/image parts not already obtained from the speculative fetch. Text
+        // parts are not batched first: each is fetched on its own below whatever happens, so
+        // batching them too cost one more command for nothing on every message a two-step
+        // provider (Gmail, Yahoo) opened (#677).
         const inlineImages = results.inlineImages || [];
-        const needed = [
-          ...new Set([
-            ...results.textParts.map(p => p.part),
-            ...calendarParts.map(p => p.part),
-            ...inlineImages.map(p => p.part),
-          ])
-        ].filter(p => !prefetched.has(p));
-
-        if (needed.length > 0) {
-          // Batched fetch for parts not already available.
+        const fetchBatch = async (parts) => {
+          const needed = [...new Set(parts)].filter(p => !prefetched.has(p));
+          if (needed.length === 0) return;
           for await (const msg of client.fetch(uidStr, { uid: true, bodyParts: needed }, { uid: true })) {
             if (msg.bodyParts) {
               for (const [k, v] of msg.bodyParts) {
@@ -6704,7 +6921,8 @@ export class ImapManager {
               }
             }
           }
-        }
+        };
+        await fetchBatch([...calendarParts.map(p => p.part), ...inlineImages.map(p => p.part)]);
 
         // Per-part individual fetch for text parts. Some IMAP servers return a
         // non-empty but malformed text payload for speculative/batched sibling
@@ -6721,6 +6939,28 @@ export class ImapManager {
               if (v && v.length > 0) prefetched.set(part.part, v);
             }
           } catch { /* don't let a single part failure block others */ }
+        }
+        // A text part its own fetch did not bring falls back to the batched value, as it did when
+        // the batch ran first: the same request, taken only for the parts still missing. A part
+        // the structure says is empty (an empty alternative) is not fetched again for nothing.
+        const fetchable = results.textParts.filter(p => p.bytes !== 0);
+        const unanswered = fetchable.filter(p => !prefetched.has(p.part));
+        if (unanswered.length > 0) {
+          const all = [...new Set(fetchable.map(p => p.part))];
+          try {
+            for await (const msg of client.fetch(uidStr, { uid: true, bodyParts: all }, { uid: true })) {
+              for (const p of unanswered) {
+                const v = msg.bodyParts?.get(p.part);
+                if (v != null && !prefetched.has(p.part)) prefetched.set(p.part, v);
+              }
+            }
+          } catch (err) {
+            // A body is never returned with a part missing that a fetch could still bring: it would
+            // be stored that way and shown so for good (an HTML email as its plain text). The open
+            // fails as the batch failing first made it fail, and the retry over a fresh login
+            // fetches the whole body (a dropped socket).
+            if (fetchable.some(p => !prefetched.has(p.part))) throw err;
+          }
         }
 
         for (const part of results.textParts) {
@@ -6888,7 +7128,9 @@ export class ImapManager {
     // size-2 pool and inheriting a frozen/half-open pooled session view that would hang the
     // fetch until the hand-out NOOP or POOL_STALL_TIMEOUT_MS closed it. Other providers keep
     // pool-first for TLS reuse.
-    const firstAcquire = providerProfile(account).preferFreshBodyFetch ? withFreshLogin : withFreshClient;
+    const firstAcquire = providerProfile(account).preferFreshBodyFetch
+      ? withFreshLogin
+      : (acct, fn) => withFreshClient(acct, fn, { background });
     try {
       return await doFetch(firstAcquire);
     } catch (firstErr) {
@@ -7193,25 +7435,12 @@ export class ImapManager {
   }
 
   async moveMessageGetNewUid(account, uid, fromFolder, toFolder) {
-    let newUid = null;
     try {
-      await withFreshClient(account, async (client) => {
-        const lock = await client.getMailboxLock(fromFolder);
-        try {
-          const result = await moveUids(client, String(uid), toFolder);
-          if (result === false) throw new Error('messageMove returned false — server did not confirm move');
-          if (result?.uidMap) {
-            newUid = result.uidMap.get(Number(uid)) || null;
-          }
-        } finally {
-          lock.release();
-        }
-      });
+      return await withFreshClient(account, client => moveOneUid(client, uid, fromFolder, toFolder));
     } catch (err) {
       console.error(`moveMessageGetNewUid failed: uid=${uid}:`, err.message);
       throw err;
     }
-    return newUid;
   }
 
   async deleteFolder(account, path) {
@@ -7331,40 +7560,35 @@ export class ImapManager {
   }
 
   async moveMessage(account, uid, fromFolder, toFolder) {
-    let newUid = null;
     try {
-      await withFreshClient(account, async (client) => {
-        const lock = await client.getMailboxLock(fromFolder);
-        try {
-          const result = await moveUids(client, String(uid), toFolder);
-          if (result === false) throw new Error('messageMove returned false — server did not confirm move');
-          if (result?.uidMap) newUid = result.uidMap.get(Number(uid)) || null;
-        } finally {
-          lock.release();
-        }
-      });
+      return await withFreshClient(account, client => moveOneUid(client, uid, fromFolder, toFolder));
     } catch (err) {
       console.error(`moveMessage failed: uid=${uid}:`, err.message);
       throw err;
     }
-    return newUid;
   }
 
-  // With expectMessageId, the uid is deleted only if the server copy still carries that
-  // Message-ID, checked under the same mailbox lock. A uid names a place in the folder, so one
-  // read from a stale row, or looked up in the wrong account, would otherwise expunge whatever
-  // sits there. Resolves false, having deleted nothing, when it does not match.
-  async permanentDeleteMessage(account, uid, folder, { expectMessageId } = {}) {
+  // With expectRow, a row of the messages table, the uid is deleted only if its server copy is
+  // that row's message (see isRowsMessage) and, for a row with no Message-ID, no other message in
+  // the folder matches the row as well (see hasOtherMatch); with expectMessageId, only if the copy
+  // carries that Message-ID. Either is checked under the same mailbox lock. A uid names a place in the folder,
+  // so one read from a stale row, or looked up in the wrong account, would otherwise expunge
+  // whatever sits there. Resolves false, having deleted nothing, when it does not match, and true
+  // when nothing holds the uid any more, which is where a delete would have left it.
+  async permanentDeleteMessage(account, uid, folder, { expectMessageId, expectRow } = {}) {
+    const expected = expectRow ?? (expectMessageId === undefined ? undefined : { message_id: expectMessageId });
     return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
-        if (expectMessageId !== undefined) {
-          const bare = id => String(id ?? '').replace(/[<>]/g, '').trim();
-          let found = '';
-          for await (const msg of client.fetch(String(uid), { uid: true, envelope: true }, { uid: true })) {
-            if (msg.uid === Number(uid)) found = bare(msg.envelope?.messageId);
+        if (expected) {
+          let copy = null;
+          // An unsolicited FETCH (a flag change) carries no envelope and must not stand in for the copy.
+          for await (const msg of client.fetch(String(uid), { uid: true, envelope: true, internalDate: true }, { uid: true })) {
+            if (msg.uid === Number(uid) && msg.envelope) copy = msg;
           }
-          if (!found || found !== bare(expectMessageId)) return false;
+          if (!copy) return true;
+          if (!isRowsMessage(expected, copy)) return false;
+          if (!bareMessageId(expected.message_id) && await hasOtherMatch(client, expected, uid)) return false;
         }
         if (!(await expungeUids(client, String(uid)))) throw new Error('messageDelete returned false — server did not confirm deletion');
         return true;
@@ -7435,12 +7659,31 @@ export class ImapManager {
   // If the IMAP delete throws, the DB row is left in place so the two never silently diverge.
   // Post-remove notification is a plugin concern (generic `afterLabelRemove` hook), so this
   // stays label-feature-agnostic.
+  //
+  // The uid is expunged only while its server copy is still the row's message (isRowsMessage): a
+  // row left on a stale uid, by a move without UIDPLUS before #665 or a sync behind the server,
+  // would otherwise remove whatever message holds that uid now. A uid with no row has nothing to
+  // check against and is left alone. A refused row is dropped and its folder pulled, as a refused
+  // Delete forever is, since sync never corrects it, and the call throws an error marked
+  // `copyChanged`.
   async removeMessageCopy(accountId, uid, folder) {
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
     if (!account) throw new Error(`removeMessageCopy: account ${accountId} not found`);
 
-    await this.permanentDeleteMessage(account, uid, folder);
+    const { rows: [row] } = await query(
+      'SELECT message_id, date, subject, from_email FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+      [accountId, uid, folder]
+    );
+    if (!row) return 0;
+    if ((await this.permanentDeleteMessage(account, uid, folder, { expectRow: row })) === false) {
+      await deleteMessageCopyRow(accountId, uid, folder);
+      this.syncFolderOnDemand(account, folder)
+        .catch(err => console.warn(`removeMessageCopy: sync of ${folder} failed: ${err.message}`));
+      const err = new Error(`removeMessageCopy: uid ${uid} in ${folder} holds another message, so nothing was removed`);
+      err.copyChanged = true;
+      throw err;
+    }
     const result = await deleteMessageCopyRow(accountId, uid, folder);
     // Removing a label copy changes label-feed data — let plugins broadcast their refresh.
     await pluginRegistry.runHook('afterLabelRemove', { mgr: this.pluginFacade, account, folder, uid });
@@ -7459,29 +7702,26 @@ export class ImapManager {
   async bulkMoveMessages(account, uids, fromFolder, toFolder) {
     if (!uids.length) return { uidMap: new Map(), succeeded: [], failed: [] };
     let destUidNextBefore = null;
-
-    // Capture UIDNEXT on a dedicated connection so a STATUS failure (e.g. toFolder
-    // is the currently selected mailbox on a pooled connection) cannot corrupt the
-    // connection used for the actual move.
-    try {
-      const status = await withFreshClient(account, async (client) => {
-        return await client.status(toFolder, { uidNext: true });
-      });
-      destUidNextBefore = status?.uidNext ?? null;
-    } catch (statusErr) {
-      console.warn(`bulkMoveMessages STATUS ${toFolder} failed (${statusErr.message}) — reconciliation skipped`);
-    }
+    // Without UIDPLUS, the batch as the source held it just before the move (see moveOneUid).
+    let before = null;
 
     try {
       const serverUidMap = await withFreshClient(account, async (client) => {
+        let result;
         const lock = await client.getMailboxLock(fromFolder);
         try {
-          const result = await moveUids(client, uids.map(String), toFolder);
-          if (result === false) throw new Error('bulk messageMove returned false — server did not confirm move');
-          return result?.uidMap?.size ? result.uidMap : null;
+          // Read with fromFolder selected, so toFolder is not the selected mailbox, and before
+          // the move, so what arrives from it on includes the batch.
+          destUidNextBefore = await uidNextOf(client, toFolder);
+          if (destUidNextBefore != null && !client.capabilities?.has('UIDPLUS')) {
+            before = await fetchCopies(client, uids.map(String).join(','));
+          }
+          result = await moveUids(client, uids.map(String), toFolder);
         } finally {
           lock.release();
         }
+        if (result === false) throw new Error('bulk messageMove returned false: the server did not confirm the move');
+        return result?.uidMap?.size ? result.uidMap : null;
       });
 
       if (serverUidMap) {
@@ -7504,10 +7744,11 @@ export class ImapManager {
       // case — so reconcile by UID SEARCH rather than blindly claiming success, which would delete
       // local rows for messages that never moved and lose the destination UIDs of the ones that
       // did. `stale_mutation_uid` records the inferred stale count.
-      const bySearch = await this._reconcileMoveBySearch(account, uids, fromFolder, toFolder, destUidNextBefore);
+      const bySearch = await this._reconcileMoveBySearch(account, uids, fromFolder, toFolder, destUidNextBefore, before);
       if (bySearch.staleCount) {
         recordSyncSignal('stale_mutation_uid', { accountId: account.id, magnitude: bySearch.staleCount });
-        // The batch is reported all-failed, so the caller leaves local rows untouched. The
+        // The stale UIDs are reported failed, and so is the rest of the batch when the source
+        // could not be read before the move, so the caller leaves those rows untouched. The
         // genuinely-moved messages have already left the source (the server EXPUNGEd them, and the
         // persistent IDLE connection reconciles the source shortly) but are not yet in the local
         // destination. Pull the destination now so they reappear promptly instead of at the next
@@ -7524,19 +7765,20 @@ export class ImapManager {
       console.warn(`bulkMoveMessages ${fromFolder} → ${toFolder}: batch failed (${err.message}), verifying via UID SEARCH`);
       // A thrown move may have applied partway; reconcile by search to report what actually moved.
       // Not counted as stale_mutation_uid — this is a move failure, not a stale-identity meeting.
-      const bySearch = await this._reconcileMoveBySearch(account, uids, fromFolder, toFolder, destUidNextBefore);
+      const bySearch = await this._reconcileMoveBySearch(account, uids, fromFolder, toFolder, destUidNextBefore, before);
       return { uidMap: bySearch.uidMap, succeeded: bySearch.succeeded, failed: bySearch.failed };
     }
   }
 
   // Reconcile a move whose UIDPLUS map is unavailable — the server returned an empty map (some
   // servers do this when the batch contains a stale UID, the #407 case), or the move threw partway.
-  // Determines succeeded/failed by which requested UIDs still remain in the source, and rebuilds a
-  // destination uidMap only when the counts line up exactly. The pure decision lives in
-  // classifyMoveBySearch; this method just does the two IMAP searches and the sorted-order mapping.
+  // Determines succeeded/failed by which requested UIDs still remain in the source (the pure
+  // decision lives in classifyMoveBySearch). Destination UIDs are mapped only by content, from
+  // `before`, the batch as a FETCH found it in the source before the move (pairMovedCopies): a
+  // move into a folder that anything else is also filling cannot be mapped by order.
   // Returns { uidMap, succeeded, failed, staleCount } (staleCount is the inferred stale-UID count,
   // or null when it could not be determined).
-  async _reconcileMoveBySearch(account, uids, fromFolder, toFolder, destUidNextBefore) {
+  async _reconcileMoveBySearch(account, uids, fromFolder, toFolder, destUidNextBefore, before = null) {
     let remaining;
     try {
       remaining = await withFreshClient(account, async (client) => {
@@ -7550,23 +7792,27 @@ export class ImapManager {
     }
 
     let destArrived = null;
-    let destNew = [];
+    let arrivals = null;
     if (destUidNextBefore !== null) {
       try {
-        destNew = await withFreshClient(account, async (client) => {
+        arrivals = await withFreshClient(account, async (client) => {
+          if (before) return fetchArrivals(client, toFolder, destUidNextBefore);
           const lock = await client.getMailboxLock(toFolder);
-          try { return await client.search({ uid: `${destUidNextBefore}:*` }, { uid: true }); }
-          finally { lock.release(); }
+          try {
+            const found = await client.search({ uid: `${destUidNextBefore}:*` }, { uid: true });
+            // A non-array result (undefined: no mailbox selected, false: SEARCH failed) leaves the
+            // destination unverified. Read as empty, it would report the whole batch stale.
+            if (!Array.isArray(found)) throw new Error(`destination UID SEARCH returned ${found}`);
+            // The filter guards the RFC 3501 `n:*` quirk, same as the staleness probe: when nothing
+            // arrived, the server still returns the destination's newest existing message, and a
+            // stale UID in the batch would be counted as having landed there.
+            return new Map(found.filter(u => u >= destUidNextBefore).map(u => [u, null]));
+          } finally { lock.release(); }
         });
-        // A non-array result (undefined: no mailbox selected, false: SEARCH failed) leaves the
-        // destination unverified. Read as empty, it would report the whole batch stale.
-        if (!Array.isArray(destNew)) throw new Error(`destination UID SEARCH returned ${destNew}`);
-        // The filter guards the RFC 3501 `n:*` quirk, same as the staleness probe: when nothing
-        // arrived, the server still returns the destination's newest existing message, and a
-        // stale UID in the batch would be counted as having landed there and mapped onto it.
-        destNew = destNew.filter(u => u >= destUidNextBefore);
-        destArrived = destNew.length;
+        if (!arrivals) throw new Error('destination arrivals could not be read');
+        destArrived = arrivals.size;
       } catch (destErr) {
+        arrivals = null;
         console.warn(`bulkMoveMessages: destination verification failed (${destErr.message}) — trusting source-absence`);
       }
     }
@@ -7581,50 +7827,75 @@ export class ImapManager {
       console.error(`bulkMoveMessages: source UID SEARCH returned ${remaining} — leaving all ${uids.length} for next sync`);
       return { uidMap: new Map(), succeeded: [], failed: uids, staleCount: null };
     }
-    const c = classifyMoveBySearch(uids, remaining, destArrived);
+    const presentBefore = before ? new Set(before.keys()) : null;
+    const c = classifyMoveBySearch(uids, remaining, destArrived, presentBefore);
     if (c.staleCount) {
-      console.warn(`bulkMoveMessages ${fromFolder} → ${toFolder}: ${c.staleCount} stale UID(s) in batch — reporting all ${uids.length} failed for the next sync to reconcile`);
+      const reported = presentBefore ? c.staleCount : uids.length;
+      console.warn(`bulkMoveMessages ${fromFolder} → ${toFolder}: ${c.staleCount} stale UID(s) in batch, reporting ${reported} failed for the next sync to reconcile`);
     }
-    // IMAP MOVE assigns destination UIDs in ascending source-UID order, so sort both sides before
-    // zipping. Only mappable when exactly as many arrived as left the source.
-    const uidMap = new Map();
-    if (c.mappable) {
-      const sortedSrc = c.succeeded.map(Number).sort((a, b) => a - b);
-      const sortedNew = [...destNew].sort((a, b) => a - b);
-      sortedSrc.forEach((uid, i) => uidMap.set(uid, sortedNew[i]));
+    let uidMap = new Map();
+    if (before && arrivals && c.succeeded.length) {
+      uidMap = pairMovedCopies(c.succeeded.map(u => before.get(Number(u))), [...arrivals.values()]);
     }
     return { uidMap, succeeded: c.succeeded, failed: c.failed, staleCount: c.staleCount };
   }
 
   // Permanently delete a batch of UIDs already in the given folder (two-step:
   // flag \Deleted + expunge) in a single IMAP command sequence.
-  // Returns { succeeded, failed } — subsets of the input uids array.
+  // Returns { succeeded, failed, mismatched } — subsets of the input uids array.
   //
   // With UIDPLUS: UID EXPUNGE targets only the specified UIDs — safe.
   // Without UIDPLUS: plain EXPUNGE removes ALL \Deleted messages in the mailbox.
   // To prevent collateral damage, we temporarily unflag any other \Deleted messages
   // before expunging, then restore them in a finally block.
-  async bulkPermanentDelete(account, uids, folder) {
-    if (!uids.length) return { succeeded: [], failed: [] };
+  //
+  // `expectRows` (uid -> row) checks each server copy under the same lock, as
+  // permanentDeleteMessage's expectRow does: a uid whose copy is another message is not deleted
+  // and is returned in `mismatched`, and one nothing holds any more is returned in `succeeded`,
+  // as a delete would have left it.
+  async bulkPermanentDelete(account, uids, folder, { expectRows } = {}) {
+    if (!uids.length) return { succeeded: [], failed: [], mismatched: [] };
+    let toDelete = uids;
+    let gone = [];
+    let mismatched = [];
     try {
       await withFreshClient(account, async (client) => {
         const lock = await client.getMailboxLock(folder);
         try {
-          if (!(await expungeUids(client, uids.map(String).join(',')))) {
+          if (expectRows) {
+            const copies = new Map();
+            // An unsolicited FETCH (a flag change) carries no envelope and must not stand in for the copy.
+            for await (const msg of client.fetch(uids.map(String).join(','), { uid: true, envelope: true, internalDate: true }, { uid: true })) {
+              if (msg.envelope) copies.set(msg.uid, msg);
+            }
+            const sorted = { gone: [], same: [], other: [] };
+            const searched = new Map();
+            for (const uid of uids) {
+              const copy = copies.get(Number(uid));
+              const row = expectRows.get(Number(uid));
+              if (!copy) sorted.gone.push(uid);
+              else if (!isRowsMessage(row, copy)) sorted.other.push(uid);
+              else if (!bareMessageId(row.message_id) && await hasOtherMatch(client, row, uid, searched)) sorted.other.push(uid);
+              else sorted.same.push(uid);
+            }
+            ({ gone, same: toDelete, other: mismatched } = sorted);
+          }
+          if (toDelete.length && !(await expungeUids(client, toDelete.map(String).join(',')))) {
             throw new Error('bulk messageDelete returned false — server did not confirm deletion');
           }
         } finally {
           lock.release();
         }
       });
-      return { succeeded: uids, failed: [] };
+      const refused = new Set(mismatched);
+      return { succeeded: uids.filter(uid => !refused.has(uid)), failed: [], mismatched };
     } catch (err) {
       console.warn(`bulkPermanentDelete ${folder}: batch failed (${err.message}), verifying via UID SEARCH`);
       try {
         const remaining = await withFreshClient(account, async (client) => {
           const lock = await client.getMailboxLock(folder);
           try {
-            return await client.search({ uid: uids.join(',') }, { uid: true });
+            return await client.search({ uid: toDelete.join(',') }, { uid: true });
           } finally {
             lock.release();
           }
@@ -7636,15 +7907,16 @@ export class ImapManager {
           throw new Error(`verification SEARCH returned ${remaining}`, { cause: err });
         }
         const remainingSet = new Set(remaining.map(Number));
-        const succeeded = uids.filter(uid => !remainingSet.has(Number(uid)));
-        const failed    = uids.filter(uid =>  remainingSet.has(Number(uid)));
-        if (succeeded.length) {
-          console.log(`bulkPermanentDelete: ${succeeded.length}/${uids.length} messages confirmed deleted via UID SEARCH`);
+        const deleted = toDelete.filter(uid => !remainingSet.has(Number(uid)));
+        const failed  = toDelete.filter(uid =>  remainingSet.has(Number(uid)));
+        if (deleted.length) {
+          console.log(`bulkPermanentDelete: ${deleted.length}/${toDelete.length} messages confirmed deleted via UID SEARCH`);
         }
-        return { succeeded, failed };
+        const done = new Set([...gone, ...deleted]);
+        return { succeeded: uids.filter(uid => done.has(uid)), failed, mismatched };
       } catch (searchErr) {
         console.error(`bulkPermanentDelete: UID SEARCH verification failed: ${searchErr.message}`);
-        return { succeeded: [], failed: uids };
+        return { succeeded: gone, failed: toDelete, mismatched };
       }
     }
   }
@@ -7814,16 +8086,18 @@ export class ImapManager {
         if (markUnread && newUid) {
           await this.setFlag(account, newUid, row.original_folder, '\\Seen', false);
         } else if (markUnread && row.message_id_header) {
-          // No UIDPLUS — server moved the message but returned no UID map.
-          // Search the destination folder by Message-ID to locate and unflag \Seen.
+          // The move named no new uid. Search the destination folder by Message-ID to locate and
+          // unflag \Seen, but only when that finds one message: a Message-ID is not unique.
           try {
             await withFreshClient(account, async (client) => {
               const lock = await client.getMailboxLock(row.original_folder);
               try {
                 const uids = await client.search({ header: ['Message-ID', row.message_id_header] }, { uid: true });
-                if (uids.length > 0) {
+                if (uids.length === 1) {
                   const r = await client.messageFlagsRemove(String(uids[0]), ['\\Seen'], { uid: true });
                   if (r === false) console.warn(`Snooze wakeup: messageFlagsRemove returned false for ${row.original_folder}`);
+                } else if (uids.length) {
+                  console.warn(`Snooze wakeup: ${uids.length} messages in ${row.original_folder} carry Message-ID ${row.message_id_header}, leaving them as they are`);
                 } else {
                   console.warn(`Snooze wakeup: could not find message in ${row.original_folder} to mark unread (Message-ID: ${row.message_id_header})`);
                 }
@@ -7839,18 +8113,20 @@ export class ImapManager {
         // Update DB: change folder (and mark unread, on its own wake-up), and update UID if the move returned one.
         if (newUid != null) {
           await query(
-            `UPDATE messages SET folder = $1, uid = $4${markUnread ? ', is_read = false, read_changed_at = NOW()' : ''} WHERE account_id = $2 AND message_id = $3 AND folder = $5`,
-            [row.original_folder, row.account_id, row.message_id_header, newUid, row.snoozed_folder]
+            `UPDATE messages SET folder = $1, uid = $4${markUnread ? ', is_read = false, read_changed_at = NOW()' : ''} WHERE account_id = $2 AND message_id = $3 AND folder = $5 AND uid = $6`,
+            [row.original_folder, row.account_id, row.message_id_header, newUid, row.snoozed_folder, row.uid]
           );
         } else {
-          // Non-UIDPLUS: DB holds the stale source UID at the destination. Guard it so
-          // reconcileDeletes does not treat it as an orphan before the next sync corrects it.
-          this._guardMoveUid(row.account_id, row.original_folder, row.uid);
+          // The new uid is not known, and the source uid can belong to another message in the
+          // original folder (#665). Drop the row rather than keep it on that uid, and let a sync
+          // of the folder file the message under its real one. Only this row: another message in
+          // Snoozed may carry the same Message-ID, and a sync would not add its row back.
           await query(
-            `UPDATE messages SET folder = $1${markUnread ? ', is_read = false, read_changed_at = NOW()' : ''} WHERE account_id = $2 AND message_id = $3 AND folder = $4`,
-            [row.original_folder, row.account_id, row.message_id_header, row.snoozed_folder]
+            'DELETE FROM messages WHERE account_id = $1 AND message_id = $2 AND folder = $3 AND uid = $4',
+            [row.account_id, row.message_id_header, row.snoozed_folder, row.uid]
           );
-          setTimeout(() => this._unguardMoveUid(row.account_id, row.original_folder, row.uid), 10_000);
+          this.syncFolderOnDemand(account, row.original_folder)
+            .catch(err => console.warn(`Snooze wakeup: sync of ${row.original_folder} failed: ${err.message}`));
         }
       } finally {
         this._unguardMoveUid(row.account_id, row.snoozed_folder, row.uid);
@@ -7862,7 +8138,7 @@ export class ImapManager {
       // Update folder counts: message leaves Snoozed and re-enters original_folder (unread on its own wake-up).
       // row.is_read reflects the read state in the Snoozed folder before the move.
       adjustFolderCounts(row.account_id, row.snoozed_folder, -1, row.is_read ? 0 : -1);
-      adjustFolderCounts(row.account_id, row.original_folder, 1, markUnread || !row.is_read ? 1 : 0);
+      if (newUid != null) adjustFolderCounts(row.account_id, row.original_folder, 1, markUnread || !row.is_read ? 1 : 0);
 
       // Notify the user's open clients so the message reappears
       this.broadcast({ type: 'snooze_wakeup', accountId: row.account_id }, row.user_id);

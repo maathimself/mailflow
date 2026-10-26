@@ -107,7 +107,8 @@ export async function classifyWithUndo(messageId, state, {
       pluginId: 'gtd',
       type: 'error',
       title: t('gtd.classifyFailed'),
-      body: t(`gtd.state.${state}`),
+      // A switch whose old label row named another message: the new label is on, the old one is not.
+      body: err?.changed ? t('gtd.labelChanged') : t(`gtd.state.${state}`),
     });
     return null;
   } finally {

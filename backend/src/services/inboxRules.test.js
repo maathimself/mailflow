@@ -46,10 +46,13 @@ const mockImap = {
   setFlag: vi.fn(),
   _guardMoveUid: vi.fn(),
   _unguardMoveUid: vi.fn(),
+  syncFolderOnDemand: vi.fn(),
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockImap.syncFolderOnDemand.mockResolvedValue(undefined);
+  mockImap.setFlag.mockResolvedValue(undefined);
 });
 
 describe('applyInboxRules — forwarding', () => {
@@ -477,21 +480,53 @@ describe('applyInboxRules — UID update after move', () => {
     expect(updateCall[1]).toEqual(['INBOX/Work', 789, 'msg-1']);
   });
 
-  it('updates only folder when uidMap is empty (no UIDPLUS)', async () => {
-    const rule = mkRule([{ type: 'move', value: 'INBOX/Work' }]);
-    query
-      .mockResolvedValueOnce({ rows: [rule] })
-      .mockResolvedValueOnce({ rows: [] });
-    mockImap.bulkMoveMessages.mockResolvedValue({
-      failed: [],
-      uidMap: new Map(), // empty — non-UIDPLUS server
-    });
+  // The source uid can belong to another message in the destination (#665), so the row is not
+  // kept on it, and nothing later in the run acts on it.
+  it.each([
+    ['move', { type: 'move', value: 'INBOX/Work' }, 'INBOX/Work'],
+    ['archive', { type: 'archive', value: '' }, 'Archive'],
+    ['delete', { type: 'delete', value: '' }, 'Trash'],
+  ])('a %s that names no new uid drops the row, pulls the destination, and a later mark_read or star flags nothing', async (_label, action, destination) => {
+    resolveArchiveFolder.mockResolvedValue('Archive');
+    isAllMailFolder.mockResolvedValue(false);
+    resolveTrashFolder.mockResolvedValue('Trash');
+    resolveAllTrashPaths.mockResolvedValue(['Trash']);
+    getDeleteStrategy.mockReturnValue({ action: 'move', destination: 'Trash' });
+    const rule = mkRule([action]);
+    const later = { ...mkRule([{ type: 'mark_read', value: '' }, { type: 'star', value: '' }]), id: 'rule-2', priority: 2 };
+    query.mockReset();
+    query.mockImplementation(async (sql) => (sql.includes('FROM inbox_rules') ? { rows: [rule, later] } : { rows: [] }));
+    mockImap.bulkMoveMessages.mockResolvedValue({ succeeded: [100], failed: [], uidMap: new Map() });
 
     const result = await applyInboxRules([mkMsg()], account, mockImap);
 
     expect(result.remaining).toHaveLength(0);
-    const updateCall = query.mock.calls[1];
-    expect(updateCall[1]).toEqual(['INBOX/Work', 'msg-1']); // only folder, no uid
+    const sqls = query.mock.calls.map(([sql, params]) => [sql.replace(/\s+/g, ' ').trim(), params]);
+    expect(sqls).toContainEqual(['DELETE FROM messages WHERE id = $1', ['msg-1']]);
+    expect(sqls.filter(([sql]) => sql.startsWith('UPDATE messages SET folder'))).toEqual([]);
+    expect(mockImap.syncFolderOnDemand).toHaveBeenCalledWith(account, destination);
+    expect(mockImap.setFlag).not.toHaveBeenCalled();
+  });
+});
+
+// A message a move left without a known uid has no address on the server, so no move, archive or
+// delete is attempted for it.
+describe('applyInboxRules: a message with no known uid', () => {
+  it.each([
+    ['move', { type: 'move', value: 'INBOX/Work' }],
+    ['archive', { type: 'archive', value: '' }],
+    ['delete', { type: 'delete', value: '' }],
+  ])('does not %s it', async (_label, action) => {
+    resolveArchiveFolder.mockResolvedValue('Archive');
+    isAllMailFolder.mockResolvedValue(false);
+    resolveTrashFolder.mockResolvedValue('Trash');
+    resolveAllTrashPaths.mockResolvedValue(['Trash']);
+    getDeleteStrategy.mockReturnValue({ action: 'move', destination: 'Trash' });
+    query.mockReset();
+    query.mockImplementation(async (sql) => (sql.includes('FROM inbox_rules') ? { rows: [mkRule([action])] } : { rows: [] }));
+    await applyInboxRules([mkMsg({ uid: null })], account, mockImap);
+    expect(mockImap.bulkMoveMessages).not.toHaveBeenCalled();
+    expect(mockImap._guardMoveUid).not.toHaveBeenCalled();
   });
 });
 

@@ -325,6 +325,7 @@
     "showOriginal": "Mostrar cores originais",
     "cannotShowDark": "Este e-mail não pode ser exibido escuro sem dificultar a leitura do texto",
     "printConversation": "Imprimir conversa",
+    "conversationActions": "Ações da conversa",
     "preparingPrint": "Preparando impressão…",
     "more": "Mais",
     "summarize": "Resumir",
@@ -2108,6 +2109,7 @@
     "removed": "Etiqueta removida",
     "removeFailed": "Não foi possível remover a etiqueta",
     "onlyCopy": "Esta é a única cópia da mensagem, então remover o marcador a excluiria. Arquive ou mova-a em vez disso.",
+    "labelChanged": "Este marcador mudou no servidor e não foi removido. Atualize e tente novamente.",
     "done": "Marcar como concluída",
     "doneFailed": "Não foi possível marcar como concluída",
     "doneArchiveFailed": "Marcada como concluída, mas o arquivamento falhou — ainda está na sua Caixa de entrada",
@@ -2261,6 +2263,7 @@
     "title": "Provedores de e-mail",
     "description": "Como o MailFlow se conecta às caixas da Microsoft e do Google. Isso é diferente do login único (SSO), que é como as pessoas entram no próprio MailFlow. Cada um adiciona as próprias contas em Contas > Adicionar conta.",
     "required": "Preencha primeiro os campos obrigatórios.",
+    "redirectRequired": "O Google precisa de um URI de redirecionamento: o registrado no cliente OAuth, terminado em /oauth/google/callback.",
     "saved": "Salvo.",
     "ms": {
       "title": "Microsoft",

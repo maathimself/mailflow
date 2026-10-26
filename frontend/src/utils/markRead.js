@@ -1,6 +1,6 @@
 import { useStore } from '../store/index.js';
 import { api } from './api.js';
-import { pendingMarkReadMap, completedMarkReadMap, setPending } from './pendingReads.js';
+import { setPending, settleMarkRead, failMarkRead, onReadRollback, pendingMarkReadMap, completedMarkReadMap } from './pendingReads.js';
 
 const scheduledByMessage = new Map();
 const scheduledMessageByTimer = new Map();
@@ -35,45 +35,66 @@ export function cancelScheduledMarkReadFor(id) {
 // together and rolled back together, or a failed PATCH leaves the badge drifting
 // away from the list it is supposed to be counting.
 //
-// Idempotent: an already-read message is a no-op, so callers do not have to guard.
+// Idempotent: an already-read message is a no-op, so callers do not have to guard. So is one whose
+// read is already in flight or has just landed, whatever the copy passed in says.
 
-export function applyMarkRead(msg) {
+// onChange(isRead) hears the optimistic change and its rollback, for a caller that keeps its own
+// copy of the message beside the store's: a conversation card does.
+export function applyMarkRead(msg, { onChange } = {}) {
   if (!msg || msg.is_read) return;
   const st = useStore.getState();
+  // A read of this message is already under way, or has just landed and the store still shows it:
+  // a stale copy must not count it a second time. Opening a conversation marks its row read from the
+  // list, and the card the pane opens then marked the same message read again from the thread's
+  // copy, fetched before the first read landed. It goes by that read's guard, not the store's flag
+  // alone, which may itself be stale (an unread on another device while the socket was down); a
+  // failed read has given its guard up, and a manual unread clears it.
+  if (readUnderWay(st, msg.id)) {
+    onChange?.(true);
+    // That read failing rolls the store back; the caller's own copy has to follow it.
+    if (onChange) onReadRollback(msg.id, () => onChange(false));
+    return;
+  }
   st.updateMessage(msg.id, { is_read: true });
+  onChange?.(true);
   st.decrementUnread(msg.account_id);
   st.adjustCategoryCount(msg.category, -1);
   // The guard stops a concurrent sync from reverting the optimistic flag before
   // the server has committed.
-  setPending(msg.id, msg.account_id);
+  const token = setPending(msg.id, msg.account_id);
   api.bulkRead([msg.id], true)
-    .then(() => {
-      pendingMarkReadMap.delete(msg.id);
-      // Covers the window where the PATCH has committed but a getMessages SELECT
-      // already in flight still returns the old is_read. Expires after 10s.
-      completedMarkReadMap.set(msg.id, msg.account_id);
-      setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
-    })
+    // Covers the window where the PATCH has committed but a getMessages SELECT
+    // already in flight still returns the old is_read. Expires after 10s.
+    .then(() => settleMarkRead(msg.id, msg.account_id, token))
     .catch(e => {
       console.error('markRead failed:', e.message);
+      // Marked unread (or read again) by hand meanwhile: that state is the user's.
+      if (!failMarkRead(msg.id, token)) return;
       st.updateMessage(msg.id, { is_read: false });
+      onChange?.(false);
       st.incrementUnread(msg.account_id);
       st.adjustCategoryCount(msg.category, 1);
-      pendingMarkReadMap.delete(msg.id);
     });
+}
+
+function readUnderWay(st, id) {
+  if (pendingMarkReadMap.has(id)) return true;
+  if (!completedMarkReadMap.has(id)) return false;
+  const lists = [st.messages, st.searchResults, ...Object.values(st.threadMessages || {})];
+  return lists.some(list => Array.isArray(list) && list.some(m => m?.id === id && m.is_read));
 }
 
 // Honors the user's markReadBehavior preference. Returns a timer handle when the
 // mark was deferred, so the caller can cancelScheduledMarkRead it if the reader
 // moves on first, and null when there is nothing to cancel.
-export function scheduleMarkRead(msg) {
+export function scheduleMarkRead(msg, options) {
   if (!msg || msg.is_read) return null;
   const { markReadBehavior, markReadDelay } = useStore.getState();
   if (markReadBehavior === 'manual') return null;
   if (markReadBehavior === 'delay') {
-    return scheduleMarkReadTimer(msg.id, () => applyMarkRead(msg), (markReadDelay || 1) * 1000);
+    return scheduleMarkReadTimer(msg.id, () => applyMarkRead(msg, options), (markReadDelay || 1) * 1000);
   }
-  applyMarkRead(msg);
+  applyMarkRead(msg, options);
   return null;
 }
 

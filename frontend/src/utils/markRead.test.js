@@ -45,7 +45,7 @@ globalThis.fetch = async (url, opts = {}) => {
 const { useStore } = await import('../store/index.js');
 const markRead = await import('./markRead.js');
 const { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } = markRead;
-const { pendingMarkReadMap, completedMarkReadMap } = await import('./pendingReads.js');
+const { pendingMarkReadMap, completedMarkReadMap, setPending, settleMarkRead, failMarkRead, clearReadGuard } = await import('./pendingReads.js');
 
 const MSG = { id: 'm1', account_id: 'acct', category: 'primary', is_read: false };
 const tick = (ms = 0) => new Promise(r => setTimeout(r, ms));
@@ -70,6 +70,93 @@ describe('applyMarkRead', () => {
     assert.deepEqual(bulkReads, [{ ids: ['m1'], read: true }], 'exactly one request, for this message');
     assert.equal(pendingMarkReadMap.has('m1'), false, 'the guard is released once committed');
     assert.equal(completedMarkReadMap.get('m1'), 'acct', 'the commit is recorded for racing SELECTs');
+  });
+
+  // Opening a conversation marks its row read from the list, then the card the pane opens marks the
+  // same message read again from the thread's copy, fetched before the first read landed. That
+  // second read took the message off the unread badge a second time.
+  const spyDecrement = async (run) => {
+    const decremented = [];
+    const { decrementUnread } = useStore.getState();
+    useStore.setState({ decrementUnread: id => decremented.push(id) });
+    try { await run(); } finally { useStore.setState({ decrementUnread }); }
+    return decremented;
+  };
+
+  for (const [when, settle] of [['in flight', false], ['just landed', true]]) {
+    test(`a stale copy is not counted again while the list's read is ${when}`, async () => {
+      useStore.getState().setMessages([{ ...MSG, is_read: true }]);
+      const token = setPending('m1', 'acct');
+      if (settle) settleMarkRead('m1', 'acct', token);
+      const changes = [];
+      const decremented = await spyDecrement(async () => {
+        applyMarkRead({ ...MSG }, { onChange: read => changes.push(read) });
+        await tick();
+      });
+      assert.deepEqual(decremented, [], 'the badge is not taken down again');
+      assert.deepEqual(bulkReads, [], 'nor is the read sent again');
+      assert.deepEqual(changes, [true], 'the caller\'s own copy still learns it is read');
+    });
+  }
+
+  // The list's read the card leaned on can still fail: the list rolls the store back, and the card's
+  // copy has to follow, or it goes on showing the message read.
+  test('when the list\'s read it leaned on fails, the caller\'s copy is rolled back too', async () => {
+    useStore.getState().setMessages([{ ...MSG, is_read: true }]);
+    const token = setPending('m1', 'acct');
+    const changes = [];
+    applyMarkRead({ ...MSG }, { onChange: read => changes.push(read) });
+    assert.deepEqual(changes, [true]);
+    assert.equal(failMarkRead('m1', token), true);
+    assert.deepEqual(changes, [true, false]);
+  });
+
+  test('when that read lands, or the user marks it unread meanwhile, nothing is rolled back', async () => {
+    useStore.getState().setMessages([{ ...MSG, is_read: true }]);
+    const changes = [];
+    const landed = setPending('m1', 'acct');
+    applyMarkRead({ ...MSG }, { onChange: read => changes.push(read) });
+    settleMarkRead('m1', 'acct', landed);
+    const undone = setPending('m1', 'acct');
+    applyMarkRead({ ...MSG }, { onChange: read => changes.push(read) });
+    clearReadGuard('m1');
+    assert.equal(failMarkRead('m1', undone), false);
+    assert.deepEqual(changes, [true, true]);
+  });
+
+  // The store's flag alone proves nothing: another device may have marked the message unread while
+  // the socket was down, so the store still shows it read.
+  test('a store that shows the message read, with no read of ours under way, does not stop it', async () => {
+    useStore.getState().setMessages([{ ...MSG, is_read: true }]);
+    const decremented = await spyDecrement(async () => {
+      applyMarkRead({ ...MSG });
+      await tick();
+    });
+    assert.deepEqual(decremented, ['acct']);
+    assert.deepEqual(bulkReads, [{ ids: ['m1'], read: true }]);
+  });
+
+  // Read and landed, then marked unread somewhere the guard did not hear of: the store shows it unread.
+  test('a landed read does not stop it once the store shows the message unread', async () => {
+    useStore.getState().setMessages([{ ...MSG, is_read: false }]);
+    settleMarkRead('m1', 'acct', setPending('m1', 'acct'));
+    const decremented = await spyDecrement(async () => {
+      applyMarkRead({ ...MSG });
+      await tick();
+    });
+    assert.deepEqual(decremented, ['acct']);
+    assert.deepEqual(bulkReads, [{ ids: ['m1'], read: true }]);
+  });
+
+  test('a list read that failed does not stop it', async () => {
+    const token = setPending('m1', 'acct');
+    assert.equal(failMarkRead('m1', token), true);
+    const decremented = await spyDecrement(async () => {
+      applyMarkRead({ ...MSG });
+      await tick();
+    });
+    assert.deepEqual(decremented, ['acct']);
+    assert.deepEqual(bulkReads, [{ ids: ['m1'], read: true }]);
   });
 
   test('rolls the flag back when the request fails', async () => {

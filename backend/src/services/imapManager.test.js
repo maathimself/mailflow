@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }));
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), parseMailboxList: vi.fn(() => [{ name: 'Hidden', email: 'hidden@example.test' }]), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn(), enrichParsedMetadata: vi.fn((parsed) => parsed) }));
+vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), parseMailboxList: vi.fn(() => [{ name: 'Hidden', email: 'hidden@example.test' }]), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn(), enrichParsedMetadata: vi.fn((parsed) => parsed), MAX_HEADER_FIELD: 500 }));
 vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn(), refreshGoogleToken: vi.fn() }));
 vi.mock('./emailSanitizer.js', () => ({ sanitizeEmail: vi.fn() }));
 vi.mock('./encryption.js', () => ({ decrypt: vi.fn() }));
@@ -14,7 +14,7 @@ vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./spamPipeline.js', () => ({ classifyAndTagMessage: vi.fn() }));
 vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }));
 
-import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, contentLocationFromMimeHeader, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, computeThreadId, noteDraftsChanged } from './imapManager.js';
+import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, contentLocationFromMimeHeader, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, pairMovedCopies, computeThreadId, noteDraftsChanged } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { ensureFreshToken } from './imapManager.js';
 import { clearRefreshFailure, noteFreshToken, noteRefreshFailure, refreshFailureFor } from './accountErrorCode.js';
@@ -25,7 +25,7 @@ import { query } from './db.js';
 import { resolveForConnection } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { invalidateGtdConfigCache } from '../plugins/gtd/gtdConfig.js';
-import { parseMessage } from './messageParser.js';
+import { parseMessage, decodeMimeWords } from './messageParser.js';
 import { classifyAndTagMessage } from './spamPipeline.js';
 import { getAccountAddresses } from './mailAccess.js';
 
@@ -3073,16 +3073,14 @@ describe('classifyMoveBySearch (#407 empty-uidMap reconciliation)', () => {
       expect(r.succeeded).toEqual([]);
       expect(r.failed).toEqual([4, 5, 6]);
       expect(r.staleCount).toBeNull();
-      expect(r.mappable).toBe(false);
     }
   });
 
-  it('clean move: all left source, all arrived -> succeeded + mappable', () => {
+  it('clean move: all left source, all arrived -> succeeded', () => {
     const r = classifyMoveBySearch([4, 5, 6], /*remaining*/ [], /*destArrived*/ 3);
     expect(r.succeeded).toEqual([4, 5, 6]);
     expect(r.failed).toEqual([]);
     expect(r.staleCount).toBe(0);
-    expect(r.mappable).toBe(true);
   });
 
   it('stale UID in batch: fewer arrived than left -> ALL failed, no wrong-deletion', () => {
@@ -3092,7 +3090,6 @@ describe('classifyMoveBySearch (#407 empty-uidMap reconciliation)', () => {
     expect(r.succeeded).toEqual([]);
     expect(r.failed).toEqual([2, 3, 4, 5, 6]);
     expect(r.staleCount).toBe(2);
-    expect(r.mappable).toBe(false);
   });
 
   it('partial move failure: some still in source -> those are failed, the rest succeeded', () => {
@@ -3101,7 +3098,6 @@ describe('classifyMoveBySearch (#407 empty-uidMap reconciliation)', () => {
     expect(r.succeeded).toEqual([4]);
     expect(r.failed).toEqual([5, 6]);
     expect(r.staleCount).toBe(0);
-    expect(r.mappable).toBe(true);
   });
 
   it('nothing left the source -> all failed (move did not happen)', () => {
@@ -3111,12 +3107,68 @@ describe('classifyMoveBySearch (#407 empty-uidMap reconciliation)', () => {
     expect(r.staleCount).toBe(0);
   });
 
-  it('destination not verifiable (null) -> trust source-absence, not mappable, stale unknown', () => {
+  it('destination not verifiable (null) -> trust source-absence, stale unknown', () => {
     const r = classifyMoveBySearch([4, 5, 6], /*remaining*/ [], /*destArrived*/ null);
     expect(r.succeeded).toEqual([4, 5, 6]);
     expect(r.failed).toEqual([]);
     expect(r.staleCount).toBeNull();
-    expect(r.mappable).toBe(false);
+  });
+
+  // What else reaches the destination meanwhile arrives in the same UID range, so the count can
+  // make up for a stale UID. The source as a FETCH found it before the move says which one it was.
+  it('with the source as it was before the move: a UID that was not there is stale, whatever arrived', () => {
+    const r = classifyMoveBySearch([5, 9], /*remaining*/ [], /*destArrived*/ 2, /*presentBefore*/ new Set([5]));
+    expect(r.succeeded).toEqual([5]);
+    expect(r.failed).toEqual([9]);
+    expect(r.staleCount).toBe(1);
+  });
+
+  it('with the source as it was before the move: one still there failed, one that left moved', () => {
+    const r = classifyMoveBySearch([4, 5, 6], /*remaining*/ [6], /*destArrived*/ null, new Set([4, 5, 6]));
+    expect(r.succeeded).toEqual([4, 5]);
+    expect(r.failed).toEqual([6]);
+    expect(r.staleCount).toBe(0);
+  });
+});
+
+// pairMovedCopies finds a moved message among the destination's arrivals by its content: the
+// Message-ID, sender, subject, Date header and size together. Each case below differs in one part
+// only, so it fails when that part is left out of the match.
+describe('pairMovedCopies', () => {
+  const copy = (uid, { size = 100, ...envelope } = {}) => ({
+    uid, size,
+    envelope: { messageId: '<a@example.com>', subject: 'Subject', from: [{ address: 'sender@example.com' }], date: new Date('2026-10-01T10:00:00Z'), ...envelope },
+  });
+  const pairs = (moved, arrivals) => [...pairMovedCopies(moved, arrivals)];
+
+  it.each([
+    ['size', { size: 200 }],
+    ['Date header', { date: new Date('2026-10-01T10:00:01Z') }],
+    ['subject', { subject: 'Re: Subject' }],
+    ['sender', { from: [{ address: 'other@example.com' }] }],
+    ['Message-ID', { messageId: '<b@example.com>' }],
+  ])('tells apart an arrival that differs only in its %s', (_part, other) => {
+    expect(pairs([copy(5)], [copy(40, other), copy(41)])).toEqual([[5, 41]]);
+  });
+
+  it('pairs a message with no Message-ID by the rest of its content', () => {
+    const none = { messageId: undefined };
+    expect(pairs([copy(5, none)], [copy(40), copy(41, none)])).toEqual([[5, 41]]);
+    expect(pairs([copy(5, { messageId: '<>' })], [copy(40), copy(41, none)])).toEqual([[5, 41]]);
+  });
+
+  it('pairs nothing when two arrivals carry the same content', () => {
+    expect(pairs([copy(5)], [copy(40), copy(41)])).toEqual([]);
+  });
+
+  it('pairs nothing for several identical moved messages, even when only one copy arrived', () => {
+    expect(pairs([copy(5), copy(6)], [copy(40)])).toEqual([]);
+    expect(pairs([copy(5), copy(6)], [copy(40), copy(41)])).toEqual([]);
+  });
+
+  it('pairs each of several different messages with its own arrival, whatever the order', () => {
+    expect(pairs([copy(5, { subject: 'A' }), copy(6, { subject: 'B' })], [copy(40, { subject: 'B' }), copy(41), copy(42, { subject: 'A' })]))
+      .toEqual([[5, 42], [6, 40]]);
   });
 });
 
@@ -4721,6 +4773,20 @@ describe('prefetchFolderBodies — stops instead of hammering a refusing provide
   }
   afterEach(() => { vi.restoreAllMocks(); });
 
+  // A prefetch leaves the pool's last idle session to the user's click (acquirePooledClient).
+  it('fetches each body as background work', async () => {
+    const mgr = arrange(() => new Error('Command failed'));
+    await mgr.prefetchFolderBodies('acc-1', UIDS.map(u => `m-${u}`));
+    expect(mgr.fetchMessageBody).toHaveBeenNthCalledWith(1, YAHOO, 101, 'INBOX', { background: true });
+  });
+
+  it('prefetches newly arrived bodies as background work too', async () => {
+    const mgr = arrange(() => new Error('Command failed'));
+    mgr.fetchMessageBody = vi.fn(async () => ({}));
+    await mgr.prefetchNewMessageBodies(YAHOO, [{ id: 'm-101', uid: 101, folder: 'INBOX' }]);
+    expect(mgr.fetchMessageBody).toHaveBeenCalledWith(YAHOO, 101, 'INBOX', { background: true });
+  });
+
   it('stops after the FIRST refusal rather than trying every remaining message', async () => {
     const mgr = arrange(() => Object.assign(new Error('Command failed'), {
       responseText: 'AUTHENTICATE Server error - Please try again later',
@@ -6221,8 +6287,9 @@ describe('prefetch on the gate error (#474 round 4)', () => {
 // the copy it means to delete, so a uid read from a stale row, or looked up in the wrong
 // account, deletes nothing. Driven through the real pool so the check is what guards the
 // EXPUNGE.
-describe('permanentDeleteMessage with expectMessageId', () => {
+describe('server copy identity checks', () => {
   let seq = 0;
+  // A server copy is its Message-ID, or { messageId, subject, internalDate, from }.
   function arrange(serverCopies) {
     const account = { id: `acct-pdm-${++seq}`, user_id: 'u1', imap_host: 'imap.example.com', email_address: 'me@example.test', auth_user: 'me', auth_pass: 'enc' };
     const client = Object.assign(new EventEmitter(), {
@@ -6232,11 +6299,21 @@ describe('permanentDeleteMessage with expectMessageId', () => {
       close: vi.fn(),
       noop: vi.fn(async () => true),
       getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
-      fetch: vi.fn(async function* (range) {
+      // As a server does, it answers with only the attributes asked for.
+      fetch: vi.fn(async function* (range, query) {
         for (const uid of String(range).split(',').map(Number)) {
-          if (serverCopies.has(uid)) yield { uid, envelope: { messageId: serverCopies.get(uid) } };
+          if (!serverCopies.has(uid)) continue;
+          const copy = serverCopies.get(uid);
+          const { messageId = null, subject, internalDate, from } = copy !== null && typeof copy === 'object' ? copy : { messageId: copy };
+          yield {
+            uid,
+            ...(query?.envelope && { envelope: { messageId, subject, from: from ? [{ address: from }] : [] } }),
+            ...(query?.internalDate && { internalDate }),
+          };
         }
       }),
+      // Every message, whatever the dates asked for: the search only narrows what is compared.
+      search: vi.fn(async () => [...serverCopies.keys()]),
       // A UIDPLUS server, so the delete is a UID EXPUNGE of exactly this uid (see expungeUids).
       capabilities: new Map([['UIDPLUS', true]]),
       messageFlagsAdd: vi.fn().mockResolvedValue(true),
@@ -6247,8 +6324,10 @@ describe('permanentDeleteMessage with expectMessageId', () => {
     resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
     query.mockReset();
     query.mockResolvedValue({ rows: [account] });
+    decodeMimeWords.mockImplementation(s => s);
     return { mgr: new ImapManager({ clients: new Set() }), account, client };
   }
+  afterEach(() => decodeMimeWords.mockReset());
 
   it.each([
     ['<invoice@example.test>', true],
@@ -6291,9 +6370,11 @@ describe('permanentDeleteMessage with expectMessageId', () => {
     expect(client.messageDelete).not.toHaveBeenCalled();
   });
 
-  it('deletes nothing when the uid is no longer on the server', async () => {
+  // Nothing holds the uid any more, which is where a delete would have left it.
+  it('counts a uid no longer on the server as deleted, expunging nothing', async () => {
     const { mgr, account, client } = arrange(new Map());
-    expect(await mgr.permanentDeleteMessage(account, 7, 'Drafts', { expectMessageId: '<old@example.test>' })).toBe(false);
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Drafts', { expectMessageId: '<old@example.test>' })).toBe(true);
+    expect(client.messageFlagsAdd).not.toHaveBeenCalled();
     expect(client.messageDelete).not.toHaveBeenCalled();
   });
 
@@ -6308,6 +6389,222 @@ describe('permanentDeleteMessage with expectMessageId', () => {
     expect(await mgr.permanentDeleteMessage(account, 7, 'Drafts')).toBe(true);
     expect(client.fetch).not.toHaveBeenCalled();
     expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  // messageParser stores a Message-ID cut at 500 characters, so the row of a message with a
+  // longer one holds a prefix of what the server copy carries.
+  const LONG_ID = `<${'x'.repeat(600)}@example.test>`;
+
+  it('deletes the uid when the row holds the Message-ID cut at the storage cap', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, LONG_ID]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectMessageId: LONG_ID.slice(0, 500) })).toBe(true);
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  it('deletes nothing when a cut Message-ID is not the start of the server copy\'s', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, `<${'y'.repeat(600)}@example.test>`]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectMessageId: LONG_ID.slice(0, 500) })).toBe(false);
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  it('does not take a short Message-ID for the start of a longer one', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<old@example.test.other>']]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectMessageId: '<old@example.test' })).toBe(false);
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  // A row of the messages table, and the server copy sync filed it from: sync stores the copy's
+  // INTERNALDATE as the row's date and its first From address as from_email.
+  const AT = new Date('2026-10-21T09:00:00Z');
+  const LATER = new Date('2026-10-21T09:00:01Z');
+  const row = (fields) => ({ message_id: null, date: AT, from_email: 'scanner@example.test', subject: 'Scan', ...fields });
+  const scan = (fields) => ({ messageId: null, internalDate: AT, from: 'scanner@example.test', subject: 'Scan', ...fields });
+
+  it.each([
+    ['the row has none and the server copy has one', row(), scan({ messageId: '<second@example.test>' })],
+    ['the row has <> and the server copy has one', row({ message_id: '<>' }), scan({ messageId: '<second@example.test>' })],
+    ['the row has one and the server copy has none', row({ message_id: '<first@example.test>' }), scan()],
+  ])('deletes nothing when only one side has a Message-ID: %s', async (_case, expectRow, copy) => {
+    const { mgr, account, client } = arrange(new Map([[7, copy]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow })).toBe(false);
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  it('deletes a server copy with no Message-ID whose INTERNALDATE, sender and subject are the row\'s', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, scan()]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row() })).toBe(true);
+    expect(client.fetch).toHaveBeenCalledWith('7', { uid: true, envelope: true, internalDate: true }, { uid: true });
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  it.each([
+    ['another INTERNALDATE', row(), scan({ internalDate: LATER })],
+    ['another subject', row(), scan({ subject: 'Invoice' })],
+    // The two cases from the #666 review: the same subject and time from another sender, and no
+    // subject on either.
+    ['another sender', row(), scan({ from: 'printer@example.test' })],
+    ['no subject and another sender', row({ subject: '(no subject)' }), scan({ subject: '', from: 'printer@example.test' })],
+    ['no date on either side', row({ date: null }), scan({ internalDate: null })],
+  ])('deletes nothing when neither has a Message-ID and they have %s', async (_case, expectRow, copy) => {
+    const { mgr, account, client } = arrange(new Map([[7, copy]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow })).toBe(false);
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  it('compares the sender without regard to case', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, scan({ from: 'Scanner@Example.test' })]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row() })).toBe(true);
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  it('takes the sender from a mailbox and host, as parseMessage does', async () => {
+    const { mgr, account, client } = arrange(new Map());
+    client.fetch = vi.fn(async function* () {
+      yield { uid: 7, envelope: { messageId: null, subject: 'Scan', from: [{ mailbox: 'scanner', host: 'example.test' }] }, internalDate: AT };
+    });
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row() })).toBe(true);
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  it('compares the subject as sync stores it, decoded and trimmed', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, scan({ subject: ' =?UTF-8?Q?Caf=C3=A9?= ' })]]));
+    decodeMimeWords.mockImplementation(s => s.replace('=?UTF-8?Q?Caf=C3=A9?=', 'Café'));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row({ subject: 'Café' }) })).toBe(true);
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  // Without a subject in the envelope, sync takes the row's from the Subject header, or stores
+  // '(no subject)', and the header is not fetched here.
+  it('compares only INTERNALDATE and sender when the server copy\'s envelope has no subject', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, scan({ subject: '' })]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row({ subject: 'From the Subject header' }) })).toBe(true);
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  // Nothing a row with no Message-ID stores tells apart two messages with its INTERNALDATE, sender
+  // and subject, so with two in the folder it could be either.
+  it('deletes nothing when another message in the folder matches the row as well', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, scan()], [8, scan()]]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row() })).toBe(false);
+    // The days around the row's date, wide enough for any server's time zone.
+    expect(client.search).toHaveBeenCalledWith({ since: new Date('2026-10-19T00:00:00Z'), before: new Date('2026-10-24T00:00:00Z') }, { uid: true });
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  it('deletes the copy when nothing else in the folder matches the row', async () => {
+    const { mgr, account, client } = arrange(new Map([
+      [7, scan()],
+      [8, scan({ internalDate: LATER })],
+      [9, scan({ from: 'printer@example.test' })],
+      [10, scan({ messageId: '<scan@example.test>' })],
+    ]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row() })).toBe(true);
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  it('deletes nothing when the folder cannot be searched for another match', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, scan()]]));
+    client.search.mockResolvedValue(false);
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row() })).toBe(false);
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  // Copies that share a Message-ID can be taken for each other, an accepted limit.
+  it('does not search the folder for a row with a Message-ID', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<a@example.test>'], [8, '<a@example.test>']]));
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectRow: row({ message_id: '<a@example.test>' }) })).toBe(true);
+    expect(client.search).not.toHaveBeenCalled();
+  });
+
+  // The bulk delete of rows already in Trash. Rows hold PostgreSQL BIGINT uids as strings.
+  it('bulkPermanentDelete deletes only the uids whose server copy is the row\'s message', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<a@example.test>'], [8, '<someone-elses@example.test>']]));
+    const expectRows = new Map([[7, row({ message_id: '<a@example.test>' })], [8, row({ message_id: '<b@example.test>' })]]);
+    expect(await mgr.bulkPermanentDelete(account, ['7', '8'], 'Trash', { expectRows }))
+      .toEqual({ succeeded: ['7'], failed: [], mismatched: ['8'] });
+    expect(client.fetch).toHaveBeenCalledTimes(1);
+    expect(client.search).not.toHaveBeenCalled();
+    expect(client.messageDelete).toHaveBeenCalledTimes(1);
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  it('bulkPermanentDelete counts a uid no longer on the server as deleted, expunging nothing for it', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<a@example.test>']]));
+    const expectRows = new Map([[7, row({ message_id: '<a@example.test>' })], [8, row({ message_id: '<b@example.test>' })]]);
+    expect(await mgr.bulkPermanentDelete(account, [7, 8], 'Trash', { expectRows }))
+      .toEqual({ succeeded: [7, 8], failed: [], mismatched: [] });
+    expect(client.messageDelete).toHaveBeenCalledWith('7', { uid: true });
+  });
+
+  it('bulkPermanentDelete expunges nothing when no server copy matches', async () => {
+    const { mgr, account, client } = arrange(new Map([[8, '<someone-elses@example.test>']]));
+    expect(await mgr.bulkPermanentDelete(account, [8], 'Trash', { expectRows: new Map([[8, row({ message_id: '<b@example.test>' })]]) }))
+      .toEqual({ succeeded: [], failed: [], mismatched: [8] });
+    expect(client.messageFlagsAdd).not.toHaveBeenCalled();
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  it('bulkPermanentDelete checks a row with no Message-ID by INTERNALDATE, sender and subject', async () => {
+    const { mgr, account, client } = arrange(new Map([
+      [7, '<a@example.test>'],
+      [8, scan()],
+      [9, scan({ messageId: '<z@example.test>' })],
+      [10, scan({ internalDate: LATER })],
+      [11, scan({ from: 'printer@example.test' })],
+    ]));
+    const expectRows = new Map([[7, row({ message_id: '<a@example.test>' })], [8, row()], [9, row({ message_id: '<>' })], [10, row()], [11, row()]]);
+    expect(await mgr.bulkPermanentDelete(account, [7, 8, 9, 10, 11], 'Trash', { expectRows }))
+      .toEqual({ succeeded: [7, 8], failed: [], mismatched: [9, 10, 11] });
+    expect(client.fetch).toHaveBeenCalledWith('7,8,9,10,11', { uid: true, envelope: true, internalDate: true }, { uid: true });
+    expect(client.messageDelete).toHaveBeenCalledWith('7,8', { uid: true });
+  });
+
+  it('bulkPermanentDelete leaves a row with no Message-ID that another message in the folder also matches', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, scan()], [8, scan()], [9, scan({ subject: 'Invoice' })]]));
+    const expectRows = new Map([[7, row()], [9, row({ subject: 'Invoice' })]]);
+    expect(await mgr.bulkPermanentDelete(account, [7, 9], 'Trash', { expectRows }))
+      .toEqual({ succeeded: [9], failed: [], mismatched: [7] });
+    // Both rows' dates fall on one day, so one search serves them both.
+    expect(client.search).toHaveBeenCalledTimes(1);
+    expect(client.messageDelete).toHaveBeenCalledWith('9', { uid: true });
+  });
+
+  it('bulkPermanentDelete reports the uids it tried, and those already gone, when the expunge fails and is verified', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<a@example.test>'], [8, '<someone-elses@example.test>'], [9, '<c@example.test>']]));
+    client.messageDelete.mockRejectedValueOnce(new Error('connection lost'));
+    client.search = vi.fn(async () => [9]); // 7 went, 9 is still there
+    const expectRows = new Map([7, 8, 9, 10].map(uid => [uid, row({ message_id: `<${'abcd'[uid - 7]}@example.test>` })]));
+    expect(await mgr.bulkPermanentDelete(account, [7, 8, 9, 10], 'Trash', { expectRows }))
+      .toEqual({ succeeded: [7, 10], failed: [9], mismatched: [8] });
+    expect(client.search).toHaveBeenCalledWith({ uid: '7,9' }, { uid: true });
+  });
+
+  it('bulkPermanentDelete counts every uid it tried as failed when the expunge fails and cannot be verified', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<a@example.test>'], [8, '<someone-elses@example.test>']]));
+    client.messageDelete.mockRejectedValueOnce(new Error('connection lost'));
+    client.search = vi.fn(async () => { throw new Error('connection lost'); });
+    const expectRows = new Map([7, 8, 9].map(uid => [uid, row({ message_id: `<${'abc'[uid - 7]}@example.test>` })]));
+    expect(await mgr.bulkPermanentDelete(account, [7, 8, 9], 'Trash', { expectRows }))
+      .toEqual({ succeeded: [9], failed: [7], mismatched: [8] });
+  });
+
+  it('a FETCH answered with an unsolicited flags-only response for the uid still finds its Message-ID', async () => {
+    const { mgr, account, client } = arrange(new Map());
+    client.fetch = vi.fn(async function* () {
+      yield { uid: 7, envelope: { messageId: '<a@example.test>' } };
+      yield { uid: 7, flags: new Set(['\\Seen']) };
+    });
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Trash', { expectMessageId: '<a@example.test>' })).toBe(true);
+    expect(await mgr.bulkPermanentDelete(account, [7], 'Trash', { expectRows: new Map([[7, row({ message_id: '<a@example.test>' })]]) }))
+      .toEqual({ succeeded: [7], failed: [], mismatched: [] });
+    expect(client.messageDelete).toHaveBeenCalledTimes(2);
+  });
+
+  it('bulkPermanentDelete without expected rows deletes as before, with no FETCH', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<a@example.test>'], [8, '<b@example.test>']]));
+    expect(await mgr.bulkPermanentDelete(account, [7, 8], 'Trash')).toEqual({ succeeded: [7, 8], failed: [], mismatched: [] });
+    expect(client.fetch).not.toHaveBeenCalled();
+    expect(client.messageDelete).toHaveBeenCalledWith('7,8', { uid: true });
   });
 });
 
@@ -6487,5 +6784,209 @@ describe('syncMessages — tells the client when a Drafts folder gained rows', (
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+// #677: every command of a body fetch is a round trip to the mail server, and on Gmail they
+// are what opening a message waits for. Text parts are fetched one at a time (some servers
+// garble a batched one), so batching them as well was a command for nothing.
+describe('the commands a body fetch sends', () => {
+  let seq = 900;
+  const alternative = {
+    type: 'multipart/alternative',
+    childNodes: [
+      { part: '1', type: 'text/plain', encoding: '7bit', parameters: { charset: 'utf-8' } },
+      { part: '2', type: 'text/html', encoding: '7bit', parameters: { charset: 'utf-8' } },
+    ],
+  };
+  // A fake server holding one message. answersAlone: the parts a fetch of that part alone
+  // returns (others come back empty), so a server that only answers batched requests can be
+  // played too.
+  // fails(command, client): true makes that command throw on that client (0 is the first one
+  // made); drops: a throw drops that client's connection, so every command after it throws too.
+  function serve(host, structure, parts, { answersAlone = Object.keys(parts), batched = {}, fails = () => false, drops = false } = {}) {
+    const account = { id: `acct-cmds-${++seq}`, user_id: 'u1', imap_host: host, email_address: 'p@example.test', auth_user: 'p', auth_pass: 'enc' };
+    const commands = [];
+    let made = 0;
+    ImapFlow.mockImplementation(function () {
+      const client = new EventEmitter();
+      const index = made++;
+      let dropped = false;
+      client.usable = true;
+      client.connect = vi.fn(() => Promise.resolve());
+      client.logout = vi.fn(() => Promise.resolve());
+      client.close = vi.fn();
+      client.getMailboxLock = vi.fn(async () => ({ release() {} }));
+      client.fetch = vi.fn(async function* (range, fetchQuery) {
+        const wanted = fetchQuery.bodyParts || [];
+        const command = [fetchQuery.bodyStructure ? 'BODYSTRUCTURE' : null, ...wanted].filter(Boolean).join(' ');
+        commands.push(command);
+        if (dropped || fails(command, index)) {
+          if (drops) dropped = true;
+          throw new Error('ECONNRESET');
+        }
+        const alone = wanted.length === 1;
+        yield {
+          uid: 42,
+          bodyStructure: fetchQuery.bodyStructure ? structure : undefined,
+          bodyParts: fetchQuery.bodyParts
+            ? new Map(wanted.filter(p => p in parts).map(p => [p, Buffer.from(alone ? (answersAlone.includes(p) ? parts[p] : '') : (batched[p] ?? parts[p]))]))
+            : undefined,
+        };
+      });
+      return client;
+    });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    return { mgr: new ImapManager({ clients: new Set() }), account, commands, clientsMade: () => made };
+  }
+
+  it('fetches a two-step provider\'s text parts once each, with no batch of them first', async () => {
+    const { mgr, account, commands } = serve('imap.gmail.com', alternative, { '1': 'hello', '2': '<p>hello</p>' });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body).toMatchObject({ text: 'hello', html: '<p>hello</p>' });
+    expect(commands).toEqual(['BODYSTRUCTURE', '1', '2']);
+  });
+
+  it('fetches a single-part message in two commands', async () => {
+    const { mgr, account, commands } = serve('imap.gmail.com', { part: '1', type: 'text/plain', encoding: '7bit', parameters: { charset: 'utf-8' } }, { '1': 'just text' });
+    expect((await mgr.fetchMessageBody(account, 42, 'INBOX')).text).toBe('just text');
+    expect(commands).toEqual(['BODYSTRUCTURE', '1']);
+  });
+
+  it('still batches inline images, and fetches the text parts alone', async () => {
+    const { mgr, account, commands } = serve('imap.gmail.com', {
+      type: 'multipart/related',
+      childNodes: [
+        { part: '1', type: 'text/html', encoding: '7bit', parameters: { charset: 'utf-8' } },
+        { part: '2', type: 'image/png', encoding: 'base64', id: '<logo@x>', size: 12, disposition: 'inline', dispositionParameters: { filename: 'logo.png' } },
+      ],
+    }, { '1': '<img src="cid:logo@x">', '2': 'iVBORw0KGgo=' });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body.html).toBe('<img src="data:image/png;base64,iVBORw0KGgo=">');
+    expect(commands).toEqual(['BODYSTRUCTURE', '2', '1']);
+  });
+
+  it('falls back to the batched value of a text part the server answers alone with nothing', async () => {
+    const { mgr, account, commands } = serve('imap.gmail.com', alternative, { '1': 'hello', '2': '<p>hello</p>' }, { answersAlone: ['1'] });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body).toMatchObject({ text: 'hello', html: '<p>hello</p>' });
+    expect(commands).toEqual(['BODYSTRUCTURE', '1', '2', '1 2']);
+  });
+
+  it('keeps the value a text part\'s own fetch brought over the batched one', async () => {
+    // The batch answers part 1 garbled, as the servers the per-part fetch is there for do.
+    const { mgr, account } = serve('imap.gmail.com', alternative, { '1': 'hello', '2': '<p>hello</p>' }, { answersAlone: ['1'], batched: { '1': '--boundary=_x hello=3D' } });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body).toMatchObject({ text: 'hello', html: '<p>hello</p>' });
+  });
+
+  it('leaves a speculative provider\'s single round trip as it was', async () => {
+    const { mgr, account, commands } = serve('imap.example.test', alternative, { '1': 'hello', '2': '<p>hello</p>' });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body).toMatchObject({ text: 'hello', html: '<p>hello</p>' });
+    expect(commands[0].startsWith('BODYSTRUCTURE 1 1.1')).toBe(true);
+    expect(commands.slice(1)).toEqual(['1', '2']);
+  });
+
+  it('never returns a body with a text part missing: a drop after part 1 retries the whole body', async () => {
+    const { mgr, account, commands, clientsMade } = serve('imap.gmail.com', alternative, { '1': 'hello', '2': '<p>hello</p>' },
+      { fails: (command, client) => client === 0 && command === '2', drops: true });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    // Not the plain text alone, which the route would store and show for good.
+    expect(body).toMatchObject({ text: 'hello', html: '<p>hello</p>' });
+    expect(commands).toEqual(['BODYSTRUCTURE', '1', '2', '1 2', 'BODYSTRUCTURE', '1', '2']);
+    expect(clientsMade()).toBe(2);
+  });
+
+  it('fails rather than return a partial body when the retry drops too', async () => {
+    const { mgr, account } = serve('imap.gmail.com', alternative, { '1': 'hello', '2': '<p>hello</p>' },
+      { fails: command => command === '2', drops: true });
+    await expect(mgr.fetchMessageBody(account, 42, 'INBOX')).rejects.toThrow(/ECONNRESET/);
+  });
+
+  it('fails over to a fresh login when no text part arrived and the fallback throws', async () => {
+    const { mgr, account, commands, clientsMade } = serve('imap.gmail.com', alternative, { '1': 'hello', '2': '<p>hello</p>' },
+      { fails: (command, client) => client === 0 && command === '1', drops: true });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body).toMatchObject({ text: 'hello', html: '<p>hello</p>' });
+    expect(clientsMade()).toBe(2);
+    expect(commands).toEqual(['BODYSTRUCTURE', '1', '2', '1 2', 'BODYSTRUCTURE', '1', '2']);
+  });
+
+  it('takes the batched value of a text part whose own fetch threw', async () => {
+    const { mgr, account, commands } = serve('imap.gmail.com', alternative, { '1': 'hello', '2': '<p>hello</p>' },
+      { fails: command => command === '2' });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body).toMatchObject({ text: 'hello', html: '<p>hello</p>' });
+    expect(commands).toEqual(['BODYSTRUCTURE', '1', '2', '1 2']);
+  });
+
+  it('falls back to two steps when a speculative fetch is refused, with no batch of text parts', async () => {
+    const { mgr, account, commands } = serve('imap.example.test', alternative, { '1': 'hello', '2': '<p>hello</p>' },
+      { fails: command => command.startsWith('BODYSTRUCTURE ') });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body).toMatchObject({ text: 'hello', html: '<p>hello</p>' });
+    expect(commands.slice(1)).toEqual(['BODYSTRUCTURE', '1', '2']);
+  });
+
+  it('fetches nested text parts on their own', async () => {
+    const { mgr, account, commands } = serve('imap.gmail.com', {
+      type: 'multipart/mixed',
+      childNodes: [
+        { type: 'multipart/alternative', part: '1', childNodes: [
+          { part: '1.1', type: 'text/plain', encoding: '7bit', parameters: { charset: 'utf-8' } },
+          { part: '1.2', type: 'text/html', encoding: '7bit', parameters: { charset: 'utf-8' } },
+        ] },
+        { part: '2', type: 'application/pdf', encoding: 'base64', size: 900, disposition: 'attachment', dispositionParameters: { filename: 'a.pdf' } },
+      ],
+    }, { '1.1': 'hello', '1.2': '<p>hello</p>' });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body).toMatchObject({ text: 'hello', html: '<p>hello</p>' });
+    expect(body.attachments.map(a => a.filename)).toEqual(['a.pdf']);
+    expect(commands).toEqual(['BODYSTRUCTURE', '1.1', '1.2']);
+  });
+
+  it('does not fetch again a text part the structure says is empty', async () => {
+    const empty = { ...alternative, childNodes: [{ ...alternative.childNodes[0], size: 0 }, { ...alternative.childNodes[1], size: 12 }] };
+    const { mgr, account, commands } = serve('imap.gmail.com', empty, { '1': '', '2': '<p>hello</p>' });
+    const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
+    expect(body.html).toBe('<p>hello</p>');
+    expect(commands).toEqual(['BODYSTRUCTURE', '1', '2']);
+  });
+});
+
+// #677: a body prefetch fetches from the mail server only when that cannot add to a provider's
+// trouble or stand in a click's way.
+describe('prefetchBodyVerdict', () => {
+  let seq = 0;
+  const manager = () => Object.assign(Object.create(ImapManager.prototype), { _connectCooldown: new Map(), _secondaryCooldown: new Map() });
+  const acct = host => ({ ...baseAccount, id: `prefetch-gate-${++seq}`, user_id: 'u1', email_address: 'p@example.test', imap_host: host });
+
+  it('allows Gmail and an ordinary server', () => {
+    const m = manager();
+    expect(m.prefetchBodyVerdict(acct('imap.gmail.com'))).toBe('yes');
+    expect(m.prefetchBodyVerdict(acct('mail.example.test'))).toBe('yes');
+  });
+
+  it('says later while the secondary backoff or the connect cooldown is armed', () => {
+    const m = manager();
+    const a = acct('imap.gmail.com');
+    m._secondaryCooldown.set(a.id, { until: Date.now() + 60_000, failures: 1 });
+    expect(m.prefetchBodyVerdict(a)).toBe('later');
+    const b = acct('imap.gmail.com');
+    m._connectCooldown.set(b.id, { until: Date.now() + 60_000 });
+    expect(m.prefetchBodyVerdict(b)).toBe('later');
+    m._secondaryCooldown.set(a.id, { until: Date.now() - 1, failures: 1 });
+    expect(m.prefetchBodyVerdict(a)).toBe('yes');
+  });
+
+  it('says never for a provider whose body fetches open a login of their own (PurelyMail)', () => {
+    expect(manager().prefetchBodyVerdict(acct('imap.purelymail.com'))).toBe('never');
+  });
+
+  it('says never for a one-connection pool (Yahoo), even with that connection free', () => {
+    const m = manager();
+    expect(m.prefetchBodyVerdict(acct('imap.mail.yahoo.com'))).toBe('never');
   });
 });

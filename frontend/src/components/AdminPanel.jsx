@@ -2819,10 +2819,12 @@ function MailSignInTab() {
   const googleRedirect = `${origin}/oauth/google/callback`;
   const ms = status?.microsoft || {};
   const googleConfigured = !!configs.google?.clientId || !!status?.google?.configured;
+  // Sign-in on Google's page cannot work without a redirect URI; one in .env will do (#676).
+  const googleRequired = ['clientId', 'clientSecret', ...(status?.google?.envRedirectUri ? [] : ['redirectUri'])];
   const say = (provider, text, error = false) => setMessages(m => ({ ...m, [provider]: text ? { text, error } : null }));
 
   const save = async (provider, form, required) => {
-    if (required.some(k => !form[k])) { say(provider, t('mailSignIn.required'), true); return; }
+    if (required.some(k => !String(form[k] ?? '').trim())) { say(provider, t('mailSignIn.required'), true); return; }
     setSaving(provider);
     say(provider, '');
     try {
@@ -2831,7 +2833,9 @@ function MailSignInTab() {
       await refreshStatus();
       say(provider, t('mailSignIn.saved'));
     } catch (err) {
-      say(provider, t('common.error', { message: err.message }), true);
+      say(provider, err.code === 'redirect_uri_required'
+        ? t('mailSignIn.redirectRequired', { defaultValue: err.message })
+        : t('common.error', { message: err.message }), true);
     } finally {
       setSaving(null);
     }
@@ -3018,12 +3022,12 @@ function MailSignInTab() {
                       placeholder={t('admin.integrations.google.clientSecretPh')} style={mono} />
                   </Field>
                 </div>
-                <Field label={t('admin.integrations.google.redirectUri')} required>
+                <Field label={t('admin.integrations.google.redirectUri')} required={googleRequired.includes('redirectUri')}>
                   <input value={googleForm.redirectUri} onChange={e => setGoogleForm(f => ({ ...f, redirectUri: e.target.value }))}
                     placeholder={googleRedirect} style={mono} />
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>{t('admin.integrations.google.redirectUriNote', { uri: googleRedirect })}</div>
                 </Field>
-                {buttons('google', googleForm, ['clientId', 'clientSecret'], !!configs.google?.clientId)}
+                {buttons('google', googleForm, googleRequired, !!configs.google?.clientId)}
               </div>
             )}
             {message('google')}

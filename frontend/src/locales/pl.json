@@ -327,6 +327,7 @@
     "showOriginal": "Pokaż oryginalne kolory",
     "cannotShowDark": "Tej wiadomości nie można wyświetlić w trybie ciemnym bez pogorszenia czytelności tekstu",
     "printConversation": "Drukuj konwersację",
+    "conversationActions": "Działania na konwersacji",
     "preparingPrint": "Przygotowywanie wydruku…",
     "more": "Więcej",
     "summarize": "Podsumuj",
@@ -2126,6 +2127,7 @@
     "removed": "Usunięto etykietę",
     "removeFailed": "Nie udało się usunąć etykiety",
     "onlyCopy": "To jedyna kopia wiadomości, więc usunięcie etykiety by ją skasowało. Zamiast tego zarchiwizuj ją lub przenieś.",
+    "labelChanged": "Ta etykieta zmieniła się na serwerze i nie została usunięta. Odśwież i spróbuj ponownie.",
     "done": "Oznacz jako wykonane",
     "doneFailed": "Nie udało się oznaczyć jako gotowe",
     "doneArchiveFailed": "Oznaczono jako gotowe, ale archiwizacja nie powiodła się — wiadomość nadal znajduje się w skrzynce odbiorczej",
@@ -2280,6 +2282,7 @@
     "title": "Dostawcy poczty",
     "description": "Jak MailFlow łączy się ze skrzynkami Microsoft i Google. To coś innego niż logowanie jednokrotne (SSO), za pomocą którego loguje się do samego MailFlow. Każdy dodaje własne konta w sekcji Konta > Dodaj konto.",
     "required": "Najpierw wypełnij wymagane pola.",
+    "redirectRequired": "Google wymaga URI przekierowania: tego zarejestrowanego w kliencie OAuth, kończącego się na /oauth/google/callback.",
     "saved": "Zapisano.",
     "ms": {
       "title": "Microsoft",

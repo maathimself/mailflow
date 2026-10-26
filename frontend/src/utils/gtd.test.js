@@ -1618,6 +1618,17 @@ describe('unclassifyThread', () => {
     await unclassifyThread('m1', 'todo', deps);
     assert.deepEqual(calls, [['notify', 'gtd.removeFailed', 'gtd.onlyCopy']]);
   });
+  it('says the label changed on the server, not that it is the only copy, for that 409', async () => {
+    const calls = [];
+    const deps = {
+      gtdUnclassify: async () => { throw Object.assign(new Error('changed'), { status: 409, changed: true }); },
+      addNotification: (n) => calls.push(['notify', n.title, n.body]),
+      scheduleGtdSectionsFetch: () => calls.push(['schedule']),
+      t,
+    };
+    await unclassifyThread('m1', 'todo', deps);
+    assert.deepEqual(calls, [['notify', 'gtd.removeFailed', 'gtd.labelChanged']]);
+  });
 });
 
 

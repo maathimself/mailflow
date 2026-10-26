@@ -437,7 +437,22 @@ router.delete('/draft/:uid', async (req, res) => {
     if (!(await isDraftsPath(account, folder))) {
       return res.status(400).json({ error: 'Folder is not a Drafts folder' });
     }
-    await imapManager.permanentDeleteMessage(account, uid, folder);
+    // As a delete from the message list, the server copy must still be the row's message. A uid
+    // with no row is deleted unchecked: the composer has it from its own save.
+    const { rows: [row] } = await query(
+      'SELECT message_id, date, from_email, subject FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+      [account.id, uid, folder]
+    );
+    const deleted = await imapManager.permanentDeleteMessage(account, uid, folder, row ? { expectRow: row } : {});
+    if (deleted === false) {
+      // Sync never corrects a row whose uid holds another message: drop it and pull the folder.
+      console.warn(`Draft: not deleting uid=${uid} in folder ${JSON.stringify(folder)}: the server copy there is not its row's message`);
+      await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
+      imapManager.syncFolderOnDemand(account, folder)
+        .catch(err => console.warn('post-delete folder sync failed:', err.message));
+      noteDraftsChanged(req.session.userId, account.id);
+      return res.status(409).json({ error: 'This draft changed on the server and was not deleted. Refresh and try again.' });
+    }
     await query(
       'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
       [account.id, uid, folder]

@@ -175,6 +175,37 @@ describe('POST /api/gtd/done — archive count-adjust race', () => {
   });
 });
 
+// removeMessageCopy refuses a label copy whose uid holds another message on the server (#665).
+// Done leaves that one copy, strips the rest and archives, and reports it.
+describe('POST /api/gtd/done: a label copy that changed on the server', () => {
+  const changedIn = (bad) => {
+    const strip = imapManager.removeMessageCopy.getMockImplementation();
+    imapManager.removeMessageCopy.mockImplementation(async (acct, uid, folder) => {
+      if (folder === bad) throw Object.assign(new Error('holds another message'), { copyChanged: true });
+      return strip(acct, uid, folder);
+    });
+  };
+
+  it('skips that copy, strips the other labels, archives, and reports it', async () => {
+    stubQueries({ copies: ['Todo', 'Watch'] });
+    changedIn('Todo');
+    imapManager.moveMessage.mockResolvedValue(88);
+    const res = await done({ id: MSG_ID, states: ['todo', 'watch'] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, removed: ['Watch'], changed: ['Todo'], archived: true, threadRemains: true });
+    expect(imapManager.removeMessageCopy.mock.calls.map(c => c[2]).sort()).toEqual(['Todo', 'Watch']);
+    expect(imapManager.moveMessage).toHaveBeenCalled();
+  });
+
+  it('still answers 500 for any other strip failure', async () => {
+    stubQueries();
+    imapManager.removeMessageCopy.mockRejectedValue(new Error('connection lost'));
+    const res = await done({ id: MSG_ID, states: ['watch'] });
+    expect(res.status).toBe(500);
+    expect(imapManager.moveMessage).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /api/gtd/done — strip-ok + archive-fail', () => {
   it('returns 200 archived=false archiveFailed=true when only the archive step throws', async () => {
     stubQueries();

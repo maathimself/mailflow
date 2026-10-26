@@ -325,6 +325,7 @@
     "showOriginal": "显示原始颜色",
     "cannotShowDark": "无法以深色显示此邮件，否则文字将难以阅读",
     "printConversation": "打印会话",
+    "conversationActions": "会话操作",
     "preparingPrint": "正在准备打印…",
     "more": "更多",
     "summarize": "摘要",
@@ -2108,6 +2109,7 @@
     "removed": "已移除标签",
     "removeFailed": "无法移除标签",
     "onlyCopy": "这是该邮件的唯一副本，移除标签会将其删除。请改为归档或移动。",
+    "labelChanged": "此标签已在服务器上更改，未被移除。请刷新后重试。",
     "done": "标记为完成",
     "doneFailed": "无法标记为完成",
     "doneArchiveFailed": "已标记为完成，但归档失败——邮件仍在收件箱中",
@@ -2261,6 +2263,7 @@
     "title": "邮件服务商",
     "description": "MailFlow 连接 Microsoft 和 Google 邮箱的方式。这与单点登录（SSO）不同，后者是登录 MailFlow 本身的方式。每个人在“帐户 > 添加帐户”中添加自己的帐户。",
     "required": "请先填写必填字段。",
+    "redirectRequired": "Google 需要重定向 URI：即在 OAuth 客户端中注册的、以 /oauth/google/callback 结尾的 URI。",
     "saved": "已保存。",
     "ms": {
       "title": "Microsoft",

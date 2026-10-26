@@ -75,9 +75,10 @@ globalThis.fetch = async (url, opts = {}) => {
   let sent = null;
   try { sent = typeof opts.body === 'string' ? JSON.parse(opts.body) : null; } catch { /* not JSON */ }
   CALLS.push({ path, method: opts.method || 'GET', body: sent });
-  const [status, body] = Object.entries(ROUTES).find(([p]) => path.endsWith(p))?.[1]
+  // A route may carry response headers as a third element.
+  const [status, body, headers = {}] = Object.entries(ROUTES).find(([p]) => path.endsWith(p))?.[1]
     ?? [200, path.includes('/mail/messages?') ? { messages: SERVED, total: SERVED.length } : {}];
-  return { ok: status < 400, status, headers: { get: () => 'application/json' }, json: async () => body, text: async () => JSON.stringify(body) };
+  return { ok: status < 400, status, headers: { get: name => headers[name] ?? (/content-type/i.test(name) ? 'application/json' : null) }, json: async () => body, text: async () => JSON.stringify(body) };
 };
 
 const React = await import('react');
@@ -880,6 +881,227 @@ describe('MessageList — a refresh during a load runs when the load finishes (#
       assert.ok(container.querySelector('[data-msgid="msg-new"]'), 'the new mail is listed');
     } finally {
       globalThis.fetch = realFetch;
+    }
+  });
+});
+
+// A read still in flight (from opening a message) and a manual read state set over it: its reply
+// or failure must not undo what the user chose, and a refresh in the meantime keeps the row as
+// the user left it.
+const { applyMarkRead } = await import('../utils/markRead.js');
+describe('MessageList: manual read state over a read in flight', () => {
+  const A = { ...MESSAGE, id: 'rf-a', uid: 31, message_id: '<rf-a@example.com>', subject: 'First in flight' };
+  const B = { ...MESSAGE, id: 'rf-b', uid: 32, message_id: '<rf-b@example.com>', subject: 'Second in flight' };
+  const settle = () => React.act(async () => { await new Promise(r => setTimeout(r, 30)); });
+  const row = id => useStore.getState().messages.find(m => m.id === id);
+  // bulk-read requests for exactly `ids` wait until the test answers them.
+  function holdBulkRead(ids) {
+    const realFetch = globalThis.fetch;
+    const held = [];
+    globalThis.fetch = (url, opts = {}) => {
+      const body = typeof opts.body === 'string' ? JSON.parse(opts.body) : null;
+      if (String(url).includes('/mail/messages/bulk-read') && JSON.stringify(body?.ids) === JSON.stringify(ids)) {
+        return new Promise(resolve => held.push(ok => resolve({ ok, status: ok ? 200 : 500, headers: { get: () => 'application/json' }, json: async () => (ok ? {} : { error: 'IMAP down' }), text: async () => '' })));
+      }
+      return realFetch(url, opts);
+    };
+    return { held, restore: () => { globalThis.fetch = realFetch; } };
+  }
+
+  test('bulk Mark as read: the open\'s read failing afterwards does not roll the row back to unread', async (t) => {
+    await mount({ rows: [A, B], threadedView: false });
+    const hold = holdBulkRead([A.id]);
+    t.mock.method(console, 'error', () => {});
+    try {
+      await React.act(async () => { applyMarkRead(row(A.id)); });
+      // Pick both rows, as a modifier-click does, with the open row as the anchor.
+      await React.act(async () => { useStore.getState().setSelectedMessage(A.id); });
+      const target = container.querySelector(`[data-msgid="${B.id}"] [draggable]`);
+      await React.act(async () => { target.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true })); });
+      const bulk = container.querySelector('[title="messageList.markReadSelected"]');
+      assert.ok(bulk, 'expected the bulk Mark as read button');
+      await React.act(async () => { bulk.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+      await settle();
+      assert.equal(row(A.id).is_read, true);
+      assert.equal(row(B.id).is_read, true);
+      await React.act(async () => { hold.held[0](false); });
+      await settle();
+      assert.equal(row(A.id).is_read, true, 'the failed open read is not rolled back over the bulk read');
+    } finally {
+      hold.restore();
+      await React.act(async () => { useStore.getState().setSelectedMessage(null); });
+    }
+  });
+
+  test('a whole conversation marked read stays read, count and all, through a refresh before the server catches up', async () => {
+    const thread = { ...MESSAGE, id: 'rf-t', uid: 33, message_id: '<rf-t@example.com>', thread_id: 'thr-rf', message_count: 3, unread_count: 2 };
+    const older = { ...thread, id: 'rf-t-old', uid: 34, message_id: '<rf-t-old@example.com>', date: new Date(Date.now() - 3_600_000).toISOString() };
+    ROUTES['/mail/thread?id=thr-rf&folder=INBOX'] = [200, { messages: [older, thread].map(m => ({ ...m, is_draft: false })) }];
+    await mount({ rows: [thread], threadedView: true });
+    await React.act(async () => { useStore.setState({ hoverQuickActions: true, hoverActionSet: ['markRead', 'star', 'delete', 'move'] }); });
+    const hold = holdBulkRead([older.id, thread.id].sort());
+    const realHeld = hold.held;
+    try {
+      const header = container.querySelector(`[data-msgid="${thread.id}"] [draggable]`);
+      await React.act(async () => { header.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true })); });
+      const button = container.querySelector(`[data-msgid="${thread.id}"] button[title="contextMenu.markRead"]`);
+      assert.ok(button, 'expected the row\'s Mark as read');
+      await React.act(async () => { button.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+      await settle();
+      assert.deepEqual([row(thread.id).is_read, row(thread.id).unread_count], [true, 0]);
+      // A sync's refresh lands before the read has reached the server: it still says 2 unread.
+      await React.act(async () => { window.dispatchEvent(new CustomEvent('mailflow:refresh')); });
+      await settle();
+      assert.deepEqual([row(thread.id).is_read, row(thread.id).unread_count], [true, 0]);
+    } finally {
+      for (const answer of realHeld) answer(true);
+      hold.restore();
+      await settle();
+    }
+  });
+});
+
+const { bodyCache } = await import('../utils/bodyCache.js');
+
+// #677: a row's body loads while the mouse rests on it. A body request marked as a prefetch and
+// nothing else: prefetching must not mark the message read, nor ask for its remote images.
+describe('MessageList: a row\'s body loads while the mouse rests on it', () => {
+  const row = (id, extra = {}) => ({ ...MESSAGE, id, uid: id.length, message_id: `<${id}@example.com>`, subject: id, ...extra });
+  const PointerEvent = dom.window.PointerEvent || class extends dom.window.MouseEvent {
+    constructor(type, init = {}) { super(type, init); this.pointerType = init.pointerType; }
+  };
+  let x = 10;
+  const move = async (msgid, { pointerType = 'mouse', same = false } = {}) => {
+    const target = container.querySelector(`[data-msgid="${msgid}"]`).querySelector('[draggable]');
+    if (!same) x += 1;
+    await React.act(async () => {
+      target.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerType, clientX: x, clientY: 20 }));
+    });
+  };
+  const list = () => container.querySelector('[data-msgid]').closest('[tabindex]');
+  const settle = ms => React.act(async () => { await new Promise(r => setTimeout(r, ms)); });
+  const bodyCalls = () => CALLS.filter(c => c.path.includes('/body')).map(c => `${c.method} ${c.path.replace(/^.*\/api/, '')}`);
+  // Every test uses an account of its own: the prefetch budget is kept per account.
+  let n = 0;
+  const mountRows = async (rows, acct = { ...ACCOUNT, id: `acct-hover-${++n}` }) => {
+    bodyCache.clear();
+    await mount({ rows: rows.map(r => ({ ...r, account_id: acct.id })), threadedView: false, accounts: [acct], accountId: acct.id });
+    useStore.setState({ folders: { [acct.id]: [{ path: 'INBOX', name: 'INBOX' }, { path: 'Drafts', name: 'Drafts', special_use: '\\Drafts' }] } });
+    CALLS = [];
+  };
+
+  test('fetches only the body, as a prefetch, marking nothing read and asking for no remote images', async () => {
+    await mountRows([MESSAGE, row('msg-hover')]);
+    await move('msg-hover');
+    await settle(450);
+    assert.deepEqual(CALLS.map(c => `${c.method} ${c.path.replace(/^.*\/api/, '')}`), ['GET /mail/messages/msg-hover/body?prefetch=1']);
+    assert.equal(useStore.getState().selectedMessageId, null, 'nothing opened');
+    assert.equal(useStore.getState().messages.find(m => m.id === 'msg-hover').is_read, false);
+  });
+
+  test('not for a touch, nor for a row the pointer only passed over', async () => {
+    await mountRows([MESSAGE, row('msg-hover')]);
+    await move('msg-hover', { pointerType: 'touch' });
+    await settle(450);
+    assert.deepEqual(bodyCalls(), [], 'a touch is not a hover');
+    await move('msg-hover');
+    await settle(100);
+    // React derives its leave from pointerout toward nothing.
+    await React.act(async () => { list().dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: null })); });
+    await settle(450);
+    assert.deepEqual(bodyCalls(), [], 'left before the delay');
+  });
+
+  test('scrolling rows under a parked pointer does not count as resting on them', async () => {
+    await mountRows([MESSAGE, row('msg-a'), row('msg-b')]);
+    await move('msg-a');
+    await settle(100);
+    await React.act(async () => { list().dispatchEvent(new dom.window.Event('scroll')); });
+    // What a browser reports as the list scrolls under the pointer: the same place, another row.
+    await move('msg-b', { same: true });
+    await settle(450);
+    assert.deepEqual(bodyCalls(), [], 'neither the row it was on nor the one scrolled under it');
+    await move('msg-b');
+    await settle(450);
+    assert.deepEqual(bodyCalls(), ['GET /mail/messages/msg-b/body?prefetch=1'], 'a real move counts again');
+  });
+
+  test('skips a draft', async () => {
+    await mountRows([MESSAGE, row('msg-draft', { folder: 'Drafts' })]);
+    await move('msg-draft');
+    await settle(450);
+    assert.deepEqual(bodyCalls(), []);
+  });
+
+  test('never for Yahoo or PurelyMail, which the server never prefetches for', async () => {
+    for (const host of ['imap.mail.yahoo.com', 'imap.purelymail.com']) {
+      await mountRows([MESSAGE, row('msg-a')], { ...ACCOUNT, id: `acct-hover-${++n}`, imap_host: host });
+      await move('msg-a');
+      await settle(450);
+      assert.deepEqual(bodyCalls(), [], host);
+    }
+  });
+
+  test('a server that never prefetches for the account stops it for the session', async () => {
+    ROUTES = { '/mail/messages/msg-a/body?prefetch=1': [204, null, { 'X-Prefetch': 'never' }] };
+    try {
+      await mountRows([MESSAGE, row('msg-a'), row('msg-b')]);
+      await move('msg-a');
+      await settle(450);
+      await move('msg-b');
+      await settle(450);
+      assert.deepEqual(bodyCalls(), ['GET /mail/messages/msg-a/body?prefetch=1']);
+    } finally {
+      ROUTES = {};
+    }
+  });
+
+  test('a throttle pause outlasts the list being mounted again', async () => {
+    const acct = { ...ACCOUNT, id: `acct-hover-${++n}` };
+    ROUTES = { '/mail/messages/msg-a/body?prefetch=1': [503, { error: 'busy', busy: true }] };
+    try {
+      await mountRows([MESSAGE, row('msg-a'), row('msg-b')], acct);
+      await move('msg-a');
+      await settle(450);
+      await mountRows([MESSAGE, row('msg-a'), row('msg-b')], acct); // unmounts and mounts afresh
+      await move('msg-b');
+      await settle(450);
+      assert.deepEqual(bodyCalls(), [], 'still paused');
+    } finally {
+      ROUTES = {};
+    }
+  });
+
+  test('the pauses are forgotten when the app locks or the user changes', async () => {
+    for (const reset of [{ isLocked: true }, { user: { id: `someone-${n}` } }]) {
+      const acct = { ...ACCOUNT, id: `acct-hover-${++n}` };
+      ROUTES = { '/mail/messages/msg-a/body?prefetch=1': [503, { error: 'busy', busy: true }] };
+      try {
+        await mountRows([MESSAGE, row('msg-a'), row('msg-b')], acct);
+        await move('msg-a');
+        await settle(450);
+        await React.act(async () => { useStore.setState(reset); useStore.setState({ isLocked: false }); });
+        CALLS = [];
+        await move('msg-b');
+        await settle(450);
+        assert.deepEqual(bodyCalls(), ['GET /mail/messages/msg-b/body?prefetch=1'], JSON.stringify(reset));
+      } finally {
+        ROUTES = {};
+      }
+    }
+  });
+
+  test('a 503 pauses prefetching for that account', async () => {
+    ROUTES = { '/mail/messages/msg-a/body?prefetch=1': [503, { error: 'busy', busy: true }] };
+    try {
+      await mountRows([MESSAGE, row('msg-a'), row('msg-b')]);
+      await move('msg-a');
+      await settle(450);
+      await move('msg-b');
+      await settle(450);
+      assert.deepEqual(bodyCalls(), ['GET /mail/messages/msg-a/body?prefetch=1']);
+    } finally {
+      ROUTES = {};
     }
   });
 });

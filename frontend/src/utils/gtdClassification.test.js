@@ -106,6 +106,15 @@ describe('classifyWithUndo', () => {
     assert.equal(harness.notifications[0].type, 'error');
     assert.equal(harness.notifications[0].title, 'gtd.classifyFailed');
   });
+
+  it('says the old label changed on the server when a switch is refused for it', async () => {
+    const harness = createHarness();
+    harness.api.gtdClassify = async () => { throw Object.assign(new Error('changed'), { status: 409, changed: true }); };
+
+    assert.equal(await classifyWithUndo('message-1', 'watch', harness), null);
+    assert.equal(harness.notifications[0].title, 'gtd.classifyFailed');
+    assert.equal(harness.notifications[0].body, 'gtd.labelChanged');
+  });
 });
 
 

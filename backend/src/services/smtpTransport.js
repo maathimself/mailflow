@@ -91,9 +91,10 @@ export function createStageTracker() {
   return { stage, transportOptions: { logger, transactionLog: true } };
 }
 
-// With `trackStage`, each attempt records how far it got (createStageTracker), a failed send
-// carries that as err.smtpStage, and the next address is tried only when the failed attempt
-// never sent MAIL FROM: a connection lost later may have delivered the message already (#685).
+// Every attempt, whatever the caller, records how far it got (createStageTracker), and the next
+// address is tried only when the failed attempt never sent MAIL FROM: a connection lost later may
+// have delivered the message already (#685). `trackStage` changes none of that; it only copies the
+// stage onto a failed send as err.smtpStage.
 async function runWithAddressFallback({
   resolved,
   transportOptions,
@@ -112,12 +113,12 @@ async function runWithAddressFallback({
     const remaining = SMTP_FAILOVER_BUDGET_MS - (now() - startedAt);
     if (remaining < 2000 && lastError) throw lastError;
     const attemptTimeout = Math.max(1000, Math.min(SMTP_ATTEMPT_TIMEOUT_MS, Math.floor(remaining / 2)));
-    const tracker = trackStage ? createStageTracker() : null;
+    const tracker = createStageTracker();
     const transport = createTransport({
       // Before the spread so an explicit transportOptions.name would still win.
       name: smtpClientName(),
       ...transportOptions,
-      ...tracker?.transportOptions,
+      ...tracker.transportOptions,
       host: candidates[i],
       connectionTimeout: attemptTimeout,
       greetingTimeout: attemptTimeout,
@@ -127,8 +128,8 @@ async function runWithAddressFallback({
       return await operation(transport);
     } catch (err) {
       lastError = err;
-      if (tracker && err && typeof err === 'object') err.smtpStage = { ...tracker.stage };
-      const failOver = isPreDeliveryConnectionError(err) && !(tracker && tracker.stage.mailFromSent);
+      if (trackStage && err && typeof err === 'object') err.smtpStage = { ...tracker.stage };
+      const failOver = isPreDeliveryConnectionError(err) && !tracker.stage.mailFromSent;
       if (!failOver || i === candidates.length - 1) throw err;
       console.warn('SMTP connection failed; retrying another validated address:', err.message);
     } finally {
@@ -157,8 +158,8 @@ export function createSmtpTransport(resolved, transportOptions, createTransport 
   };
 }
 
-// `trackStage` is for scheduled send (createSmtpTransport): an immediate send keeps the address
-// failover it has always had.
+// Failover is gated on MAIL FROM for every send (runWithAddressFallback). `trackStage`, which
+// scheduled send passes, only adds err.smtpStage to a failed send.
 export async function createAccountSmtpTransport(inputAccount, { trackStage = false } = {}) {
   let account = inputAccount;
   const refreshers = { microsoft: refreshMicrosoftToken, google: refreshGoogleToken };

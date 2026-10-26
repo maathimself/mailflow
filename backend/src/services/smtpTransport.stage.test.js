@@ -6,7 +6,9 @@ import { createSmtpTransport, createStageTracker } from './smtpTransport.js';
 // A real nodemailer transport against a small SMTP server on two loopback addresses, which
 // stands for one host with two validated addresses. 127.0.0.1 misbehaves as `mode` says,
 // 127.0.0.2 accepts. What #685 is about: nodemailer reports a connection lost after the
-// message data as command 'CONN', the same as one that never connected.
+// message data as command 'CONN', the same as one that never connected. Every send now fails
+// over only before MAIL FROM, the untracked path (trackStage false) included; tracking only
+// adds err.smtpStage.
 let server;
 let port;
 let mode;
@@ -69,12 +71,14 @@ const send = trackStage => createSmtpTransport(resolved, { port, secure: false, 
   .sendMail(message).catch(err => err);
 
 describe('address failover and the SMTP stage', () => {
-  it('without tracking, a connection lost after the data still goes to the next address (#685)', async () => {
+  it('without tracking, a connection lost after the data is not sent to the next address (#685)', async () => {
     mode = 'afterData';
-    const result = await send(false);
-    expect(result.accepted).toEqual(['you@example.com']);
-    // The first server had the whole message before it dropped: a second delivery.
-    expect(received).toEqual(['127.0.0.1', '127.0.0.2']);
+    const err = await send(false);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.command).toBe('CONN');
+    expect(err.smtpStage).toBeUndefined();
+    // The first server had the whole message before it dropped: no second delivery.
+    expect(received).toEqual(['127.0.0.1']);
   });
 
   it('with tracking, never fails over once the body started, and says how far it got', async () => {
@@ -86,17 +90,27 @@ describe('address failover and the SMTP stage', () => {
     expect(received).toEqual(['127.0.0.1']);
   });
 
-  it('with tracking, never fails over once MAIL FROM went out', async () => {
+  const cases = [
+    { trackStage: false, withPipelining: false },
+    { trackStage: true, withPipelining: false },
+    { trackStage: false, withPipelining: true },
+  ];
+
+  it.each(cases)('never fails over once MAIL FROM went out (tracking $trackStage, PIPELINING $withPipelining)', async ({ trackStage, withPipelining }) => {
+    pipelining = withPipelining;
     mode = 'afterMail';
-    const err = await send(true);
+    const err = await send(trackStage);
+    expect(err).toBeInstanceOf(Error);
     expect(err.command).toBe('CONN');
-    expect(err.smtpStage).toEqual({ mailFromSent: true, bodyStarted: false });
+    if (trackStage) expect(err.smtpStage).toEqual({ mailFromSent: true, bodyStarted: false });
+    else expect(err.smtpStage).toBeUndefined();
     expect(received).toEqual([]);
   });
 
-  it('with tracking, still fails over a connection that never reached MAIL FROM', async () => {
+  it.each(cases)('still fails over a connection that never reached MAIL FROM (tracking $trackStage, PIPELINING $withPipelining)', async ({ trackStage, withPipelining }) => {
+    pipelining = withPipelining;
     mode = 'greeting';
-    const result = await send(true);
+    const result = await send(trackStage);
     expect(result.accepted).toEqual(['you@example.com']);
     expect(received).toEqual(['127.0.0.2']);
   });

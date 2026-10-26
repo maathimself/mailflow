@@ -325,6 +325,7 @@
     "showOriginal": "Show original colors",
     "cannotShowDark": "This email can't be shown dark without making text hard to read",
     "printConversation": "Print conversation",
+    "conversationActions": "Conversation actions",
     "preparingPrint": "Preparing to print…",
     "more": "More",
     "summarize": "Summarize",
@@ -2108,6 +2109,7 @@
     "removed": "Label removed",
     "removeFailed": "Couldn't remove label",
     "onlyCopy": "This is the only copy of the message, so removing the label would delete it. Archive or move it instead.",
+    "labelChanged": "This label changed on the server and was not removed. Refresh and try again.",
     "done": "Mark done",
     "doneFailed": "Couldn't mark done",
     "doneArchiveFailed": "Marked done, but archiving failed — still in your Inbox",
@@ -2261,6 +2263,7 @@
     "title": "Email providers",
     "description": "How MailFlow connects to people's Microsoft and Google mailboxes. This is separate from Single Sign-On, which is how people sign in to MailFlow itself. Everyone adds their own accounts under Accounts > Add account.",
     "required": "Fill in the required fields first.",
+    "redirectRequired": "Google needs a redirect URI: the one registered on the OAuth client, ending in /oauth/google/callback.",
     "saved": "Saved.",
     "ms": {
       "title": "Microsoft",

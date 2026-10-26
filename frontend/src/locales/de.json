@@ -325,6 +325,7 @@
     "showOriginal": "Originalfarben anzeigen",
     "cannotShowDark": "Diese E-Mail kann nicht dunkel angezeigt werden, ohne dass Text schwer lesbar wird",
     "printConversation": "Unterhaltung drucken",
+    "conversationActions": "Aktionen für die Unterhaltung",
     "preparingPrint": "Druck wird vorbereitet…",
     "more": "Mehr",
     "summarize": "Zusammenfassen",
@@ -2108,6 +2109,7 @@
     "removed": "Label entfernt",
     "removeFailed": "Label konnte nicht entfernt werden",
     "onlyCopy": "Dies ist die einzige Kopie der Nachricht. Das Entfernen der Markierung würde sie löschen. Archivieren oder verschieben Sie sie stattdessen.",
+    "labelChanged": "Diese Markierung hat sich auf dem Server geändert und wurde nicht entfernt. Aktualisieren Sie und versuchen Sie es erneut.",
     "done": "Als erledigt markieren",
     "doneFailed": "Konnte nicht als erledigt markiert werden",
     "doneArchiveFailed": "Als erledigt markiert, aber Archivieren fehlgeschlagen – noch im Posteingang",
@@ -2261,6 +2263,7 @@
     "title": "E-Mail-Anbieter",
     "description": "Wie sich MailFlow mit den Microsoft- und Google-Postfächern verbindet. Das ist etwas anderes als Single Sign-On, mit dem sich Personen bei MailFlow selbst anmelden. Alle fügen ihre eigenen Konten unter Konten > Konto hinzufügen hinzu.",
     "required": "Füllen Sie zuerst die Pflichtfelder aus.",
+    "redirectRequired": "Google benötigt eine Weiterleitungs-URI: die beim OAuth-Client registrierte, die auf /oauth/google/callback endet.",
     "saved": "Gespeichert.",
     "ms": {
       "title": "Microsoft",

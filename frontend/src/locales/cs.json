@@ -502,6 +502,7 @@
     "showOriginal": "Zobrazit původní barvy",
     "cannotShowDark": "Tento e-mail nelze zobrazit tmavě, aniž by se zhoršila čitelnost textu",
     "printConversation": "Vytisknout konverzaci",
+    "conversationActions": "Akce s konverzací",
     "preparingPrint": "Příprava tisku…",
     "more": "Další",
     "summarize": "Shrnout",
@@ -895,6 +896,7 @@
     "removed": "Štítek odebrán",
     "removeFailed": "Štítek se nepodařilo odebrat",
     "onlyCopy": "Toto je jediná kopie zprávy, odebráním štítku by se smazala. Místo toho ji archivujte nebo přesuňte.",
+    "labelChanged": "Tento štítek se na serveru změnil a nebyl odebrán. Obnovte stránku a zkuste to znovu.",
     "done": "Označit jako hotové",
     "doneFailed": "Nepodařilo se označit jako hotové",
     "doneArchiveFailed": "Označeno jako hotové, ale archivace se nezdařila — zpráva zůstává v Doručené poště",
@@ -2280,6 +2282,7 @@
     "title": "Poskytovatelé e-mailu",
     "description": "Jak se MailFlow připojuje ke schránkám Microsoft a Google. Je to něco jiného než jednotné přihlašování (SSO), kterým se lidé přihlašují do samotného MailFlow. Každý si přidává vlastní účty v Účty > Přidat účet.",
     "required": "Nejdřív vyplňte povinná pole.",
+    "redirectRequired": "Google potřebuje URI přesměrování: to, které je registrované u klienta OAuth a končí na /oauth/google/callback.",
     "saved": "Uloženo.",
     "ms": {
       "title": "Microsoft",

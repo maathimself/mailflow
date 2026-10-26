@@ -9,6 +9,7 @@ import { encrypt, decrypt } from '../services/encryption.js';
 import { redactEmail } from '../utils/redact.js';
 import { getMsConfig, getMsDeviceClient, msBuiltinAppEnabled, msRefreshClient, ownAppAdmitsPersonal } from '../services/microsoftOAuthClient.js';
 import { MAILFLOW_MS_CLIENT_ID } from '../services/microsoftBuiltinApp.js';
+import { getGoogleConfig } from '../services/oauthEnv.js';
 import { classifyRefreshFailure, clearRefreshFailure, isPersonalMicrosoftAccount, noteFreshToken, terminalRefreshError } from '../services/accountErrorCode.js';
 import { isUuid } from '../utils/uuid.js';
 import { reportConnect } from '../services/connectReport.js';
@@ -578,14 +579,6 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_SCOPE = 'https://mail.google.com/ openid email profile';
 
 const googleJwks = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
-
-function getGoogleConfig() {
-  return {
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    redirectUri: process.env.GOOGLE_REDIRECT_URI,
-  };
-}
 
 // Step 1: redirect user to Google consent
 router.get('/google', async (req, res) => {

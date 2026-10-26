@@ -168,6 +168,43 @@ async function startSmtpServerWithoutStarttls() {
   };
 }
 
+describe('createSmtpTransport with real SMTP sessions', () => {
+  async function sendThroughPorts(ports) {
+    const { default: realNodemailer } = await vi.importActual('nodemailer');
+    const createTransport = vi.fn(options => realNodemailer.createTransport({
+      ...options,
+      host: '127.0.0.1',
+      port: ports[options.host],
+    }));
+    const transport = createSmtpTransport(resolved, { secure: false, ignoreTLS: true }, createTransport);
+    const outcome = await transport
+      .sendMail({ from: 'sender@example.com', to: 'user@example.com', text: 'Hello' })
+      .catch(err => err);
+    return { createTransport, outcome };
+  }
+
+  it('still moves on to the next address when the first refuses the connection', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const closed = createServer();
+    await new Promise(resolve => closed.listen(0, '127.0.0.1', resolve));
+    const closedPort = closed.address().port;
+    await new Promise(resolve => closed.close(resolve));
+    const healthy = await startSmtpServerWithoutStarttls();
+    try {
+      const { createTransport, outcome } = await sendThroughPorts({
+        '203.0.113.10': closedPort,
+        '203.0.113.11': healthy.port,
+      });
+
+      expect(outcome.accepted).toEqual(['user@example.com']);
+      expect(healthy.commands).toContain('DATA');
+      expect(createTransport).toHaveBeenCalledTimes(2);
+    } finally {
+      await healthy.close();
+    }
+  });
+});
+
 describe('createAccountSmtpTransport', () => {
   beforeEach(() => {
     vi.clearAllMocks();
