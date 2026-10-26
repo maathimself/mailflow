@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store/index.js';
 import { gtdActiveForContext } from '../../utils/gtd.js';
@@ -10,7 +10,7 @@ import { doneInboxGtdMessage } from './inboxDone.js';
 import { doneGtdRow } from '../../utils/gtdDone.js';
 import { advanceSelectionAfterRemoval } from '../../utils/listSelection.js';
 import { cancelAutoMarkReadFor } from '../../hooks/useGtdTriage.js';
-import { shouldShowInboxGtdMetadata } from './indicators.js';
+import { collectGtdMetadataMessages } from './metadataPool.js';
 import { clearGtdMetadata, getGtdMetadataRefreshGeneration, subscribeGtdMetadataRefresh, startGtdMetadataFetch, tickGtdMetadataClock } from './metadataStore.js';
 
 // GTD's headless runtime: the single owner of the GTD sections fetch. Reloads whenever the context
@@ -28,22 +28,22 @@ export default function GtdRuntime() {
   const messages = useStore(s => s.messages);
   const searchResults = useStore(s => s.searchResults);
   const searchQuery = useStore(s => s.searchQuery);
+  const selectedMessageId = useStore(s => s.selectedMessageId);
+  const threadMessages = useStore(s => s.threadMessages);
+  const messageWindows = useStore(s => s.messageWindows);
   const metadataRefreshGeneration = useSyncExternalStore(
     subscribeGtdMetadataRefresh, getGtdMetadataRefreshGeneration,
   );
   // Read-state and preview updates replace row objects without changing label identity. Keep the
   // fetch pool stable across that churn; account/config changes and explicit invalidation still fetch.
   const metadataAccountsKey = JSON.stringify(accounts.filter(account => account.gtd_enabled)
-    .map(account => [account.id, account.gtd_folders]));
-  const metadataRowsKey = JSON.stringify((searchQuery.trim() ? searchResults : messages).map(message => ({
-    id: message.id, account_id: message.account_id,
-    thread_key: message.thread_key ?? message.thread_id, message_id: message.message_id,
-  })));
-  const metadataMessages = useMemo(() => {
-    if (!userId || !shouldShowInboxGtdMetadata({ selectedFolder, searchQuery, activeGtdTab })) return [];
-    const enabled = new Set(JSON.parse(metadataAccountsKey).map(([id]) => id));
-    return JSON.parse(metadataRowsKey).filter(message => enabled.has(message.account_id));
-  }, [userId, selectedFolder, searchQuery, activeGtdTab, metadataAccountsKey, metadataRowsKey]);
+    .map(account => [account.id, account.gtd_folders]).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
+  const metadataRowsKey = JSON.stringify(collectGtdMetadataMessages({
+    user: { id: userId }, accounts, selectedFolder, searchQuery, activeGtdTab,
+    messages, searchResults, selectedMessageId, threadMessages, messageWindows,
+  }));
+  const metadataMessages = useMemo(() => JSON.parse(metadataRowsKey), [metadataRowsKey]);
+  const previousMetadataContext = useRef(null);
 
   useEffect(() => {
     clearGtdMetadata();
@@ -60,10 +60,23 @@ export default function GtdRuntime() {
       clearInterval(timer);
       window.removeEventListener('focus', tick);
       clearGtdMetadata();
+      previousMetadataContext.current = null;
     };
   }, []);
 
-  useEffect(() => startGtdMetadataFetch(metadataMessages, { api }), [metadataMessages, metadataRefreshGeneration]);
+  useEffect(() => {
+    const previous = previousMetadataContext.current;
+    previousMetadataContext.current = { userId, metadataAccountsKey, metadataRefreshGeneration };
+    // Initial loads and authoritative invalidations stay immediate; coalesce navigation that
+    // changes membership so an expanded-thread keystroke does not refetch the whole list.
+    if (!previous || previous.userId !== userId || previous.metadataAccountsKey !== metadataAccountsKey
+      || previous.metadataRefreshGeneration !== metadataRefreshGeneration) {
+      return startGtdMetadataFetch(metadataMessages, { api });
+    }
+    let cancelFetch;
+    const timer = setTimeout(() => { cancelFetch = startGtdMetadataFetch(metadataMessages, { api }); }, 200);
+    return () => { clearTimeout(timer); cancelFetch?.(); };
+  }, [metadataMessages, metadataAccountsKey, userId, metadataRefreshGeneration]);
 
   const gtdActive = gtdActiveForContext(accounts, selectedAccountId, true);
   // Also key on the set of GTD-enabled accounts so enabling a second account refetches the unified
