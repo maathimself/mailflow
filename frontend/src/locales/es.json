@@ -233,10 +233,16 @@
         "clockBehind": "El reloj de este dispositivo va {{minutes}} min por detrás del del servidor, que dice que son las {{time}}.",
         "clockAhead": "El reloj de este dispositivo va {{minutes}} min por delante del del servidor, que dice que son las {{time}}.",
         "holdLost": "Este mensaje se abrió en otra ventana, así que ya no se puede guardar aquí. Tu texto sigue aquí para copiarlo.",
+        "deletedElsewhere": "Este mensaje se eliminó en otro lugar, así que ya no se puede guardar aquí. Tu texto sigue aquí para copiarlo.",
+        "sentElsewhere": "Este mensaje se envió desde otra ventana, así que ya no se puede guardar aquí. Tu texto sigue aquí para copiarlo.",
         "versionConflict": "Este mensaje se cambió en otro lugar. Ciérralo y vuelve a abrirlo desde Programados para ver la última versión.",
         "notHeld": "Este mensaje no está abierto para editarlo aquí. Ciérralo y vuelve a abrirlo desde Programados.",
         "pickNewTime": "Su hora programada ya pasó. Elige una nueva.",
         "failed": "No se pudo programar el mensaje.",
+        "tooMany": "Ya tienes el máximo de mensajes programados. Envía o elimina algunos primero.",
+        "tooMuchStorage": "Tus mensajes programados ya ocupan todo el espacio disponible. Envía o elimina algunos primero.",
+        "rateLimited": "Demasiados mensajes programados en poco tiempo. Inténtalo de nuevo dentro de un minuto.",
+        "payloadTooLarge": "Este mensaje es demasiado grande para programarlo: su texto y sus imágenes insertadas ocupan demasiado espacio.",
         "heldElsewhere": "Este mensaje está abierto en otra ventana."
       },
       "edit": {
@@ -275,7 +281,8 @@
       "scheduleAnyway": "Programar igualmente",
       "undoFailedOpen": "No se pudo deshacer. Ábrelo desde Programados."
     },
-    "selectAccount": "Elige una cuenta desde la que enviar"
+    "selectAccount": "Elige una cuenta desde la que enviar",
+    "smtpAuthDisabled": "Microsoft ha desactivado el envío desde aplicaciones de correo (SMTP) en esta cuenta. Puedes seguir enviando desde Outlook en la web. Si es una cuenta profesional o educativa, tu administrador puede volver a activarlo."
   },
   "message": {
     "find": {
@@ -538,6 +545,7 @@
       "failed": "No se pudo guardar la categoría de este remitente"
     },
     "changeLayout": "Cambiar diseño",
+    "layout": "Diseño",
     "layouts": {
       "focused": {
         "label": "Enfocado",
@@ -562,7 +570,8 @@
     },
     "snoozedUntil": "Pospuesto hasta {{when}}",
     "snoozedEmpty": "Nada pospuesto",
-    "snoozedEmptyDesc": "El correo pospuesto espera aquí hasta que vuelve."
+    "snoozedEmptyDesc": "El correo pospuesto espera aquí hasta que vuelve.",
+    "menu": "Menú"
   },
   "lockScreen": {
     "subtitle": "Introduce tu PIN para desbloquear",
@@ -592,6 +601,8 @@
       "markAllRead": "Marcar todo como leído",
       "syncFolder": "Sincronizar carpeta",
       "renameFavorite": "Renombrar favorito",
+      "favorite": "Añadir a favoritos",
+      "unfavorite": "Quitar de favoritos",
       "rename": "Renombrar",
       "createSubfolder": "Crear subcarpeta",
       "hide": "Ocultar carpeta",
@@ -624,7 +635,9 @@
     "snoozed": "Pospuestos",
     "scheduled": "Programados",
     "scheduledPending": "Pendientes de envío: {{n}}",
-    "scheduledAttention": "Requieren atención: {{n}}"
+    "scheduledAttention": "Requieren atención: {{n}}",
+    "favorites": "Favoritos",
+    "reorderFolder": "Arrastra para reordenar la carpeta"
   },
   "scheduled": {
     "refresh": "Actualizar",
@@ -744,6 +757,7 @@
       "undoExpired": "Demasiado tarde para deshacer: el mensaje está saliendo.",
       "notFound": "Este mensaje programado ya no existe.",
       "sending": "Se está enviando en este momento.",
+      "aboutToSend": "Está a punto de enviarse.",
       "sent": "Ya se envió.",
       "cancelled": "Se eliminó.",
       "editing": "Está abierto para editar en otra ventana.",

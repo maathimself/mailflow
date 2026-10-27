@@ -3,7 +3,7 @@ import { api } from '../utils/api.js';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { fetchMessageBodyWithRetry } from '../utils/messageBody.js';
-import { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor } from '../utils/markRead.js';
+import { applyMarkRead, scheduleMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor, shownReadInStore } from '../utils/markRead.js';
 import { clearReadGuard } from '../utils/pendingReads.js';
 import { markMessageUnread } from '../utils/messageHotkeys.js';
 import { downloadEml } from '../utils/downloadEml.js';
@@ -178,9 +178,18 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
   // The read toggle's other half: a card marked unread could not be marked read again (#650).
   // Explicit, so it ignores markReadBehavior, as the reading pane's does, and a delayed auto-read
   // still pending is cancelled first so the message is not counted twice.
+  //
+  // This card's copy is the conversation's, fetched when it opened, and can be behind the store's:
+  // the message was marked read meanwhile from the list or another device, its read guard long
+  // expired. Then the card only catches up; marking it read again would take it off the unread
+  // count a second time.
   const handleMarkRead = () => {
     if (message.is_read) return;
     cancelScheduledMarkReadFor(message.id);
+    if (shownReadInStore(message.id)) {
+      onUpdate?.(message.id, { is_read: true });
+      return;
+    }
     applyMarkRead(message, { onChange: read => onUpdate?.(message.id, { is_read: read }) });
   };
   const handleToggleRead = () => (message.is_read ? handleMarkUnread() : handleMarkRead());
@@ -331,9 +340,11 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
               conversation's own bar does for all of it. Reply and forward are per message, not per
               thread: replying to a conversation means replying to one message in it, and which one
               decides the recipients and the References chain. The body is already loaded here, so
-              it is handed over, not refetched. Keyed by message, as the reading pane's. */}
+              it is handed over, not refetched. Keyed by message, as the reading pane's. In a pane
+              too narrow for all of them (about 370 px) they wrap to a second line, rather than
+              make the whole conversation scroll sideways. */}
           <div role="group" aria-label={t('shortcuts.groups.messageActions')} style={{
-            display: 'flex', alignItems: 'center', gap: isMobile ? 0 : 6, margin: '0 -4px 8px',
+            display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: isMobile ? 0 : 6, rowGap: 4, margin: '0 -4px 8px',
           }}>
             <ReplySplitButton
               key={`reply-${message.id}`}

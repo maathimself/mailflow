@@ -465,12 +465,14 @@ describe('restoreBackup', () => {
     const sql = client.statements().map(s => s.replace(/\s+/g, ' '));
     const first = sql.findIndex(s => s.startsWith('UPDATE scheduled_messages'));
     const released = 'claim_token = NULL, claimed_at = NULL, edit_token = NULL, edit_lease_until = NULL, updated_at = NOW()';
-    // Accepted by SMTP: left for the sender to finish recording. Handed to SMTP without an
-    // answer: uncertain. Everything else not yet sent: paused.
-    expect(sql.slice(first, first + 4)).toEqual([
+    // Open for editing after failing or maybe going out: back to that. Accepted by SMTP: left for
+    // the sender to finish recording. Handed to SMTP without an answer: uncertain. Everything else
+    // not yet sent: paused.
+    expect(sql.slice(first, first + 5)).toEqual([
+      `UPDATE scheduled_messages SET status = status_before, status_before = NULL, ${released} WHERE status = 'editing' AND status_before IN ('uncertain', 'failed')`,
       `UPDATE scheduled_messages SET ${released} WHERE status = 'sending' AND smtp_accepted_at IS NOT NULL`,
       `UPDATE scheduled_messages SET status = 'uncertain', ${released} WHERE status = 'sending' AND smtp_started_at IS NOT NULL AND smtp_accepted_at IS NULL`,
-      `UPDATE scheduled_messages SET status = 'paused', pause_reason = 'restored', ${released} WHERE status IN ('scheduled', 'editing') OR (status = 'sending' AND smtp_accepted_at IS NULL)`,
+      `UPDATE scheduled_messages SET status = 'paused', pause_reason = 'restored', status_before = NULL, ${released} WHERE status IN ('scheduled', 'editing') OR (status = 'sending' AND smtp_accepted_at IS NULL)`,
       'COMMIT',
     ]);
     expect(first).toBeGreaterThan(sql.findLastIndex(s => s.startsWith('INSERT INTO')));

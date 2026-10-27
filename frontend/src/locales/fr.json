@@ -233,10 +233,16 @@
         "clockBehind": "L'horloge de cet appareil retarde de {{minutes}} min sur celle du serveur, pour qui il est {{time}}.",
         "clockAhead": "L'horloge de cet appareil avance de {{minutes}} min sur celle du serveur, pour qui il est {{time}}.",
         "holdLost": "Ce message a été ouvert dans une autre fenêtre et ne peut plus être enregistré ici. Votre texte reste ici pour être copié.",
+        "deletedElsewhere": "Ce message a été supprimé ailleurs et ne peut plus être enregistré ici. Votre texte reste ici pour être copié.",
+        "sentElsewhere": "Ce message a été envoyé depuis une autre fenêtre et ne peut plus être enregistré ici. Votre texte reste ici pour être copié.",
         "versionConflict": "Ce message a été modifié ailleurs. Fermez-le et rouvrez-le depuis Programmés pour voir la dernière version.",
         "notHeld": "Ce message n'est pas ouvert en modification ici. Fermez-le et rouvrez-le depuis Programmés.",
         "pickNewTime": "L'heure prévue est passée. Choisissez-en une nouvelle.",
         "failed": "Le message n'a pas pu être programmé.",
+        "tooMany": "Vous avez déjà le nombre maximal de messages programmés. Envoyez-en ou supprimez-en d'abord.",
+        "tooMuchStorage": "Vos messages programmés occupent déjà tout l'espace disponible. Envoyez-en ou supprimez-en d'abord.",
+        "rateLimited": "Trop de messages programmés en peu de temps. Réessayez dans une minute.",
+        "payloadTooLarge": "Ce message est trop volumineux pour être programmé : son texte et ses images intégrées prennent trop de place.",
         "heldElsewhere": "Ce message est ouvert dans une autre fenêtre."
       },
       "edit": {
@@ -275,7 +281,8 @@
       "scheduleAnyway": "Programmer malgré tout",
       "undoFailedOpen": "L'annulation a échoué. Ouvrez-le depuis Programmés."
     },
-    "selectAccount": "Choisissez un compte d'envoi"
+    "selectAccount": "Choisissez un compte d'envoi",
+    "smtpAuthDisabled": "Microsoft a désactivé l'envoi depuis les applications de messagerie (SMTP) pour ce compte. Vous pouvez toujours envoyer depuis Outlook sur le web. Pour un compte professionnel ou scolaire, votre administrateur peut le réactiver."
   },
   "message": {
     "find": {
@@ -538,6 +545,7 @@
       "failed": "Impossible d’enregistrer la catégorie pour cet expéditeur"
     },
     "changeLayout": "Changer la disposition",
+    "layout": "Disposition",
     "layouts": {
       "focused": {
         "label": "Concentré",
@@ -562,7 +570,8 @@
     },
     "snoozedUntil": "En attente jusqu'à {{when}}",
     "snoozedEmpty": "Rien en attente",
-    "snoozedEmptyDesc": "Les messages mis en attente patientent ici jusqu'à leur retour."
+    "snoozedEmptyDesc": "Les messages mis en attente patientent ici jusqu'à leur retour.",
+    "menu": "Menu"
   },
   "lockScreen": {
     "subtitle": "Saisissez votre PIN pour déverrouiller",
@@ -592,6 +601,8 @@
       "markAllRead": "Tout marquer comme lu",
       "syncFolder": "Synchroniser le dossier",
       "renameFavorite": "Renommer le favori",
+      "favorite": "Ajouter aux favoris",
+      "unfavorite": "Retirer des favoris",
       "rename": "Renommer",
       "createSubfolder": "Créer un sous-dossier",
       "hide": "Masquer le dossier",
@@ -624,7 +635,9 @@
     "snoozed": "En attente",
     "scheduled": "Programmés",
     "scheduledPending": "En attente d'envoi : {{n}}",
-    "scheduledAttention": "À vérifier : {{n}}"
+    "scheduledAttention": "À vérifier : {{n}}",
+    "favorites": "Favoris",
+    "reorderFolder": "Faites glisser pour réorganiser le dossier"
   },
   "scheduled": {
     "refresh": "Actualiser",
@@ -744,6 +757,7 @@
       "undoExpired": "Trop tard pour annuler : le message est en train de partir.",
       "notFound": "Ce message programmé n'existe plus.",
       "sending": "Il est en train d'être envoyé.",
+      "aboutToSend": "Il est sur le point d'être envoyé.",
       "sent": "Il a déjà été envoyé.",
       "cancelled": "Il a été supprimé.",
       "editing": "Il est ouvert en modification dans une autre fenêtre.",

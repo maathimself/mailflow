@@ -688,6 +688,14 @@ describe('POST /api/gtd/classify/undo — remove only the request-owned copy', (
     expect(imapManager.removeMessageCopy).not.toHaveBeenCalled();
   });
 
+  it('a copy that holds another message on the server is 409 changed, not a server error', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    imapManager.removeMessageCopy.mockRejectedValueOnce(Object.assign(new Error('holds another message'), { copyChanged: true }));
+    const res = await undoClassify(token);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ changed: true, error: expect.stringMatching(/changed on the server/) });
+  });
+
   it('does not remove a UID that belongs to another message', async () => {
     stubQueries({ exact: null });
     const res = await undoClassify(token);

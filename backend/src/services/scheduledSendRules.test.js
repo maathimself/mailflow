@@ -14,6 +14,8 @@ const NONE = { mailFromSent: false, bodyStarted: false };
 const MAIL = { mailFromSent: true, bodyStarted: false };
 const DATA = { mailFromSent: true, bodyStarted: true };
 const sendError = (name, status, message = 'x') => Object.assign(new Error(message), { name, status });
+// Microsoft's reply when SMTP AUTH is turned off for the mailbox (aka.ms/smtp_auth_disabled).
+const AUTH_DISABLED = '535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled for the Mailbox. Visit https://aka.ms/smtp_auth_disabled for more information.';
 
 describe('classifySendError', () => {
   it.each([
@@ -34,6 +36,13 @@ describe('classifySendError', () => {
     ['552 too large', 'send', smtpError({ responseCode: 552, code: 'EMESSAGE', command: 'DATA' }, DATA), 'failed', 'too_large'],
     ['5.3.4 too large', 'send', smtpError({ responseCode: 554, code: 'EMESSAGE', command: 'DATA', response: '554 5.3.4 Message too big' }, DATA), 'failed', 'too_large'],
     ['535 bad credentials', 'send', smtpError({ responseCode: 535, code: 'EAUTH', command: 'AUTH PLAIN' }, NONE), 'paused', 'auth_failed', 'needs_reauth'],
+    ['535 bad credentials, with an enhanced code (Outlook)', 'send', smtpError({ responseCode: 535, code: 'EAUTH', command: 'AUTH XOAUTH2', message: 'Invalid login: 535 5.7.3 Authentication unsuccessful', response: '535 5.7.3 Authentication unsuccessful' }, NONE), 'paused', 'auth_failed', 'needs_reauth'],
+    ['535 5.7.139: SMTP sending turned off for the mailbox (Outlook)', 'send', smtpError({ responseCode: 535, code: 'EAUTH', command: 'AUTH XOAUTH2', message: `Invalid login: ${AUTH_DISABLED}`, response: AUTH_DISABLED }, NONE), 'failed', 'smtp_auth_disabled'],
+    ['the same refusal for a whole tenant', 'send', smtpError({ responseCode: 535, code: 'EAUTH', command: 'AUTH XOAUTH2', message: 'Invalid login: 535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled for the Tenant. Visit https://aka.ms/smtp_auth_disabled for more information.' }, NONE), 'failed', 'smtp_auth_disabled'],
+    // Other 5.7.139 refusals a new sign-in or an admin can fix: still a sign-in to redo.
+    ['535 5.7.139 basic authentication disabled', 'send', smtpError({ responseCode: 535, code: 'EAUTH', command: 'AUTH LOGIN', message: 'Invalid login: 535 5.7.139 Authentication unsuccessful, basic authentication is disabled.', response: '535 5.7.139 Authentication unsuccessful, basic authentication is disabled.' }, NONE), 'paused', 'auth_failed', 'needs_reauth'],
+    ['535 5.7.139 Conditional Access', 'send', smtpError({ responseCode: 535, code: 'EAUTH', command: 'AUTH XOAUTH2', message: 'Invalid login: 535 5.7.139 Authentication unsuccessful, the request did not meet the criteria to be authenticated successfully. Contact your administrator.', response: '535 5.7.139 Authentication unsuccessful, the request did not meet the criteria to be authenticated successfully. Contact your administrator.' }, NONE), 'paused', 'auth_failed', 'needs_reauth'],
+    ['the same refusal said only in words', 'send', smtpError({ code: 'EAUTH', command: 'AUTH XOAUTH2', message: 'Invalid login: SmtpClientAuthentication is disabled for the Mailbox' }, NONE), 'failed', 'smtp_auth_disabled'],
     ['530 authentication required', 'send', smtpError({ responseCode: 530, code: 'EENVELOPE', command: 'MAIL FROM' }, MAIL), 'paused', 'auth_failed', 'needs_reauth'],
     ['EAUTH without a reply (missing credentials)', 'send', smtpError({ code: 'EAUTH', command: 'API' }, NONE), 'paused', 'auth_failed', 'needs_reauth'],
     ['454 temporary authentication failure', 'send', smtpError({ responseCode: 454, code: 'EAUTH', command: 'AUTH XOAUTH2' }, NONE), 'retry', 'smtp_temporary'],
@@ -96,8 +105,8 @@ describe('recoveryAction', () => {
 });
 
 describe('lateness', () => {
-  const first = { firstAttempt: true, dueBeforeStart: true };
-  it('sends a first attempt up to 6 h late, flagged late after 5 min, and holds anything later', () => {
+  const first = { dueBeforeStart: true };
+  it('sends up to 6 h late, flagged late after 5 min, and holds anything later', () => {
     expect(lateness({ ...first, lagMs: 30_000 })).toEqual({ overdue: false, late: false, lateReason: null });
     expect(lateness({ ...first, lagMs: LATE_AFTER_MS })).toEqual({ overdue: false, late: false, lateReason: null });
     expect(lateness({ ...first, lagMs: LATE_AFTER_MS + 1 })).toEqual({ overdue: false, late: true, lateReason: 'offline' });
@@ -105,22 +114,25 @@ describe('lateness', () => {
     expect(lateness({ ...first, lagMs: OVERDUE_GRACE_MS + 1 })).toMatchObject({ overdue: true, late: true });
   });
 
-  it('never holds a retry, a Send now or a Resume, however old the message', () => {
-    expect(lateness({ lagMs: 3 * OVERDUE_GRACE_MS, firstAttempt: false, retried: true, dueBeforeStart: true }))
-      .toEqual({ overdue: false, late: true, lateReason: 'retried' });
-    expect(lateness({ lagMs: 3 * OVERDUE_GRACE_MS, firstAttempt: false, dueBeforeStart: false }).overdue).toBe(false);
+  it('holds a retry that is more than 6 h late too, but never the backoff alone', () => {
+    expect(lateness({ lagMs: OVERDUE_GRACE_MS + 1, retried: true, dueBeforeStart: false }))
+      .toEqual({ overdue: true, late: true, lateReason: 'retried' });
+    // Every backoff delay after a first attempt on time, with a minute per attempt to spare.
+    const backoff = BACKOFF_MS.reduce((sum, d) => sum + d, 0) + MAX_ATTEMPTS * 60_000;
+    expect(backoff).toBeLessThan(OVERDUE_GRACE_MS);
+    expect(lateness({ lagMs: backoff, retried: true, dueBeforeStart: false }).overdue).toBe(false);
   });
 
   it('calls it retried only when a backoff retry made it late', () => {
-    expect(lateness({ lagMs: 20 * 60_000, firstAttempt: false, retried: false, dueBeforeStart: false }).lateReason).toBe('delayed');
+    expect(lateness({ lagMs: 20 * 60_000, retried: false, dueBeforeStart: false }).lateReason).toBe('delayed');
     // Send now and Resume set send_at, so they are not late at all.
-    expect(lateness({ lagMs: 2000, firstAttempt: false, retried: false, dueBeforeStart: true }))
+    expect(lateness({ lagMs: 2000, retried: false, dueBeforeStart: true }))
       .toEqual({ overdue: false, late: false, lateReason: null });
   });
 
-  it('says offline only for a message that fell due before the sender started', () => {
-    expect(lateness({ lagMs: 20 * 60_000, firstAttempt: true, dueBeforeStart: false }).lateReason).toBe('delayed');
-    expect(lateness({ lagMs: 20 * 60_000, firstAttempt: true, dueBeforeStart: true }).lateReason).toBe('offline');
+  it('says offline only for a message whose time came before the sender started', () => {
+    expect(lateness({ lagMs: 20 * 60_000, dueBeforeStart: false }).lateReason).toBe('delayed');
+    expect(lateness({ lagMs: 20 * 60_000, dueBeforeStart: true }).lateReason).toBe('offline');
   });
 });
 
@@ -150,6 +162,8 @@ describe('pushFor', () => {
     expect(pushFor({ ...base, status: 'paused', pauseReason: 'overdue' }).body)
       .toBe('Not sent: was scheduled for Mon, Oct 26, 8:00 AM and is more than 6 hours late. Open to send or reschedule.');
     expect(pushFor({ ...base, status: 'uncertain' }).body).toMatch(/may or may not have been delivered/);
+    expect(pushFor({ ...base, status: 'failed', failureCode: 'smtp_auth_disabled' }).body)
+      .toBe('Not sent: Microsoft has turned off sending from mail apps (SMTP) for this account. You can still send from Outlook on the web. For a work or school account, your admin can turn it back on.');
   });
   it('falls back to a generic title and UTC for an unknown zone', () => {
     const push = pushFor({ ...base, subject: null, timeZone: 'Not/AZone', status: 'paused', pauseReason: 'overdue', offline: true });

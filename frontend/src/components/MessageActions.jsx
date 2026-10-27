@@ -136,8 +136,20 @@ export function useShortcutTitle() {
   };
 }
 
-// On a phone every button is at least 44 px square, the touch target iOS and Android ask for.
+// On a phone every button is 44 px square, the touch target iOS and Android ask for, where the
+// row has room. Where it has not (a narrow phone with a larger font size, which MailApp applies as
+// a scale) the buttons of a row give way down to TOUCH_MIN, rather than push the last ones off
+// screen: at 130% that is still about 42 px on the glass. A button inside a wrapper (Move, More,
+// the reply split) gives way only if the wrapper does: its own automatic minimum would count the
+// button's 44 px width, so a wrapper says its minimum outright (TOUCH_MIN, or the split's two).
+// Their padding is narrow enough that the icon fits at the minimum.
 export const TOUCH_TARGET = 44;
+export const TOUCH_MIN = 32;
+const CHEVRON_MIN = 22;
+export const REPLY_SPLIT_MIN = TOUCH_MIN + CHEVRON_MIN;
+const touchSize = {
+  width: TOUCH_TARGET, minWidth: TOUCH_MIN, minHeight: TOUCH_TARGET, flexShrink: 1, padding: '6px 4px', boxSizing: 'border-box',
+};
 
 // An icon button. `label` is its accessible name, `title` its tooltip, which may add the keyboard
 // shortcut. `disabled` is aria-disabled with the click ignored, not the native attribute, so the
@@ -170,7 +182,7 @@ export function ActionBtn({
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
         transition: 'all 0.1s',
         opacity: disabled ? 0.45 : 1,
-        ...(touch ? { minWidth: TOUCH_TARGET, minHeight: TOUCH_TARGET } : {}),
+        ...(touch ? touchSize : {}),
         ...extraStyle,
       }}
     >
@@ -240,7 +252,7 @@ export function ReplySplitButton({ defaultReplyAll, onReply, title, touch = fals
     ? { label: t('message.reply'), replyAll: false }
     : { label: t('message.replyAll'), replyAll: true };
   return (
-    <div style={{ position: 'relative', display: 'flex' }}>
+    <div style={{ position: 'relative', display: 'flex', ...(touch ? { minWidth: REPLY_SPLIT_MIN } : {}) }}>
       <ActionBtn onClick={() => { setOpen(false); onReply(defaultReplyAll); }} label={label} title={title ?? label} touch={touch} style={{ borderRadius: '6px 0 0 6px' }}>
         {defaultReplyAll ? <ReplyAllIcon /> : <ReplyIcon />}
       </ActionBtn>
@@ -258,7 +270,7 @@ export function ReplySplitButton({ defaultReplyAll, onReply, title, touch = fals
           borderRadius: '0 6px 6px 0', padding: '5px 6px',
           color: 'var(--text-secondary)', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          ...(touch ? { minWidth: 28, minHeight: TOUCH_TARGET } : {}),
+          ...(touch ? { width: 28, minWidth: CHEVRON_MIN, minHeight: TOUCH_TARGET, flexShrink: 1, padding: '5px 2px', boxSizing: 'border-box' } : {}),
         }}
         onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
         onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
@@ -386,7 +398,8 @@ export function MessageTools({ isMobile, items, ai = null }) {
     ...aiItems.map(a => ({ key: `ai-${a.id}`, label: a.label, icon: <AiIcon />, run: () => ai.onRun(a) })),
   ];
   return (
-    <div style={{ position: 'relative' }}>
+    // A flex box, so the button in it can give way as the row's own buttons do.
+    <div style={{ position: 'relative', display: 'flex', minWidth: TOUCH_MIN }}>
       <ActionBtn btnRef={triggerRef} onClick={() => setOpen(v => !v)} label={t('message.more')} touch popup expanded={open}>
         <MoreIcon />
       </ActionBtn>

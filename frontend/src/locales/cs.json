@@ -133,6 +133,8 @@
       "markAllRead": "Označit vše jako přečtené",
       "syncFolder": "Synchronizovat složku",
       "renameFavorite": "Přejmenovat oblíbenou položku",
+      "favorite": "Přidat do oblíbených",
+      "unfavorite": "Odebrat z oblíbených",
       "rename": "Přejmenovat",
       "createSubfolder": "Vytvořit podsložku",
       "hide": "Skrýt složku",
@@ -165,7 +167,9 @@
     "snoozed": "Odložené",
     "scheduled": "Naplánované",
     "scheduledPending": "Čeká na odeslání: {{n}}",
-    "scheduledAttention": "Vyžaduje pozornost: {{n}}"
+    "scheduledAttention": "Vyžaduje pozornost: {{n}}",
+    "favorites": "Oblíbené",
+    "reorderFolder": "Přetažením změníte pořadí složky"
   },
   "scheduled": {
     "refresh": "Obnovit",
@@ -285,6 +289,7 @@
       "undoExpired": "Na vrácení je pozdě: zpráva se odesílá.",
       "notFound": "Tato naplánovaná zpráva už neexistuje.",
       "sending": "Právě teď se odesílá.",
+      "aboutToSend": "Za chvíli se odešle.",
       "sent": "Už byla odeslána.",
       "cancelled": "Byla smazána.",
       "editing": "Je otevřená k úpravám v jiném okně.",
@@ -426,6 +431,7 @@
       "failed": "Kategorii pro tohoto odesílatele se nepodařilo uložit"
     },
     "changeLayout": "Změnit rozvržení",
+    "layout": "Rozložení",
     "layouts": {
       "focused": {
         "label": "Soustředěné",
@@ -450,7 +456,8 @@
     },
     "snoozedUntil": "Odloženo do {{when}}",
     "snoozedEmpty": "Nic není odloženo",
-    "snoozedEmptyDesc": "Odložené zprávy tu čekají, dokud se nevrátí."
+    "snoozedEmptyDesc": "Odložené zprávy tu čekají, dokud se nevrátí.",
+    "menu": "Nabídka"
   },
   "message": {
     "find": {
@@ -736,10 +743,16 @@
         "clockBehind": "Hodiny tohoto zařízení se opožďují o {{minutes}} min oproti serveru, podle kterého je {{time}}.",
         "clockAhead": "Hodiny tohoto zařízení se předbíhají o {{minutes}} min oproti serveru, podle kterého je {{time}}.",
         "holdLost": "Tato zpráva byla otevřena v jiném okně, takže ji tu už nelze uložit. Váš text tu zůstává ke zkopírování.",
+        "deletedElsewhere": "Tato zpráva byla smazána jinde, takže ji tady už nelze uložit. Váš text tu zůstává ke zkopírování.",
+        "sentElsewhere": "Tato zpráva byla odeslána z jiného okna, takže ji tady už nelze uložit. Váš text tu zůstává ke zkopírování.",
         "versionConflict": "Tato zpráva byla změněna jinde. Zavřete ji a otevřete znovu z Naplánovaných, abyste viděli nejnovější verzi.",
         "notHeld": "Tato zpráva tu není otevřená k úpravám. Zavřete ji a otevřete znovu z Naplánovaných.",
         "pickNewTime": "Naplánovaný čas už uplynul. Vyberte nový.",
         "failed": "Zprávu se nepodařilo naplánovat.",
+        "tooMany": "Máte už tolik naplánovaných zpráv, kolik je možné. Nejprve některé odešlete nebo smažte.",
+        "tooMuchStorage": "Vaše naplánované zprávy zabírají už všechno dostupné místo. Nejprve některé odešlete nebo smažte.",
+        "rateLimited": "V krátké době bylo naplánováno příliš mnoho zpráv. Zkuste to znovu za minutu.",
+        "payloadTooLarge": "Tato zpráva je příliš velká na naplánování: její text a vložené obrázky zabírají příliš mnoho místa.",
         "heldElsewhere": "Tato zpráva je otevřená v jiném okně."
       },
       "edit": {
@@ -778,7 +791,8 @@
       "scheduleAnyway": "Přesto naplánovat odeslání",
       "undoFailedOpen": "Vrácení se nepodařilo. Otevřete ji v Naplánovaných."
     },
-    "selectAccount": "Vyberte účet, ze kterého odeslat"
+    "selectAccount": "Vyberte účet, ze kterého odeslat",
+    "smtpAuthDisabled": "Microsoft pro tento účet vypnul odesílání z poštovních aplikací (SMTP). Z Outlooku na webu můžete odesílat dál. U pracovního nebo školního účtu ho může znovu zapnout váš správce."
   },
   "notifications": {
     "newMessage": "Nová zpráva"

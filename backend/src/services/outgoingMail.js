@@ -14,6 +14,7 @@ import { providerProfile, PROVIDERS } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { deleteSentDraft } from './draftCopies.js';
 import { truncateFilename, safeFilename } from '../utils/contentDisposition.js';
+import { SMTP_AUTH_DISABLED, isSmtpAuthDisabled } from './smtpRefusals.js';
 
 // The outgoing message pipeline: validate what the composer sent, resolve the From identity and
 // any forwarded content, build the message, deliver it over SMTP and record it (Sent copy, Sent
@@ -44,6 +45,10 @@ function escapeHtml(str) {
 // Map SMTP/connection errors to user-friendly messages that don't expose server internals.
 export function sanitizeSmtpError(err) {
   const msg = err.message || '';
+  // Before the other sign-in failures: signing in again cannot fix this one (smtpRefusals.js).
+  if (isSmtpAuthDisabled(err)) {
+    return 'Microsoft has turned off sending from mail apps (SMTP) for this account. You can still send from Outlook on the web. For a work or school account, your admin can turn it back on.';
+  }
   if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EHOSTUNREACH/i.test(msg)) {
     return 'Could not connect to the mail server. Check your SMTP settings.';
   }
@@ -522,6 +527,11 @@ export async function prepareDelivery(input, identity, forwarded, options = {}) 
 
 // The fields of a nodemailer SMTP error that say what failed: responseCode (e.g. 421, 550),
 // code (e.g. EENVELOPE, ECONNECTION) and command (e.g. RCPT TO, DATA, CONN).
+// The code of a send failure the browser has its own words for, or null.
+export function publicSendCode(err) {
+  return isSmtpAuthDisabled(err) ? SMTP_AUTH_DISABLED : null;
+}
+
 function smtpErrorFields(err) {
   const fields = {};
   for (const name of ['responseCode', 'code', 'command']) {
@@ -760,6 +770,8 @@ export async function deliverAndRecord(
     // temporary refusal (4xx) from a permanent one (5xx), and at which command it failed.
     throw Object.assign(new Error('Send failed', { cause: err }), {
       publicMessage: sanitizeSmtpError(err),
+      // A refusal the composer says in the user's language (send.js and sendHold.js pass it on).
+      ...(publicSendCode(err) ? { publicCode: publicSendCode(err) } : {}),
       ...smtpErrorFields(err),
     });
   }

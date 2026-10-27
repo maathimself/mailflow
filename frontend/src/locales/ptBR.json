@@ -233,10 +233,16 @@
         "clockBehind": "O relógio deste dispositivo está {{minutes}} min atrasado em relação ao do servidor, que diz que são {{time}}.",
         "clockAhead": "O relógio deste dispositivo está {{minutes}} min adiantado em relação ao do servidor, que diz que são {{time}}.",
         "holdLost": "Esta mensagem foi aberta em outra janela e não pode mais ser salva aqui. Seu texto continua aqui para copiar.",
+        "deletedElsewhere": "Esta mensagem foi excluída em outro lugar e não pode mais ser salva aqui. Seu texto continua aqui para copiar.",
+        "sentElsewhere": "Esta mensagem foi enviada de outra janela e não pode mais ser salva aqui. Seu texto continua aqui para copiar.",
         "versionConflict": "Esta mensagem foi alterada em outro lugar. Feche-a e abra de novo em Agendados para ver a versão mais recente.",
         "notHeld": "Esta mensagem não está aberta para edição aqui. Feche-a e abra de novo em Agendados.",
         "pickNewTime": "O horário agendado já passou. Escolha um novo.",
         "failed": "Não foi possível agendar a mensagem.",
+        "tooMany": "Você já tem o máximo de mensagens agendadas. Envie ou exclua algumas primeiro.",
+        "tooMuchStorage": "Suas mensagens agendadas já ocupam todo o espaço disponível. Envie ou exclua algumas primeiro.",
+        "rateLimited": "Mensagens demais agendadas em pouco tempo. Tente de novo em um minuto.",
+        "payloadTooLarge": "Esta mensagem é grande demais para agendar: o texto e as imagens incorporadas ocupam espaço demais.",
         "heldElsewhere": "Esta mensagem está aberta em outra janela."
       },
       "edit": {
@@ -275,7 +281,8 @@
       "scheduleAnyway": "Agendar assim mesmo",
       "undoFailedOpen": "Não foi possível desfazer. Abra-a em Agendados."
     },
-    "selectAccount": "Escolha uma conta para enviar"
+    "selectAccount": "Escolha uma conta para enviar",
+    "smtpAuthDisabled": "A Microsoft desativou o envio por apps de e-mail (SMTP) nesta conta. Você ainda pode enviar pelo Outlook na web. Em uma conta corporativa ou de estudante, o administrador pode reativá-lo."
   },
   "message": {
     "find": {
@@ -538,6 +545,7 @@
       "failed": "Não foi possível salvar a categoria deste remetente"
     },
     "changeLayout": "Alterar layout",
+    "layout": "Layout",
     "layouts": {
       "focused": {
         "label": "Focado",
@@ -562,7 +570,8 @@
     },
     "snoozedUntil": "Adiado até {{when}}",
     "snoozedEmpty": "Nada adiado",
-    "snoozedEmptyDesc": "E-mails adiados esperam aqui até voltarem."
+    "snoozedEmptyDesc": "E-mails adiados esperam aqui até voltarem.",
+    "menu": "Menu"
   },
   "lockScreen": {
     "subtitle": "Digite seu PIN para desbloquear",
@@ -592,6 +601,8 @@
       "markAllRead": "Marcar todas como lidas",
       "syncFolder": "Sincronizar pasta",
       "renameFavorite": "Renomear favorito",
+      "favorite": "Adicionar aos favoritos",
+      "unfavorite": "Remover dos favoritos",
       "rename": "Renomear",
       "createSubfolder": "Criar subpasta",
       "hide": "Ocultar pasta",
@@ -624,7 +635,9 @@
     "snoozed": "Adiados",
     "scheduled": "Agendados",
     "scheduledPending": "Aguardando envio: {{n}}",
-    "scheduledAttention": "Precisam de atenção: {{n}}"
+    "scheduledAttention": "Precisam de atenção: {{n}}",
+    "favorites": "Favoritos",
+    "reorderFolder": "Arraste para reordenar a pasta"
   },
   "scheduled": {
     "refresh": "Atualizar",
@@ -744,6 +757,7 @@
       "undoExpired": "Tarde demais para desfazer: a mensagem está saindo.",
       "notFound": "Esta mensagem agendada não existe mais.",
       "sending": "Ela está sendo enviada neste momento.",
+      "aboutToSend": "Ela está prestes a ser enviada.",
       "sent": "Ela já foi enviada.",
       "cancelled": "Ela foi excluída.",
       "editing": "Ela está aberta para edição em outra janela.",

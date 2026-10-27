@@ -494,10 +494,16 @@ async function restoreLines(client, reader, { beforeWrite, onProgress }) {
     // are dropped, and a message that was being sent is settled by how far it got (as the
     // scheduler's crash recovery would): one SMTP had accepted stays sending, unclaimed, for the
     // sender to finish recording and never to send again; one handed to SMTP without an answer
-    // may have gone out and becomes uncertain, for the user to decide. Every other message not
-    // yet sent comes back paused, for the user to resume.
+    // may have gone out and becomes uncertain, for the user to decide. One open for editing that
+    // had failed or may have gone out goes back to that (an uncertain one keeps its question and
+    // Mark as sent); every other message not yet sent comes back paused, for the user to resume.
+    // An edit hold's saved status goes with the hold.
     if (present.has('scheduled_messages')) {
       const released = `claim_token = NULL, claimed_at = NULL, edit_token = NULL, edit_lease_until = NULL, updated_at = NOW()`;
+      await client.query(
+        `UPDATE scheduled_messages SET status = status_before, status_before = NULL, ${released}
+          WHERE status = 'editing' AND status_before IN ('uncertain', 'failed')`,
+      );
       await client.query(
         `UPDATE scheduled_messages SET ${released}
           WHERE status = 'sending' AND smtp_accepted_at IS NOT NULL`,
@@ -507,7 +513,7 @@ async function restoreLines(client, reader, { beforeWrite, onProgress }) {
           WHERE status = 'sending' AND smtp_started_at IS NOT NULL AND smtp_accepted_at IS NULL`,
       );
       await client.query(
-        `UPDATE scheduled_messages SET status = 'paused', pause_reason = 'restored', ${released}
+        `UPDATE scheduled_messages SET status = 'paused', pause_reason = 'restored', status_before = NULL, ${released}
           WHERE status IN ('scheduled', 'editing') OR (status = 'sending' AND smtp_accepted_at IS NULL)`,
       );
     }

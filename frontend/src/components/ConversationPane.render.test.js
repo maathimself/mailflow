@@ -491,6 +491,37 @@ describe('conversation actions', () => {
     assert.notEqual(useStore.getState().messages.find(m => m.id === 'm1')?.is_read, false, 'the list copy is not left unread');
   });
 
+  test('mark read on a card behind the list, read elsewhere meanwhile, only catches up', async () => {
+    const { useStore } = await import('../store/index.js');
+    const { clearReadGuard } = await import('../utils/pendingReads.js');
+    await click(button('m1', 'contextMenu.markUnread'));
+    assert.ok(button('m1', 'contextMenu.markRead'));
+    // Read again from the list (or another device) long enough ago that its guard is gone.
+    clearReadGuard('m1');
+    const saved = useStore.getState();
+    const decremented = [];
+    await React.act(async () => {
+      useStore.setState({
+        messages: [...saved.messages.filter(m => m.id !== 'm1'), { ...THREAD[0], is_read: true }],
+        decrementUnread: id => decremented.push(id),
+      });
+    });
+    const before = bulkReads.length;
+    try {
+      await click(button('m1', 'contextMenu.markRead'));
+      assert.deepEqual(bulkReads.slice(before), [], 'nothing sent again');
+      assert.deepEqual(decremented, [], 'not counted off the unread badge a second time');
+      assert.ok(button('m1', 'contextMenu.markUnread'), 'the card now shows it read');
+    } finally {
+      await React.act(async () => { useStore.setState({ messages: saved.messages, decrementUnread: saved.decrementUnread }); });
+    }
+  });
+
+  test('a card\'s toolbar wraps in a narrow pane instead of scrolling the conversation sideways', () => {
+    const group = card('m1').querySelector('[role="group"]');
+    assert.equal(group.style.flexWrap, 'wrap');
+  });
+
   test('the headers dialog opens from a card and its close button has a name', async () => {
     await click(button('m1', 'contextMenu.viewHeaders'));
     assert.match(document.body.textContent, /contextMenu\.headers\.title/, 'the headers dialog is open');
@@ -547,7 +578,7 @@ describe('conversation actions', () => {
     await React.act(async () => { useStore.getState().closeCompose(); });
   });
 
-  // A phone's toolbar has no room for another 44 px button (#650), so there it is in More.
+  // A phone's toolbar only just fits its buttons (#650), so there it is in More.
   test('Reply with AI is in More on a phone', async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -636,8 +667,16 @@ describe('conversation pane on a phone', () => {
         ['message.reply', 'message.replyOptions', 'message.forward', 'message.more', 'message.star']);
       for (const b of buttons) assert.equal(b.style.minHeight, '44px', `${b.getAttribute('aria-label')} is 44 px tall`);
       for (const b of buttons.filter(b => b.getAttribute('aria-label') !== 'message.replyOptions')) {
-        assert.equal(b.style.minWidth, '44px', `${b.getAttribute('aria-label')} is 44 px wide`);
+        assert.equal(b.style.width, '44px', `${b.getAttribute('aria-label')} is 44 px wide`);
+        // Where a larger font size leaves the row too narrow, it gives way rather than push the
+        // last buttons off screen.
+        assert.equal(b.style.minWidth, '32px');
+        assert.equal(b.style.flexShrink, '1');
       }
+      // A wrapper says its minimum outright: its automatic one would count the button's 44 px.
+      const moreButton = buttons.find(b => b.getAttribute('aria-label') === 'message.more');
+      assert.equal(moreButton.parentElement.style.minWidth, '32px');
+      assert.equal(buttons[0].parentElement.style.minWidth, '54px', 'the reply split, both halves');
       const threadBar = container.querySelector('[role="group"][aria-label="message.conversationActions"]');
       assert.deepEqual([...threadBar.querySelectorAll('button')].map(b => b.getAttribute('aria-label')), [
         'message.archive', 'contextMenu.moveToFolder', 'contextMenu.snooze.label',

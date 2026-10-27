@@ -233,10 +233,16 @@
         "clockBehind": "此设备的时钟比服务器慢 {{minutes}} 分钟，服务器时间为 {{time}}。",
         "clockAhead": "此设备的时钟比服务器快 {{minutes}} 分钟，服务器时间为 {{time}}。",
         "holdLost": "此邮件已在另一个窗口中打开，因此无法再在此处保存。你的文字仍保留在这里，可以复制。",
+        "deletedElsewhere": "此邮件已在别处删除，无法再在此保存。你的文字仍在这里，可以复制。",
+        "sentElsewhere": "此邮件已从另一个窗口发出，无法再在此保存。你的文字仍在这里，可以复制。",
         "versionConflict": "此邮件已在其他地方更改。请关闭后从“定时”中重新打开以查看最新版本。",
         "notHeld": "此邮件未在此处打开编辑。请关闭后从“定时”中重新打开。",
         "pickNewTime": "定时时间已过。请选择新的时间。",
         "failed": "无法定时发送此邮件。",
+        "tooMany": "定时邮件已达上限。请先发送或删除一些。",
+        "tooMuchStorage": "定时邮件已占满可用空间。请先发送或删除一些。",
+        "rateLimited": "短时间内定时的邮件过多。请一分钟后再试。",
+        "payloadTooLarge": "此邮件过大，无法定时发送：正文和内嵌图片占用的空间过多。",
         "heldElsewhere": "此邮件已在另一个窗口中打开。"
       },
       "edit": {
@@ -275,7 +281,8 @@
       "scheduleAnyway": "仍要定时发送",
       "undoFailedOpen": "撤销失败。请在“定时”中打开。"
     },
-    "selectAccount": "请选择用于发送的账户"
+    "selectAccount": "请选择用于发送的账户",
+    "smtpAuthDisabled": "Microsoft 已为此账户关闭从邮件应用（SMTP）发送。你仍可以在网页版 Outlook 中发送。如果是工作或学校账户，管理员可以重新开启。"
   },
   "message": {
     "find": {
@@ -538,6 +545,7 @@
       "failed": "无法保存此发件人的分类"
     },
     "changeLayout": "更改布局",
+    "layout": "布局",
     "layouts": {
       "focused": {
         "label": "专注",
@@ -562,7 +570,8 @@
     },
     "snoozedUntil": "暂停至 {{when}}",
     "snoozedEmpty": "没有暂停的邮件",
-    "snoozedEmptyDesc": "暂停的邮件会在这里等待，直到恢复。"
+    "snoozedEmptyDesc": "暂停的邮件会在这里等待，直到恢复。",
+    "menu": "菜单"
   },
   "lockScreen": {
     "subtitle": "输入 PIN 码以解锁",
@@ -592,6 +601,8 @@
       "markAllRead": "全部标为已读",
       "syncFolder": "同步此文件夹",
       "renameFavorite": "重命名收藏夹",
+      "favorite": "添加到收藏夹",
+      "unfavorite": "从收藏夹移除",
       "rename": "重命名",
       "createSubfolder": "新建子文件夹",
       "hide": "隐藏文件夹",
@@ -624,7 +635,9 @@
     "snoozed": "已暂停",
     "scheduled": "定时",
     "scheduledPending": "等待发送：{{n}}",
-    "scheduledAttention": "需要处理：{{n}}"
+    "scheduledAttention": "需要处理：{{n}}",
+    "favorites": "收藏夹",
+    "reorderFolder": "拖动以调整文件夹顺序"
   },
   "scheduled": {
     "refresh": "刷新",
@@ -744,6 +757,7 @@
       "undoExpired": "来不及撤销：邮件正在发出。",
       "notFound": "这封定时邮件已不存在。",
       "sending": "它正在发送中。",
+      "aboutToSend": "即将发送。",
       "sent": "它已经发送。",
       "cancelled": "它已被删除。",
       "editing": "它正在另一个窗口中编辑。",

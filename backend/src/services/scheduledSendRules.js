@@ -1,3 +1,5 @@
+import { SMTP_AUTH_DISABLED, isSmtpAuthDisabled } from './smtpRefusals.js';
+
 // The decisions of the scheduled sender (#543), kept free of I/O so each can be tested as a
 // table: how an error ends an attempt, when a retry is due, what recovery does with a send a
 // process left behind, when a message is overdue, when the next tick runs, and the push text.
@@ -50,6 +52,8 @@ const uncertain = code => ({ outcome: 'uncertain', code });
 // user (open question 11).
 export function classifySendError(err, { phase }) {
   if (err instanceof ScheduledSendError) return failed(err.scheduledCode);
+  // The account may not send over SMTP at all: no retry and no new sign-in changes that.
+  if (isSmtpAuthDisabled(err)) return failed(SMTP_AUTH_DISABLED);
   if (phase === 'prepare') {
     if (REAUTH_CODES.has(err?.accountErrorCode)) return paused('needs_reauth', err.accountErrorCode);
     // SendError: 400 is input that no longer passes the send checks, anything else an SMTP
@@ -103,16 +107,17 @@ export function recoveryAction(row) {
 }
 
 // Whether a claimed message is too late to send without asking, whether it goes out late, and
-// why, measured from send_at. The grace applies only to the first attempt at the time the user
-// picked (`firstAttempt`): a retry, a Send now or a Resume is a decision to send now, and holding
-// it again would loop. Send now and Resume set send_at, so they are not late either. `retried`:
-// the last attempt ended in a backoff retry, which is why it is late. `dueBeforeStart`: it fell
-// due before this sender started, so MailFlow was offline then. Otherwise a late message waited
+// why, measured from send_at, on every attempt: a retry after a long outage, or one that recovery
+// put back after a crash, is as late as a first attempt would be. The backoff retries add up to
+// 4 h 21 min, so they alone never reach the grace, and what the user does to send it now (Send
+// now, Resume, Send anyway, a new time) sets send_at, so holding it again cannot loop. `retried`:
+// the last attempt ended in a backoff retry, which is why it is late. `dueBeforeStart`: its time
+// came before this sender started, so MailFlow was offline then. Otherwise a late message waited
 // in the queue, and nothing may tell the user it was offline.
-export function lateness({ lagMs, firstAttempt, retried = false, dueBeforeStart }) {
+export function lateness({ lagMs, retried = false, dueBeforeStart }) {
   const late = lagMs > LATE_AFTER_MS;
   return {
-    overdue: firstAttempt && lagMs > OVERDUE_GRACE_MS,
+    overdue: lagMs > OVERDUE_GRACE_MS,
     late,
     lateReason: !late ? null : retried ? 'retried' : dueBeforeStart ? 'offline' : 'delayed',
   };
@@ -137,6 +142,7 @@ const FAILED_TEXT = {
   decrypt_failed: 'It could not be decrypted on this server.',
   account_missing: 'Its account no longer exists.',
   gave_up: 'The mail server kept failing, so MailFlow stopped trying.',
+  smtp_auth_disabled: 'Microsoft has turned off sending from mail apps (SMTP) for this account. You can still send from Outlook on the web. For a work or school account, your admin can turn it back on.',
 };
 const PAUSED_TEXT = {
   needs_reauth: 'Sign in to the account again to send it.',

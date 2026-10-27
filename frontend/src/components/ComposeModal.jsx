@@ -28,7 +28,7 @@ import { initialComposeFocus, isComposeSendShortcut, isSendLaterShortcut } from 
 import { unproxyImages } from '../utils/imageProxy.js';
 import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } from '../utils/autoRecipients.js';
 import { resolveSignatureEnabled } from '../utils/composeSignature.js';
-import { UNDO_SEND_SECONDS, undoWindowMs, trackHeldSend, reopenCompose } from '../utils/heldSend.js';
+import { UNDO_SEND_SECONDS, undoWindowMs, trackHeldSend, reopenCompose, sendErrorText } from '../utils/heldSend.js';
 import { openSentMessage } from '../utils/openSentMessage.js';
 import { aiReplyAvailable, loadReplyConversation, buildReplyPrompt, MAX_INSTRUCTION_CHARS } from '../utils/aiReply.js';
 import { frameGeometry } from '../utils/frameGeometry.js';
@@ -37,7 +37,7 @@ import { stripTags } from '../utils/stripTags.js';
 import { aiTextToHtml } from '../utils/aiText.js';
 import { browserTimeZone, checkSendAt, formatSendAt } from '../utils/scheduleTimes.js';
 import {
-  DUE_MARGIN_MS, SCHEDULE_UNDO_MS, UNDO_FOR, SEND_NOW_SAVE_AHEAD_MS, createEditHold, isScheduledEdit, needsConfirmation, newClientKey, once,
+  DUE_MARGIN_MS, SCHEDULE_UNDO_MS, UNDO_FOR, createEditHold, isScheduledEdit, needsConfirmation, newClientKey, once,
   openScheduledView, scheduleErrorText, sendNowUndoMs, undoSchedule, undoSendNow,
 } from '../utils/scheduledCompose.js';
 import { ComposeQuestion, ScheduledStrip, SendLaterIcon, SendLaterMenu, SendLaterSheet } from './SendLater.jsx';
@@ -291,7 +291,7 @@ export default function ComposeModal() {
   const [sendLaterOpen, setSendLaterOpen] = useState(false);
   // Where the edit-mode menu opens: its first level, or straight at the times (Change).
   const [sendLaterView, setSendLaterView] = useState('root');
-  // What scheduling asks: { kind: 'confirm', text, retry }, 'unscheduleAttachments' or 'closeEdit'.
+  // What scheduling asks: { kind: 'confirm', code, sendNow, retry }, 'unscheduleAttachments' or 'closeEdit'.
   const [scheduleQuestion, setScheduleQuestion] = useState(null);
   // Whether this composer holds the scheduled message it edits; Update and Unschedule need it.
   const [holdReady, setHoldReady] = useState(false);
@@ -1235,7 +1235,7 @@ export default function ComposeModal() {
       }
       reportSent(sendResult);
     } catch (err) {
-      setError(err.message);
+      setError(sendErrorText(err, t));
       sendingRef.current = false;
       setSending(false);
     }
@@ -1330,10 +1330,11 @@ export default function ComposeModal() {
   const scheduleRef = useRef(null);
   scheduleRef.current = handleSchedule;
 
-  // Saves the edit (PUT) under the version this composer opened, to go at `at`. Resolves the
-  // server's answer, or null when it did not save: a warning to answer first, a question
-  // (`retry` is how its yes carries on), or a refusal, which is shown.
-  const saveScheduled = async ({ at, confirm, skipSubjectWarn, skipAttachWarn, resume, retry, scheduling = true }) => {
+  // Saves the edit (PUT) under the version this composer opened, to go at `at`, or with `sendNow`
+  // to go now (the server saves and sends it in one go, with an Undo). Resolves the server's
+  // answer, or null when it did not save: a warning to answer first, a question (`retry` is how
+  // its yes carries on), or a refusal, which is shown.
+  const saveScheduled = async ({ at, sendNow = false, confirm, skipSubjectWarn, skipAttachWarn, resume, retry, scheduling = true }) => {
     const hold = holdRef.current;
     const from = await readyToSubmit({ skipSubjectWarn, skipAttachWarn }, resume, { scheduling });
     if (!from) return null;
@@ -1347,7 +1348,7 @@ export default function ComposeModal() {
     try {
       const result = await api.scheduled.update(scheduledEdit.id, {
         ...payload,
-        sendAt: at.toISOString(),
+        ...(sendNow ? { sendNow: true } : { sendAt: at.toISOString() }),
         ...(timeZone ? { timeZone } : {}),
         editToken: hold.token(),
         version: scheduledEdit.version,
@@ -1362,7 +1363,7 @@ export default function ComposeModal() {
       sendingRef.current = false;
       setSending(false);
       if (needsConfirmation(err)) {
-        setScheduleQuestion({ kind: 'confirm', text: err.message, retry });
+        setScheduleQuestion({ kind: 'confirm', code: err.code, sendNow, retry });
         return null;
       }
       if (err.code === 'hold_lost') { hold.markLost(); setHoldReady(false); }
@@ -1397,67 +1398,71 @@ export default function ComposeModal() {
   // Send now (design 2.4, 5.1). Unchanged (or `stored`, after Discard changes), the message is
   // sent with this composer's hold token in one request: the server ends the hold and moves the
   // message to 10 s from now in the same UPDATE, so it is never released and due in between, and
-  // the Undo puts back what it was before the hold. With changes they are saved first (PUT leaves
-  // it scheduled at its time, or SEND_NOW_SAVE_AHEAD_MS ahead when that is under a minute away,
-  // never due before Send now moves it), then it is sent now.
+  // the Undo puts back what it was before the hold. With changes, the save sends it now (PUT with
+  // sendNow), also under the hold and in one request, and its Undo puts back the same: a paused or
+  // failed message stays so, with the edit kept, and one whose time passed comes back paused. A
+  // request that fails on the way changed nothing, and the composer still holds it.
   const handleSendNow = async ({ stored = false, confirm = false, skipSubjectWarn = false, skipAttachWarn = false } = {}) => {
     const hold = holdRef.current;
     if (!hold?.isHeld()) { setError(t('compose.scheduleSend.errors.notHeld')); return; }
     if (sending || sendingRef.current) return;
-    if (stored || !isDirty()) return sendNowRef.current({ confirm, held: true });
-    const due = new Date(scheduledAt);
-    const at = checkSendAt(due) ? new Date(Date.now() + SEND_NOW_SAVE_AHEAD_MS) : due;
+    if (stored || !isDirty()) return sendNowRef.current({ confirm });
     const saved = await saveScheduled({
-      at, confirm, skipSubjectWarn, skipAttachWarn, scheduling: false,
+      sendNow: true, confirm, skipSubjectWarn, skipAttachWarn, scheduling: false,
       resume: o => sendNowStartRef.current({ ...o, confirm }),
       retry: () => sendNowStartRef.current({ confirm: true, skipSubjectWarn: true, skipAttachWarn: true }),
     });
-    if (saved) return sendNowRef.current({ confirm: false, held: false });
+    if (!saved || !closeIfStillOpen()) return;
+    // The window is counted from the answer: the request carried the whole message, and its
+    // upload may have taken much of the 10 s that start when the server saved it.
+    reportSentNow(scheduledEdit.id, saved, Date.now());
   };
   const sendNowStartRef = useRef(null);
   sendNowStartRef.current = handleSendNow;
 
-  // Send now itself: `held` with this composer's hold, else of a message a save just gave up.
-  // A question the server asks keeps a held message held (No leaves the composer as it was); after
-  // a save there is no hold left, so No closes the composer.
-  const sendNowFinish = async ({ confirm, held }) => {
+  // The toast of a Send now that went through, with its Undo for what is left of the 10 s from
+  // `started`. It runs once this composer is gone, so it uses only the store and what was captured.
+  const reportSentNow = (id, result, started) => {
+    const shownSubject = subject || t('common.noSubject');
+    const owner = composeOwner;
+    addNotification({
+      title: t('compose.undoSend.sending', { subject: shownSubject }),
+      undoMs: sendNowUndoMs(started),
+      [UNDO_FOR]: id,
+      onUndo: once(() => {
+        if (useStore.getState().user?.id !== owner) return;
+        return undoSendNow({ id, undoToken: result.undoToken, subject: shownSubject }, {
+          undo: api.scheduled.undoSendNow,
+          notify: n => useStore.getState().addNotification(n),
+          t,
+        });
+      }),
+    });
+  };
+
+  // Send now itself, with this composer's hold. A question the server asks keeps the message held
+  // (No leaves the composer as it was).
+  const sendNowFinish = async ({ confirm }) => {
     const hold = holdRef.current;
     sendingRef.current = true;
     setSending(true);
     setError('');
     const started = Date.now();
     const id = scheduledEdit.id;
-    const shownSubject = subject || t('common.noSubject');
     try {
-      const result = await api.scheduled.sendNow(id, confirm, held ? hold.token() : undefined);
-      if (held) hold.settle();
+      const result = await api.scheduled.sendNow(id, confirm, hold.token());
+      hold.settle();
       setHoldReady(false);
       if (!closeIfStillOpen()) return;
-      const owner = composeOwner;
-      addNotification({
-        title: t('compose.undoSend.sending', { subject: shownSubject }),
-        undoMs: sendNowUndoMs(started),
-        [UNDO_FOR]: id,
-        onUndo: once(() => {
-          if (useStore.getState().user?.id !== owner) return;
-          return undoSendNow({ id, undoToken: result.undoToken, subject: shownSubject }, {
-            undo: api.scheduled.undoSendNow,
-            notify: n => useStore.getState().addNotification(n),
-            t,
-          });
-        }),
-      });
+      reportSentNow(id, result, started);
     } catch (err) {
       sendingRef.current = false;
       setSending(false);
       if (needsConfirmation(err)) {
-        setScheduleQuestion({
-          kind: 'confirm', text: err.message, retry: () => sendNowRef.current({ confirm: true, held }),
-          ...(held ? {} : { onCancel: () => closeCompose() }),
-        });
+        setScheduleQuestion({ kind: 'confirm', code: err.code, sendNow: true, retry: () => sendNowRef.current({ confirm: true }) });
         return;
       }
-      if (held && err.code === 'hold_lost') { hold.markLost(); setHoldReady(false); }
+      if (err.code === 'hold_lost') { hold.markLost(); setHoldReady(false); }
       setError(scheduleErrorText(err, t));
     }
   };
@@ -1539,10 +1544,18 @@ export default function ComposeModal() {
     const leave = (options) => { if (dueWhileHeldRef.current()) hold.settle(); else hold.release(options); };
     const onPageHide = () => leave({ unloading: true });
     window.addEventListener('pagehide', onPageHide);
+    // A change to this message elsewhere (another window took it over, deleted or sent it), or the
+    // page seen again after a while away, is checked at once rather than at the next renewal.
+    const onChanged = (e) => { if (e.detail?.id === scheduledEdit.id) hold.check(); };
+    const onVisible = () => { if (document.visibilityState === 'visible') hold.check(); };
+    window.addEventListener('mailflow:scheduled_changed', onChanged);
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       live = false;
       clearTimeout(starting);
       window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('mailflow:scheduled_changed', onChanged);
+      document.removeEventListener('visibilitychange', onVisible);
       leave();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- one hold per mounted composer
@@ -1581,6 +1594,9 @@ export default function ComposeModal() {
     attachments: attachments.map(a => a.name),
     forwardedAttachments: fwdAttachments.map(a => `${a.messageId}:${a.part}`),
     scheduledAttachments: scheduledAttachments.map(a => a.index),
+    // A scheduled message keeps its priority, so changing only that is an edit to save. Drafts do
+    // not store one, so for them it would only cost a save.
+    ...(scheduledEdit ? { priority } : {}),
   });
   unsupportedRef.current = () => sendingRef.current || attachments.length > 0 || fwdAttachments.length > 0
     || Boolean(composeData?.unresolvedExternalAttachments);
@@ -2007,6 +2023,9 @@ export default function ComposeModal() {
       <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
     </svg>
   );
+  // The phone header's discard and priority buttons: 27 px wide, their icon and padding, and as
+  // tall as the header's touch targets.
+  const headerIconSize = { minHeight: 44, flexShrink: 0 };
   const sendSpinner = (
     <div style={{
       width: 14, height: 14, borderRadius: '50%',
@@ -2026,6 +2045,22 @@ export default function ComposeModal() {
   const sendDisabled = sending || noRecipients || Boolean(scheduledEdit && !holdReady);
   const sendLabel = scheduledEdit ? t('compose.scheduleSend.edit.update') : t('compose.send');
   const closeQuestion = () => setScheduleQuestion(null);
+  // The server's question about a message that may already have gone out (confirm_uncertain) or
+  // one a restored backup paused (confirm_restored), in the words of what the user was doing:
+  // sending it now, or scheduling it again (Update).
+  const confirmQuestion = (() => {
+    if (scheduleQuestion?.kind !== 'confirm') return null;
+    const uncertain = scheduleQuestion.code === 'confirm_uncertain';
+    return {
+      title: scheduleQuestion.sendNow
+        ? t(uncertain ? 'scheduled.confirm.uncertainTitle' : 'scheduled.confirm.restoredTitle')
+        : t('compose.scheduleSend.confirm.title'),
+      body: t(uncertain ? 'scheduled.confirm.uncertainBody' : 'scheduled.confirm.restoredBody'),
+      go: scheduleQuestion.sendNow
+        ? t(uncertain ? 'scheduled.actions.sendAnyway' : 'scheduled.confirm.restoredGo')
+        : t('compose.scheduleSend.confirm.go'),
+    };
+  })();
   const sendLaterDue = scheduleQuestion?.kind === 'due' ? (
     <ComposeQuestion
       mobile={isMobile}
@@ -2038,7 +2073,7 @@ export default function ComposeModal() {
           label: t('compose.scheduleSend.edit.pickNewTime'), kind: 'plain',
           onClick: () => { closeQuestion(); setSendLaterView('times'); setSendLaterOpen(true); },
         }]),
-        { label: t('compose.scheduleSend.edit.keepPaused'), kind: 'plain', onClick: () => { closeQuestion(); keepPaused(); } },
+        { label: t('compose.scheduleSend.edit.keepPaused'), kind: 'plain', focus: true, onClick: () => { closeQuestion(); keepPaused(); } },
       ]}
     />
   ) : null;
@@ -2059,12 +2094,12 @@ export default function ComposeModal() {
       {scheduleQuestion?.kind === 'confirm' && (
         <ComposeQuestion
           mobile={isMobile}
-          title={t('compose.scheduleSend.confirm.title')}
-          body={scheduleQuestion.text}
-          onCancel={() => { const { onCancel } = scheduleQuestion; closeQuestion(); onCancel?.(); }}
+          title={confirmQuestion.title}
+          body={confirmQuestion.body}
+          onCancel={closeQuestion}
           actions={[
-            { label: t('compose.scheduleSend.confirm.go'), kind: 'primary', onClick: () => { const { retry } = scheduleQuestion; closeQuestion(); retry(); } },
-            { label: t('common.cancel'), kind: 'plain', onClick: () => { const { onCancel } = scheduleQuestion; closeQuestion(); onCancel?.(); } },
+            { label: confirmQuestion.go, kind: 'primary', onClick: () => { const { retry } = scheduleQuestion; closeQuestion(); retry(); } },
+            { label: t('common.cancel'), kind: 'plain', focus: true, onClick: closeQuestion },
           ]}
         />
       )}
@@ -2076,7 +2111,7 @@ export default function ComposeModal() {
           onCancel={closeQuestion}
           actions={[
             { label: t('compose.scheduleSend.edit.unscheduleGo'), kind: 'primary', onClick: () => { closeQuestion(); handleUnschedule({ skipAttachWarn: true }); } },
-            { label: t('compose.closeDraft.keepEditing'), kind: 'plain', onClick: closeQuestion },
+            { label: t('compose.closeDraft.keepEditing'), kind: 'plain', focus: true, onClick: closeQuestion },
           ]}
         />
       )}
@@ -2195,19 +2230,29 @@ export default function ComposeModal() {
             style={{
               background: 'none', border: 'none',
               color: 'var(--accent)', fontSize: 16,
-              cursor: 'pointer', padding: '4px 0', minWidth: 60,
+              cursor: 'pointer', padding: '4px 0', minWidth: 0,
               WebkitTapHighlightColor: 'transparent',
+              // Gives way only once nothing else can (see below), with an ellipsis.
+              flexShrink: 0.01, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}
           >
             {t('common.cancel')}
           </button>
-          <span style={{
-            flex: 1, textAlign: 'center',
-            fontSize: 16, fontWeight: 600, color: 'var(--text-primary)',
-          }}>
-            {modeLabel}
+          {/* A narrow phone at a larger font size (MailApp scales the layout) has no room for
+              everything: the title gives way first, then the icon buttons down to 28 px, then
+              Cancel. The group's own minimum is its buttons' minimums and Send's label, so Send
+              never leaves the screen. Too narrow to say more than a letter, the title is hidden
+              (compose-phone-title in index.css), though still read out, rather than cut to "N…". */}
+          <span className="compose-phone-title" style={{ flex: 1, minWidth: 0, padding: '0 6px' }}>
+            <span style={{
+              display: 'block', textAlign: 'center',
+              fontSize: 16, fontWeight: 600, color: 'var(--text-primary)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {modeLabel}
+            </span>
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 60, justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'flex-end' }}>
             {!scheduledEdit && (
             <button
               onClick={() => requestDiscard(true)}
@@ -2215,10 +2260,11 @@ export default function ComposeModal() {
               aria-label={t('compose.discard')}
               title={t('compose.discard')}
               style={{
-                background: 'none', border: 'none', padding: '4px 8px',
-                cursor: discarding ? 'default' : 'pointer', display: 'flex', alignItems: 'center',
+                background: 'none', border: 'none', padding: '4px 6px',
+                cursor: discarding ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 color: 'var(--text-tertiary)',
                 WebkitTapHighlightColor: 'transparent',
+                ...headerIconSize,
               }}
             >
               {trashIcon}
@@ -2226,11 +2272,13 @@ export default function ComposeModal() {
             )}
             <button
               onClick={() => setShowPrioritySheet(true)}
+              aria-label={t('compose.priority')}
               style={{
-                background: 'none', border: 'none', padding: '4px 8px',
-                cursor: 'pointer', display: 'flex', alignItems: 'center',
+                background: 'none', border: 'none', padding: '4px 6px',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 color: priority === 'high' ? 'var(--red)' : priority === 'low' ? '#4dabf7' : 'var(--text-tertiary)',
                 WebkitTapHighlightColor: 'transparent',
+                ...headerIconSize,
               }}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
@@ -2248,7 +2296,8 @@ export default function ComposeModal() {
               aria-expanded={sendLaterOpen}
               data-send-later=""
               style={{
-                background: 'none', border: 'none', padding: 0, width: 44, height: 44,
+                // A basis, not a width: a set width would count in full in the group's minimum.
+                background: 'none', border: 'none', padding: 0, flex: '0 1 44px', height: 44, minWidth: 28,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 color: sendDisabled ? 'var(--text-tertiary)' : 'var(--accent)',
                 cursor: sendDisabled ? 'default' : 'pointer',
@@ -2265,7 +2314,7 @@ export default function ComposeModal() {
                 color: sendDisabled ? 'var(--text-tertiary)' : 'var(--accent)',
                 fontSize: 16, fontWeight: 600,
                 cursor: sendDisabled ? 'default' : 'pointer',
-                padding: '4px 0', minHeight: 44,
+                padding: '4px 0', minHeight: 44, flexShrink: 0, whiteSpace: 'nowrap',
                 WebkitTapHighlightColor: 'transparent',
                 transition: 'color 0.15s',
               }}

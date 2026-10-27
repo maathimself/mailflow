@@ -21,6 +21,16 @@ export function createWebSocketServer(server) {
   return new WebSocketServer({ server, maxPayload: 16 * 1024, maxFragments: 1 });
 }
 
+// Closes every client, with 1001 (going away) on shutdown or 1012 on a restart. The HTTP server's
+// close() waits for every socket it accepted, upgraded ones too, so without this a shutdown always
+// waited out its forced exit. A client that does not answer the close handshake within
+// `terminateAfterMs` is cut off: ws would wait 30 s for it, longer than a shutdown has.
+export function closeWebSocketClients(wss, code, reason, { terminateAfterMs = 2000 } = {}) {
+  for (const ws of wss.clients) ws.close(code, reason);
+  const timer = setTimeout(() => { for (const ws of wss.clients) ws.terminate(); }, terminateAfterMs);
+  timer.unref?.();
+}
+
 export function setupWebSocket(wss, sessionMiddleware, imapManager) {
   wss.on('connection', (ws, req) => {
     // Transport errors can arrive during session lookup, before authentication.

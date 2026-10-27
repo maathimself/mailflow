@@ -80,6 +80,11 @@ export function applyMarkRead(msg, { onChange } = {}) {
 function readUnderWay(st, id) {
   if (pendingMarkReadMap.has(id)) return true;
   if (!completedMarkReadMap.has(id)) return false;
+  return shownReadInStore(id, st);
+}
+
+// Whether a copy of the message in the store (the list, search results, a thread) shows it read.
+export function shownReadInStore(id, st = useStore.getState()) {
   const lists = [st.messages, st.searchResults, ...Object.values(st.threadMessages || {})];
   return lists.some(list => Array.isArray(list) && list.some(m => m?.id === id && m.is_read));
 }

@@ -11,7 +11,7 @@ import { shortcutBus } from '../utils/shortcutBus.js';
 import { scheduledFeed } from '../utils/scheduledFeed.js';
 import { browserTimeZone, formatSendAt } from '../utils/scheduleTimes.js';
 import {
-  SCHEDULE_UNDO_MS, UNDO_FOR, needsConfirmation, once, sendNowUndoMs, supersedeUndo, undoSendNow,
+  SCHEDULE_UNDO_MS, SEND_NOW_DELAY_MS, UNDO_FOR, needsConfirmation, once, sendNowUndoMs, supersedeUndo, undoSendNow,
 } from '../utils/scheduledCompose.js';
 import { openSentMessage } from '../utils/openSentMessage.js';
 import {
@@ -85,6 +85,11 @@ export default function ScheduledList() {
   const total = ordered.length;
 
   const [busyId, setBusyId] = useState(null);
+  // The same, at once: a second click or key before the busy state renders does nothing either.
+  const busyRef = useRef(null);
+  // Until when this tab's own Send now of a message is in its window, so a Send now repeated before
+  // the list says so (sendingNow) does nothing, and the first one's Undo stays.
+  const sentNowRef = useRef(new Map());
   // The menu open for a row: { row, x, y } on desktop (the context menu or More), { row } on a phone.
   const [menu, setMenu] = useState(null);
   // The row whose Reschedule times are open.
@@ -193,6 +198,7 @@ export default function ScheduledList() {
   // One action against the server. A question the server asks (confirm_uncertain,
   // confirm_restored) is put to the user, and their yes repeats the request with confirm.
   const attempt = async (row, call, onDone, { go } = {}, confirm = false) => {
+    busyRef.current = row.id;
     setBusyId(row.id);
     try {
       const result = await call(confirm);
@@ -214,6 +220,7 @@ export default function ScheduledList() {
         fail(row, err);
       }
     } finally {
+      busyRef.current = null;
       setBusyId(null);
       scheduledFeed.refresh();
     }
@@ -239,7 +246,8 @@ export default function ScheduledList() {
     .finally(() => scheduledFeed.refresh());
 
   const run = (action, row) => {
-    if (!row || busyId) return;
+    if (!row || busyId || busyRef.current) return;
+    if (action === 'sendNow' && (row.sendingNow || (sentNowRef.current.get(row.id) || 0) > Date.now())) return;
     setMenu(null);
     // Focus goes to the row first, so a question or the times hand it back there when they close
     // (a hover button may be gone by then), and its actions stay shown while it is focused.
@@ -249,6 +257,7 @@ export default function ScheduledList() {
     const mine = () => useStore.getState().user?.id === owner;
     switch (action) {
       case 'edit':
+        busyRef.current = row.id;
         setBusyId(row.id);
         api.scheduled.get(row.id)
           .then((detail) => {
@@ -262,7 +271,7 @@ export default function ScheduledList() {
               .then(opened => { if (opened) supersedeUndo(useStore, row.id); });
           })
           .catch(err => fail(row, err))
-          .finally(() => setBusyId(null));
+          .finally(() => { busyRef.current = null; setBusyId(null); });
         return;
       case 'reschedule':
         pickerTriggerRef.current = rowRefs.current.get(row.id) || null;
@@ -271,6 +280,7 @@ export default function ScheduledList() {
       case 'sendNow': {
         let started = 0;
         attempt(row, (confirm) => { started = Date.now(); return api.scheduled.sendNow(row.id, confirm); }, (r) => {
+          sentNowRef.current.set(row.id, started + SEND_NOW_DELAY_MS);
           notify({
             title: t('compose.undoSend.sending', { subject }),
             undoMs: sendNowUndoMs(started),
@@ -279,7 +289,8 @@ export default function ScheduledList() {
               if (!mine()) return;
               return undoSendNow({ id: row.id, undoToken: r.undoToken, subject }, {
                 undo: api.scheduled.undoSendNow, notify, t,
-              }).finally(() => scheduledFeed.refresh());
+              }).then((undone) => { if (undone) sentNowRef.current.delete(row.id); })
+                .finally(() => scheduledFeed.refresh());
             }),
           });
         });
@@ -319,8 +330,9 @@ export default function ScheduledList() {
         attempt(row, () => api.scheduled.remove(row.id));
         return;
       case 'restore':
+        busyRef.current = row.id;
         setBusyId(row.id);
-        restore(row).finally(() => setBusyId(null));
+        restore(row).finally(() => { busyRef.current = null; setBusyId(null); });
         return;
       case 'viewSent':
         openSentMessage(useStore, { accountId: row.accountId, folder: row.result.sentFolder, messageId: row.result.messageId });
@@ -340,15 +352,17 @@ export default function ScheduledList() {
   // is Star) do not run as well.
   const onRowKeyDown = (e, row) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // A held key repeats: one Send now or Delete, not one per repeat.
+    const firstPress = fn => () => { if (!e.repeat) fn(); };
     const allowed = rowActions(row);
     const take = (fn) => { e.preventDefault(); e.stopPropagation(); fn(); };
     if (e.key === 'ArrowDown' || e.key === 'j') take(() => moveFocus(row.id, 1));
     else if (e.key === 'ArrowUp' || e.key === 'k') take(() => moveFocus(row.id, -1));
     else if (e.key === 'Home') take(() => focusRow(ordered[0]?.id));
     else if (e.key === 'End') take(() => focusRow(ordered[ordered.length - 1]?.id));
-    else if (e.key === 'Delete' && allowed.includes('cancel')) take(() => run('cancel', row));
+    else if (e.key === 'Delete' && allowed.includes('cancel')) take(firstPress(() => run('cancel', row)));
     else if (e.key === 'r' && !e.shiftKey && allowed.includes('reschedule')) take(() => run('reschedule', row));
-    else if (e.key === 's' && !e.shiftKey && allowed.includes('sendNow')) take(() => run('sendNow', row));
+    else if (e.key === 's' && !e.shiftKey && allowed.includes('sendNow')) take(firstPress(() => run('sendNow', row)));
     else if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
       take(() => {
         const box = e.currentTarget.getBoundingClientRect();
@@ -497,7 +511,9 @@ export default function ScheduledList() {
           onCancel={() => setAsk(null)}
           actions={[
             { label: ask.go, kind: ask.kind, onClick: () => { const go = ask.onGo; setAsk(null); go(); } },
-            { label: t('common.cancel'), kind: 'plain', onClick: () => setAsk(null) },
+            // Every question here would send again, send what a restore paused, or delete: the
+            // safe answer has the focus.
+            { label: t('common.cancel'), kind: 'plain', focus: true, onClick: () => setAsk(null) },
           ]}
         />
       )}

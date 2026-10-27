@@ -333,6 +333,11 @@ router.post('/classify/undo', async (req, res) => {
     return res.json({ ok: true, removed, folder });
   } catch (err) {
     console.error(`GTD classify undo failed for message ${messageId} in ${folder}:`, err.message);
+    // The copy's row named another message on the server, so nothing was removed (as for
+    // DELETE /classify): a refusal to say, not a server error.
+    if (err.copyChanged) {
+      return res.status(409).json({ error: LABEL_CHANGED, changed: true });
+    }
     return res.status(500).json({ error: 'Failed to undo GTD classification' });
   }
 });

@@ -49,10 +49,6 @@ export function supersedeUndo(store, id) {
 // How long the "Scheduled for ..." toast offers Undo. Cancel works for minutes on the server; the
 // toast is what bounds it, so Undo is there exactly as long as the toast is.
 export const SCHEDULE_UNDO_MS = 10_000;
-// Send now from the composer saves changes first, and a save needs a time at least a minute
-// ahead. When the time the message had has passed, it is saved this far ahead: the 10 s Send now
-// sets comes long before, and an Undo of Send now leaves it there, said in its toast.
-export const SEND_NOW_SAVE_AHEAD_MS = 5 * 60_000;
 // A scheduled message whose time is less than this away is handed back paused when a hold is
 // given back on its own (the message changed meanwhile, or the composer closed during a release):
 // released as scheduled it would be due at once, and go out unconfirmed.
@@ -116,7 +112,8 @@ export async function undoSendNow({ id, undoToken, subject }, { undo, notify, t,
     else notify({ title: t('compose.scheduleSend.sendNow.undone'), body: subject });
     return true;
   } catch (err) {
-    const body = err?.code === 'held_elsewhere' ? t('compose.scheduleSend.errors.heldElsewhere') : err.message;
+    const body = err?.code === 'held_elsewhere' ? t('compose.scheduleSend.errors.heldElsewhere')
+      : err?.code === 'undo_expired' ? t('scheduled.errors.undoExpired') : err.message;
     notify({ type: 'error', title: t('compose.scheduleSend.sendNow.undoFailed'), body, allowWrap: true, persistent: true });
     return false;
   }
@@ -128,7 +125,8 @@ export const needsConfirmation = err => err?.code === 'confirm_uncertain' || err
 
 // The edit hold of one scheduled message while the composer has it open. `api` is
 // api.scheduled. start() takes the hold (or renews the one the opener took), renewals keep it
-// every HOLD_RENEW_MS, settle() ends it after a save or an unschedule (the server cleared it),
+// every HOLD_RENEW_MS, check() renews it at once (the message changed elsewhere, or the page is
+// seen again), settle() ends it after a save or an unschedule (the server cleared it),
 // handBack() releases it and resolves once the server took it back (throwing, and still holding
 // it, when a request failed on the way), and release() hands it back without waiting when the
 // composer closes. `onLost(err)` is told when a renewal finds the message is no longer this
@@ -142,6 +140,8 @@ export function createEditHold({ id, version, editToken = null }, {
   let state = 'starting'; // 'held' | 'releasing' | 'lost' | 'done'
   let statusBefore = null;
   let timer = null;
+  let renewing = null;
+  let renewAgain = false;
   // Set when the composer closes while a handBack is out: it must not come back to life.
   let closing = false;
   // What the handBack out asked for, and whether the page's last release already went.
@@ -169,8 +169,20 @@ export function createEditHold({ id, version, editToken = null }, {
     onLost(err);
   };
 
-  async function renew() {
-    if (state !== 'held') return;
+  // One renewal at a time. A check() while one is out runs another after it, as the answer out
+  // may predate the change that asked for it.
+  function renew() {
+    if (state !== 'held') return Promise.resolve();
+    if (renewing) { renewAgain = true; return renewing; }
+    renewing = renewOnce().finally(() => {
+      renewing = null;
+      if (!renewAgain) return;
+      renewAgain = false;
+      if (state === 'held') { unschedule(timer); renew(); }
+    });
+    return renewing;
+  }
+  async function renewOnce() {
     try {
       const r = await api.hold(id, token);
       // Saved, released or closed meanwhile: the server refuses a renewal of a hold that ended,
@@ -218,6 +230,13 @@ export function createEditHold({ id, version, editToken = null }, {
     },
     token: () => token,
     isHeld: () => state === 'held',
+    // Renews now rather than at the next timer, so a takeover, a delete or a send elsewhere is
+    // noticed when it happens rather than up to HOLD_RENEW_MS later.
+    check() {
+      if (state !== 'held') return Promise.resolve();
+      unschedule(timer);
+      return renew();
+    },
     statusBefore: () => statusBefore,
     // The server said this composer no longer holds it (hold_lost on a save).
     markLost() { if (state === 'held') { state = 'lost'; unschedule(timer); } },
@@ -263,12 +282,29 @@ export function createEditHold({ id, version, editToken = null }, {
   };
 }
 
-// What to tell the user about a refused schedule or save. The server's own message leads, since
-// it is the authority on its limits; a too_soon or too_far that a wrong clock on this device
-// explains says so, with the server's time.
+// The server's limits and refusals that say the same whatever the message, in the user's language.
+const LIMIT_TEXT = {
+  too_many: 'compose.scheduleSend.errors.tooMany',
+  too_much_storage: 'compose.scheduleSend.errors.tooMuchStorage',
+  rate_limited: 'compose.scheduleSend.errors.rateLimited',
+  payload_too_large: 'compose.scheduleSend.errors.payloadTooLarge',
+  decrypt_failed: 'scheduled.reason.decryptFailed',
+  sending_now: 'scheduled.errors.aboutToSend',
+};
+export const limitErrorText = (err, t) => (LIMIT_TEXT[err?.code] ? t(LIMIT_TEXT[err.code]) : null);
+
+// What to tell the user about a refused schedule or save, in their language: a limit, a lost
+// hold, a newer version, and a too_soon or too_far, with the server's time when a wrong clock on
+// this device explains it.
 export function scheduleErrorText(err, t, { now = Date.now(), locale } = {}) {
+  const limit = limitErrorText(err, t);
+  if (limit) return limit;
   switch (err?.code) {
     case 'hold_lost':
+      // Gone (deleted for good) or deleted with Undo elsewhere, or sent from another window, is
+      // said as such; anything else is another window that holds it now.
+      if (err.status === 404 || err.state === 'cancelled') return t('compose.scheduleSend.errors.deletedElsewhere');
+      if (err.state === 'sending' || err.state === 'sent') return t('compose.scheduleSend.errors.sentElsewhere');
       return t('compose.scheduleSend.errors.holdLost');
     case 'held_elsewhere':
       return t('compose.scheduleSend.errors.heldElsewhere');
@@ -276,14 +312,15 @@ export function scheduleErrorText(err, t, { now = Date.now(), locale } = {}) {
       return t('compose.scheduleSend.errors.versionConflict');
     case 'too_soon':
     case 'too_far': {
+      const said = t(err.code === 'too_soon' ? 'compose.scheduleSend.errors.tooSoon' : 'compose.scheduleSend.errors.tooFar');
       const skew = clockSkewMs(err.serverNow, now);
-      if (skew == null) return err.message;
+      if (skew == null) return said;
       const minutes = Math.max(1, Math.round(Math.abs(skew) / 60_000));
       const time = formatSendAt(err.serverNow, locale, new Date(now));
       const note = skew > 0
         ? t('compose.scheduleSend.errors.clockBehind', { minutes, time })
         : t('compose.scheduleSend.errors.clockAhead', { minutes, time });
-      return `${err.message} ${note}`;
+      return `${said} ${note}`;
     }
     default:
       return err?.message || t('compose.scheduleSend.errors.failed');

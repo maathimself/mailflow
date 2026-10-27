@@ -242,6 +242,16 @@ body, #root {
   opacity: 0.85;
 }
 
+/* The phone composer's title (ComposeModal): when the header leaves it room for no more than a
+   letter and an ellipsis, it is hidden rather than cut to "N…", and stays in the accessibility
+   tree (opacity, not visibility or display). Wide layouts never get this narrow. */
+.compose-phone-title {
+  container-type: inline-size;
+}
+@container (max-width: 48px) {
+  .compose-phone-title > span { opacity: 0; }
+}
+
 /* Unified popover entrance */
 @keyframes popover-in {
   from { opacity: 0; transform: scale(0.96) translateY(-4px); }

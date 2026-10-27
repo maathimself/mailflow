@@ -233,10 +233,16 @@
         "clockBehind": "Zegar tego urządzenia spóźnia się o {{minutes}} min względem serwera, według którego jest {{time}}.",
         "clockAhead": "Zegar tego urządzenia spieszy się o {{minutes}} min względem serwera, według którego jest {{time}}.",
         "holdLost": "Ta wiadomość została otwarta w innym oknie, więc nie można jej tu już zapisać. Twój tekst zostaje tu do skopiowania.",
+        "deletedElsewhere": "Ta wiadomość została usunięta gdzie indziej, więc nie można jej już tu zapisać. Twój tekst nadal jest tu do skopiowania.",
+        "sentElsewhere": "Ta wiadomość została wysłana z innego okna, więc nie można jej już tu zapisać. Twój tekst nadal jest tu do skopiowania.",
         "versionConflict": "Ta wiadomość została zmieniona gdzie indziej. Zamknij ją i otwórz ponownie z Zaplanowanych, aby zobaczyć najnowszą wersję.",
         "notHeld": "Ta wiadomość nie jest tu otwarta do edycji. Zamknij ją i otwórz ponownie z Zaplanowanych.",
         "pickNewTime": "Zaplanowany czas już minął. Wybierz nowy.",
         "failed": "Nie udało się zaplanować wiadomości.",
+        "tooMany": "Masz już tyle zaplanowanych wiadomości, ile można. Najpierw wyślij lub usuń kilka z nich.",
+        "tooMuchStorage": "Twoje zaplanowane wiadomości zajmują już całe dostępne miejsce. Najpierw wyślij lub usuń kilka z nich.",
+        "rateLimited": "Zaplanowano zbyt wiele wiadomości w krótkim czasie. Spróbuj ponownie za minutę.",
+        "payloadTooLarge": "Ta wiadomość jest za duża, aby ją zaplanować: tekst i osadzone obrazy zajmują zbyt dużo miejsca.",
         "heldElsewhere": "Ta wiadomość jest otwarta w innym oknie."
       },
       "edit": {
@@ -275,7 +281,8 @@
       "scheduleAnyway": "Zaplanuj mimo wszystko",
       "undoFailedOpen": "Nie udało się cofnąć. Otwórz ją w Zaplanowanych."
     },
-    "selectAccount": "Wybierz konto do wysyłki"
+    "selectAccount": "Wybierz konto do wysyłki",
+    "smtpAuthDisabled": "Microsoft wyłączył wysyłanie z aplikacji pocztowych (SMTP) dla tego konta. Nadal możesz wysyłać z Outlooka w przeglądarce. W przypadku konta służbowego lub szkolnego administrator może je ponownie włączyć."
   },
   "message": {
     "find": {
@@ -552,6 +559,7 @@
       "failed": "Nie udało się zapisać kategorii dla tego nadawcy"
     },
     "changeLayout": "Zmień układ",
+    "layout": "Układ",
     "layouts": {
       "focused": {
         "label": "Skupiony",
@@ -576,7 +584,8 @@
     },
     "snoozedUntil": "Odłożone do {{when}}",
     "snoozedEmpty": "Nic nie jest odłożone",
-    "snoozedEmptyDesc": "Odłożone wiadomości czekają tutaj, aż wrócą."
+    "snoozedEmptyDesc": "Odłożone wiadomości czekają tutaj, aż wrócą.",
+    "menu": "Menu"
   },
   "lockScreen": {
     "subtitle": "Wpisz swój PIN aby odblokować",
@@ -608,6 +617,8 @@
       "markAllRead": "Oznacz wszystkie jako przeczytane",
       "syncFolder": "Synchronizuj folder",
       "renameFavorite": "Zmień nazwę ulubionego folderu",
+      "favorite": "Dodaj do ulubionych",
+      "unfavorite": "Usuń z ulubionych",
       "rename": "Zmień nazwę",
       "createSubfolder": "Utwórz podfolder",
       "hide": "Ukryj folder",
@@ -640,7 +651,9 @@
     "snoozed": "Odłożone",
     "scheduled": "Zaplanowane",
     "scheduledPending": "Czeka na wysłanie: {{n}}",
-    "scheduledAttention": "Wymaga uwagi: {{n}}"
+    "scheduledAttention": "Wymaga uwagi: {{n}}",
+    "favorites": "Ulubione",
+    "reorderFolder": "Przeciągnij, aby zmienić kolejność folderu"
   },
   "scheduled": {
     "refresh": "Odśwież",
@@ -760,6 +773,7 @@
       "undoExpired": "Za późno na cofnięcie: wiadomość jest już wysyłana.",
       "notFound": "Ta zaplanowana wiadomość już nie istnieje.",
       "sending": "Właśnie teraz jest wysyłana.",
+      "aboutToSend": "Za chwilę zostanie wysłana.",
       "sent": "Została już wysłana.",
       "cancelled": "Została usunięta.",
       "editing": "Jest otwarta do edycji w innym oknie.",

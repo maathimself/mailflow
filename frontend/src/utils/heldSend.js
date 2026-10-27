@@ -21,6 +21,14 @@ export function undoWindowMs(remainingMs) {
   return Number.isFinite(remainingMs) ? Math.max(0, Math.min(full, remainingMs)) : full;
 }
 
+// What a failed send says: a refusal the server names by code in the user's language (the
+// mailbox may not send over SMTP, outgoingMail.js publicSendCode), anything else in the server's
+// words. `err` is the API error or a held send's status ({ code, error }).
+export function sendErrorText(err, t) {
+  if (err?.code === 'smtp_auth_disabled') return t('compose.smtpAuthDisabled');
+  return err?.message ?? err?.error;
+}
+
 // Opens the composer with `data`. With another message already open it waits for that one to
 // close instead, because the store holds a single composer and replacing its data would mix the
 // two messages. A wait is dropped if the user signs out meanwhile: the message is theirs, not
@@ -83,7 +91,7 @@ export function trackHeldSend({ pendingId, undoMs, subject }, { restore, onSent 
         break;
       case 'failed':
       case 'lost': {
-        const error = status.status === 'lost' ? t('compose.undoSend.lost') : status.error;
+        const error = status.status === 'lost' ? t('compose.undoSend.lost') : sendErrorText(status, t);
         notify({ type: 'error', title: t('compose.undoSend.notSent'), body: reopen(error) });
         break;
       }

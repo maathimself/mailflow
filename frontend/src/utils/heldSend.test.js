@@ -4,7 +4,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   UNDO_SEND_SECONDS, POLL_INTERVAL_MS, GIVE_UP_AFTER_MS,
-  undoWindowMs, reopenCompose, trackHeldSend,
+  undoWindowMs, reopenCompose, trackHeldSend, sendErrorText,
 } from './heldSend.js';
 
 describe('undoWindowMs', () => {
@@ -160,6 +160,12 @@ describe('trackHeldSend', () => {
     assert.equal(h.calls.notes[0].title, 'compose.undoSend.notSent');
   });
 
+  test('a mailbox whose SMTP sending Outlook turned off is said in the user\'s language', async () => {
+    const h = harness({ statuses: [{ status: 'failed', code: 'smtp_auth_disabled', error: 'Outlook doesn\'t allow sending from mail apps for this mailbox.' }] });
+    await h.advance(10_000);
+    assert.deepEqual(h.calls.restored, ['compose.smtpAuthDisabled']);
+  });
+
   test('a send lost to a server restart reopens the message and says why', async () => {
     const h = harness({ statuses: [{ status: 'lost' }] });
     await h.advance(10_000);
@@ -248,5 +254,16 @@ describe('trackHeldSend', () => {
     assert.equal(h.calls.notes[0].title, 'compose.undoSend.undoFailed');
     await h.advance(10_000);
     assert.equal(h.calls.sent.length, 1);
+  });
+});
+
+describe('sendErrorText', () => {
+  const t = key => key;
+  test('says a refusal the server names by code in the user\'s language, anything else in its words', () => {
+    assert.equal(sendErrorText(Object.assign(new Error('Outlook doesn\'t allow it'), { status: 500, code: 'smtp_auth_disabled' }), t), 'compose.smtpAuthDisabled');
+    assert.equal(sendErrorText({ status: 'failed', code: 'smtp_auth_disabled', error: 'x' }, t), 'compose.smtpAuthDisabled');
+    assert.equal(sendErrorText(Object.assign(new Error('Authentication failed. Check your email account credentials.'), { status: 500 }), t),
+      'Authentication failed. Check your email account credentials.');
+    assert.equal(sendErrorText({ status: 'failed', error: 'Message was rejected by the mail server.' }, t), 'Message was rejected by the mail server.');
   });
 });

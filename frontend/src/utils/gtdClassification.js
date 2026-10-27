@@ -86,7 +86,8 @@ export async function classifyWithUndo(messageId, state, {
             pluginId: 'gtd',
             type: 'error',
             title: t('gtd.undoFailed'),
-            body: t(`gtd.state.${state}`),
+            // The label copy holds another message on the server now, so it was left alone.
+            body: err?.changed ? t('gtd.labelChanged') : t(`gtd.state.${state}`),
           });
           return false;
         }
@@ -193,12 +194,14 @@ export async function classifyManyWithUndo(messages, state, { api, store, t }) {
       if (consumed) return false;
       consumed = true;
       let failed = false;
+      let changed = false;
       for (const token of [...undoTokens].reverse()) {
         try {
           await api.gtdUndoClassify(token);
         } catch (err) {
           console.error('GTD classification undo failed:', err);
           failed = true;
+          if (err?.changed) changed = true;
         }
       }
       for (const message of undoMessages) gtdRowChanged(message, metadataSession);
@@ -208,7 +211,7 @@ export async function classifyManyWithUndo(messages, state, { api, store, t }) {
           pluginId: 'gtd',
           type: 'error',
           title: t('gtd.undoFailed'),
-          body: stateLabel,
+          body: changed ? t('gtd.labelChanged') : stateLabel,
         });
       }
       return !failed;

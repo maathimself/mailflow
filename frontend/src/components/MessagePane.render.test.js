@@ -837,7 +837,7 @@ describe('Reply with AI in the toolbar', () => {
     assert.equal(data.subject, 'Re: First');
   });
 
-  // A phone's toolbar has no room for another 44 px button (#650), so there it is in More.
+  // A phone's toolbar only just fits its buttons (#650), so there it is in More.
   test('is in More on a phone', async () => {
     // A phone's pane pages with SwipePager, which waits a frame, and jsdom has none.
     globalThis.requestAnimationFrame ??= cb => setTimeout(() => cb(Date.now()), 0);
