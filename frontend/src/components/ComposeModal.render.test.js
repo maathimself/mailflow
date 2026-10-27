@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { JSDOM } from 'jsdom';
 import { transform } from 'sucrase';
+import { CellSelection, TableMap } from '@tiptap/pm/tables';
 
 registerHooks({
   load(url, context, nextLoad) {
@@ -43,12 +44,17 @@ Object.assign(globalThis, {
   window: dom.window, document: dom.window.document,
   localStorage: dom.window.localStorage, CustomEvent: dom.window.CustomEvent,
   Node: dom.window.Node, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement,
+  requestAnimationFrame: callback => setTimeout(callback, 0),
+  cancelAnimationFrame: id => clearTimeout(id),
   getComputedStyle: dom.window.getComputedStyle, matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
   ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
 dom.window.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+// jsdom has no text layout; editor focus and table insertion ask for range geometry.
+dom.window.Range.prototype.getClientRects = () => [];
+dom.window.Range.prototype.getBoundingClientRect = () => ({ top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 });
 globalThis.__VITE_ENV__ = { MODE: 'test', DEV: false, PROD: true };
 globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({}), text: async () => '' });
 
@@ -66,6 +72,658 @@ const ComposeModal = (await import('./ComposeModal.jsx')).default;
 const GMAIL_DRAFT = '<div dir="ltr">Hi Bob,<div><br></div><div>The contract is attached.</div></div>';
 
 const saved = [];
+
+describe('composer context menu', () => {
+  const clickAction = id => React.act(async () => {
+    const button = document.querySelector(`.composer-context-menu button[data-action="${id}"]`);
+    assert.ok(button, `${id} is available`);
+    button.click();
+  });
+  const openMenu = target => React.act(async () => {
+    target.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 40 }));
+  });
+  const richTarget = () => document.querySelector('.ProseMirror');
+  const select = (editor, from, to) => React.act(async () => { editor.commands.setTextSelection({ from, to }); });
+  const clipboard = value => Object.defineProperty(globalThis.navigator, 'clipboard', { configurable: true, value });
+  const originalClipboard = Object.getOwnPropertyDescriptor(globalThis.navigator, 'clipboard');
+  after(() => {
+    if (originalClipboard) Object.defineProperty(globalThis.navigator, 'clipboard', originalClipboard);
+    else delete globalThis.navigator.clipboard;
+  });
+
+  test('formats the original selection and Normal clears its formatting', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello world</p>' });
+    try {
+      const editor = richTarget().editor;
+      await select(editor, 1, 6);
+      await openMenu(richTarget());
+      assert.equal(document.querySelector('[data-action="ai"]'), null);
+      assert.equal(document.querySelector('[data-action="cut"]').disabled, false);
+      await clickAction('format');
+      await clickAction('bold');
+      assert.match(editor.getHTML(), /<strong>Hello<\/strong> world/);
+      await openMenu(richTarget());
+      await clickAction('format');
+      await clickAction('normal');
+      assert.doesNotMatch(editor.getHTML(), /<strong>/);
+      assert.equal(editor.getText(), 'Hello world');
+    } finally { await close(); }
+  });
+
+  test('superscript, subscript, font size and indentation survive HTML parsing', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello world</p>' });
+    try {
+      const editor = richTarget().editor;
+      await select(editor, 1, 6);
+      for (const action of ['superscript', 'subscript', 'fontIncrease', 'indentIncrease']) {
+        await openMenu(richTarget()); await clickAction('format'); await clickAction(action);
+      }
+      let html = editor.getHTML();
+      assert.match(html, /<sub>/);
+      assert.doesNotMatch(html, /<sup>/);
+      assert.match(html, /font-size: 16px/);
+      assert.match(html, /margin-left: 40px/);
+      await React.act(async () => { editor.commands.setContent(html); });
+      html = editor.getHTML();
+      assert.match(html, /<sub>/);
+      assert.match(html, /margin-left: 40px/);
+      await select(editor, 1, 6);
+      await openMenu(richTarget()); await clickAction('format'); await clickAction('indentDecrease');
+      assert.doesNotMatch(editor.getHTML(), /margin-left: 40px/);
+    } finally { await close(); }
+  });
+
+  test('list, justification and history actions execute editor commands', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello</p>' });
+    try {
+      const editor = richTarget().editor;
+      await select(editor, 1, 6);
+      await openMenu(richTarget()); await clickAction('format'); await clickAction('numbering');
+      assert.match(editor.getHTML(), /<ol>/);
+      await openMenu(richTarget()); await clickAction('justify'); await clickAction('align-center');
+      assert.match(editor.getHTML(), /text-align: center/);
+      await openMenu(richTarget()); await clickAction('undo');
+      assert.doesNotMatch(editor.getHTML(), /text-align: center/);
+      await openMenu(richTarget()); await clickAction('redo');
+      assert.match(editor.getHTML(), /text-align: center/);
+    } finally { await close(); }
+  });
+
+  test('Cut deletes only after copying succeeds', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello world</p>' });
+    try {
+      const editor = richTarget().editor;
+      await select(editor, 1, 6);
+      clipboard({ writeText: async () => { throw new Error('denied'); } });
+      await openMenu(richTarget()); await clickAction('cut');
+      assert.equal(editor.getText(), 'Hello world');
+      const copied = [];
+      clipboard({ writeText: async value => copied.push(value) });
+      await openMenu(richTarget()); await clickAction('cut');
+      assert.deepEqual(copied, ['Hello']);
+      assert.equal(editor.getText(), ' world');
+    } finally { await close(); }
+  });
+
+  test('Paste as Text and Paste as Quote keep markup literal', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Original</p>' });
+    try {
+      const editor = richTarget().editor;
+      clipboard({ readText: async () => '<b>Literal</b>\nSecond line' });
+      await select(editor, 1, 9);
+      await openMenu(richTarget()); await clickAction('pasteText');
+      assert.equal(editor.getText({ blockSeparator: '\n' }), '<b>Literal</b>\nSecond line');
+      assert.doesNotMatch(editor.getHTML(), /<b>|<strong>/);
+      await React.act(async () => { editor.commands.selectAll(); });
+      await openMenu(richTarget()); await clickAction('pasteQuote');
+      assert.match(editor.getHTML(), /<blockquote>/);
+      assert.match(editor.getHTML(), /&lt;b&gt;Literal&lt;\/b&gt;/);
+    } finally { await close(); }
+  });
+
+  test('Copy preserves rich formatting when the clipboard supports HTML', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p><strong>Hello</strong> world</p>' });
+    const originalItem = Object.getOwnPropertyDescriptor(globalThis, 'ClipboardItem');
+    try {
+      Object.defineProperty(globalThis, 'ClipboardItem', { configurable: true, value: class {
+        constructor(data) { this.data = data; }
+      } });
+      const copied = [];
+      clipboard({ write: async values => copied.push(...values) });
+      await select(richTarget().editor, 1, 6);
+      await openMenu(richTarget()); await clickAction('copy');
+      assert.equal(await copied[0].data['text/plain'].text(), 'Hello');
+      assert.match(await copied[0].data['text/html'].text(), /<strong>Hello<\/strong>/);
+      assert.equal(richTarget().editor.getText(), 'Hello world');
+    } finally {
+      if (originalItem) Object.defineProperty(globalThis, 'ClipboardItem', originalItem);
+      else delete globalThis.ClipboardItem;
+      await close();
+    }
+  });
+
+  test('Insert uses the existing file, image and per-message signature controls', async () => {
+    const accounts = useStore.getState().accounts;
+    useStore.setState({ accounts: accounts.map(account => ({ ...account, signature: '<p>My signature</p>', signature_enabled: true })) });
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello</p>' });
+    try {
+      const opened = [];
+      document.querySelector('input[type="file"][multiple]').click = () => opened.push('file');
+      document.querySelector('input[type="file"][accept="image/*"]').click = () => opened.push('image');
+      await openMenu(richTarget()); await clickAction('insert'); await clickAction('file');
+      await openMenu(richTarget()); await clickAction('insert'); await clickAction('image');
+      assert.deepEqual(opened, ['file', 'image']);
+      await openMenu(richTarget()); await clickAction('insert'); await clickAction('signature');
+      assert.equal(document.querySelector('button[aria-label="compose.insertSignature"]').getAttribute('aria-pressed'), 'false');
+    } finally { await close(); useStore.setState({ accounts }); }
+  });
+
+  test('AI appears only when enabled and invokes the existing writing assistant', async () => {
+    const realStatus = api.ai.status;
+    const realChat = api.ai.chat;
+    const requests = [];
+    api.ai.status = async () => ({ enabled: true, features: { compose: true } });
+    api.ai.chat = async messages => { requests.push(messages); return 'Improved'; };
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello</p>' });
+    try {
+      await openMenu(richTarget()); await clickAction('ai'); await clickAction('improve');
+      assert.equal(requests.length, 1);
+      assert.equal(requests[0][1].content, 'Hello');
+      assert.ok([...document.querySelectorAll('button')].some(button => button.textContent === 'compose.toolbar.aiApply'));
+    } finally { await close(); api.ai.status = realStatus; api.ai.chat = realChat; }
+  });
+
+  test('rich paste is sanitized and an outstanding read cannot overwrite later edits', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Original</p>' });
+    try {
+      const editor = richTarget().editor;
+      clipboard({ read: async () => [{ types: ['text/html'], getType: async () => new Blob(['<p><strong>Safe</strong><script>alert(1)</script></p>']) }] });
+      await select(editor, 1, 9);
+      await openMenu(richTarget()); await clickAction('paste');
+      assert.match(editor.getHTML(), /<strong>Safe<\/strong>/);
+      assert.doesNotMatch(editor.getHTML(), /script|alert/);
+      let finish;
+      clipboard({ readText: () => new Promise(resolve => { finish = resolve; }) });
+      await openMenu(richTarget()); await clickAction('pasteText');
+      await React.act(async () => { editor.commands.insertContent('later'); });
+      const later = editor.getHTML();
+      await React.act(async () => { finish('stale clipboard'); });
+      assert.equal(editor.getHTML(), later);
+    } finally { await close(); }
+  });
+
+  test('Insert opens the existing table, link and typography pickers', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello</p>' });
+    try {
+      const editor = richTarget().editor;
+      await select(editor, 1, 6);
+      await openMenu(richTarget()); await clickAction('insert'); await clickAction('table');
+      assert.equal(document.querySelectorAll('.table-insert-grid button').length, 64);
+      await React.act(async () => { document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+      await openMenu(richTarget()); await clickAction('insert'); await clickAction('link');
+      assert.ok(document.querySelector('input[placeholder="https://..."]'));
+      await openMenu(richTarget()); await clickAction('format'); await clickAction('font');
+      assert.ok([...document.querySelectorAll('select')].some(select => [...select.options].some(option => option.textContent === 'compose.toolbar.fontDefault')));
+      assert.deepEqual({ from: editor.state.selection.from, to: editor.state.selection.to }, { from: 1, to: 6 });
+    } finally { await close(); }
+  });
+
+  test('plain-text paste, quote, undo and redo update the actual composer body', async () => {
+    const close = await openDraft({ plaintextEmail: true, body: 'Hello world' });
+    try {
+      const target = document.querySelector('textarea[placeholder="compose.bodyPh"]');
+      target.setSelectionRange(6, 11);
+      clipboard({ readText: async () => 'quoted\ntext' });
+      await openMenu(target);
+      assert.equal(document.querySelector('[data-action="format"]').disabled, true);
+      assert.equal(document.querySelector('[data-action="source"]').disabled, true);
+      await clickAction('pasteQuote');
+      assert.equal(target.value, 'Hello > quoted\n> text');
+      await openMenu(target); await clickAction('undo');
+      assert.equal(target.value, 'Hello world');
+      await openMenu(target); await clickAction('redo');
+      assert.equal(target.value, 'Hello > quoted\n> text');
+      await hideTab();
+      assert.equal(saved.at(-1).body, target.value);
+    } finally { await close(); }
+  });
+
+  test('Source toggles HTML mode and offers text editing without rich formatting', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Original</p>' });
+    try {
+      await openMenu(richTarget()); await clickAction('source');
+      const target = [...document.querySelectorAll('textarea')].find(el => el.value.includes('<p>Original</p>'));
+      assert.ok(target);
+      await openMenu(target);
+      assert.equal(document.querySelector('[data-action="format"]').disabled, true);
+      assert.equal(document.querySelector('[data-action="source"]').getAttribute('aria-checked'), 'true');
+      await clickAction('selectAll');
+      assert.equal(target.selectionEnd, target.value.length);
+      clipboard({ readText: async () => '<p>Updated</p>' });
+      await openMenu(target); await clickAction('pasteText');
+      assert.equal(target.value, '<p>Updated</p>');
+      await openMenu(target); await clickAction('source');
+      assert.equal(richTarget().editor.getText(), 'Updated');
+    } finally { await close(); }
+  });
+
+  test('keyboard submenus, Escape and outside dismissal preserve the draft', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Unchanged</p>' });
+    try {
+      await openMenu(richTarget());
+      const format = document.querySelector('[data-action="format"]');
+      await React.act(async () => { format.focus(); format.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); });
+      assert.equal(document.activeElement.dataset.action, 'font');
+      await React.act(async () => { document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })); });
+      assert.equal(document.activeElement, format);
+      await React.act(async () => { format.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+      assert.equal(document.querySelector('.composer-context-menu'), null);
+      await openMenu(richTarget());
+      await React.act(async () => { document.querySelector('.composer-context-scrim').dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true })); });
+      assert.equal(document.querySelector('.composer-context-menu'), null);
+      await hideTab();
+      assert.equal(saved.length, 0);
+    } finally { await close(); }
+  });
+});
+
+describe('table context menu', () => {
+  const BODY = '<p>Before</p><table border="1" cellpadding="2" cellspacing="0"><tr><td>A</td><td>B</td><td>C</td></tr><tr><td>D</td><td>E</td><td>F</td></tr><tr><td>G</td><td>H</td><td>I</td></tr></table><p>After</p>';
+  const info = editor => {
+    let result;
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === 'table' && !result) result = { node, pos, map: TableMap.get(node) };
+    });
+    return result;
+  };
+  const cell = (editor, row, col) => {
+    const table = info(editor);
+    const offset = table.map.map[row * table.map.width + col];
+    return { node: table.node.nodeAt(offset), pos: table.pos + 1 + offset };
+  };
+  const selectCells = (editor, top, left, bottom = top, right = left) => React.act(async () => {
+    editor.view.dispatch(editor.state.tr.setSelection(CellSelection.create(editor.state.doc, cell(editor, top, left).pos, cell(editor, bottom, right).pos)));
+  });
+  const open = (editor, row = 0, col = 0) => React.act(async () => {
+    const target = editor.view.nodeDOM(cell(editor, row, col).pos);
+    target.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 40 }));
+  });
+  const click = id => React.act(async () => {
+    const button = document.querySelector(`.composer-context-menu [data-action="${id}"]`);
+    assert.ok(button, `${id} exists`);
+    assert.equal(button.disabled, false, `${id} is enabled`);
+    button.click();
+  });
+  const action = async (editor, group, id, row = 0, col = 0) => {
+    await open(editor, row, col); await click('table-menu');
+    if (group) await click(group);
+    await click(id);
+  };
+  const style = node => {
+    const element = document.createElement('td'); element.style.cssText = node.attrs.style || ''; return element.style;
+  };
+  const valid = editor => editor.state.doc.descendants(node => {
+    if (node.type.name === 'table') assert.equal(TableMap.get(node).problems, null, 'the table stays rectangular, including spans');
+  });
+  const field = (label, value) => React.act(async () => {
+    const input = [...document.querySelectorAll('.table-insert-field')].find(el => el.querySelector('span').textContent === label).querySelector('input, select');
+    const prototype = input.tagName === 'SELECT' ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, 'value').set.call(input, value);
+    input.dispatchEvent(new window.Event(input.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
+  });
+
+  test('Table appears immediately below Emoji only when the click is in a table', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await React.act(async () => {
+        editor.commands.setTextSelection(1);
+        editor.view.dom.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      });
+      assert.equal(document.querySelector('[data-action="table-menu"]'), null);
+      await open(editor, 1, 1);
+      const root = document.querySelector('.composer-context-menu');
+      assert.deepEqual([...root.querySelectorAll('button')].slice(0, 2).map(button => button.dataset.action), ['emoji', 'table-menu']);
+      assert.equal(editor.isActive('table'), true);
+    } finally { await close(); }
+  });
+
+  test('re-entering a parent keeps its nested submenu mounted and preserves focus', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 0, 0);
+      await open(editor); await click('table-menu'); await click('table-border');
+      const panels = [...document.querySelectorAll('.composer-context-menu')];
+      assert.equal(panels.length, 3);
+      const leaf = document.querySelector('[data-action="border-inside"]');
+      await React.act(async () => { leaf.focus(); });
+      for (const id of ['table-menu', 'table-border', 'border-inside']) {
+        await React.act(async () => {
+          document.querySelector(`[data-action="${id}"]`).dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true }));
+        });
+        assert.deepEqual([...document.querySelectorAll('.composer-context-menu')], panels, 'hovering the same branch must not remove its child panels');
+        assert.equal(document.activeElement, leaf, 'hover updates must not move keyboard focus');
+      }
+    } finally { await close(); }
+  });
+
+  test('submenus are measured while hidden and open outside the parent panel border', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    const originalObserver = globalThis.ResizeObserver;
+    const initialVisibility = [];
+    globalThis.ResizeObserver = class {
+      observe(element) { if (element.classList.contains('composer-context-menu')) initialVisibility.push(element.style.visibility); }
+      disconnect() {}
+    };
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 0, 0);
+      await open(editor);
+      const panel = document.querySelector('.composer-context-menu');
+      panel.getBoundingClientRect = () => ({ left: 100, right: 332, top: 10, bottom: 400, width: 232, height: 390 });
+      const trigger = document.querySelector('[data-action="table-menu"]');
+      trigger.getBoundingClientRect = () => ({ left: 101, right: 331, top: 50, bottom: 75, width: 230, height: 25 });
+      await React.act(async () => { trigger.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })); });
+      const child = document.querySelectorAll('.composer-context-menu')[1];
+      assert.equal(child.style.left, '332px', 'the submenu clears the parent panel border');
+      assert.equal(child.style.top, '50px');
+      assert.equal(child.style.visibility, 'visible');
+      assert.deepEqual(initialVisibility, ['hidden', 'hidden'], 'unpositioned panels must not cover the trigger and generate hover events');
+    } finally { await close(); globalThis.ResizeObserver = originalObserver; }
+  });
+
+  test('shading uses the highlight palette and alignment affects only selected cells', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 0, 0, 1, 1);
+      await open(editor); await click('table-menu'); await click('table-shading');
+      await React.act(async () => { document.querySelector('.composer-context-menu button[title="#ffd43b"]').click(); });
+      assert.equal(editor.state.selection instanceof CellSelection, true);
+      assert.equal(style(cell(editor, 1, 1).node).backgroundColor, 'rgb(255, 212, 59)');
+      assert.equal(style(cell(editor, 2, 2).node).backgroundColor, '');
+      await action(editor, 'table-align', 'cell-align-bottom-right');
+      assert.equal(style(cell(editor, 1, 1).node).verticalAlign, 'bottom');
+      assert.equal(style(cell(editor, 1, 1).node).textAlign, 'right');
+      assert.equal(cell(editor, 1, 1).node.firstChild.attrs.textAlign, 'right');
+      assert.equal(style(cell(editor, 2, 2).node).textAlign, '');
+      const html = editor.getHTML();
+      await React.act(async () => { editor.commands.setContent(html); });
+      assert.equal(style(cell(editor, 1, 1).node).backgroundColor, 'rgb(255, 212, 59)');
+      assert.equal(style(cell(editor, 1, 1).node).verticalAlign, 'bottom');
+      await selectCells(editor, 0, 0, 1, 1);
+      await open(editor); await click('table-menu'); await click('table-shading');
+      assert.notEqual(document.querySelector('.composer-context-menu button[title="#ffd43b"]').style.outline, 'none');
+      await React.act(async () => { document.querySelector('.composer-context-menu button[title="compose.toolbar.removeHighlight"]').click(); });
+      assert.equal(style(cell(editor, 1, 1).node).backgroundColor, '');
+      // Reapply for the draft-serialization assertion below.
+      await open(editor); await click('table-menu'); await click('table-shading');
+      await React.act(async () => { document.querySelector('.composer-context-menu button[title="#ffd43b"]').click(); });
+      await hideTab();
+      assert.match(saved.at(-1).body, /background-color: rgb\(255, 212, 59\)/);
+    } finally { await close(); }
+  });
+
+  test('border presets distinguish perimeter and internal edges and mirror shared borders', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 0, 0, 2, 2);
+      await action(editor, 'table-border', 'border-none');
+      assert.equal(style(cell(editor, 1, 1).node).borderTopWidth, '0px');
+      assert.equal(style(info(editor).node).borderWidth, '0px');
+      await action(editor, 'table-border', 'border-outside');
+      assert.equal(style(cell(editor, 0, 0).node).borderTopWidth, '1px');
+      assert.equal(style(cell(editor, 0, 0).node).borderRightWidth, '0px');
+      await action(editor, 'table-border', 'border-inside');
+      assert.equal(style(cell(editor, 0, 0).node).borderTopWidth, '0px');
+      assert.equal(style(cell(editor, 0, 0).node).borderRightWidth, '1px');
+      await action(editor, 'table-border', 'border-all');
+      for (const side of ['Top', 'Bottom', 'Left', 'Right']) assert.equal(style(cell(editor, 1, 1).node)[`border${side}Width`], '1px');
+      await selectCells(editor, 0, 0);
+      await action(editor, 'table-border', 'border-bottom');
+      assert.equal(style(cell(editor, 0, 0).node).borderBottomWidth, '0px');
+      assert.equal(style(cell(editor, 1, 0).node).borderTopWidth, '0px');
+      valid(editor);
+    } finally { await close(); }
+  });
+
+  test('row and column insertion and deletion retain a valid table', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      for (const [id, width, height] of [['column-left', 4, 3], ['column-right', 5, 3], ['row-above', 5, 4], ['row-below', 5, 5]]) {
+        await selectCells(editor, 1, 1);
+        await action(editor, 'table-insert', id, 1, 1);
+        assert.equal(info(editor).map.width, width); assert.equal(info(editor).map.height, height);
+        valid(editor);
+      }
+      assert.equal(info(editor).node.textContent, 'ABCDEFGHI');
+      await selectCells(editor, 1, 1);
+      await action(editor, 'table-delete', 'delete-rows', 1, 1);
+      assert.equal(info(editor).map.height, 4);
+      await selectCells(editor, 1, 1);
+      await action(editor, 'table-delete', 'delete-columns', 1, 1);
+      assert.equal(info(editor).map.width, 4); valid(editor);
+      await action(editor, 'table-delete', 'delete-table', 1, 1);
+      assert.equal(info(editor), undefined);
+      assert.equal(editor.state.doc.textContent, 'BeforeAfter');
+    } finally { await close(); }
+  });
+
+  test('single-cell horizontal and vertical splits add local divisions without losing text', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 1, 1);
+      await action(editor, 'table-split-cells', 'split-vertical', 1, 1);
+      assert.equal(info(editor).map.width, 4); assert.equal(info(editor).map.height, 3);
+      assert.equal(cell(editor, 0, 1).node.attrs.colspan, 2); valid(editor);
+      await selectCells(editor, 1, 1);
+      await action(editor, 'table-split-cells', 'split-horizontal', 1, 1);
+      assert.equal(info(editor).map.width, 4); assert.equal(info(editor).map.height, 4);
+      assert.equal(cell(editor, 1, 0).node.attrs.rowspan, 2);
+      assert.equal(info(editor).node.textContent, 'ABCDEFGHI'); valid(editor);
+    } finally { await close(); }
+  });
+
+  test('merged cell splits divide existing spans and retain their contents', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 0, 0, 1, 1);
+      await action(editor, null, 'table-merge');
+      assert.equal(cell(editor, 0, 0).node.attrs.colspan, 2);
+      assert.equal(cell(editor, 0, 0).node.attrs.rowspan, 2);
+      const text = info(editor).node.textContent;
+      await action(editor, 'table-split-cells', 'split-horizontal');
+      assert.equal(info(editor).map.height, 3);
+      assert.equal(cell(editor, 0, 0).node.attrs.rowspan, 1);
+      await action(editor, 'table-split-cells', 'split-vertical');
+      assert.equal(info(editor).map.width, 3);
+      assert.equal(cell(editor, 0, 0).node.attrs.colspan, 1);
+      assert.equal(info(editor).node.textContent, text); valid(editor);
+    } finally { await close(); }
+  });
+
+  test('Split Table preserves spanning cells and all text across the two tables', async () => {
+    const body = '<table><tr><td rowspan="3">A</td><td>B</td></tr><tr><td>C</td></tr><tr><td>D</td></tr></table>';
+    const close = await openDraft({ plaintextEmail: false, body });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 0, 1);
+      await open(editor, 0, 1); await click('table-menu');
+      assert.equal(document.querySelector('[data-action="table-split"]').disabled, true);
+      await selectCells(editor, 1, 1);
+      await action(editor, null, 'table-split', 1, 1);
+      const tables = [];
+      editor.state.doc.forEach(node => { if (node.type.name === 'table') tables.push(node); });
+      assert.equal(tables.length, 2);
+      assert.equal(TableMap.get(tables[0]).height, 1);
+      assert.equal(TableMap.get(tables[1]).height, 2);
+      assert.equal(editor.state.doc.textContent, 'ABCD'); valid(editor);
+    } finally { await close(); }
+  });
+
+  test('Properties opens the existing modal, edits the table and preserves retained contents', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: BODY });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await selectCells(editor, 1, 1);
+      await action(editor, null, 'table-properties', 1, 1);
+      assert.ok(document.querySelector('.table-insert-dialog'));
+      assert.equal(document.querySelector('.table-insert-dialog h3').textContent, 'compose.tableMenu.properties');
+      await field('compose.table.rows', '4'); await field('compose.table.columns', '4');
+      await field('compose.table.cellPadding', '6'); await field('compose.table.border', '2');
+      await field('compose.table.alignment', 'center'); await field('compose.table.widthUnit', 'px');
+      await field('compose.table.width', '480');
+      await React.act(async () => { document.querySelector('.table-insert-submit').click(); });
+      assert.equal(info(editor).map.width, 4); assert.equal(info(editor).map.height, 4);
+      assert.equal(info(editor).node.textContent, 'ABCDEFGHI');
+      assert.equal(style(info(editor).node).width, '480px');
+      assert.equal(style(cell(editor, 1, 1).node).padding, '6px');
+      assert.equal(style(cell(editor, 1, 1).node).borderWidth, '2px');
+      assert.equal(info(editor).node.attrs.align, 'center'); valid(editor);
+      await selectCells(editor, 1, 1);
+      await action(editor, null, 'table-properties', 1, 1);
+      await field('compose.table.rows', '2'); await field('compose.table.columns', '2');
+      await React.act(async () => {
+        document.querySelector('.table-insert-check input').click();
+        document.querySelector('.table-insert-submit').click();
+      });
+      assert.equal(info(editor).map.width, 2); assert.equal(info(editor).map.height, 2);
+      assert.equal(info(editor).node.textContent, 'ABDE');
+      assert.equal(cell(editor, 0, 0).node.type.name, 'tableHeader'); valid(editor);
+      await hideTab();
+      assert.match(saved.at(-1).body, /width: 480px/);
+    } finally { await close(); }
+  });
+});
+
+describe('table insertion', () => {
+  const press = element => React.act(async () => {
+    element.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  });
+  const click = element => React.act(async () => { element.click(); });
+  const openPicker = () => press(document.querySelector('button[title="compose.toolbar.insertTable"]'));
+  const setField = (label, value) => React.act(async () => {
+    const field = [...document.querySelectorAll('.table-insert-field')]
+      .find(el => el.querySelector('span').textContent === label).querySelector('input, select');
+    const prototype = field.tagName === 'SELECT' ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, 'value').set.call(field, value);
+    field.dispatchEvent(new window.Event(field.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
+  });
+  const tableFrom = html => {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    return wrapper.querySelector('table');
+  };
+
+  test('the quick grid highlights the rectangle and inserts at the saved caret', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Before after</p>' });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await React.act(async () => { editor.commands.setTextSelection(8); });
+      await openPicker();
+      const cells = document.querySelectorAll('.table-insert-grid button');
+      assert.equal(cells.length, 64);
+      await React.act(async () => { cells[19].focus(); }); // Four columns by three rows.
+      assert.equal(document.querySelectorAll('.table-insert-grid .is-selected').length, 12);
+      await React.act(async () => { cells[19].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); });
+      assert.equal(document.activeElement, cells[20]);
+      await React.act(async () => { cells[19].focus(); });
+      await click(cells[19]);
+      const table = tableFrom(editor.getHTML());
+      assert.equal(table.rows.length, 3);
+      assert.equal(table.rows[0].cells.length, 4);
+      assert.equal(table.rows[0].cells[0].tagName, 'TH');
+      assert.equal(editor.state.doc.firstChild.textContent, 'Before ');
+      assert.equal(editor.state.doc.lastChild.textContent, 'after');
+      assert.equal(document.querySelector('.table-insert-picker'), null);
+    } finally { await close(); }
+  });
+
+  test('custom presentation survives HTML round trips and draft saves', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Draft</p>' });
+    try {
+      await openPicker();
+      await click(document.querySelector('.table-insert-action'));
+      assert.ok(document.querySelector('[role="dialog"]'));
+      assert.equal(document.activeElement, document.querySelector('.table-insert-dialog input'));
+      await React.act(async () => {
+        document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+      });
+      assert.equal(document.activeElement, document.querySelector('.table-insert-submit'));
+      await setField('compose.table.rows', '4');
+      await setField('compose.table.columns', '2');
+      await setField('compose.table.cellPadding', '6');
+      await setField('compose.table.cellSpacing', '4');
+      await setField('compose.table.border', '0');
+      await setField('compose.table.alignment', 'right');
+      await setField('compose.table.widthUnit', 'px');
+      await setField('compose.table.width', '498');
+      await click(document.querySelector('.table-insert-check input'));
+      await React.act(async () => {
+        document.querySelector('.table-insert-dialog').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+      });
+      const editor = document.querySelector('.ProseMirror').editor;
+      const assertTable = html => {
+        const table = tableFrom(html);
+        assert.equal(table.rows.length, 4);
+        assert.equal(table.rows[0].cells.length, 2);
+        assert.equal(table.querySelector('th'), null);
+        assert.equal(table.getAttribute('width'), '498');
+        assert.equal(table.style.width, '498px');
+        assert.equal(table.style.borderCollapse, 'separate');
+        assert.equal(table.style.borderSpacing, '4px');
+        assert.equal(table.getAttribute('align'), 'right');
+        assert.equal(table.style.marginLeft, 'auto');
+        assert.equal(table.getAttribute('cellpadding'), '6');
+        assert.equal(table.getAttribute('cellspacing'), '4');
+        assert.equal(table.getAttribute('border'), '0');
+        assert.equal(table.rows[0].cells[0].style.borderWidth, '0px');
+        assert.equal(table.rows[0].cells[0].style.padding, '6px');
+      };
+      assertTable(editor.getHTML());
+      await React.act(async () => { editor.commands.setContent(editor.getHTML()); });
+      assertTable(editor.getHTML());
+      await hideTab();
+      assertTable(saved.at(-1).body);
+    } finally { await close(); }
+  });
+
+  test('cancel and Escape leave the message unchanged', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Unchanged</p>' });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      const original = editor.getHTML();
+      await openPicker();
+      await click(document.querySelector('.table-insert-action'));
+      await click(document.querySelector('.table-insert-footer button'));
+      assert.equal(editor.getHTML(), original);
+      await openPicker();
+      await React.act(async () => {
+        document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      });
+      assert.equal(document.querySelector('.table-insert-picker'), null);
+      assert.equal(editor.getHTML(), original);
+      await hideTab();
+      assert.equal(saved.length, 0);
+    } finally { await close(); }
+  });
+
+  test('the picker still offers removal from inside an existing table', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: '<table><tr><td>Existing cell</td></tr></table>' });
+    try {
+      const editor = document.querySelector('.ProseMirror').editor;
+      await React.act(async () => { editor.commands.setTextSelection(4); });
+      await openPicker();
+      await click(document.querySelector('.table-insert-remove'));
+      assert.equal(tableFrom(editor.getHTML()), null);
+    } finally { await close(); }
+  });
+});
 
 // Autosave also runs when the tab is hidden, without waiting for the idle timer, which makes
 // it the deterministic way to ask the composer "would you save now?".

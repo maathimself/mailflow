@@ -328,6 +328,141 @@ body, #root {
 }
 
 /* Tables in compose */
+.composer-context-scrim { position: fixed; inset: 0; z-index: 11999; }
+.composer-context-menu {
+  position: fixed;
+  z-index: 12000;
+  width: 232px;
+  max-width: calc(100vw - 8px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 5px 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-modal);
+}
+.composer-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.composer-context-menu button:hover, .composer-context-menu button:focus-visible { background: var(--bg-hover); outline: none; }
+.composer-context-menu button:disabled { color: var(--text-tertiary); opacity: .55; cursor: default; background: none; }
+.composer-context-check { width: 14px; flex-shrink: 0; color: var(--accent); }
+.composer-context-arrow { margin-left: auto; font-size: 17px; line-height: 1; color: var(--text-secondary); }
+.composer-context-separator { height: 1px; background: var(--border-subtle); margin: 4px 0; }
+.composer-context-emoji { position: fixed; z-index: 12000; }
+.table-insert-picker {
+  position: fixed;
+  z-index: 9900;
+  width: 234px;
+  max-width: calc(100vw - 8px);
+  max-height: calc(100vh - 8px);
+  overflow: auto;
+  box-sizing: border-box;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: var(--shadow-popover);
+}
+.table-insert-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; }
+.table-insert-grid button {
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 1px;
+  background: var(--bg-primary);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.table-insert-grid button.is-selected { background: var(--accent-dim); border-color: var(--accent); }
+.table-insert-grid button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.table-insert-size { text-align: center; color: var(--text-secondary); font-size: 12px; padding: 9px 0; }
+.table-insert-action {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  background: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+}
+.table-insert-action:hover { background: var(--bg-hover); }
+.table-insert-remove { color: var(--red); }
+.table-insert-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, .4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.table-insert-dialog {
+  width: 480px;
+  max-width: 100%;
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 20px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-popover);
+  font-size: 13px;
+}
+.table-insert-dialog h3 { margin: 0 0 20px; font-size: 16px; }
+.table-insert-dialog fieldset { border: 0; margin: 0 0 20px; padding: 0; min-width: 0; }
+.table-insert-dialog legend {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+.table-insert-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+.table-insert-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.table-insert-field input, .table-insert-field select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 7px 8px;
+  font: inherit;
+}
+.table-insert-field input:focus, .table-insert-field select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.table-insert-check { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+.table-insert-check input { accent-color: var(--accent); }
+.table-insert-footer { display: flex; gap: 8px; justify-content: flex-end; }
+.table-insert-footer button {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 8px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+.table-insert-footer .table-insert-submit { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .tiptap-compose .ProseMirror table {
   border-collapse: collapse;
   margin: 0.5em 0;
