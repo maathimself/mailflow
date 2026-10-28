@@ -52,6 +52,7 @@ describe('groupScheduled', () => {
 describe('rowActions', () => {
   test('each state offers what the API allows from it', () => {
     assert.deepEqual(rowActions(row()), ['edit', 'reschedule', 'sendNow', 'cancel', 'delete']);
+    assert.deepEqual(rowActions(row({ status: 'scheduled', sendingNow: true })), ['edit', 'reschedule', 'cancel', 'delete']);
     assert.deepEqual(rowActions(row({ status: 'editing' })), ['edit', 'cancel', 'delete']);
     assert.deepEqual(rowActions(row({ status: 'sending' })), []);
     assert.deepEqual(rowActions(row({ status: 'paused' })), ['edit', 'resume', 'reschedule', 'sendNow', 'cancel', 'delete']);
@@ -92,6 +93,9 @@ describe('reasons and chips', () => {
     };
     for (const [code, key] of Object.entries(failures)) assert.equal(reasonKey(row({ status: 'failed', failureCode: code })), `scheduled.reason.${key}`);
     assert.equal(reasonKey(row({ status: 'failed', failureCode: 'something_new' })), 'scheduled.reason.failed');
+    // A mailbox whose SMTP sending Outlook turned off: the composer's words, what is wrong and what to do.
+    assert.equal(reasonKey(row({ status: 'failed', failureCode: 'smtp_auth_disabled' })), 'compose.smtpAuthDisabled');
+    assert.deepEqual(rowActions(row({ status: 'failed', failureCode: 'smtp_auth_disabled' })), ['edit', 'resume', 'reschedule', 'sendNow', 'cancel', 'delete']);
     assert.equal(reasonKey(row({ status: 'paused', pauseReason: 'later' })), 'scheduled.reason.paused');
     assert.equal(reasonKey(row({ status: 'uncertain', failureCode: 'connection_lost' })), 'scheduled.reason.uncertain');
     assert.equal(reasonKey(row()), null);
@@ -129,6 +133,19 @@ describe('recipients and times', () => {
     assert.equal(plain(formatScheduledTime('2026-10-24T03:00:00Z', { t, locale: 'en-US', now })), 'scheduled.when.yesterday:{"time":"8:00 PM"}');
     assert.equal(plain(formatScheduledTime('2026-10-28T15:00:00Z', { t, locale: 'en-US', now })), 'Wed, Oct 28, 8:00 AM');
     assert.equal(formatScheduledTime(null, { t, now }), '');
+  });
+
+  test('a day that is 23 or 25 hours long still counts as one, at UTC+12 and +13', () => {
+    process.env.TZ = 'Pacific/Auckland';
+    // Sun Sep 27 2026, 10:00 AM: the clocks went forward at 2:00 AM.
+    let now = new Date('2026-09-26T21:00:00Z');
+    assert.equal(plain(formatScheduledTime('2026-09-27T19:00:00Z', { t, locale: 'en-US', now })), 'scheduled.when.tomorrow:{"time":"8:00 AM"}');
+    assert.equal(plain(formatScheduledTime('2026-09-26T23:00:00Z', { t, locale: 'en-US', now })), 'scheduled.when.today:{"time":"12:00 PM"}');
+    assert.equal(plain(formatScheduledTime('2026-09-25T20:00:00Z', { t, locale: 'en-US', now })), 'scheduled.when.yesterday:{"time":"8:00 AM"}');
+    // Sun Apr 5 2026, 10:00 AM: the clocks went back at 3:00 AM.
+    now = new Date('2026-04-04T22:00:00Z');
+    assert.equal(plain(formatScheduledTime('2026-04-04T07:00:00Z', { t, locale: 'en-US', now })), 'scheduled.when.yesterday:{"time":"8:00 PM"}');
+    assert.equal(plain(formatScheduledTime('2026-04-05T20:00:00Z', { t, locale: 'en-US', now })), 'scheduled.when.tomorrow:{"time":"8:00 AM"}');
   });
 
   test('the zone it was scheduled in shows when it is not this one and reads differently', () => {
@@ -240,7 +257,12 @@ describe('actionErrorText', () => {
     assert.equal(actionErrorText(err(409, { code: 'undo_expired' }), t), 'scheduled.errors.undoExpired');
     assert.equal(actionErrorText(err(409, { code: 'version_conflict' }), t), 'compose.scheduleSend.errors.versionConflict');
     assert.equal(actionErrorText(err(500, { code: 'decrypt_failed' }), t), 'scheduled.reason.decryptFailed');
-    assert.equal(actionErrorText(err(400, { code: 'too_soon' }), t), 'server words', 'no clock note without the server time');
+    assert.equal(actionErrorText(err(400, { code: 'too_soon' }), t), 'compose.scheduleSend.errors.tooSoon', 'no clock note without the server time');
+    assert.equal(actionErrorText(err(409, { code: 'sending_now', state: 'scheduled' }), t), 'scheduled.errors.aboutToSend');
+    for (const [code, key] of [
+      ['too_many', 'compose.scheduleSend.errors.tooMany'], ['too_much_storage', 'compose.scheduleSend.errors.tooMuchStorage'],
+      ['rate_limited', 'compose.scheduleSend.errors.rateLimited'], ['payload_too_large', 'compose.scheduleSend.errors.payloadTooLarge'],
+    ]) assert.equal(actionErrorText(err(422, { code }), t), key);
   });
   test('a state refusal in words, a missing message, and anything else in the server words', () => {
     assert.equal(actionErrorText(err(409, { state: 'sending' }), t), 'scheduled.errors.sending');
@@ -249,7 +271,7 @@ describe('actionErrorText', () => {
     assert.equal(actionErrorText(err(409, { state: 'editing' }), t), 'scheduled.errors.editing');
     assert.equal(actionErrorText(err(409, { state: 'paused' }), t), 'server words');
     assert.equal(actionErrorText(err(404), t), 'scheduled.errors.notFound');
-    assert.equal(actionErrorText(err(422, { code: 'too_many' }, 'You can have at most 100'), t), 'You can have at most 100');
+    assert.equal(actionErrorText(err(400, {}, 'Total attachment size exceeds 25 MB'), t), 'Total attachment size exceeds 25 MB');
     assert.equal(actionErrorText(err(500, {}, ''), t), 'scheduled.errors.failed');
   });
 });

@@ -190,6 +190,13 @@
       "aiDismiss": "Ignora",
       "aiGenerating": "Generazione in corso…",
       "aiError": "Errore IA: {{message}}",
+      "aiReply": "Rispondi con l'IA",
+      "aiReplyPlaceholder": "Cosa deve dire la risposta? Es.: approva la grafica",
+      "aiReplyInstruction": "Istruzione per la risposta dell'IA",
+      "aiReplyGenerate": "Genera",
+      "aiReplyReading": "Lettura della conversazione…",
+      "aiReplyPartial": "Basata sulla parte più recente della conversazione: il resto era troppo lungo da inviare all'IA.",
+      "aiReplyLeftOut": "Basata sui {{count}} messaggi più recenti della conversazione: i più vecchi sono stati esclusi.",
       "aiTooLong": "questa bozza ha {{count}} caratteri, più dei {{max}} che l'IA può gestire. Accorciala o rimuovi il testo citato, poi riprova.",
       "aiNotAllowed": "il tuo amministratore ha disattivato l'IA per il tuo account.",
       "aiFeatureOff": "il tuo amministratore ha disattivato l'assistente di redazione IA."
@@ -226,10 +233,16 @@
         "clockBehind": "L'orologio di questo dispositivo è indietro di {{minutes}} min rispetto a quello del server, secondo cui sono le {{time}}.",
         "clockAhead": "L'orologio di questo dispositivo è avanti di {{minutes}} min rispetto a quello del server, secondo cui sono le {{time}}.",
         "holdLost": "Questo messaggio è stato aperto in un'altra finestra e non può più essere salvato qui. Il tuo testo resta qui da copiare.",
+        "deletedElsewhere": "Questo messaggio è stato eliminato altrove, quindi non può più essere salvato qui. Il tuo testo è ancora qui da copiare.",
+        "sentElsewhere": "Questo messaggio è stato inviato da un'altra finestra, quindi non può più essere salvato qui. Il tuo testo è ancora qui da copiare.",
         "versionConflict": "Questo messaggio è stato modificato altrove. Chiudilo e riaprilo da Programmati per vedere la versione più recente.",
         "notHeld": "Questo messaggio non è aperto per la modifica qui. Chiudilo e riaprilo da Programmati.",
         "pickNewTime": "L'orario programmato è passato. Scegline uno nuovo.",
         "failed": "Impossibile programmare il messaggio.",
+        "tooMany": "Hai già il numero massimo di messaggi programmati. Inviane o eliminane prima qualcuno.",
+        "tooMuchStorage": "I tuoi messaggi programmati occupano già tutto lo spazio disponibile. Inviane o eliminane prima qualcuno.",
+        "rateLimited": "Troppi messaggi programmati in poco tempo. Riprova tra un minuto.",
+        "payloadTooLarge": "Questo messaggio è troppo grande per essere programmato: testo e immagini incorporate occupano troppo spazio.",
         "heldElsewhere": "Questo messaggio è aperto in un'altra finestra."
       },
       "edit": {
@@ -268,7 +281,8 @@
       "scheduleAnyway": "Programma lo stesso",
       "undoFailedOpen": "Annullamento non riuscito. Aprilo da Programmati."
     },
-    "selectAccount": "Scegli un account da cui inviare"
+    "selectAccount": "Scegli un account da cui inviare",
+    "smtpAuthDisabled": "Microsoft ha disattivato l'invio dalle app di posta (SMTP) per questo account. Puoi comunque inviare da Outlook sul web. Per un account aziendale o scolastico, l'amministratore può riattivarlo."
   },
   "message": {
     "find": {
@@ -531,6 +545,7 @@
       "failed": "Impossibile salvare la categoria per questo mittente"
     },
     "changeLayout": "Cambia disposizione",
+    "layout": "Layout",
     "layouts": {
       "focused": {
         "label": "Concentrato",
@@ -555,7 +570,8 @@
     },
     "snoozedUntil": "Posticipato fino a {{when}}",
     "snoozedEmpty": "Niente posticipato",
-    "snoozedEmptyDesc": "Le email posticipate aspettano qui finché non tornano."
+    "snoozedEmptyDesc": "Le email posticipate aspettano qui finché non tornano.",
+    "menu": "Menu"
   },
   "lockScreen": {
     "subtitle": "Inserisci il PIN per sbloccare",
@@ -585,6 +601,8 @@
       "markAllRead": "Segna tutto come letto",
       "syncFolder": "Sincronizza cartella",
       "renameFavorite": "Rinomina preferito",
+      "favorite": "Aggiungi ai preferiti",
+      "unfavorite": "Rimuovi dai preferiti",
       "rename": "Rinomina",
       "createSubfolder": "Crea sottocartella",
       "hide": "Nascondi cartella",
@@ -617,7 +635,9 @@
     "snoozed": "Posticipati",
     "scheduled": "Programmati",
     "scheduledPending": "In attesa di invio: {{n}}",
-    "scheduledAttention": "Richiedono attenzione: {{n}}"
+    "scheduledAttention": "Richiedono attenzione: {{n}}",
+    "favorites": "Preferiti",
+    "reorderFolder": "Trascina per riordinare la cartella"
   },
   "scheduled": {
     "refresh": "Aggiorna",
@@ -737,6 +757,7 @@
       "undoExpired": "Troppo tardi per annullare: il messaggio sta partendo.",
       "notFound": "Questo messaggio programmato non esiste più.",
       "sending": "È in fase di invio proprio ora.",
+      "aboutToSend": "Sta per essere inviato.",
       "sent": "È già stato inviato.",
       "cancelled": "È stato eliminato.",
       "editing": "È aperto in modifica in un'altra finestra.",

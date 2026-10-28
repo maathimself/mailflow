@@ -46,11 +46,11 @@ import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
 import { parseVCard } from './utils/vcard.js';
 import { reloadAuthSettings } from './services/authLimiter.js';
-import { createWebSocketServer, setupWebSocket } from './services/websocket.js';
+import { closeWebSocketClients, createWebSocketServer, setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
 import { getUpdateStatus } from './services/updateCheck.js';
 import { recordHttp } from './services/performanceMetrics.js';
-import { flushSendsForShutdown } from './services/sendShutdown.js';
+import { shutDown } from './services/sendShutdown.js';
 import { startScheduledSender } from './services/scheduledSend.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
@@ -310,19 +310,16 @@ httpServer.listen(PORT, () => {
   console.log(`MailFlow backend running on port ${PORT}`);
 });
 
-function exitAfterClose(code) {
-  // A send held for its undo window lives only in this process: deliver it now rather than
-  // lose it with the restart (services/sendHold.js). The scheduled sender stops claiming and
-  // its sends in flight finish in the same wait. Bounded to leave room for the rest, inside the
-  // 30 s stop_grace_period the compose files give the backend.
-  const sendsFlushed = flushSendsForShutdown(25_000);
-  httpServer.close(async () => {
-    await sendsFlushed;
-    try { await redisClient.quit(); } catch { /* ignore */ }
-    process.exit(code);
+function exitAfterClose(code, { wsCode = 1001, wsReason = 'Shutting down' } = {}) {
+  // A send held for its undo window lives only in this process: it is delivered now rather than
+  // lost with the restart, and the scheduled sender's sends in flight finish (sendShutdown.js).
+  shutDown({
+    code,
+    httpServer,
+    closeClients: () => closeWebSocketClients(wss, wsCode, wsReason),
+    quit: () => redisClient.quit(),
+    exit: c => process.exit(c),
   });
-  // Force exit if graceful shutdown takes more than 28 s
-  setTimeout(() => process.exit(code || 1), 28_000).unref();
 }
 
 process.on('SIGTERM', () => {
@@ -336,8 +333,7 @@ process.on('SIGTERM', () => {
 // either way.
 export function restartAfterRestore() {
   console.log('Restore complete — restarting so every connection and cache starts from the restored data');
-  wss.clients.forEach(ws => ws.close(1012, 'Restarting'));
-  exitAfterClose(3);
+  exitAfterClose(3, { wsCode: 1012, wsReason: 'Restarting' });
 }
 
 process.on('unhandledRejection', (reason) => {

@@ -1,8 +1,54 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { UNDO_WINDOW_MS } from '../utils/undoableAction.js';
+
+// Kept off screen but readable, for the live regions.
+const offScreen = {
+  position: 'absolute', width: 1, height: 1, margin: -1, padding: 0, border: 0,
+  overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap',
+};
+// How many recent notifications a live region keeps; older ones leave it unannounced.
+const ANNOUNCED_KEPT = 3;
+
+// What a screen reader hears of a notification: its title, and its body when that is text.
+export const announcement = n => [n.title, typeof n.body === 'string' ? n.body : null]
+  .filter(text => typeof text === 'string' && text.trim()).join('. ');
+
+// Each new notification is said once (design 5.4): an error through role="alert", anything else
+// through role="status". Both regions are in the page from the start, as live regions must be
+// for what is added to them to be announced, and each notification is added as its own element,
+// so the same words twice are said twice. The toasts, action bars and Undo bars are not live
+// regions themselves, so nothing is read twice, and an Undo bar a list draws is heard too.
+function Announcer({ notifications }) {
+  const seenRef = useRef(new Set());
+  const [said, setSaid] = useState({ status: [], alert: [] });
+  useEffect(() => {
+    const seen = seenRef.current;
+    // Oldest first: the store keeps the newest at the front.
+    const fresh = notifications.filter(n => !seen.has(n.id)).reverse();
+    for (const id of [...seen]) if (!notifications.some(n => n.id === id)) seen.delete(id);
+    if (!fresh.length) return;
+    for (const n of fresh) seen.add(n.id);
+    const add = (list, items) => [...list, ...items].slice(-ANNOUNCED_KEPT);
+    const entry = n => ({ id: n.id, text: announcement(n) });
+    setSaid(prev => ({
+      status: add(prev.status, fresh.filter(n => n.type !== 'error').map(entry)),
+      alert: add(prev.alert, fresh.filter(n => n.type === 'error').map(entry)),
+    }));
+  }, [notifications]);
+  return (
+    <>
+      <div role="status" aria-live="polite" data-announce="status" style={offScreen}>
+        {said.status.map(e => <div key={e.id}>{e.text}</div>)}
+      </div>
+      <div role="alert" aria-live="assertive" data-announce="alert" style={offScreen}>
+        {said.alert.map(e => <div key={e.id}>{e.text}</div>)}
+      </div>
+    </>
+  );
+}
 
 export default function NotificationToasts() {
   const { notifications, removeNotification } = useStore();
@@ -11,39 +57,40 @@ export default function NotificationToasts() {
   const undoable = notifications.filter(n => n.onUndo);
   const regular  = notifications.filter(n => !n.onUndo);
 
-  if (isMobile) {
-    return (
-      <div style={{
-        position: 'fixed',
-        bottom: 'calc(var(--sab) + 20px)',
-        left: 16,
-        right: 92,
-        display: 'flex', flexDirection: 'column-reverse', gap: 8,
-        zIndex: 3000, pointerEvents: 'none',
-      }}>
-        {/* Action bars render first → appear at bottom (thumb-reachable) */}
-        {undoable.map(n => (
-          <ActionBar key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} isMobile />
-        ))}
-        {regular.map(n => (
-          <Toast key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} isMobile />
-        ))}
-      </div>
-    );
-  }
-
   return (
-    <div style={{
-      position: 'fixed',
-      bottom: 24, right: 24,
-      display: 'flex', flexDirection: 'column-reverse', gap: 8,
-      zIndex: 3000, pointerEvents: 'none',
-      alignItems: 'flex-end',
-    }}>
-      {regular.map(n => (
-        <Toast key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} isMobile={false} />
-      ))}
-    </div>
+    <>
+      <Announcer notifications={notifications} />
+      {isMobile ? (
+        <div style={{
+          position: 'fixed',
+          bottom: 'calc(var(--sab) + 20px)',
+          left: 16,
+          right: 92,
+          display: 'flex', flexDirection: 'column-reverse', gap: 8,
+          zIndex: 3000, pointerEvents: 'none',
+        }}>
+          {/* Action bars render first → appear at bottom (thumb-reachable) */}
+          {undoable.map(n => (
+            <ActionBar key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} isMobile />
+          ))}
+          {regular.map(n => (
+            <Toast key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} isMobile />
+          ))}
+        </div>
+      ) : (
+        <div style={{
+          position: 'fixed',
+          bottom: 24, right: 24,
+          display: 'flex', flexDirection: 'column-reverse', gap: 8,
+          zIndex: 3000, pointerEvents: 'none',
+          alignItems: 'flex-end',
+        }}>
+          {regular.map(n => (
+            <Toast key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} isMobile={false} />
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 

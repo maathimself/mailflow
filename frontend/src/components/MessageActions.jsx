@@ -67,6 +67,12 @@ export const AiIcon = () => (
     <path d="M5 3v4M19 17v4M3 5h4M17 19h4"/>
   </svg>
 );
+// Reply with AI: the AI menu's sparkle, alone, so the two buttons side by side tell apart.
+export const AiReplyIcon = () => (
+  <svg {...svg} strokeLinecap="round" strokeLinejoin="round">
+    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+  </svg>
+);
 export const MoreIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
     <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
@@ -130,8 +136,20 @@ export function useShortcutTitle() {
   };
 }
 
-// On a phone every button is at least 44 px square, the touch target iOS and Android ask for.
+// On a phone every button is 44 px square, the touch target iOS and Android ask for, where the
+// row has room. Where it has not (a narrow phone with a larger font size, which MailApp applies as
+// a scale) the buttons of a row give way down to TOUCH_MIN, rather than push the last ones off
+// screen: at 130% that is still about 42 px on the glass. A button inside a wrapper (Move, More,
+// the reply split) gives way only if the wrapper does: its own automatic minimum would count the
+// button's 44 px width, so a wrapper says its minimum outright (TOUCH_MIN, or the split's two).
+// Their padding is narrow enough that the icon fits at the minimum.
 export const TOUCH_TARGET = 44;
+export const TOUCH_MIN = 32;
+const CHEVRON_MIN = 22;
+export const REPLY_SPLIT_MIN = TOUCH_MIN + CHEVRON_MIN;
+const touchSize = {
+  width: TOUCH_TARGET, minWidth: TOUCH_MIN, minHeight: TOUCH_TARGET, flexShrink: 1, padding: '6px 4px', boxSizing: 'border-box',
+};
 
 // An icon button. `label` is its accessible name, `title` its tooltip, which may add the keyboard
 // shortcut. `disabled` is aria-disabled with the click ignored, not the native attribute, so the
@@ -164,7 +182,7 @@ export function ActionBtn({
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
         transition: 'all 0.1s',
         opacity: disabled ? 0.45 : 1,
-        ...(touch ? { minWidth: TOUCH_TARGET, minHeight: TOUCH_TARGET } : {}),
+        ...(touch ? touchSize : {}),
         ...extraStyle,
       }}
     >
@@ -234,7 +252,7 @@ export function ReplySplitButton({ defaultReplyAll, onReply, title, touch = fals
     ? { label: t('message.reply'), replyAll: false }
     : { label: t('message.replyAll'), replyAll: true };
   return (
-    <div style={{ position: 'relative', display: 'flex' }}>
+    <div style={{ position: 'relative', display: 'flex', ...(touch ? { minWidth: REPLY_SPLIT_MIN } : {}) }}>
       <ActionBtn onClick={() => { setOpen(false); onReply(defaultReplyAll); }} label={label} title={title ?? label} touch={touch} style={{ borderRadius: '6px 0 0 6px' }}>
         {defaultReplyAll ? <ReplyAllIcon /> : <ReplyIcon />}
       </ActionBtn>
@@ -252,7 +270,7 @@ export function ReplySplitButton({ defaultReplyAll, onReply, title, touch = fals
           borderRadius: '0 6px 6px 0', padding: '5px 6px',
           color: 'var(--text-secondary)', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          ...(touch ? { minWidth: 28, minHeight: TOUCH_TARGET } : {}),
+          ...(touch ? { width: 28, minWidth: CHEVRON_MIN, minHeight: TOUCH_TARGET, flexShrink: 1, padding: '5px 2px', boxSizing: 'border-box' } : {}),
         }}
         onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
         onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
@@ -345,8 +363,8 @@ function AiMenuButton({ ai, touch }) {
 }
 
 // The phone More menu's order, the reading pane's since before the views shared these buttons: the
-// read toggle first, as the action reached for most.
-export const MORE_MENU_ORDER = ['read', 'spam', 'ham', 'todoist', 'headers', 'print', 'dark', 'eml'];
+// read toggle first, as the action reached for most. Reply with AI is a toolbar button on a desktop.
+export const MORE_MENU_ORDER = ['read', 'aiReply', 'spam', 'ham', 'todoist', 'headers', 'print', 'dark', 'eml'];
 
 // The message's tools: buttons on a desktop, a More menu on a phone, where the toolbar has no room.
 //
@@ -380,7 +398,8 @@ export function MessageTools({ isMobile, items, ai = null }) {
     ...aiItems.map(a => ({ key: `ai-${a.id}`, label: a.label, icon: <AiIcon />, run: () => ai.onRun(a) })),
   ];
   return (
-    <div style={{ position: 'relative' }}>
+    // A flex box, so the button in it can give way as the row's own buttons do.
+    <div style={{ position: 'relative', display: 'flex', minWidth: TOUCH_MIN }}>
       <ActionBtn btnRef={triggerRef} onClick={() => setOpen(v => !v)} label={t('message.more')} touch popup expanded={open}>
         <MoreIcon />
       </ActionBtn>

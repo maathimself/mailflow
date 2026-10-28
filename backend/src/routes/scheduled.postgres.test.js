@@ -201,6 +201,13 @@ describe.skipIf(!ADMIN_URL)('scheduled messages API on PostgreSQL (#543)', () =>
       expect((await call('POST', '', draftBody())).status).toBe(201);
     });
 
+    it('counts a message being sent as pending', async () => {
+      const ids = [];
+      for (let i = 0; i < 100; i++) ids.push(await create());
+      await h.pool.query("UPDATE scheduled_messages SET status = 'sending', claim_token = $2, claimed_at = NOW() WHERE id = $1", [ids[0], randomUUID()]);
+      expect((await call('POST', '', draftBody())).body.code).toBe('too_many');
+    });
+
     it('holds the limit under concurrent creates, by the lock on the user\'s row', async () => {
       for (let i = 0; i < 98; i++) await create();
       const results = await Promise.all(Array.from({ length: 6 }, () => call('POST', '', draftBody())));
@@ -579,12 +586,182 @@ describe.skipIf(!ADMIN_URL)('scheduled messages API on PostgreSQL (#543)', () =>
       await tickSender();
       expect(await rowOf(id)).toMatchObject({ status: 'paused', claim_token: null, smtp_started_at: null, sent_at: null });
 
-      // The plain Send now of a scheduled message whose time passes before the Undo, the same.
+      // A scheduled message that is due and not held goes out anyway: Send now is refused, so
+      // no Undo is offered that would only push it back.
       const plain = await create();
       await set(plain, { send_at: past, due_at: past });
-      const sent = await call('POST', `/${plain}/send-now`, {});
-      expect((await call('POST', `/${plain}/send-now/undo`, { undoToken: sent.body.undoToken })).body.status).toBe('paused');
-      expect(await rowOf(plain)).toMatchObject({ status: 'paused', pause_reason: 'user' });
+      expect(await call('POST', `/${plain}/send-now`, {})).toMatchObject({ status: 409, body: { code: 'sending_now', status: 'scheduled' } });
+      expect(await rowOf(plain)).toMatchObject({ status: 'scheduled', send_at: past, due_at: past });
+    });
+
+    it('refuses a second Send now in the first one\'s window, so the first Undo still puts back what it was', async () => {
+      const id = await create();
+      await set(id, { status: 'paused', pause_reason: 'user', attempts: 1 });
+      const before = await rowOf(id);
+      const first = await call('POST', `/${id}/send-now`, {});
+      expect(first.status).toBe(200);
+      const list = await call('GET', '');
+      expect(list.body.messages.find(m => m.id === id)).toMatchObject({ status: 'scheduled', sendingNow: true });
+      imapManager.broadcast.mockClear();
+      expect(await call('POST', `/${id}/send-now`, {})).toMatchObject({ status: 409, body: { code: 'sending_now', status: 'scheduled' } });
+      expect(broadcasts()).toEqual([]);
+      expect((await call('POST', `/${id}/send-now/undo`, { undoToken: first.body.undoToken })).status).toBe(200);
+      expect(await rowOf(id)).toMatchObject({ status: 'paused', pause_reason: 'user', attempts: 1, send_at: before.send_at, due_at: before.due_at });
+      // Back as it was, it can be sent now again, and a message not yet due is not flagged.
+      expect((await call('GET', '')).body.messages.find(m => m.id === id).sendingNow).toBe(false);
+      expect((await call('POST', `/${id}/send-now`, {})).status).toBe(200);
+    });
+
+    it('sends now a held message due in the next seconds: the sender cannot take it while held', async () => {
+      const id = await create();
+      await h.pool.query("UPDATE scheduled_messages SET send_at = NOW() + INTERVAL '5 seconds', due_at = NOW() + INTERVAL '5 seconds' WHERE id = $1", [id]);
+      let { body: { editToken } } = await call('POST', `/${id}/hold`, {});
+      expect((await call('POST', `/${id}/send-now`, { editToken })).status).toBe(200);
+      const other = await create();
+      await h.pool.query("UPDATE scheduled_messages SET send_at = NOW() + INTERVAL '5 seconds', due_at = NOW() + INTERVAL '5 seconds' WHERE id = $1", [other]);
+      ({ body: { editToken } } = await call('POST', `/${other}/hold`, {}));
+      expect((await call('PUT', `/${other}`, { ...draftBody(), sendNow: true, editToken, version: 1 })).status).toBe(200);
+    });
+
+    it('measures Send now\'s window by the clock when it has the row, not when its transaction began', async () => {
+      const id = await create();
+      await h.pool.query("UPDATE scheduled_messages SET send_at = clock_timestamp() + INTERVAL '10200 milliseconds', due_at = clock_timestamp() + INTERVAL '10200 milliseconds' WHERE id = $1", [id]);
+      // Its transaction begins at once, and reaches the row 400 ms later, as one that waited for
+      // another Send now's lock would.
+      const real = h.pool.connect;
+      h.pool.connect = async () => {
+        const client = await real.call(h.pool);
+        const query = client.query.bind(client);
+        const release = client.release.bind(client);
+        client.query = async (...args) => {
+          const result = await query(...args);
+          if (args[0] === 'BEGIN') await new Promise(resolve => setTimeout(resolve, 400));
+          return result;
+        };
+        client.release = (...args) => { client.query = query; client.release = release; return release(...args); };
+        return client;
+      };
+      try {
+        expect((await call('POST', `/${id}/send-now`, {})).body).toMatchObject({ code: 'sending_now', error: 'This message is about to be sent.' });
+      } finally {
+        h.pool.connect = real;
+      }
+    });
+
+    it('gives Send now its full 10 s from when it runs, after waiting for a lock', async () => {
+      // Another transaction holds `lock` for 2 s, as a concurrent change would.
+      const holding = async (lock, run) => {
+        const other = await h.pool.connect();
+        try {
+          await other.query('BEGIN');
+          await other.query(lock);
+          const answer = run();
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          await other.query('COMMIT');
+          return await answer;
+        } finally {
+          other.release();
+        }
+      };
+      const ahead = async id => (await rowOf(id)).send_at.getTime() - Date.now();
+
+      // Send now waits for the message's row.
+      const plain = await create();
+      const sent = await holding(`SELECT id FROM scheduled_messages WHERE id = '${plain}' FOR UPDATE`, () => call('POST', `/${plain}/send-now`, {}));
+      expect(sent.status).toBe(200);
+      expect(await ahead(plain)).toBeGreaterThan(9000);
+
+      // A save that sends now waits for the user's row, the limits' lock.
+      const edited = await create();
+      const { body: { editToken } } = await call('POST', `/${edited}/hold`, {});
+      const saved = await holding(`SELECT id FROM users WHERE id = '${owner.id}' FOR UPDATE`,
+        () => call('PUT', `/${edited}`, { ...draftBody(), sendNow: true, editToken, version: 1 }));
+      expect(saved.status).toBe(200);
+      expect(await ahead(edited)).toBeGreaterThan(9000);
+      const row = await rowOf(edited);
+      expect(row.due_at).toEqual(row.send_at);
+    });
+
+    it('a save with sendNow sends the edit now, and its Undo puts back the message as before the hold', async () => {
+      const past = new Date(Date.now() - 60_000);
+      for (const [fields, back] of [
+        [{ status: 'paused', pause_reason: 'restored' }, { status: 'paused', pause_reason: 'restored' }],
+        [{ status: 'failed', failure_code: 'smtp_rejected', attempts: 2 }, { status: 'failed', failure_code: 'smtp_rejected', attempts: 2 }],
+        [{ send_at: past, due_at: past }, { status: 'paused', pause_reason: 'user' }],
+        [{ status: 'uncertain', failure_code: 'connection_lost', smtp_started_at: past }, { status: 'uncertain', failure_code: 'connection_lost', smtp_started_at: past }],
+      ]) {
+        const id = await create();
+        await set(id, fields);
+        const before = await rowOf(id);
+        const { body: { editToken } } = await call('POST', `/${id}/hold`, {});
+        const confirm = fields.pause_reason === 'restored' || fields.status === 'uncertain' ? { confirm: true } : {};
+        imapManager.broadcast.mockClear();
+        const saved = await call('PUT', `/${id}`, {
+          ...draftBody({ subject: 'Edited', sendAt: undefined }), sendNow: true, editToken, version: before.version, ...confirm,
+        });
+        expect(saved.status).toBe(200);
+        expect(saved.body).toMatchObject({ status: 'scheduled', version: before.version + 1, undoToken: expect.any(String) });
+        expect(broadcasts()).toEqual([{ type: 'scheduled_changed', id, status: 'scheduled' }]);
+        const row = await rowOf(id);
+        expect(row).toMatchObject({ status: 'scheduled', attempts: 0, edit_token: null, status_before: null });
+        expect(row.send_at.getTime() - Date.now()).toBeGreaterThan(5000);
+        expect(row.send_at.getTime() - Date.now()).toBeLessThan(11_000);
+        expect(row.due_at).toEqual(row.send_at);
+        const undo = await call('POST', `/${id}/send-now/undo`, { undoToken: saved.body.undoToken });
+        expect(undo.status).toBe(200);
+        const after = await rowOf(id);
+        expect(after).toMatchObject({ ...back, send_at: before.send_at, due_at: before.due_at, version: before.version + 1 });
+        expect(openJson(after.payload_enc, aad.payload(after)).subject).toBe('Edited');
+        await tickSender();
+        expect((await rowOf(id)).status).toBe(back.status);
+      }
+    });
+
+    it('a save with sendNow asks as Send now does, and saves nothing until the user says yes', async () => {
+      const id = await create();
+      await set(id, { status: 'uncertain', smtp_started_at: new Date() });
+      const { body: { editToken } } = await call('POST', `/${id}/hold`, {});
+      const body = { ...draftBody({ subject: 'Edited' }), sendNow: true, editToken, version: 1 };
+      expect((await call('PUT', `/${id}`, body)).body.code).toBe('confirm_uncertain');
+      expect(await rowOf(id)).toMatchObject({ status: 'editing', version: 1 });
+      expect((await call('PUT', `/${id}`, { ...body, confirm: true })).status).toBe(200);
+    });
+
+    it('an Undo of Send now never puts a message back scheduled to go within a minute', async () => {
+      const id = await create();
+      const soon = new Date(Date.now() + 30_000);
+      await set(id, { send_at: soon, due_at: soon });
+      const now = await call('POST', `/${id}/send-now`, {});
+      expect(now.status).toBe(200);
+      expect((await call('POST', `/${id}/send-now/undo`, { undoToken: now.body.undoToken })).body)
+        .toMatchObject({ status: 'paused', pauseReason: 'user' });
+      expect(await rowOf(id)).toMatchObject({ status: 'paused', pause_reason: 'user', send_at: soon, due_at: soon });
+    });
+
+    it('a composer that took the hold during another Send now cannot have its Undo send it', async () => {
+      const id = await create();
+      const first = await call('POST', `/${id}/send-now`, {});
+      const window = (await rowOf(id)).send_at;
+      // Opened in a composer inside the first one's 10 s, then sent now from there.
+      const { body: { editToken } } = await call('POST', `/${id}/hold`, {});
+      const second = await call('POST', `/${id}/send-now`, { editToken });
+      expect(second.status).toBe(200);
+      // The first Undo no longer matches; the second puts back what the hold saw, paused.
+      expect((await call('POST', `/${id}/send-now/undo`, { undoToken: first.body.undoToken })).status).toBe(409);
+      expect((await call('POST', `/${id}/send-now/undo`, { undoToken: second.body.undoToken })).body)
+        .toMatchObject({ status: 'paused', pauseReason: 'user' });
+      expect(await rowOf(id)).toMatchObject({ status: 'paused', pause_reason: 'user', send_at: window });
+      await tickSender();
+      expect((await rowOf(id)).status).toBe('paused');
+    });
+
+    it('a restore never puts a message back scheduled to go within a minute', async () => {
+      const id = await create();
+      const soon = new Date(Date.now() + 30_000);
+      await set(id, { send_at: soon, due_at: soon });
+      expect((await call('POST', `/${id}/cancel`, {})).status).toBe(200);
+      expect((await call('POST', `/${id}/restore`, {})).body).toMatchObject({ status: 'paused', pauseReason: 'user' });
+      expect(await rowOf(id)).toMatchObject({ status: 'paused', pause_reason: 'user', send_at: soon });
     });
 
     it('an Undo of Send now on a message not yet due puts it back scheduled at its time', async () => {

@@ -60,6 +60,7 @@ const { createRoot } = await import('react-dom/client');
 const { useStore } = await import('../store/index.js');
 const { api } = await import('../utils/api.js');
 const { SCHEDULED_VIEW } = await import('../utils/scheduledCompose.js');
+const { scheduledFeed } = await import('../utils/scheduledFeed.js');
 const ScheduledList = (await import('./ScheduledList.jsx')).default;
 const MessageList = (await import('./MessageList.jsx')).default;
 
@@ -301,6 +302,44 @@ describe('actions', () => {
     assert.deepEqual(callsTo('undoSendNow'), [['undoSendNow', ID.scheduled, 'undo-1']]);
   });
 
+  test('Send now again in its window does nothing, so the first Undo still puts it back', async () => {
+    await mount();
+    await hover(ID.scheduled);
+    await click(action(ID.scheduled, 'sendNow'));
+    await settle();
+    // The list fetched after it does not say so yet (the mock answers the same list).
+    await hover(ID.scheduled);
+    await click(action(ID.scheduled, 'sendNow'));
+    mainButton(ID.scheduled).focus();
+    await key(mainButton(ID.scheduled), 's');
+    await settle();
+    assert.equal(callsTo('sendNow').length, 1);
+    assert.equal(notifications().filter(n => n.onUndo).length, 1, 'the first Undo is still offered');
+  });
+
+  test('a message the list says is being sent now offers no Send now, and a refusal says why', async () => {
+    answers.list = () => {
+      const list = structuredClone(LIST);
+      list.messages.find(m => m.id === ID.scheduled).sendingNow = true;
+      return list;
+    };
+    await mount();
+    await hover(ID.scheduled);
+    assert.equal(action(ID.scheduled, 'sendNow'), null);
+    mainButton(ID.scheduled).focus();
+    await key(mainButton(ID.scheduled), 's');
+    await settle();
+    assert.equal(callsTo('sendNow').length, 0);
+
+    answers.list = () => structuredClone(LIST);
+    answers.sendNow = refusal(409, 'sending_now', 'This message is about to be sent.', { state: 'scheduled' });
+    await React.act(async () => { await scheduledFeed.refresh(); });
+    await hover(ID.scheduled);
+    await click(action(ID.scheduled, 'sendNow'));
+    await settle();
+    assert.equal(notifications()[0].body, 'scheduled.errors.aboutToSend');
+  });
+
   test('Resume of a message waiting for a sign-in says what to do first', async () => {
     answers.resume = refusal(409, 'needs_reauth', 'Sign in to the account again first.');
     await mount();
@@ -330,6 +369,7 @@ describe('actions', () => {
     await hover(ID.uncertain);
     await click(action(ID.uncertain, 'sendAnyway'));
     assert.ok(question().textContent.includes('scheduled.confirm.sendAnywayBody'));
+    assert.equal(document.activeElement, questionButton('common.cancel'), 'Cancel has the focus, not Send anyway');
     assert.equal(callsTo('sendAnyway').length, 0);
     await click(questionButton('common.cancel'));
     assert.equal(question(), null);
@@ -384,6 +424,7 @@ describe('actions', () => {
     });
     await click(document.querySelector('[role="menu"] [data-scheduled-action="delete"]'));
     assert.ok(question().textContent.includes('scheduled.confirm.deleteBody'));
+    assert.equal(document.activeElement, questionButton('common.cancel'), 'Cancel has the focus, not Delete');
     await click(questionButton('scheduled.actions.delete'));
     await settle();
     assert.deepEqual(callsTo('remove'), [['remove', ID.failed]]);
@@ -414,6 +455,16 @@ describe('keyboard', () => {
     await key(mainButton(ID.scheduled), 's');
     await settle();
     assert.deepEqual(callsTo('sendNow').map(c => c[1]), [ID.scheduled]);
+  });
+
+  test('a held key sends now or deletes once, not once per repeat', async () => {
+    await mount();
+    mainButton(ID.failed).focus();
+    await key(mainButton(ID.failed), 's', { repeat: true });
+    await key(mainButton(ID.failed), 'Delete', { repeat: true });
+    await settle();
+    assert.equal(callsTo('sendNow').length, 0);
+    assert.equal(callsTo('cancel').length, 0);
   });
 
   test('Shift+F10 opens the menu, Escape closes it and gives focus back', async () => {

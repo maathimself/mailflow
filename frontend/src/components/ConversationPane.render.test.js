@@ -397,7 +397,7 @@ describe('conversation actions', () => {
           ? { ok: true, status: 200, json: async () => ({ ok: true }) }
           : { ok: false, status: 500, json: async () => ({ error: 'IMAP store failed' }) };
       }
-      if (String(url).includes('/ai/status')) return { ok: true, status: 200, json: async () => ({ enabled: true, features: { summarize: true } }) };
+      if (String(url).includes('/ai/status')) return { ok: true, status: 200, json: async () => ({ enabled: true, features: { summarize: true, compose: true } }) };
       if (String(url).includes('/ai/chat')) {
         const sse = 'data: {"choices":[{"delta":{"content":"Short "}}]}\n\ndata: {"choices":[{"delta":{"content":"summary."}}]}\n\ndata: [DONE]\n\n';
         return new Response(sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
@@ -434,7 +434,7 @@ describe('conversation actions', () => {
     const toolbar = card('m1').querySelector('[role="group"]');
     assert.equal(toolbar.getAttribute('aria-label'), 'shortcuts.groups.messageActions');
     assert.deepEqual([...toolbar.querySelectorAll('button')].map(b => b.getAttribute('aria-label')), [
-      'message.reply', 'message.replyOptions', 'message.forward', 'contextMenu.markUnread', 'contextMenu.viewHeaders',
+      'message.reply', 'message.replyOptions', 'compose.toolbar.aiReply', 'message.forward', 'contextMenu.markUnread', 'contextMenu.viewHeaders',
       // The dark toggle: a theme test before this one leaves the theme dark.
       'message.downloadEml', 'message.print', 'message.showDark', 'message.aiActions', 'message.star',
     ]);
@@ -491,6 +491,37 @@ describe('conversation actions', () => {
     assert.notEqual(useStore.getState().messages.find(m => m.id === 'm1')?.is_read, false, 'the list copy is not left unread');
   });
 
+  test('mark read on a card behind the list, read elsewhere meanwhile, only catches up', async () => {
+    const { useStore } = await import('../store/index.js');
+    const { clearReadGuard } = await import('../utils/pendingReads.js');
+    await click(button('m1', 'contextMenu.markUnread'));
+    assert.ok(button('m1', 'contextMenu.markRead'));
+    // Read again from the list (or another device) long enough ago that its guard is gone.
+    clearReadGuard('m1');
+    const saved = useStore.getState();
+    const decremented = [];
+    await React.act(async () => {
+      useStore.setState({
+        messages: [...saved.messages.filter(m => m.id !== 'm1'), { ...THREAD[0], is_read: true }],
+        decrementUnread: id => decremented.push(id),
+      });
+    });
+    const before = bulkReads.length;
+    try {
+      await click(button('m1', 'contextMenu.markRead'));
+      assert.deepEqual(bulkReads.slice(before), [], 'nothing sent again');
+      assert.deepEqual(decremented, [], 'not counted off the unread badge a second time');
+      assert.ok(button('m1', 'contextMenu.markUnread'), 'the card now shows it read');
+    } finally {
+      await React.act(async () => { useStore.setState({ messages: saved.messages, decrementUnread: saved.decrementUnread }); });
+    }
+  });
+
+  test('a card\'s toolbar wraps in a narrow pane instead of scrolling the conversation sideways', () => {
+    const group = card('m1').querySelector('[role="group"]');
+    assert.equal(group.style.flexWrap, 'wrap');
+  });
+
   test('the headers dialog opens from a card and its close button has a name', async () => {
     await click(button('m1', 'contextMenu.viewHeaders'));
     assert.match(document.body.textContent, /contextMenu\.headers\.title/, 'the headers dialog is open');
@@ -525,6 +556,61 @@ describe('conversation actions', () => {
     assert.equal(JSON.parse(chat.body).purpose, 'summarize', 'under the summaries switch (#644)');
     assert.match(card('m1').textContent, /Short summary\./, 'the result is pinned on this message');
     assert.doesNotMatch(card('m3').textContent, /Short summary/, 'and only on this message');
+  });
+
+  test('Reply with AI opens the reply to this message with the instruction panel', async () => {
+    const aiReply = button('m1', 'compose.toolbar.aiReply');
+    assert.ok(aiReply, 'an open message offers it when the AI can write replies');
+    await click(aiReply);
+    const data = useStore.getState().composeData;
+    assert.equal(data?.aiReply, true);
+    assert.equal(data.inReplyTo, '<1@x>');
+    assert.equal(data.isReplyAll, false, 'a plain reply, the reply default');
+    await React.act(async () => { useStore.getState().closeCompose(); });
+  });
+
+  // As the reading pane's does (#577 review).
+  test('Reply with AI answers all when that is the user\'s reply default', async (t) => {
+    await React.act(async () => { useStore.setState({ replyDefault: 'replyAll' }); });
+    t.after(() => React.act(async () => { useStore.setState({ replyDefault: 'reply' }); }));
+    await click(button('m1', 'compose.toolbar.aiReply'));
+    assert.equal(useStore.getState().composeData?.isReplyAll, true);
+    await React.act(async () => { useStore.getState().closeCompose(); });
+  });
+
+  // A phone's toolbar only just fits its buttons (#650), so there it is in More.
+  test('Reply with AI is in More on a phone', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    dom.window.innerWidth = 375;
+    const mobileRoot = createRoot(container);
+    try {
+      await React.act(async () => {
+        mobileRoot.render(React.createElement(ConversationPane, { threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm1' }));
+      });
+      await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+      const toolbar = container.querySelector('[data-message-id="m1"] [role="group"]');
+      assert.deepEqual([...toolbar.querySelectorAll('button')].map(b => b.getAttribute('aria-label')),
+        ['message.reply', 'message.replyOptions', 'message.forward', 'message.more', 'message.star']);
+      await click(toolbar.querySelector('button[aria-label="message.more"]'));
+      const items = [...toolbar.querySelectorAll('[role="menuitem"]')];
+      assert.equal(items[1]?.textContent, 'compose.toolbar.aiReply', 'after the read toggle');
+      await click(items[1]);
+      assert.equal(useStore.getState().composeData?.aiReply, true);
+      assert.equal(useStore.getState().composeData.inReplyTo, '<1@x>');
+    } finally {
+      await React.act(async () => { useStore.getState().closeCompose(); });
+      await React.act(async () => mobileRoot.unmount());
+      container.remove();
+      dom.window.innerWidth = 1024;
+    }
+  });
+
+  test('Reply with AI is not offered to a user who writes in plain text', async () => {
+    await React.act(async () => { useStore.setState({ plaintextEmail: true }); });
+    assert.equal(button('m1', 'compose.toolbar.aiReply'), undefined);
+    await React.act(async () => { useStore.setState({ plaintextEmail: false }); });
+    assert.ok(button('m1', 'compose.toolbar.aiReply'));
   });
 
   test('the print shortcut prints the selected message', async () => {
@@ -581,8 +667,16 @@ describe('conversation pane on a phone', () => {
         ['message.reply', 'message.replyOptions', 'message.forward', 'message.more', 'message.star']);
       for (const b of buttons) assert.equal(b.style.minHeight, '44px', `${b.getAttribute('aria-label')} is 44 px tall`);
       for (const b of buttons.filter(b => b.getAttribute('aria-label') !== 'message.replyOptions')) {
-        assert.equal(b.style.minWidth, '44px', `${b.getAttribute('aria-label')} is 44 px wide`);
+        assert.equal(b.style.width, '44px', `${b.getAttribute('aria-label')} is 44 px wide`);
+        // Where a larger font size leaves the row too narrow, it gives way rather than push the
+        // last buttons off screen.
+        assert.equal(b.style.minWidth, '32px');
+        assert.equal(b.style.flexShrink, '1');
       }
+      // A wrapper says its minimum outright: its automatic one would count the button's 44 px.
+      const moreButton = buttons.find(b => b.getAttribute('aria-label') === 'message.more');
+      assert.equal(moreButton.parentElement.style.minWidth, '32px');
+      assert.equal(buttons[0].parentElement.style.minWidth, '54px', 'the reply split, both halves');
       const threadBar = container.querySelector('[role="group"][aria-label="message.conversationActions"]');
       assert.deepEqual([...threadBar.querySelectorAll('button')].map(b => b.getAttribute('aria-label')), [
         'message.archive', 'contextMenu.moveToFolder', 'contextMenu.snooze.label',

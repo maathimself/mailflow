@@ -9,7 +9,7 @@ import {
   streamChat,
   testAiProvider,
 } from '../services/aiProvider.js';
-import { AI_FEATURES, aiFeatureEnabled, getUserAiAccess } from '../services/aiAccess.js';
+import { AI_FEATURES, AI_PURPOSES, aiFeatureEnabled, getUserAiAccess, isAiPurpose } from '../services/aiAccess.js';
 import {
   cancelDeviceFlow,
   disconnectCodex,
@@ -202,12 +202,13 @@ router.post('/ai/chat', requireAuth, async (req, res) => {
   const messages = req.body?.messages;
   const validationError = validateMessages(messages);
   if (validationError) return res.status(400).json({ error: validationError });
-  // Which instance switch the request falls under: the writing assistant, or summaries, which
-  // also cover AI actions on a message. A tab opened before the update sends no purpose; it is
-  // served only while both switches are on, since it could be either.
+  // Which instance switches the request falls under: the writing assistant, summaries (which
+  // also cover AI actions on a message), or both for Reply with AI. A tab opened before the
+  // update sends no purpose; it is served only while both switches are on, since it could be
+  // either.
   const purpose = req.body?.purpose;
-  if (purpose !== undefined && !AI_FEATURES.includes(purpose)) {
-    return res.status(400).json({ error: `purpose must be one of: ${AI_FEATURES.join(', ')}` });
+  if (purpose !== undefined && !isAiPurpose(purpose)) {
+    return res.status(400).json({ error: `purpose must be one of: ${Object.keys(AI_PURPOSES).join(', ')}` });
   }
 
   let access;
@@ -231,7 +232,7 @@ router.post('/ai/chat', requireAuth, async (req, res) => {
       code: 'ai_user_disabled',
     });
   }
-  const features = purpose === undefined ? AI_FEATURES : [purpose];
+  const features = purpose === undefined ? AI_FEATURES : AI_PURPOSES[purpose];
   const off = features.find(feature => !aiFeatureEnabled(status, feature));
   if (off) {
     const error = off === 'compose'

@@ -38,9 +38,22 @@ const fieldStyle = (mobile) => ({
 });
 const labelStyle = { display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 };
 
+// Ctrl/Cmd+Enter, with or without Shift: the composer's Send and Send later. Inside these menus,
+// sheets and dialogs it never reaches the composer, which would send at once.
+const isSendKey = e => e.key === 'Enter' && !e.altKey && (e.ctrlKey || e.metaKey);
+// A held Enter or Space repeats its keydown, and each one would click the focused button again.
+const ignoreRepeat = (e) => { if (e.repeat && (e.key === 'Enter' || e.key === ' ')) e.preventDefault(); };
+const swallowSendKey = (e) => {
+  if (!isSendKey(e)) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  return true;
+};
+
 // Picks a date and a time, in the browser's time zone. `variant` 'split' has a date and a time
 // input (desktop, as the snooze picker), 'single' one datetime-local input, which brings the
 // platform's own picker on iOS and Android. The limits here only guide; the server decides.
+// Ctrl/Cmd+Enter anywhere in it, and Enter in an input, confirm the time as its button does.
 export function SchedulePicker({ variant = 'split', now, onSubmit, submitLabel, busy = false, autoFocus = true }) {
   const { t } = useTranslation();
   const id = useId();
@@ -59,9 +72,19 @@ export function SchedulePicker({ variant = 'split', now, onSubmit, submitLabel, 
   const statusId = `${id}-status`;
   const mobile = variant === 'single';
 
+  const submit = () => { if (!problem && !busy) onSubmit(at); };
+  const onKeyDown = (e) => {
+    if (e.key !== 'Enter' || e.altKey) return;
+    if (!isSendKey(e) && e.target.tagName !== 'INPUT') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.repeat) submit();
+  };
+
   return (
     <form
-      onSubmit={e => { e.preventDefault(); if (!problem && !busy) onSubmit(at); }}
+      onSubmit={e => { e.preventDefault(); submit(); }}
+      onKeyDown={onKeyDown}
       style={{ padding: mobile ? '12px 20px 4px' : '10px 14px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}
     >
       {variant === 'single' ? (
@@ -178,10 +201,11 @@ export function SendLaterMenu({
     else close();
   };
 
+  // Editing, the first level opens on Change time, not Send now, which sends at once.
   useEffect(() => {
     if (view === 'pick') return;
     const list = [...(boxRef.current?.querySelectorAll('[role="menuitem"]') || [])];
-    const target = list.find(el => el.dataset.preset === returnToRef.current) || list[0];
+    const target = list.find(el => el.dataset.preset === (returnToRef.current || (view === 'root' ? 'changeTime' : null))) || list[0];
     returnToRef.current = null;
     target?.focus();
   }, [view]);
@@ -203,6 +227,7 @@ export function SendLaterMenu({
     else if (e.key === 'ArrowUp') move(at < 0 ? list.length - 1 : at - 1);
     else if (e.key === 'Home') move(0);
     else if (e.key === 'End') move(list.length - 1);
+    else if (isSendKey(e)) { e.preventDefault(); e.stopPropagation(); }
     else if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
@@ -211,7 +236,7 @@ export function SendLaterMenu({
   };
 
   const onPickKeyDown = (e) => {
-    if (e.key !== 'Escape') return;
+    if (swallowSendKey(e) || e.key !== 'Escape') return;
     e.preventDefault();
     e.stopPropagation();
     returnToRef.current = 'pick';
@@ -220,7 +245,7 @@ export function SendLaterMenu({
 
   const item = (key, label, onClick, { icon, detail, more } = {}) => (
     <button key={key} type="button" role="menuitem" tabIndex={-1} disabled={busy} data-preset={key}
-      {...(more ? { 'aria-haspopup': more } : {})} onClick={onClick} style={menuItemStyle} {...hover}>
+      {...(more ? { 'aria-haspopup': more } : {})} onClick={onClick} onKeyDown={ignoreRepeat} style={menuItemStyle} {...hover}>
       {icon && <span style={{ color: 'var(--text-tertiary)', display: 'flex' }}>{icon}</span>}
       <span style={{ flex: 1, whiteSpace: 'nowrap' }}>{label}</span>
       {detail && <span style={{ fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{detail}</span>}
@@ -303,8 +328,9 @@ export function SendLaterSheet({
   // Editing, the strip's Change and "Pick a new time" open it at the times alone.
   const actions = editing && initialView !== 'times';
 
+  // Focus starts on the first time, not on Send now, which sends at once.
   useEffect(() => {
-    if (!picking) sheetRef.current?.querySelector('button')?.focus();
+    if (!picking) sheetRef.current?.querySelector('button:not([data-preset="sendNow"])')?.focus();
   }, [picking]);
   useEffect(() => {
     const back = returnFocusRef?.current;
@@ -319,7 +345,7 @@ export function SendLaterSheet({
       <div
         ref={sheetRef} role="dialog" aria-modal="true" aria-labelledby={titleId}
         onKeyDown={e => {
-          if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); } else trapTab(e, sheetRef.current);
+          if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); } else if (!swallowSendKey(e)) trapTab(e, sheetRef.current);
         }}
         style={{
           position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 2101, background: 'var(--bg-elevated)',
@@ -338,7 +364,7 @@ export function SendLaterSheet({
           <>
             {actions && (
               <>
-                <button type="button" data-preset="sendNow" disabled={busy} onClick={() => { onClose(); onSendNow?.(); }} style={sheetButton}>
+                <button type="button" data-preset="sendNow" disabled={busy} onClick={() => { onClose(); onSendNow?.(); }} onKeyDown={ignoreRepeat} style={sheetButton}>
                   <span style={{ color: 'var(--text-tertiary)', display: 'flex' }}><SendNowIcon /></span>
                   <span style={{ flex: 1 }}>{t('compose.scheduleSend.edit.sendNow')}</span>
                 </button>
@@ -348,7 +374,7 @@ export function SendLaterSheet({
               </>
             )}
             {items.map(p => (
-              <button key={p.id} type="button" data-preset={p.id} disabled={busy} onClick={() => choose(p.at)} style={sheetButton}>
+              <button key={p.id} type="button" data-preset={p.id} disabled={busy} onClick={() => choose(p.at)} onKeyDown={ignoreRepeat} style={sheetButton}>
                 <span style={{ color: 'var(--text-tertiary)', display: 'flex' }}>{clockIcon(16)}</span>
                 <span style={{ flex: 1 }}>{t(PRESET_LABELS[p.id])}</span>
                 <span style={{ fontSize: 14, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{formatSendAt(p.at, undefined, now)}</span>
@@ -358,7 +384,7 @@ export function SendLaterSheet({
               <span style={{ flex: 1 }}>{t('compose.scheduleSend.pick')}</span>
             </button>
             {actions && (
-              <button type="button" data-preset="unschedule" disabled={busy} onClick={() => { onClose(); onUnschedule?.(); }} style={sheetButton}>
+              <button type="button" data-preset="unschedule" disabled={busy} onClick={() => { onClose(); onUnschedule?.(); }} onKeyDown={ignoreRepeat} style={sheetButton}>
                 <span style={{ flex: 1 }}>{t('compose.scheduleSend.edit.unschedule')}</span>
               </button>
             )}
@@ -392,17 +418,21 @@ export function ScheduledStrip({ sendAt, onChange, mobile = false }) {
 }
 
 // A question scheduling has to ask, as the composer's other dialogs look: centered on desktop, a
-// bottom sheet on phones. `actions` are { label, onClick, kind: 'primary' | 'danger' | 'plain' };
-// Escape and the backdrop are `onCancel`. Focus starts on the first action and Tab stays inside.
+// bottom sheet on phones. `actions` are { label, onClick, kind: 'primary' | 'danger' | 'plain',
+// focus }; Escape and the backdrop are `onCancel`. Focus starts on the action marked `focus`, else
+// the first, and Tab stays inside. A question that would send, send again or delete marks its
+// safe way out, so an Enter meant for something else (or a held one) does not answer it yes; a
+// held Enter's repeats are ignored on every action.
 export function ComposeQuestion({ mobile = false, title, body, actions, onCancel }) {
   const titleId = useId();
   const bodyId = useId();
   const boxRef = useRef(null);
   useEffect(() => {
     const before = document.activeElement;
-    boxRef.current?.querySelector('button')?.focus();
+    const buttons = boxRef.current?.querySelectorAll('button') || [];
+    (buttons[Math.max(0, actions.findIndex(a => a.focus))] || buttons[0])?.focus();
     return () => { if (before?.isConnected) before.focus?.(); };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- focus once, when it opens
   const color = kind => kind === 'primary' ? (mobile ? 'var(--accent)' : 'var(--accent-text)') : kind === 'danger' ? 'var(--red)' : 'var(--text-secondary)';
   return (
     <>
@@ -410,7 +440,7 @@ export function ComposeQuestion({ mobile = false, title, body, actions, onCancel
       <div
         ref={boxRef} role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={body ? bodyId : undefined}
         onKeyDown={e => {
-          if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onCancel(); } else trapTab(e, boxRef.current);
+          if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onCancel(); } else if (!swallowSendKey(e)) trapTab(e, boxRef.current);
         }}
         style={mobile ? {
           position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 2101, background: 'var(--bg-elevated)',
@@ -436,7 +466,7 @@ export function ComposeQuestion({ mobile = false, title, body, actions, onCancel
         )}
         <div style={mobile ? {} : { display: 'flex', flexDirection: 'column', gap: 8 }}>
           {actions.map(a => (
-            <button key={a.label} type="button" onClick={a.onClick} disabled={a.disabled}
+            <button key={a.label} type="button" onClick={a.onClick} disabled={a.disabled} onKeyDown={ignoreRepeat}
               style={mobile ? {
                 width: '100%', minHeight: 52, padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none',
                 borderBottom: '1px solid var(--border-subtle)', color: color(a.kind), fontSize: 16, fontWeight: 500, cursor: 'pointer',

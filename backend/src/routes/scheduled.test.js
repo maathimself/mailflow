@@ -305,7 +305,8 @@ describe('deleted messages in their restore window', () => {
     expect(r.body).toMatchObject({ status: 'paused', pauseReason: 'user' });
     expect(r.body.sendsImmediately).toBeUndefined();
     const [sql] = query.mock.calls.find(([s]) => /^\s*UPDATE scheduled_messages/.test(s));
-    expect(sql).toMatch(/send_at <= NOW\(\)/);
+    // Within a minute of going, by the clock as it runs, not the transaction's start.
+    expect(sql).toMatch(/LEAST\(send_at, due_at\) < clock_timestamp\(\) \+ '60 seconds'::interval/);
     expect(sql).toMatch(/THEN 'user'/);
   });
 });

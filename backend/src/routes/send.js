@@ -3,7 +3,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { redisClient } from '../services/redis.js';
 import { holdSend, cancelSend, getSendStatus } from '../services/sendHold.js';
 import {
-  UUID_RE, SendError, sanitizeSmtpError, missingSendFields, validateSendInput,
+  UUID_RE, SendError, sanitizeSmtpError, publicSendCode, missingSendFields, validateSendInput,
   resolveIdentity, resolveForwarded, prepareDelivery, deliverAndRecord,
 } from '../services/outgoingMail.js';
 
@@ -118,7 +118,7 @@ router.post('/send', async (req, res) => {
 
     res.json(await deliverAndRecord(message, hooks));
   } catch (err) {
-    if (err.publicMessage) return res.status(500).json({ error: err.publicMessage });
+    if (err.publicMessage) return res.status(500).json({ error: err.publicMessage, ...(err.publicCode ? { code: err.publicCode } : {}) });
     if (err instanceof SendError) {
       // An SMTP configuration the account cannot send with (prepareDelivery). It comes before the
       // reservation today, but a reservation this request holds must never outlive its answer.
@@ -128,7 +128,7 @@ router.post('/send', async (req, res) => {
     console.error('Send failed:', err.message);
     // A failure before reservation must not delete a concurrent request's lock.
     if (idemKeyRedis && reservationAcquired) redisClient.del(idemKeyRedis).catch(() => {});
-    res.status(500).json({ error: sanitizeSmtpError(err) });
+    res.status(500).json({ error: sanitizeSmtpError(err), ...(publicSendCode(err) ? { code: publicSendCode(err) } : {}) });
   }
 });
 

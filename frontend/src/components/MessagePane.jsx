@@ -20,6 +20,7 @@ import { isDarkTheme, canShowDark, showDark } from '../utils/darkScheme.js';
 import { markMessageUnread } from '../utils/messageHotkeys.js';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFromMessage } from '../utils/composeFromMessage.js';
+import { aiReplyAvailable } from '../utils/aiReply.js';
 import MessageBodyView from './MessageBodyView.jsx';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { saveSenderCategory } from '../utils/senderCategory.js';
@@ -34,8 +35,8 @@ import AiResultBox from './AiResultBox.jsx';
 import { useAiActions } from '../hooks/useAiActions.js';
 import AttachmentStrip from './AttachmentStrip.jsx';
 import {
-  ActionBtn, MessageTools, ReplySplitButton, RemoteImagesNotice, UnsubscribeNotice,
-  ForwardIcon, ArchiveIcon, MoveIcon, SpamIcon, HamIcon, TodoistIcon, ReadStateIcon, HeadersIcon,
+  ActionBtn, MessageTools, ReplySplitButton, RemoteImagesNotice, UnsubscribeNotice, TOUCH_MIN,
+  AiReplyIcon, ForwardIcon, ArchiveIcon, MoveIcon, SpamIcon, HamIcon, TodoistIcon, ReadStateIcon, HeadersIcon,
   DownloadIcon, PrintIcon, DarkToggleIcon, StarIcon, TrashIcon, useShortcutTitle,
 } from './MessageActions.jsx';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
@@ -80,7 +81,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     imageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
     replyDefault, recentFolders, favoriteFolders, todoistConnected,
     categorizationEnabled, setCategoryCounts, adjustCategoryCount,
-    aiActions, setShowAdmin, setAdminTab,
+    aiActions, setShowAdmin, setAdminTab, plaintextEmail,
   } = useStore();
 
   // Detached-window mode (#219): when a message id is passed in, this pane renders that
@@ -588,9 +589,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // The body is already loaded here, so it is handed over rather than refetched.
   const loadedBody = async () => body;
 
-  const handleReply = (replyAll = false) => {
+  const handleReply = (replyAll = false, { aiReply = false } = {}) => {
     if (!message) return;
-    openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll });
+    openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll, aiReply });
   };
 
   const handleForward = () => {
@@ -1292,7 +1293,12 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const darkToggleLabel = darkRefused ? t('message.cannotShowDark') : shownDark ? t('message.showOriginal') : t('message.showDark');
 
   // The toolbar's tools, in order: buttons on a desktop, the More menu on a phone (MessageTools).
+  // Reply with AI sits by Reply. A phone's toolbar only just fits its buttons at large font sizes,
+  // so there it is in More.
+  const aiReplyShown = aiReplyAvailable(aiStatus, plaintextEmail);
+  const handleAiReply = () => handleReply(defaultReplyAll, { aiReply: true });
   const toolItems = message ? [
+    aiReplyShown && isMobile && { key: 'aiReply', label: t('compose.toolbar.aiReply'), icon: <AiReplyIcon />, onClick: handleAiReply },
     hasSpamFolder && !inSpamFolder && { key: 'spam', label: t('contextMenu.markAsSpam'), icon: <SpamIcon />, onClick: () => performSingleSpamLabel('spam') },
     inSpamFolder && { key: 'ham', label: t('contextMenu.markAsHam'), icon: <HamIcon />, onClick: () => performSingleSpamLabel('ham') },
     todoistConnected && { key: 'todoist', label: t('todoist.title'), icon: <TodoistIcon />, onClick: () => setShowTodoistModal(true) },
@@ -1391,7 +1397,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       )}
 
       {/* Toolbar, always pinned at top, never scrolls. The buttons are MessageActions', which every
-          message of a conversation shares (#650). On a phone each is a 44 px touch target, edge to edge.
+          message of a conversation shares (#650). On a phone each is a 44 px touch target, edge to edge,
+          giving way down to TOUCH_MIN when a larger font size leaves the row too narrow.
           A labeled group of plain buttons, each its own Tab stop, rather than role="toolbar", which
           promises arrow-key movement between them that the pane has never had. */}
       <div role="group" aria-label={t('shortcuts.groups.messageActions')} style={{
@@ -1408,6 +1415,12 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           touch={isMobile}
         />
 
+        {aiReplyShown && !isMobile && (
+          <ActionBtn onClick={handleAiReply} label={t('compose.toolbar.aiReply')}>
+            <AiReplyIcon />
+          </ActionBtn>
+        )}
+
         <ActionBtn onClick={handleForward} label={t('message.forward')} title={withShortcut(t('message.forward'), 'forward')} touch={isMobile}>
           <ForwardIcon />
         </ActionBtn>
@@ -1417,7 +1430,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         </ActionBtn>
 
         {/* Move to folder */}
-        <div style={{ position: 'relative' }} ref={moveBtnRef}>
+        <div style={{ position: 'relative', display: 'flex', ...(isMobile ? { minWidth: TOUCH_MIN } : {}) }} ref={moveBtnRef}>
           <ActionBtn onClick={handleOpenMovePicker} label={t('contextMenu.moveToFolder')} touch={isMobile} popup expanded={showMovePicker}>
             <MoveIcon />
           </ActionBtn>

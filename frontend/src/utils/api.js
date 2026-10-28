@@ -49,8 +49,8 @@ async function request(method, path, body, extraHeaders) {
   return res.json();
 }
 
-// purpose is 'compose' (writing assistant) or 'summarize' (summaries and AI actions): the server
-// checks it against the admin's switch for that feature (#644).
+// purpose is 'compose' (writing assistant), 'summarize' (summaries and AI actions) or 'reply'
+// (Reply with AI, which needs both): the server checks it against the admin's switches (#644).
 export async function streamAiChat(messages, { purpose, signal, onDelta } = {}) {
   const response = await fetch(`${BASE}/ai/chat`, {
     method: 'POST',
@@ -62,8 +62,9 @@ export async function streamAiChat(messages, { purpose, signal, onDelta } = {}) 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'AI request failed' }));
     // The status and code ride along so a caller can tell a refusal from a failure, and which
-    // refusal it is: 'ai_user_disabled' or 'ai_feature_disabled'.
-    throw Object.assign(new Error(error.error || 'AI request failed'), { status: response.status, code: error.code });
+    // refusal it is: 'ai_user_disabled' or 'ai_feature_disabled', with the switch that is off as
+    // feature.
+    throw Object.assign(new Error(error.error || 'AI request failed'), { status: response.status, code: error.code, feature: error.feature });
   }
   if (!response.body) throw new Error('AI response body is unavailable');
 

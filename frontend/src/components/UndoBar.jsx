@@ -4,6 +4,7 @@ import { UNDO_WINDOW_MS } from '../utils/undoableAction.js';
 
 // The undo bar anchored to the bottom of a list on desktop: the message list's, and the
 // Scheduled view's. On phones NotificationToasts shows the same notification as an action bar.
+// It is not a live region: NotificationToasts says every notification to screen readers once.
 export default function UndoBar({ notification, onDismiss, showTopBorder }) {
   const { t } = useTranslation();
   const [exiting, setExiting] = useState(false);

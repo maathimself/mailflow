@@ -325,6 +325,24 @@ describe.skipIf(!ADMIN_URL)('scheduled sender on PostgreSQL (#543)', () => {
     });
   });
 
+  it('a mailbox whose SMTP sending Outlook turned off fails for good, and is never a sign-in to redo', async () => {
+    const msg = await schedule();
+    const response = '535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled for the Mailbox. Visit https://aka.ms/smtp_auth_disabled for more information.';
+    behavior.set(msg.to, () => { throw smtpError({ responseCode: 535, code: 'EAUTH', command: 'AUTH XOAUTH2', message: `Invalid login: ${response}`, response }, { mailFromSent: false, bodyStarted: false }); });
+    const sender = newSender();
+    await tick(sender);
+    const row = await rowOf(msg.id);
+    expect(row).toMatchObject({ status: 'failed', failure_code: 'smtp_auth_disabled', pause_reason: null, attempts: 1 });
+    expect(resultOf(row)).toMatchObject({ code: 'smtp_auth_disabled', smtpResponse: response });
+    expect(sendPushToUser).toHaveBeenCalledOnce();
+    expect(sendPushToUser.mock.calls[0][1].body).toMatch(/^Not sent: Microsoft has turned off sending from mail apps \(SMTP\)/);
+    // Not retried: nothing is due again.
+    behavior.clear();
+    await tick(sender);
+    expect(h.sent).toEqual([]);
+    expect((await rowOf(msg.id)).status).toBe('failed');
+  });
+
   describe('recovery', () => {
     const left = (extra = {}) => ({ status: 'sending', claim_token: randomUUID(), claimed_at: new Date(Date.now() - 3_600_000), attempts: 1, ...extra });
     const started = new Date(Date.now() - 3_590_000);
@@ -580,19 +598,53 @@ describe.skipIf(!ADMIN_URL)('scheduled sender on PostgreSQL (#543)', () => {
       expect(resultOf(row).lateReason).toBeUndefined();
     });
 
-    it('sends the 4xx retry of a message first tried late, without calling it offline', async () => {
+    it('holds a retry that falls due more than 6 h late, and says why without calling it offline', async () => {
       const msg = await schedule({ sendAt: new Date(Date.now() - (6 * 3_600_000 - 60_000)) });
       behavior.set(msg.to, () => { throw smtpError({ responseCode: 451, code: 'EENVELOPE', command: 'RCPT TO' }, MAIL); });
       await tick(newSender());
       expect(await rowOf(msg.id)).toMatchObject({ status: 'scheduled', failure_code: 'smtp_temporary' });
-      // The retry falls due when the message is more than 6 h late.
+      // The retry falls due after an outage, when the message is more than 6 h late.
       behavior.clear();
       await h.pool.query("UPDATE scheduled_messages SET due_at = NOW(), send_at = NOW() - INTERVAL '7 hours' WHERE id = $1", [msg.id]);
+      await tick(newSender());
+      expect(await rowOf(msg.id)).toMatchObject({ status: 'paused', pause_reason: 'overdue', attempts: 2 });
+      expect(h.sendMail).toHaveBeenCalledTimes(1);
+      expect(sendPushToUser).toHaveBeenCalledOnce();
+      expect(sendPushToUser.mock.calls[0][1].body).toMatch(/more than 6 hours late/);
+      // Resume sets send_at to now: it goes, and is not held again.
+      await h.pool.query(`UPDATE scheduled_messages SET status = 'scheduled', pause_reason = NULL, failure_code = NULL,
+        attempts = 0, send_at = NOW(), due_at = NOW() WHERE id = $1`, [msg.id]);
+      await tick(newSender());
+      expect(await rowOf(msg.id)).toMatchObject({ status: 'sent', sent_late: false });
+    });
+
+    it('sends a retry within the grace, late because of the retry', async () => {
+      const msg = await schedule({ sendAt: new Date(Date.now() - 60_000) });
+      behavior.set(msg.to, () => { throw smtpError({ responseCode: 451, code: 'EENVELOPE', command: 'RCPT TO' }, MAIL); });
+      await tick(newSender());
+      behavior.clear();
+      await h.pool.query("UPDATE scheduled_messages SET due_at = NOW(), send_at = NOW() - INTERVAL '2 hours' WHERE id = $1", [msg.id]);
       await tick(newSender());
       const row = await rowOf(msg.id);
       expect(row).toMatchObject({ status: 'sent', sent_late: true });
       expect(resultOf(row).lateReason).toBe('retried');
       expect(sendPushToUser).not.toHaveBeenCalled();
+    });
+
+    it('a send a crash cut off before SMTP is late because MailFlow was offline, and held past the grace', async () => {
+      const left = { status: 'sending', claim_token: randomUUID(), claimed_at: new Date(Date.now() - 3_600_000), attempts: 1 };
+      const recent = await schedule({ sendAt: new Date(Date.now() - 20 * 60_000), state: left });
+      const old = await schedule({ sendAt: new Date(Date.now() - 7 * 3_600_000), state: { ...left, claim_token: randomUUID() } });
+      const sender = newSender({ maxInFlight: 10 });
+      await tick(sender);
+      await tick(sender);
+      const sent = await rowOf(recent.id);
+      expect(sent).toMatchObject({ status: 'sent', sent_late: true });
+      expect(resultOf(sent).lateReason).toBe('offline');
+      expect(await rowOf(old.id)).toMatchObject({ status: 'paused', pause_reason: 'overdue' });
+      expect(h.sent.map(m => m.opts.messageId)).toEqual([recent.messageId]);
+      expect(sendPushToUser).toHaveBeenCalledOnce();
+      expect(sendPushToUser.mock.calls[0][1].body).toMatch(/MailFlow was offline/);
     });
 
     it('calls a late first send offline only when it fell due before the sender started', async () => {
@@ -683,6 +735,29 @@ describe.skipIf(!ADMIN_URL)('scheduled sender on PostgreSQL (#543)', () => {
       expect(h.sendMail).not.toHaveBeenCalled();
       expect(sendPushToUser).toHaveBeenCalledTimes(1);
       expect(sendPushToUser.mock.calls[0][1].body).toBe('Not sent: It was open for editing when it was due.');
+    });
+
+    it('does not purge a message a restore revived while the purge waited for it', async () => {
+      const msg = await schedule({ state: { status: 'cancelled', status_before: 'scheduled', purge_after: new Date(Date.now() - 1000) } });
+      const restoring = await h.pool.connect();
+      try {
+        // A restore that read the message inside its window, holding the row until it commits.
+        await restoring.query('BEGIN');
+        await restoring.query("UPDATE scheduled_messages SET status = 'scheduled', status_before = NULL, purge_after = NULL WHERE id = $1", [msg.id]);
+        const purging = newSender().purge();
+        // The purge has picked the row (its snapshot still sees it expired) and waits for its lock.
+        for (let i = 0; i < 100; i++) {
+          const { rows } = await h.pool.query(
+            "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE 'DELETE FROM scheduled_messages%'");
+          if (rows.length) break;
+          await new Promise(resolve => setTimeout(resolve, 20));
+        }
+        await restoring.query('COMMIT');
+        await purging;
+      } finally {
+        restoring.release();
+      }
+      expect(await rowOf(msg.id)).toMatchObject({ status: 'scheduled', purge_after: null });
     });
   });
 });

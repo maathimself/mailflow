@@ -83,7 +83,8 @@ export function resolveReplyRecipients(message, account) {
   return { to: replyTo, cc: extras, originalFrom: replyTo, allRecipients: extras };
 }
 
-export async function openReplyFromMessage(message, { accounts, openCompose, getMessageBody, replyAll = false }) {
+// `aiReply` opens the composer with "Reply with AI" ready for the user's instruction.
+export async function openReplyFromMessage(message, { accounts, openCompose, getMessageBody, replyAll = false, aiReply = false }) {
   const myAccount = accounts.find(a => a.id === message.account_id);
   const { to: sender, allRecipients } = resolveReplyRecipients(message, myAccount);
 
@@ -126,6 +127,7 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
     originalFrom: sender,
     allRecipients,
     threadId: message.thread_id,
+    ...(aiReply ? { aiReply: true } : {}),
   });
 }
 

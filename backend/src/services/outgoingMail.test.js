@@ -324,6 +324,26 @@ describe('deliverAndRecord', () => {
     expect(imapManager.appendToSent).not.toHaveBeenCalled();
   });
 
+  it('names an Outlook mailbox whose SMTP sending is turned off, and only that 535', async () => {
+    const response = '535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled for the Mailbox. Visit https://aka.ms/smtp_auth_disabled for more information.';
+    sendMail.mockRejectedValue(Object.assign(new Error(`Invalid login: ${response}`), { responseCode: 535, code: 'EAUTH', command: 'AUTH XOAUTH2', response }));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const err = await deliverAndRecord(await message(), {}).catch(e => e);
+    expect(err).toMatchObject({ publicCode: 'smtp_auth_disabled', code: 'EAUTH', responseCode: 535 });
+    expect(err.publicMessage).toMatch(/^Microsoft has turned off sending from mail apps \(SMTP\) for this account\./);
+    // Any other 535 is a sign-in the server refused, as before.
+    sendMail.mockRejectedValue(Object.assign(new Error('Invalid login: 535 5.7.3 Authentication unsuccessful'), { responseCode: 535, code: 'EAUTH' }));
+    const other = await deliverAndRecord(await message(), {}).catch(e => e);
+    expect(other.publicCode).toBeUndefined();
+    expect(other.publicMessage).toBe('Authentication failed. Check your email account credentials.');
+    // Another 5.7.139, Conditional Access: a new sign-in or an admin can fix it.
+    const access = '535 5.7.139 Authentication unsuccessful, the request did not meet the criteria to be authenticated successfully. Contact your administrator.';
+    sendMail.mockRejectedValue(Object.assign(new Error(`Invalid login: ${access}`), { responseCode: 535, code: 'EAUTH', response: access }));
+    const conditional = await deliverAndRecord(await message(), {}).catch(e => e);
+    expect(conditional.publicCode).toBeUndefined();
+    expect(conditional.publicMessage).toBe('Authentication failed. Check your email account credentials.');
+  });
+
   it('keeps the SMTP error on the rejection, so a retry can tell 4xx from 5xx', async () => {
     const smtpErr = Object.assign(new Error('451 4.3.0 try again later'), { responseCode: 451, code: 'EENVELOPE', command: 'RCPT TO' });
     sendMail.mockRejectedValue(smtpErr);

@@ -31,7 +31,7 @@ export const AI_MESSAGE_MAX_CHARS = 32_000;
 
 // Where to cut text that must end at or before `end`: the last paragraph break, line or
 // sentence end, or space in the final tenth, else exactly at `end`.
-function cutPoint(text, end) {
+export function cutPoint(text, end) {
   const floor = Math.floor(end * 0.9);
   const para = text.lastIndexOf('\n\n', end - 2);
   if (para >= floor) return para;

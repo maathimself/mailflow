@@ -190,6 +190,13 @@
       "aiDismiss": "Dismiss",
       "aiGenerating": "Generating…",
       "aiError": "AI error: {{message}}",
+      "aiReply": "Reply with AI",
+      "aiReplyPlaceholder": "What should the reply say? E.g. approve the artwork",
+      "aiReplyInstruction": "Instruction for the AI reply",
+      "aiReplyGenerate": "Generate",
+      "aiReplyReading": "Reading the conversation…",
+      "aiReplyPartial": "Based on the latest part of the conversation: the rest was too long to send to the AI.",
+      "aiReplyLeftOut": "Based on the latest {{count}} messages of the conversation: older ones were left out.",
       "aiTooLong": "this draft has {{count}} characters, more than the {{max}} the AI can take. Shorten it or remove the quoted text, then try again.",
       "aiNotAllowed": "your administrator has turned AI off for your account.",
       "aiFeatureOff": "your administrator has turned the AI writing assistant off."
@@ -226,10 +233,16 @@
         "clockBehind": "This device's clock is {{minutes}} min behind the server's, which says it is {{time}}.",
         "clockAhead": "This device's clock is {{minutes}} min ahead of the server's, which says it is {{time}}.",
         "holdLost": "This message was opened in another window, so it can no longer be saved here. Your text is still here to copy.",
+        "deletedElsewhere": "This message was deleted somewhere else, so it can no longer be saved here. Your text is still here to copy.",
+        "sentElsewhere": "This message was sent from another window, so it can no longer be saved here. Your text is still here to copy.",
         "versionConflict": "This message was changed somewhere else. Close it and open it again from Scheduled to see the latest version.",
         "notHeld": "This message is not open for editing here. Close it and open it again from Scheduled.",
         "pickNewTime": "Its scheduled time has passed. Pick a new time.",
         "failed": "The message could not be scheduled.",
+        "tooMany": "You have as many scheduled messages as you can have. Send or delete some first.",
+        "tooMuchStorage": "Your scheduled messages take up as much space as they can. Send or delete some first.",
+        "rateLimited": "Too many messages scheduled in a short time. Try again in a minute.",
+        "payloadTooLarge": "This message is too large to schedule: its text and inline images take up too much space.",
         "heldElsewhere": "This message is open in another window."
       },
       "edit": {
@@ -268,7 +281,8 @@
       "scheduleAnyway": "Schedule anyway",
       "undoFailedOpen": "Undo failed. Open it from Scheduled."
     },
-    "selectAccount": "Choose an account to send from"
+    "selectAccount": "Choose an account to send from",
+    "smtpAuthDisabled": "Microsoft has turned off sending from mail apps (SMTP) for this account. You can still send from Outlook on the web. For a work or school account, your admin can turn it back on."
   },
   "message": {
     "find": {
@@ -531,6 +545,7 @@
       "failed": "Couldn't save the category for this sender"
     },
     "changeLayout": "Change layout",
+    "layout": "Layout",
     "layouts": {
       "focused": {
         "label": "Focused",
@@ -555,7 +570,8 @@
     },
     "snoozedUntil": "Snoozed until {{when}}",
     "snoozedEmpty": "Nothing snoozed",
-    "snoozedEmptyDesc": "Snoozed mail waits here until it comes back."
+    "snoozedEmptyDesc": "Snoozed mail waits here until it comes back.",
+    "menu": "Menu"
   },
   "lockScreen": {
     "subtitle": "Enter your PIN to unlock",
@@ -585,6 +601,8 @@
       "markAllRead": "Mark all as read",
       "syncFolder": "Sync folder",
       "renameFavorite": "Rename favorite",
+      "favorite": "Add to Favorites",
+      "unfavorite": "Remove from Favorites",
       "rename": "Rename",
       "createSubfolder": "Create subfolder",
       "hide": "Hide folder",
@@ -617,7 +635,9 @@
     "snoozed": "Snoozed",
     "scheduled": "Scheduled",
     "scheduledPending": "Waiting to be sent: {{n}}",
-    "scheduledAttention": "Need attention: {{n}}"
+    "scheduledAttention": "Need attention: {{n}}",
+    "favorites": "Favorites",
+    "reorderFolder": "Drag to reorder folder"
   },
   "scheduled": {
     "refresh": "Refresh",
@@ -737,6 +757,7 @@
       "undoExpired": "Too late to undo: the message is going out.",
       "notFound": "This scheduled message no longer exists.",
       "sending": "It is being sent right now.",
+      "aboutToSend": "It is about to be sent.",
       "sent": "It has already been sent.",
       "cancelled": "It was deleted.",
       "editing": "It is open for editing in another window.",

@@ -344,9 +344,11 @@ export function useWebSocket() {
       }
 
       // A scheduled message changed (#543, design 5.3): the event says only which one, so the
-      // Scheduled view's list and the counts are fetched again, once for a burst of changes.
+      // Scheduled view's list and the counts are fetched again, once for a burst of changes. A
+      // composer editing that message checks its hold (mailflow:scheduled_changed).
       case 'scheduled_changed': {
         scheduledFeed.changed();
+        window.dispatchEvent(new CustomEvent('mailflow:scheduled_changed', { detail: { id: data.id, status: data.status } }));
         break;
       }
 

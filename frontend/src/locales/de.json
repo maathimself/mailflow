@@ -190,6 +190,13 @@
       "aiDismiss": "Verwerfen",
       "aiGenerating": "Wird erstellt…",
       "aiError": "KI-Fehler: {{message}}",
+      "aiReply": "Mit KI antworten",
+      "aiReplyPlaceholder": "Was soll die Antwort sagen? Z. B. Entwurf freigeben",
+      "aiReplyInstruction": "Anweisung für die KI-Antwort",
+      "aiReplyGenerate": "Erstellen",
+      "aiReplyReading": "Unterhaltung wird gelesen…",
+      "aiReplyPartial": "Basiert auf dem neuesten Teil der Unterhaltung: Der Rest war zu lang, um ihn an die KI zu senden.",
+      "aiReplyLeftOut": "Basiert auf den {{count}} neuesten Nachrichten der Unterhaltung: Ältere wurden weggelassen.",
       "aiTooLong": "Dieser Entwurf hat {{count}} Zeichen, mehr als die {{max}}, die die KI verarbeiten kann. Kürzen Sie ihn oder entfernen Sie den zitierten Text und versuchen Sie es erneut.",
       "aiNotAllowed": "Ihr Administrator hat KI für Ihr Konto ausgeschaltet.",
       "aiFeatureOff": "Ihr Administrator hat den KI-Schreibassistenten ausgeschaltet."
@@ -226,10 +233,16 @@
         "clockBehind": "Die Uhr dieses Geräts geht {{minutes}} Min. nach gegenüber dem Server, laut dem es {{time}} ist.",
         "clockAhead": "Die Uhr dieses Geräts geht {{minutes}} Min. vor gegenüber dem Server, laut dem es {{time}} ist.",
         "holdLost": "Diese Nachricht wurde in einem anderen Fenster geöffnet und kann hier nicht mehr gespeichert werden. Dein Text bleibt hier zum Kopieren.",
+        "deletedElsewhere": "Diese Nachricht wurde an anderer Stelle gelöscht und kann hier nicht mehr gespeichert werden. Dein Text bleibt hier zum Kopieren.",
+        "sentElsewhere": "Diese Nachricht wurde aus einem anderen Fenster gesendet und kann hier nicht mehr gespeichert werden. Dein Text bleibt hier zum Kopieren.",
         "versionConflict": "Diese Nachricht wurde an anderer Stelle geändert. Schließe sie und öffne sie erneut unter Geplant, um die neueste Fassung zu sehen.",
         "notHeld": "Diese Nachricht ist hier nicht zum Bearbeiten geöffnet. Schließe sie und öffne sie erneut unter Geplant.",
         "pickNewTime": "Der geplante Zeitpunkt ist vorbei. Wähle einen neuen.",
         "failed": "Die Nachricht konnte nicht geplant werden.",
+        "tooMany": "Du hast bereits so viele geplante Nachrichten wie möglich. Sende oder lösche zuerst einige.",
+        "tooMuchStorage": "Deine geplanten Nachrichten belegen bereits den ganzen verfügbaren Platz. Sende oder lösche zuerst einige.",
+        "rateLimited": "Zu viele Nachrichten in kurzer Zeit geplant. Versuch es in einer Minute noch einmal.",
+        "payloadTooLarge": "Diese Nachricht ist zu groß zum Planen: Text und eingebettete Bilder brauchen zu viel Platz.",
         "heldElsewhere": "Diese Nachricht ist in einem anderen Fenster geöffnet."
       },
       "edit": {
@@ -268,7 +281,8 @@
       "scheduleAnyway": "Trotzdem planen",
       "undoFailedOpen": "Rückgängig fehlgeschlagen. Öffne sie unter Geplant."
     },
-    "selectAccount": "Wähle ein Konto zum Senden"
+    "selectAccount": "Wähle ein Konto zum Senden",
+    "smtpAuthDisabled": "Microsoft hat das Senden aus Mail-Apps (SMTP) für dieses Konto abgeschaltet. Aus Outlook im Web kannst du weiterhin senden. Bei einem Geschäfts- oder Schulkonto kann dein Admin es wieder einschalten."
   },
   "message": {
     "find": {
@@ -531,6 +545,7 @@
       "failed": "Die Kategorie für diesen Absender konnte nicht gespeichert werden"
     },
     "changeLayout": "Layout ändern",
+    "layout": "Layout",
     "layouts": {
       "focused": {
         "label": "Fokussiert",
@@ -555,7 +570,8 @@
     },
     "snoozedUntil": "Zurückgestellt bis {{when}}",
     "snoozedEmpty": "Nichts zurückgestellt",
-    "snoozedEmptyDesc": "Zurückgestellte E-Mails warten hier, bis sie wiederkommen."
+    "snoozedEmptyDesc": "Zurückgestellte E-Mails warten hier, bis sie wiederkommen.",
+    "menu": "Menü"
   },
   "lockScreen": {
     "subtitle": "Gib deine PIN zum Entsperren ein",
@@ -585,6 +601,8 @@
       "markAllRead": "Alle als gelesen markieren",
       "syncFolder": "Ordner synchronisieren",
       "renameFavorite": "Favorit umbenennen",
+      "favorite": "Zu Favoriten hinzufügen",
+      "unfavorite": "Aus Favoriten entfernen",
       "rename": "Umbenennen",
       "createSubfolder": "Unterordner erstellen",
       "hide": "Ordner ausblenden",
@@ -617,7 +635,9 @@
     "snoozed": "Zurückgestellt",
     "scheduled": "Geplant",
     "scheduledPending": "Warten auf den Versand: {{n}}",
-    "scheduledAttention": "Brauchen Aufmerksamkeit: {{n}}"
+    "scheduledAttention": "Brauchen Aufmerksamkeit: {{n}}",
+    "favorites": "Favoriten",
+    "reorderFolder": "Ziehen, um den Ordner zu verschieben"
   },
   "scheduled": {
     "refresh": "Aktualisieren",
@@ -737,6 +757,7 @@
       "undoExpired": "Zu spät zum Rückgängigmachen: Die Nachricht geht gerade hinaus.",
       "notFound": "Diese geplante Nachricht gibt es nicht mehr.",
       "sending": "Sie wird gerade gesendet.",
+      "aboutToSend": "Sie wird gleich gesendet.",
       "sent": "Sie wurde bereits gesendet.",
       "cancelled": "Sie wurde gelöscht.",
       "editing": "Sie ist in einem anderen Fenster zum Bearbeiten geöffnet.",

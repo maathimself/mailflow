@@ -554,6 +554,10 @@ const SAME_VALUE_ALLOWED = {
   // is the natural word for the wide preset in both Italian and Portuguese.
   'messageList.layouts.compact.label': [['en', 'fr'], ['es', 'ptBR']],
   'messageList.layouts.wide.label':    [['it', 'ptBR']],
+  // The same words as admin.appearance.layout and the usual "Menu"; "Favoritos" in both.
+  'messageList.layout': [['de', 'en', 'it', 'ptBR']],
+  'messageList.menu':   [['en', 'fr', 'it', 'pl', 'ptBR']],
+  'sidebar.favorites':  [['es', 'ptBR']],
 
   // ── Attachment viewer ─────────────────────────────────────────────────────
   // "Imprimir" / "Preparando…" / "Abrir" / "{{current}} de {{total}}" are spelled the same in

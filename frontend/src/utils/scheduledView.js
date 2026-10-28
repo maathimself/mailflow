@@ -1,6 +1,6 @@
 import { appLocale } from './formatDate.js';
 import { browserTimeZone, formatSendAt } from './scheduleTimes.js';
-import { scheduleErrorText } from './scheduledCompose.js';
+import { limitErrorText, scheduleErrorText } from './scheduledCompose.js';
 
 // The Scheduled view (#543, design 5.2 and 5.3): what GET /api/mail/scheduled returns, put in the
 // view's sections, with what each message is doing and why in words, the actions its state allows
@@ -51,10 +51,12 @@ export const isRetrying = row => row?.status === 'scheduled' && Number(row.attem
 // send anyway and mark as sent for uncertain only, cancel (Delete, with Undo) from anything but
 // sending and sent, and delete for good from anything but sending. One being edited can be opened
 // (the composer offers to take it over) or deleted; one being sent, nothing; a deleted one, in its
-// window, restored or deleted for good.
+// window, restored or deleted for good. One that goes within seconds anyway (sendingNow: a Send
+// now in its window) offers no Send now: the server refuses it, as its Undo would put back the
+// first Send now's time instead of what the message was.
 export function rowActions(row) {
   switch (row?.status) {
-    case 'scheduled': return ['edit', 'reschedule', 'sendNow', 'cancel', 'delete'];
+    case 'scheduled': return ['edit', 'reschedule', ...(row.sendingNow ? [] : ['sendNow']), 'cancel', 'delete'];
     case 'editing': return ['edit', 'cancel', 'delete'];
     case 'paused':
     case 'failed': return ['edit', 'resume', 'reschedule', 'sendNow', 'cancel', 'delete'];
@@ -116,6 +118,8 @@ const FAILURE_REASONS = {
   decrypt_failed: 'scheduled.reason.decryptFailed',
   account_missing: 'scheduled.reason.accountMissing',
   gave_up: 'scheduled.reason.gaveUp',
+  // The account may not send over SMTP (Microsoft): the composer's words for it.
+  smtp_auth_disabled: 'compose.smtpAuthDisabled',
 };
 
 export function reasonKey(row) {
@@ -159,7 +163,9 @@ export function recipientsOf(summary, max = 2) {
   return { names: shown, more };
 }
 
-const dayNumber = d => Math.round(new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 86_400_000);
+// The local calendar day as a number, from the date's parts: local midnights are not a whole
+// number of days apart across a change to or from summer time.
+const dayNumber = d => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86_400_000;
 
 // A send time in the user's zone: "Today 6:00 PM", "Tomorrow 8:00 AM", "Yesterday 8:00 AM", or
 // "Tue, Oct 28, 8:00 AM" (formatSendAt).
@@ -289,12 +295,13 @@ const STATE_TEXT = {
   editing: 'scheduled.errors.editing',
 };
 export function actionErrorText(err, t) {
+  const limit = limitErrorText(err, t);
+  if (limit) return limit;
   switch (err?.code) {
     case 'needs_reauth': return t('scheduled.errors.needsReauth');
     case 'account_disabled': return t('scheduled.errors.accountDisabled');
     case 'held_elsewhere': return t('compose.scheduleSend.errors.heldElsewhere');
     case 'undo_expired': return t('scheduled.errors.undoExpired');
-    case 'decrypt_failed': return t('scheduled.reason.decryptFailed');
     case 'too_soon':
     case 'too_far':
     case 'version_conflict':

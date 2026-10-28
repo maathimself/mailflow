@@ -47,7 +47,9 @@ export const LIMITS = Object.freeze({
   maxAheadMs: 366 * 24 * 60 * 60 * 1000,
   createsPerMinute: 30,
 });
-export const PENDING_STATUSES = ['scheduled', 'editing', 'paused', 'failed', 'uncertain'];
+// What counts against the pending limit: every message not yet sent or deleted, one being sent
+// too, as it may come back scheduled for a retry.
+export const PENDING_STATUSES = ['scheduled', 'editing', 'sending', 'paused', 'failed', 'uncertain'];
 const MAX_IN_FLIGHT = 2;
 const SENT_PURGE_INTERVAL = '7 days';
 // Like the Sent metadata upsert after an immediate send (outgoingMail.js): an auto-saving
@@ -501,14 +503,16 @@ export class ScheduledSender {
            FROM due WHERE s.id = due.id
          RETURNING s.*, EXTRACT(EPOCH FROM NOW() - s.send_at) * 1000 AS lag_ms,
                    (s.attempts = 1 AND s.due_at = s.send_at) AS first_attempt,
-                   s.due_at < $2::timestamptz AS due_before_start`,
+                   s.send_at < $2::timestamptz AS due_before_start`,
         [token, this.startedAt ?? new Date()],
       );
       const row = rows[0];
       if (!row) return null;
       // failure_code is still the last attempt's: set by a backoff retry, it is why this is late.
+      // Its time is send_at, not due_at: recovery puts a send a crash cut off back due at once,
+      // and it is late because MailFlow was down.
       Object.assign(row, lateness({
-        lagMs: Number(row.lag_ms), firstAttempt: row.first_attempt, dueBeforeStart: row.due_before_start,
+        lagMs: Number(row.lag_ms), dueBeforeStart: row.due_before_start,
         retried: !row.first_attempt && RETRY_CODES.has(row.failure_code),
       }));
       this.changed(row, 'sending');
@@ -903,10 +907,13 @@ export class ScheduledSender {
     return rows.some(row => row.status === 'scheduled');
   }
 
+  // The condition is checked again on each row as it is deleted: a restore (the Undo of a delete)
+  // that revived a row after the batch was picked, but before it was deleted, keeps it.
   async purge() {
     await this.db.query(
       `DELETE FROM scheduled_messages WHERE id IN (
-         SELECT id FROM scheduled_messages WHERE purge_after < NOW() LIMIT ${PURGE_BATCH})`,
+         SELECT id FROM scheduled_messages WHERE purge_after < NOW() LIMIT ${PURGE_BATCH})
+         AND purge_after < NOW()`,
     );
   }
 

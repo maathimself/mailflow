@@ -214,6 +214,11 @@ describe.skipIf(!ADMIN_URL)('scheduled messages schema on PostgreSQL (#543)', ()
         updated_at: '2026-10-01T00:00:00Z',
       });
     }
+    // Open for editing when the backup was made, after failing, maybe going out, or on time.
+    const editingFrom = extra => insertMessage({ status: 'editing', edit_token: randomUUID(), edit_lease_until: '2026-10-25T07:05:00Z', ...extra });
+    byStatus.editingUncertain = await editingFrom({ status_before: 'uncertain', failure_code: 'connection_lost', smtp_started_at: '2026-10-25T06:00:00Z' });
+    byStatus.editingFailed = await editingFrom({ status_before: 'failed', failure_code: 'smtp_rejected' });
+    byStatus.editingScheduled = await editingFrom({ status_before: 'scheduled' });
     // Handed to SMTP with no answer yet, and accepted by SMTP but not yet recorded as sent.
     byStatus.started = await insertMessage({ status: 'sending', ...claimed, account_id: await accountFor('started'), smtp_started_at: '2026-10-25T07:00:01Z' });
     byStatus.accepted = await insertMessage({
@@ -256,7 +261,7 @@ describe.skipIf(!ADMIN_URL)('scheduled messages schema on PostgreSQL (#543)', ()
     expect(decryptBytes(restored.data_enc, { purpose: 'scheduled-send', aad }).equals(plaintext)).toBe(true);
 
     const { rows } = await h.pool.query(`
-      SELECT id, status, pause_reason, claim_token, claimed_at, edit_token, edit_lease_until, smtp_accepted_at,
+      SELECT id, status, status_before, failure_code, smtp_started_at, pause_reason, claim_token, claimed_at, edit_token, edit_lease_until, smtp_accepted_at,
              updated_at > NOW() - INTERVAL '1 minute' AS touched
         FROM scheduled_messages`);
     const after = Object.fromEntries(rows.map(r => [r.id, r]));
@@ -273,5 +278,11 @@ describe.skipIf(!ADMIN_URL)('scheduled messages schema on PostgreSQL (#543)', ()
       expect(after[byStatus[status].id]).toMatchObject({ status, pause_reason: null, touched: false });
     }
     expect(after[byStatus.paused.id]).toMatchObject({ status: 'paused', pause_reason: 'overdue', touched: false });
+    // An edit hold gives back what it saved: uncertain keeps its question and Mark as sent, failed
+    // stays failed; one that was scheduled is paused as the others are. None keeps status_before.
+    expect(after[byStatus.editingUncertain.id]).toMatchObject({ status: 'uncertain', status_before: null, failure_code: 'connection_lost', pause_reason: null, ...released });
+    expect(after[byStatus.editingUncertain.id].smtp_started_at).not.toBeNull();
+    expect(after[byStatus.editingFailed.id]).toMatchObject({ status: 'failed', status_before: null, failure_code: 'smtp_rejected', pause_reason: null, ...released });
+    expect(after[byStatus.editingScheduled.id]).toMatchObject({ status: 'paused', status_before: null, pause_reason: 'restored', ...released });
   });
 });

@@ -95,6 +95,16 @@ describe('classifyWithUndo', () => {
     assert.equal(harness.notifications[0].title, 'gtd.undoFailed');
   });
 
+  it('an undo the server refuses because the label changed says so', async () => {
+    const undoToken = { messageId: '2e8749a4-f5e5-4ee1-a49c-f93e4a27d39b', state: 'delegated', folder: 'GTD/Delegated', uid: 903 };
+    const harness = createHarness({ ok: true, applied: true, undoToken });
+    harness.api.gtdUndoClassify = async () => { throw Object.assign(new Error('changed'), { status: 409, changed: true }); };
+    await classifyWithUndo('message-1', 'delegated', harness);
+    assert.equal(await harness.notifications[0].onUndo(), false);
+    assert.equal(harness.notifications[0].title, 'gtd.undoFailed');
+    assert.equal(harness.notifications[0].body, 'gtd.labelChanged');
+  });
+
   it('preserves the existing classification failure notification', async () => {
     const harness = createHarness();
     harness.api.gtdClassify = async () => { throw new Error('offline'); };
@@ -399,6 +409,17 @@ describe('classifyManyWithUndo', () => {
     assert.equal(await harness.notifications[0].onUndo(), false);
     assert.equal(harness.notifications[0].type, 'error');
     assert.equal(harness.notifications[0].title, 'gtd.undoFailed');
+  });
+
+  it('a bulk undo refused because a label changed says so', async () => {
+    const harness = createManyHarness({ m1: applied('m1'), m2: applied('m2') });
+    await classifyManyWithUndo(messages.slice(0, 2), 'delegated', harness);
+    harness.api.gtdUndoClassify = async token => {
+      if (token.messageId === 'm2') throw Object.assign(new Error('changed'), { status: 409, changed: true });
+    };
+    assert.equal(await harness.notifications[0].onUndo(), false);
+    assert.equal(harness.notifications[0].title, 'gtd.undoFailed');
+    assert.equal(harness.notifications[0].body, 'gtd.labelChanged');
   });
 
   it('sourceRemoved removes that row and clears its selection', async () => {

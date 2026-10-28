@@ -31,6 +31,12 @@ const CANCEL_UNDO = '10 minutes';
 const SENT_IN_LIST = 50;
 // Send now waits this long, so its Undo has a window (UNDO_SEND_SECONDS in the composer).
 const SEND_NOW_DELAY_MS = 10_000;
+const SEND_NOW_INTERVAL = `${SEND_NOW_DELAY_MS} milliseconds`;
+// An Undo (of Send now, of a delete) never puts a message back scheduled to go sooner than this:
+// it comes back paused by the user instead (DUE_MARGIN_MS in the composer). SQL, by the
+// database's clock as it runs, not the transaction's start.
+const UNDO_DUE_MARGIN = '60 seconds';
+const dueWithin = `clock_timestamp() + '${UNDO_DUE_MARGIN}'::interval`;
 // Account error codes that mean the account cannot send until the user signs in again.
 const REAUTH_CODES = new Set(['oauth_reauth', 'oauth_app_config', 'auth_failed']);
 // Statuses the user can move to scheduled again.
@@ -237,6 +243,8 @@ function present(row) {
     attempts: row.attempts,
     // A deleted (cancelled) message can be restored until then; null for every other one.
     restoreUntil: row.status === 'cancelled' ? row.purge_after : null,
+    // Due within Send now's delay (a Send now in its window): another Send now is refused.
+    sendingNow: row.sending_now === true,
     sentAt: row.sent_at,
     sentLate: row.sent_late,
     pauseReason: row.pause_reason,
@@ -343,10 +351,10 @@ router.post('/scheduled', async (req, res) => {
 router.get('/scheduled', async (req, res) => {
   const [open, sent] = await Promise.all([
     query(
-      `SELECT * FROM scheduled_messages
+      `SELECT *, (status = 'scheduled' AND due_at <= NOW() + $2::interval) AS sending_now FROM scheduled_messages
         WHERE user_id = $1 AND (status NOT IN ('cancelled', 'sent') OR (status = 'cancelled' AND purge_after > NOW()))
         ORDER BY send_at, id`,
-      [req.session.userId],
+      [req.session.userId, SEND_NOW_INTERVAL],
     ),
     query(
       `SELECT * FROM scheduled_messages WHERE user_id = $1 AND status = 'sent' ORDER BY sent_at DESC NULLS LAST, id LIMIT $2`,
@@ -405,6 +413,52 @@ router.get('/scheduled/:id/attachments/:index', validId, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.end(att.content);
 });
+
+// --- Send now (design 2.4): shared by Send now and a save that sends now ---------------------
+
+// The Undo of Send now carries what Send now replaced, encrypted and bound to the message and
+// its version, so the server can put it back without a column for it and without trusting the
+// client with it.
+const undoAad = row => `scheduled:${row.id}:${row.user_id}:undo:${row.version}`;
+
+// Send now's time, to the millisecond, so the Undo token, which carries it as JSON, names it
+// exactly: a FROM item for the UPDATE, read once as send_now.at for both send_at and due_at, with
+// `$n` the parameter holding SEND_NOW_INTERVAL. From clock_timestamp(), the time the UPDATE runs:
+// NOW() is when the transaction began, and one that waited for a lock or spent seconds
+// encrypting an edit would store a time that leaves its Undo a shorter window, or none.
+const SEND_NOW_AT = 'send_now.at';
+const sendNowFrom = n => `FROM (SELECT date_trunc('milliseconds', clock_timestamp() + $${n}::interval) AS at) AS send_now`;
+
+// A scheduled message that goes within Send now's delay anyway (one a Send now already moved, in
+// its window, or one simply due) is refused: a second Send now would record the first one's time
+// as what its Undo puts back, so that Undo would leave it to go out seconds later, and a paused or
+// failed message's own state would be lost. The first Undo, if there is one, still stands. One
+// held in a composer is never refused: the sender cannot take it, and its Undo puts back the
+// message as it was before the hold (paused, when its time has passed by then).
+//
+// SQL for the UPDATE's WHERE, with $n the status it had. It reads clock_timestamp(), not NOW():
+// NOW() is when this transaction began, which may be before another Send now committed and
+// released the row lock this one then took, and that one's time would pass for not due yet.
+const notSendingNow = n => `NOT ($${n}::text = 'scheduled' AND status <> 'editing'
+  AND due_at <= clock_timestamp() + '${SEND_NOW_DELAY_MS} milliseconds'::interval)`;
+const SENDING_NOW = { error: 'This message is about to be sent.', code: 'sending_now', status: 'scheduled' };
+
+// The answer to a Send now: its Undo token, which puts back `previous` (the message as it was
+// before Send now, or before the hold for one sent from its composer).
+function sendNowAnswer(previous, updated) {
+  const undoUntil = new Date(updated.send_at).getTime();
+  const undoToken = sealJson({
+    sendAt: new Date(updated.send_at).toISOString(),
+    until: undoUntil,
+    previous: {
+      status: previous.status, sendAt: previous.send_at, dueAt: previous.due_at, attempts: previous.attempts,
+      failureCode: previous.failure_code, pauseReason: previous.pause_reason,
+      // An uncertain message keeps the time it was handed to SMTP, which a save clears.
+      smtpStartedAt: previous.smtp_started_at ?? null,
+    },
+  }, undoAad(updated)).toString('base64url');
+  return { status: 'scheduled', sendAt: updated.send_at, undoToken, undoUntil: new Date(undoUntil).toISOString() };
+}
 
 // --- Edit (design 2.3) -------------------------------------------------------------------------
 
@@ -474,6 +528,12 @@ async function lostHold(res, userId, id) {
 
 // Saves an edit: a new spec and send time, the stored attachments it keeps and new ones, all
 // encrypted again under the next version (design 2.3). Back to scheduled, attempts reset.
+//
+// With sendNow (the composer's Send now with changes) it is saved and sent now in the same
+// transaction, with no sendAt: as Send now with the hold, its Undo puts back the message as it
+// was before the hold, with the edit kept. So a paused or failed message stays so after an Undo,
+// and one that fell due while open comes back paused, as it does without changes; and there is no
+// moment in which it is saved as scheduled for a later time with no hold and no Undo.
 router.put('/scheduled/:id', validId, async (req, res) => {
   const userId = req.session.userId;
   const body = req.body || {};
@@ -484,6 +544,7 @@ router.put('/scheduled/:id', validId, async (req, res) => {
   if (!keep.every(i => Number.isInteger(i) && i >= 0)) return fail(res, 400, 'keepAttachments must be attachment indexes');
   const missing = missingSendFields(body);
   if (missing) return fail(res, 400, missing);
+  const sendNow = body.sendNow === true;
 
   const current = await findOwnedScheduledMessage(userId, req.params.id);
   if (!current) return fail(res, 404, 'Scheduled message not found');
@@ -494,7 +555,7 @@ router.put('/scheduled/:id', validId, async (req, res) => {
 
   let spec, sendAt;
   try {
-    sendAt = checkSendAt(body.sendAt);
+    if (!sendNow) sendAt = checkSendAt(body.sendAt);
     const before = openJson(current.payload_enc, aad.payload(current));
     spec = await buildSpec(userId, body, { messageId: before?.messageId });
   } catch (err) {
@@ -523,15 +584,17 @@ router.put('/scheduled/:id', validId, async (req, res) => {
       const version = await replaceContent(client, row, {
         payload: spec.payload, summary: summaryOf(spec.input, attachments.length), attachments,
       });
-      await client.query(
+      const at = sendNow ? SEND_NOW_AT : '$2';
+      const { rows: [updated] } = await client.query(
         `UPDATE scheduled_messages
-            SET status = 'scheduled', account_id = $4, send_at = $2, due_at = $2, time_zone = $3, attempts = 0,
+            SET status = 'scheduled', account_id = $4, send_at = ${at}, due_at = ${at}, time_zone = $3, attempts = 0,
                 failure_code = NULL, pause_reason = NULL, status_before = NULL,
                 edit_token = NULL, edit_lease_until = NULL, smtp_started_at = NULL, updated_at = NOW()
-          WHERE id = $1`,
-        [row.id, sendAt, timeZone, spec.account.id],
+          ${sendNow ? sendNowFrom(2) : ''}
+          WHERE id = $1 RETURNING scheduled_messages.*`,
+        [row.id, sendNow ? SEND_NOW_INTERVAL : sendAt, timeZone, spec.account.id],
       );
-      return { version };
+      return { version, ...(sendNow ? { previous: { ...row, status: row.status_before || 'scheduled' }, updated } : {}) };
     });
   } catch (err) {
     if (err?.scheduledCode === 'decrypt_failed') return fail(res, 500, 'This message could not be decrypted on this server.', { code: 'decrypt_failed' });
@@ -541,6 +604,7 @@ router.put('/scheduled/:id', validId, async (req, res) => {
   if (saved.confirmation) return fail(res, 409, saved.confirmation.error, { code: saved.confirmation.code });
   if (saved.conflict) return fail(res, 409, 'This message was changed elsewhere. Open it again.', { code: 'version_conflict' });
   changed(userId, req.params.id, 'scheduled');
+  if (sendNow) return res.json({ id: req.params.id, version: saved.version, ...sendNowAnswer(saved.previous, saved.updated) });
   res.json({ id: req.params.id, version: saved.version, sendAt: sendAt.toISOString(), status: 'scheduled' });
 });
 
@@ -573,11 +637,6 @@ router.patch('/scheduled/:id', validId, async (req, res) => {
   res.json({ status: 'scheduled', sendAt: updated.send_at });
 });
 
-// The Undo of Send now carries what Send now replaced, encrypted and bound to the message and
-// its version, so the server can put it back without a column for it and without trusting the
-// client with it.
-const undoAad = row => `scheduled:${row.id}:${row.user_id}:undo:${row.version}`;
-
 // The values the Undo puts back are read under a lock in the same transaction as the change, so
 // they are exactly what it replaced.
 //
@@ -596,7 +655,7 @@ router.post('/scheduled/:id/send-now', validId, async (req, res) => {
   const done = await withTransaction(async client => {
     const row = await findOwnedScheduledMessage(userId, req.params.id, {
       client, forUpdate: true,
-      columns: 'id, user_id, status, status_before, edit_token, pause_reason, version, send_at, due_at, attempts, failure_code',
+      columns: 'id, user_id, status, status_before, edit_token, pause_reason, version, send_at, due_at, attempts, failure_code, smtp_started_at',
     });
     if (!row) return { missing: true };
     const editing = row.status === 'editing';
@@ -607,39 +666,32 @@ router.post('/scheduled/:id/send-now', validId, async (req, res) => {
     const ask = confirmFor(previousStatus, row.pause_reason, confirm);
     if (ask) return { ask };
     const { rows: [updated] } = await client.query(
-      // To the millisecond, so the Undo token, which carries it as JSON, names it exactly.
       `UPDATE scheduled_messages
-          SET status = 'scheduled', send_at = date_trunc('milliseconds', NOW() + $3::interval),
-              due_at = date_trunc('milliseconds', NOW() + $3::interval), attempts = 0, failure_code = NULL,
+          SET status = 'scheduled', send_at = ${SEND_NOW_AT}, due_at = ${SEND_NOW_AT}, attempts = 0, failure_code = NULL,
               pause_reason = NULL, status_before = NULL, edit_token = NULL, edit_lease_until = NULL, updated_at = NOW()
-        WHERE id = $1 AND user_id = $2 RETURNING *`,
-      [row.id, userId, `${SEND_NOW_DELAY_MS} milliseconds`],
+        ${sendNowFrom(3)}
+        WHERE id = $1 AND user_id = $2 AND ${notSendingNow(4)} RETURNING scheduled_messages.*`,
+      [row.id, userId, SEND_NOW_INTERVAL, previousStatus],
     );
+    if (!updated) return { sendingNow: true };
     return { row: { ...row, status: previousStatus }, updated };
   });
   if (done.lost) return lostHold(res, userId, req.params.id);
   if (done.missing) return fail(res, 404, 'Scheduled message not found');
   if (done.state) return fail(res, 409, stateMessage(done.state), { status: done.state });
   if (done.ask) return fail(res, 409, done.ask.error, { code: done.ask.code });
-  const { row, updated } = done;
-  const undoUntil = new Date(updated.send_at).getTime();
-  const undoToken = sealJson({
-    sendAt: new Date(updated.send_at).toISOString(),
-    until: undoUntil,
-    previous: {
-      status: row.status, sendAt: row.send_at, dueAt: row.due_at, attempts: row.attempts,
-      failureCode: row.failure_code, pauseReason: row.pause_reason,
-    },
-  }, undoAad(updated)).toString('base64url');
-  changed(userId, row.id, 'scheduled');
-  res.json({ status: 'scheduled', sendAt: updated.send_at, undoToken, undoUntil: new Date(undoUntil).toISOString() });
+  if (done.sendingNow) return fail(res, 409, SENDING_NOW.error, { code: SENDING_NOW.code, status: SENDING_NOW.status });
+  changed(userId, done.row.id, 'scheduled');
+  res.json(sendNowAnswer(done.row, done.updated));
 });
 
 // Puts back what Send now replaced, while the message still waits (it has not been claimed) and
-// nothing else changed it since. A message that would come back scheduled at a time that has
-// passed (by the database's clock) comes back paused by the user instead, its times kept:
-// scheduled and due, the sender would claim it at once, and Undo would have sent it. One opened
-// in another window meanwhile is said as such, not as too late.
+// nothing else changed it since. A message that would come back scheduled to go within
+// UNDO_DUE_MARGIN (or whose time has passed) comes back paused by the user instead, its times
+// kept: an Undo must stop the send, and scheduled that close, the sender would claim it within
+// seconds. This holds whatever put that time there, the user's schedule or another Send now (a
+// composer that took the hold during one: its "before" is that Send now's time). One opened in
+// another window meanwhile is said as such, not as too late.
 router.post('/scheduled/:id/send-now/undo', validId, async (req, res) => {
   const row = await findOwnedScheduledMessage(req.session.userId, req.params.id, { columns: 'id, user_id, status, version, send_at' });
   if (!row) return fail(res, 404, 'Scheduled message not found');
@@ -650,11 +702,14 @@ router.post('/scheduled/:id/send-now/undo', validId, async (req, res) => {
   if (!token?.previous) return fail(res, 409, 'This can no longer be undone.', { code: 'undo_expired', status: row.status });
   if (Date.now() >= token.until) return fail(res, 409, 'Too late to undo: the message is going out.', { code: 'undo_expired', status: row.status });
   const p = token.previous;
-  const due = "$4::text = 'scheduled' AND $5::timestamptz <= NOW()";
+  const due = `$4::text = 'scheduled' AND LEAST($5::timestamptz, $6::timestamptz) < ${dueWithin}`;
   const updated = await update(req.session.userId, row.id, ['scheduled'],
     `status = CASE WHEN ${due} THEN 'paused' ELSE $4::text END, send_at = $5, due_at = $6, attempts = $7,
-     failure_code = $8, pause_reason = CASE WHEN ${due} THEN 'user' ELSE $9::text END`,
-    [p.status, p.sendAt, p.dueAt, p.attempts, p.failureCode, p.pauseReason, token.sendAt, row.version],
+     failure_code = $8, pause_reason = CASE WHEN ${due} THEN 'user' ELSE $9::text END,
+     smtp_started_at = CASE WHEN $12::boolean THEN $13::timestamptz ELSE smtp_started_at END`,
+    // A token from before smtpStartedAt was carried leaves smtp_started_at as it is.
+    [p.status, p.sendAt, p.dueAt, p.attempts, p.failureCode, p.pauseReason, token.sendAt, row.version,
+      p.smtpStartedAt !== undefined, p.smtpStartedAt ?? null],
     'AND send_at = $10 AND version = $11');
   if (!updated) {
     const now = await findOwnedScheduledMessage(req.session.userId, row.id, { columns: 'id, status' });
@@ -744,9 +799,9 @@ router.post('/scheduled/:id/cancel', validId, async (req, res) => {
 
 // Undo of a cancel, within its window: back to the status it had, its send time unchanged.
 // It counts as pending again, so it is checked against the limit under the user's lock, as a
-// create is. One that would come back scheduled at a time that has passed (by the database's
-// clock) comes back paused by the user instead, as an Undo of Send now does: scheduled and due,
-// the sender would claim it at once, and a restore would send it.
+// create is. One that would come back scheduled to go within UNDO_DUE_MARGIN (or whose time has
+// passed) comes back paused by the user instead, as an Undo of Send now does: the sender would
+// claim it within seconds, and a restore would send it.
 router.post('/scheduled/:id/restore', validId, async (req, res) => {
   const userId = req.session.userId;
   let row;
@@ -761,7 +816,7 @@ router.post('/scheduled/:id/restore', validId, async (req, res) => {
       if (current.status !== 'cancelled') return { state: current.status };
       if (!current.purge_after || current.purge_after <= now) return { expired: true };
       await checkUserLimits(client, userId, { adding: 1, addingBytes: 0, exceptId: req.params.id });
-      const due = "COALESCE(status_before, 'scheduled') = 'scheduled' AND (send_at <= NOW() OR due_at <= NOW())";
+      const due = `COALESCE(status_before, 'scheduled') = 'scheduled' AND LEAST(send_at, due_at) < ${dueWithin}`;
       const { rows: [restored] } = await client.query(
         `UPDATE scheduled_messages
             SET status = CASE WHEN ${due} THEN 'paused' ELSE COALESCE(status_before, 'scheduled') END,
