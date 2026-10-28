@@ -71,9 +71,12 @@ export function resolveReplyRecipients(message, account) {
   const from = addressList([replySender(message)]);
   const externalTo = external(to);
   const externalCc = external(cc);
-  // Authorship belongs to this account, even when its sent copy carries a team Reply-To.
+  const externalReplyTo = external(addressList(message.reply_to)).slice(0, 1);
+  // Authorship belongs to this account, even when its sent copy carries a team Reply-To. With
+  // nobody else in To or Cc, as on a contact form that mails itself, its Reply-To is who to answer.
   const targets = owned.has(emailKey(from[0]?.email))
-    ? (externalTo.length ? externalTo : externalCc.length ? externalCc : to.length ? to : cc)
+    ? (externalTo.length ? externalTo : externalCc.length ? externalCc
+      : externalReplyTo.length ? externalReplyTo : to.length ? to : cc)
     : addressList(message.reply_to).slice(0, 1);
   const replyTo = targets.length ? targets : from;
   const extras = unique([...externalTo, ...externalCc], new Set(replyTo.map(a => emailKey(a.email))));

@@ -496,6 +496,36 @@ describe('sent reply recipients', () => {
     assert.deepEqual(resolve({ ...message, to_addresses: [], cc_addresses: [{ email: 'ALIAS@example.test' }] }, account).to, [{ email: 'ALIAS@example.test' }]);
   });
 
+  it('answers the Reply-To of a contact form that mails this account, with no one else in To or Cc', async () => {
+    const visitor = [{ name: 'Visitor', email: 'visitor@example.test' }];
+    for (const from_email of [account.email_address, 'ALIAS@example.test']) {
+      for (const reply_to of [visitor, JSON.stringify(visitor), [{ email: account.email_address }, ...visitor]]) {
+        for (const replyAll of [false, true]) {
+          const h = harness();
+          await openReplyFromMessage({ ...message, from_email, reply_to, to_addresses: [{ email: account.email_address }], cc_addresses: [{ email: 'alias@example.test' }] }, {
+            accounts: [account], openCompose: h.openCompose, getMessageBody: h.getMessageBody, replyAll,
+          });
+          assert.deepEqual(h.payload().to, visitor);
+          assert.deepEqual(h.payload().originalFrom, visitor);
+          assert.deepEqual(h.payload().cc, []);
+          assert.deepEqual(h.payload().allRecipients, []);
+        }
+      }
+    }
+  });
+
+  it('keeps external To ahead of a team Reply-To, and a self Reply-To leaves a self-note to self', () => {
+    const resolve = compose.resolveReplyRecipients;
+    const team = [{ email: 'team@example.test' }];
+    assert.deepEqual(resolve({ ...message, to_addresses: [to[1]], cc_addresses: [], reply_to: team }, account).to, [to[1]]);
+    assert.deepEqual(resolve({ ...message, to_addresses: [], cc_addresses: cc, reply_to: team }, account).to, cc);
+    const self = [{ email: account.email_address }];
+    for (const reply_to of [self, [{ email: 'ALIAS@example.test' }]]) {
+      assert.deepEqual(resolve({ ...message, to_addresses: self, cc_addresses: [], reply_to }, account),
+        { to: self, originalFrom: self, cc: [], allRecipients: [] });
+    }
+  });
+
   it('keeps received Reply-To and does not own another connected account', async () => {
     const h = harness();
     const target = [{ email: 'reply@example.test' }];
