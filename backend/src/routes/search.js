@@ -120,7 +120,10 @@ export function freeTextTermCondition(likeIdx, ftsIdx) {
         OR m.from_email ILIKE $${likeIdx}
         OR m.subject ILIKE $${likeIdx}
         OR m.search_vector @@ plainto_tsquery('english', $${ftsIdx})
-        OR to_tsvector('english', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('english', $${ftsIdx})
+        OR CASE WHEN numnode(plainto_tsquery('english', $${ftsIdx})) > 0
+          THEN to_tsvector('english', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('english', $${ftsIdx})
+          ELSE to_tsvector('simple', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('simple', $${ftsIdx})
+        END
       )`;
 }
 

@@ -154,4 +154,11 @@ describe('freeTextTermCondition (oversized-body crash hotfix)', () => {
     expect(cond).toContain('m.subject ILIKE $3');
     expect(cond).toContain("m.search_vector @@ plainto_tsquery('english', $4)");
   });
+  it('selects the simple dictionary only for an empty English body query', () => {
+    const cond = freeTextTermCondition(3, 4);
+    expect(cond).toContain("CASE WHEN numnode(plainto_tsquery('english', $4)) > 0");
+    expect(cond).toContain(`to_tsvector('simple', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('simple', $4)`);
+    expect(cond).toContain('END');
+  });
+
 });
