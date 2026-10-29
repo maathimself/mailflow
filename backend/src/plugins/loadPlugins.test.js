@@ -8,6 +8,11 @@ import { createPluginRegistry } from './registry.js';
 import { loadBundledPlugins } from './loadPlugins.js';
 
 describe('loadBundledPlugins', () => {
+  it('registers Templates as an optional Tier-1 plugin', () => {
+    const registry = createPluginRegistry();
+    loadBundledPlugins(registry);
+    expect(registry.get('templates')).toMatchObject({ id: 'templates', tier: 1, router: { base: '/api/templates' } });
+  });
   it('registers the GTD plugin as Tier-1 mounted at /api/gtd', () => {
     const r = createPluginRegistry();
     loadBundledPlugins(r);

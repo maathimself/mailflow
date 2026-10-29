@@ -554,17 +554,37 @@ export class ScheduledSender {
     const date = new Date();
     try {
       built = await this.build(row, account);
+      const accepted = built.payload.deliveryProgress?.accepted || [];
+      if (built.payload.preparedDeliveries?.length && built.payload.preparedDeliveries.every(copy => accepted.includes(copy.recipient))) {
+        return this.finishAccepted(row);
+      }
       delivery = await prepareDelivery(built.input, built.identity, built.forwarded, {
         messageId: built.payload.messageId, date, smtp: { trackStage: true },
+        ...(accepted.length ? { excludeRecipients: accepted } : {}),
       });
     } catch (err) {
       return this.afterError(row, err, 'prepare');
     }
 
+    // Preserve expanded content for recovery: the recipient's contact may change after SMTP
+    // accepts the message, and a recovered Sent copy must carry what was actually delivered.
+    let preparedPayload = delivery.contentTransformed
+      ? { ...built.payload, preparedContent: delivery.content }
+      : built.payload.preparedContent ? { ...built.payload, preparedContent: undefined } : null;
+    if (delivery.personalizedDeliveries) {
+      const accepted = built.payload.deliveryProgress?.accepted || [];
+      const previous = (built.payload.preparedDeliveries || []).filter(copy => accepted.includes(copy.recipient));
+      preparedPayload = { ...built.payload, preparedContent: undefined,
+        preparedDeliveries: [...previous, ...delivery.personalizedDeliveries.map(copy => ({
+          recipient: copy.recipient, content: copy.content, messageId: copy.messageId, date: copy.date.toISOString(),
+        }))], deliveryProgress: { attempted: [...accepted], accepted: [...accepted], finished: [...accepted] } };
+    }
+    const preparedJson = preparedPayload ? JSON.stringify(preparedPayload) : null;
     const started = await this.db.query(
       `UPDATE scheduled_messages SET smtp_started_at = $3, updated_at = NOW()
+        ${preparedPayload ? ', payload_enc = $4, payload_bytes = $5' : ''}
         WHERE id = $1 AND claim_token = $2 AND status = 'sending'`,
-      [row.id, row.claim_token, date],
+      [row.id, row.claim_token, date, ...(preparedPayload ? [sealJson(preparedPayload, aad.payload(row)), Buffer.byteLength(preparedJson)] : [])],
     );
     // Recovery or a restore took the claim away: never send.
     if (!started.rowCount) return null;
@@ -572,16 +592,36 @@ export class ScheduledSender {
     let result;
     // Recipients the server deferred (4xx at RCPT) while it took the message for the others. The
     // message went out, so it is not retried; the sent notice lists them (design 3.4).
-    let deferred = [];
+    const deferred = [];
     try {
       result = await deliverAndRecord(
         { userId: row.user_id, input: built.input, identity: built.identity, delivery },
         {
-          // Never throws: a failure to record the acceptance must not skip the bookkeeping that
-          // follows (recipients, the Sent copy, the Sent row). The message then still ends sent
-          // through markSent, or, if that fails too, through recovery, which finds its Sent copy.
-          onDelivered: async (_early, { refusals = [] } = {}) => {
-            deferred = refusals.filter(r => r.responseCode >= 400 && r.responseCode < 500).map(r => r.recipient);
+          onAttempt: delivery.personalizedDeliveries ? async recipient => {
+            preparedPayload.deliveryProgress.attempted.push(recipient);
+            const stored = await this.db.query(
+              `UPDATE scheduled_messages SET payload_enc = $3, payload_bytes = $4, updated_at = NOW()
+               WHERE id = $1 AND claim_token = $2 AND status = 'sending'`,
+              [row.id, row.claim_token, sealJson(preparedPayload, aad.payload(row)), Buffer.byteLength(JSON.stringify(preparedPayload))]);
+            if (!stored.rowCount) throw new Error('Personalized send claim was lost');
+          } : undefined,
+          // A single send records acceptance best effort. Personalized sends require a durable
+          // checkpoint before the next recipient, so a failed checkpoint stops the group.
+          onDelivered: async (_early, { refusals = [], personalization } = {}) => {
+            deferred.push(...refusals.filter(r => r.responseCode >= 400 && r.responseCode < 500).map(r => r.recipient));
+            if (personalization) {
+              const progress = preparedPayload.deliveryProgress;
+              progress.finished.push(personalization.recipient);
+              if (!_early.rejected?.some(value => String(value).toLowerCase() === personalization.recipient)) progress.accepted.push(personalization.recipient);
+              const complete = progress.finished.length === preparedPayload.preparedDeliveries.length;
+              const stored = await this.db.query(
+                `UPDATE scheduled_messages SET payload_enc = $3, payload_bytes = $4,
+                   smtp_accepted_at = CASE WHEN $5 THEN NOW() ELSE smtp_accepted_at END, updated_at = NOW()
+                 WHERE id = $1 AND claim_token = $2 AND status = 'sending'`,
+                [row.id, row.claim_token, sealJson(preparedPayload, aad.payload(row)), Buffer.byteLength(JSON.stringify(preparedPayload)), complete]);
+              if (!stored.rowCount) throw new Error('Personalized send claim was lost after delivery');
+              return;
+            }
             try {
               const accepted = await this.db.query(
                 'UPDATE scheduled_messages SET smtp_accepted_at = NOW(), updated_at = NOW() WHERE id = $1 AND claim_token = $2',
@@ -623,6 +663,8 @@ export class ScheduledSender {
       subject: payload.subject,
       body: payload.body ?? '',
       bodyIsHtml: payload.bodyIsHtml === true,
+      ...(payload.locale ? { locale: payload.locale } : {}),
+      timeZone: row.time_zone || payload.timeZone || 'UTC',
       quotedBody: payload.quotedBody,
       quotedBodyHtml: payload.quotedBodyHtml,
       inReplyTo: payload.inReplyTo,
@@ -829,6 +871,7 @@ export class ScheduledSender {
       if (!account.enabled) throw new ScheduledSendError('account_disabled');
       const built = await this.build(row, account);
       result.messageId = built.payload.messageId;
+      if (built.payload.preparedDeliveries) return this.finishPersonalized(row, account, built);
       const found = await this.awaitSentFolder(row, account);
       // Stopping while it waits: left to the next process, which waits again.
       if (found.stopped) return false;
@@ -841,7 +884,7 @@ export class ScheduledSender {
       } else if (serverAutoSavesSent(account)) {
         throw new ScheduledSendError('not_in_sent');
       } else {
-        const mailOptions = buildMailOptions(built.input, built.identity, built.forwarded, {
+        const mailOptions = buildMailOptions({ ...built.input, ...built.payload.preparedContent }, built.identity, built.forwarded, {
           messageId: built.payload.messageId, date: new Date(row.smtp_started_at),
         });
         const raw = await renderRawMessage(mailOptions);
@@ -863,12 +906,47 @@ export class ScheduledSender {
     return this.markSent(row, result, !!late);
   }
 
+  async finishPersonalized(row, account, built) {
+    const copies = built.payload.preparedDeliveries;
+    const accepted = built.payload.deliveryProgress?.accepted || [];
+    const finished = built.payload.deliveryProgress?.finished || [];
+    if (finished.length !== copies.length) return this.end(row, { outcome: 'uncertain', code: 'interrupted' }, {
+      error: 'Personalized delivery is incomplete. Confirm delivery before retrying; confirmed recipients will not be sent again.',
+    });
+    const result = { recovered: true, sentCopySaved: true,
+      rejected: copies.filter(copy => !accepted.includes(copy.recipient)).map(copy => copy.recipient) };
+    try {
+      const found = await this.awaitSentFolder(row, account);
+      if (found.stopped) return false;
+      if (!found.path) throw new ScheduledSendError('no_sent_folder');
+      result.sentFolder = found.path;
+      for (const copy of copies.filter(copy => accepted.includes(copy.recipient))) {
+        if (await this.findInSent(account, found.path, copy.messageId)) continue;
+        if (serverAutoSavesSent(account)) throw new ScheduledSendError('not_in_sent');
+        const mail = buildMailOptions({ ...built.input, ...copy.content }, built.identity, built.forwarded,
+          { messageId: copy.messageId, date: new Date(copy.date) });
+        if (!(await this.stillClaimed(row))) return false;
+        await withTimeout(this.imap().appendToSent(account, found.path, await renderRawMessage(mail)), APPEND_TIMEOUT_MS, 'Sent APPEND timed out');
+      }
+      result.messageId = copies.find(copy => accepted.includes(copy.recipient))?.messageId;
+    } catch (error) {
+      result.sentCopySaved = false;
+      result.sentCopyReason = error instanceof ScheduledSendError ? error.scheduledCode : 'sent_lookup_failed';
+    }
+    return this.markSent(row, result, row.late === true);
+  }
+
   // Handed to SMTP without an answer recorded: sent if its copy is in Sent, otherwise uncertain,
   // for the user to decide. Never sent again automatically.
   async checkSent(row) {
     let found = null;
     try {
       const payload = openJson(row.payload_enc, aad.payload(row));
+      // A copy of one personalized message cannot prove delivery to the entire list.
+      // Keep the encrypted per-recipient progress and require an explicit retry of what remains.
+      if (payload?.preparedDeliveries) return this.end(row, { outcome: 'uncertain', code: 'interrupted' }, {
+        error: 'Personalized sending was interrupted. Some recipients may already have received their copy. Confirm delivery before retrying; confirmed recipients will not be sent again.',
+      });
       const account = await findOwnedAccount(row.user_id, row.account_id, { client: this.db });
       if (payload?.messageId && account?.enabled) {
         // A copy a lookup would find must not end uncertain because Sent was not known yet.

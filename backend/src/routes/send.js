@@ -48,6 +48,7 @@ router.post('/send', async (req, res) => {
     if (cached === '__inflight__') return res.status(409).json({ error: 'This message is already being sent.' });
     if (cached) {
       const previous = JSON.parse(cached);
+      if (previous.sendError) return res.status(409).json({ error: previous.sendError });
       if (!previous.pending) return res.json(previous);
       // A held send: the answer the first request got, with the time left now. One the server lost
       // in a crash before it started was never delivered, so its key is freed and this request
@@ -91,6 +92,12 @@ router.post('/send', async (req, res) => {
 
     const message = { userId, input, identity, delivery, sentDraft };
     const hooks = {
+      onBatchStart: async () => {
+        if (idemKeyRedis) await redisClient.set(idemKeyRedis, '__inflight__', { EX: 86400 });
+      },
+      onBatchFailure: async error => {
+        if (idemKeyRedis) await redisClient.set(idemKeyRedis, JSON.stringify({ sendError: error.publicMessage }), { EX: 86400 });
+      },
       // Overwrite the in-flight reservation with the final result so a retry after a lost
       // response returns this instead of re-sending.
       onResult: sendResult => {
@@ -106,7 +113,17 @@ router.post('/send', async (req, res) => {
       const { id, sendAt } = await holdSend({
         userId,
         delayMs: holdMs,
-        run: onDelivered => deliverAndRecord(message, { ...hooks, onDelivered }),
+        run: async onDelivered => {
+          // A held send can cross midnight or a contact edit. Resolve dynamic content again
+          // when the undo window ends, while the undone draft retains its original tokens.
+          let current;
+          try { current = delivery.contentTransformed ? await prepareDelivery(input, identity, forwarded) : delivery; }
+          catch (error) { hooks.onFailure(); throw error; }
+          return deliverAndRecord({ ...message, delivery: current }, {
+            ...hooks,
+            onDelivered: (early, detail) => detail?.personalization ? undefined : onDelivered(early),
+          });
+        },
         // An undone send frees its idempotency key, so the reopened message can be sent again.
         onCancel: async () => { if (idemKeyRedis) await redisClient.del(idemKeyRedis); },
       });
@@ -118,7 +135,7 @@ router.post('/send', async (req, res) => {
 
     res.json(await deliverAndRecord(message, hooks));
   } catch (err) {
-    if (err.publicMessage) return res.status(500).json({ error: err.publicMessage, ...(err.publicCode ? { code: err.publicCode } : {}) });
+    if (err.publicMessage) return res.status(err.status || 500).json({ error: err.publicMessage, ...(err.publicCode ? { code: err.publicCode } : {}) });
     if (err instanceof SendError) {
       // An SMTP configuration the account cannot send with (prepareDelivery). It comes before the
       // reservation today, but a reservation this request holds must never outlive its answer.

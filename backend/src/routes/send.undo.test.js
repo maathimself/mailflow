@@ -28,6 +28,7 @@ import { createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { resolveSentFolder } from '../utils/mailUtils.js';
 import { flushHeldSends, heldSendCount } from '../services/sendHold.js';
 import { deleteSentDraft } from '../services/draftCopies.js';
+import { pluginRegistry } from '../plugins/registry.js';
 
 const account = { id: 'a1', email_address: 'me@example.com', name: 'Me', oauth_provider: 'google' };
 const sendMail = vi.fn();
@@ -59,6 +60,30 @@ const status = (id, user = 'u1') => fetch(`${base}/api/mail/send/${id}`, { heade
 const cancel = (id, user = 'u1') => fetch(`${base}/api/mail/send/${id}/cancel`, { method: 'POST', headers: { 'x-test-user': user } });
 
 describe('send with an undo window', () => {
+  it('refreshes template values when the undo window closes, not when the message was queued', async () => {
+    let current = 'Before the hold';
+    const transform = vi.spyOn(pluginRegistry, 'transformHook').mockImplementation(async (_name, _ctx, value) => ({ ...value, body: current }));
+    try {
+      const { pendingId } = await (await send({ body: '{{ date.month }}', undoSeconds: 10 })).json();
+      current = 'At delivery time';
+      await flushHeldSends();
+      expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ text: 'At delivery time' }));
+      expect(transform).toHaveBeenCalledTimes(2);
+      expect((await status(pendingId)).status).toBe('sent');
+    } finally { transform.mockRestore(); }
+  });
+  it('reports a missing variable and frees the reservation if refreshing a held message fails', async () => {
+    const transform = vi.spyOn(pluginRegistry, 'transformHook')
+      .mockImplementationOnce(async (_name, _ctx, value) => ({ ...value, body: 'Ada' }))
+      .mockRejectedValueOnce(Object.assign(new Error('Missing contact name'), { status: 400 }));
+    try {
+      const { pendingId } = await (await send({ body: '{{ contact.givenName }}', undoSeconds: 10 })).json();
+      await flushHeldSends();
+      expect(sendMail).not.toHaveBeenCalled();
+      expect(await status(pendingId)).toMatchObject({ status: 'failed', error: 'Missing contact name' });
+      expect(store.has('send_idem:u1:send1')).toBe(false);
+    } finally { transform.mockRestore(); }
+  });
   it('answers at once without delivering, then delivers when the window closes', async () => {
     const res = await send({ undoSeconds: 10 });
     expect(res.status).toBe(202);

@@ -2310,5 +2310,51 @@
     "formNote": "Caixas do Gmail e do Google Workspace podem entrar com o Google em vez de usar uma senha de app.",
     "appPasswordNote": "O Gmail precisa de uma senha de app, não da sua senha normal. Ative a verificação em duas etapas da sua Conta do Google, crie uma senha de app e digite-a no campo de senha.",
     "createAppPassword": "Criar uma senha de app"
+  },
+  "templates": {
+    "title": "Modelos",
+    "new": "Novo modelo",
+    "name": "Nome",
+    "content": "Conteúdo",
+    "recipientsHint": "Separe os destinatários com vírgulas.",
+    "empty": "Nenhum modelo ainda. Crie um em Configurações → Correio → Modelos.",
+    "deleteConfirm": "Excluir este modelo?",
+    "insert": "Inserir modelo",
+    "insertHint": "Adiciona destinatários e conteúdo. Preenche o assunto quando está vazio.",
+    "variables": {
+      "insert": "Inserir variável",
+      "placeholder": "Inserir marcador",
+      "confirm": "Inserir",
+      "hint": "Escolha uma variável para inserir na posição do cursor.",
+      "date": "Data",
+      "longDate": "Data por extenso",
+      "dateTime": "Data e hora",
+      "month": "Mês",
+      "fullName": "Nome completo",
+      "givenName": "Nome",
+      "surname": "Sobrenome",
+      "salutation": "Saudação",
+      "prefix": "Prefixo",
+      "suffix": "Sufixo",
+      "title": "Título",
+      "company": "Empresa",
+      "homeAddress": "Endereço residencial",
+      "homeAddressInline": "Endereço residencial (em uma linha)",
+      "workAddress": "Endereço comercial",
+      "workAddressInline": "Endereço comercial (em uma linha)",
+      "emailAddress": "Endereço",
+      "displayAs": "Exibir como",
+      "workEmail": "E-mail comercial",
+      "mobilePhone": "Celular",
+      "homePhone": "Telefone residencial",
+      "workPhone": "Telefone comercial",
+      "groups": {
+        "date": "Data",
+        "contact": "Contato",
+        "address": "Endereço",
+        "email": "E-mail",
+        "phone": "Telefone"
+      }
+    }
   }
 }

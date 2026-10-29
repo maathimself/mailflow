@@ -34,6 +34,17 @@ export async function getValue(pluginId, key) {
   return rows[0] || null;
 }
 
+// Owner-scoped enumeration, without loading binary attachments.
+export async function listValues(pluginId, ownerId) {
+  if (!ownerId) throw new Error('An owner is required to list plugin data');
+  const { rows } = await query(
+    `SELECT key, owner_id, value, visibility FROM plugin_data
+     WHERE plugin_id = $1 AND owner_id = $2 ORDER BY updated_at DESC, key`,
+    [pluginId, ownerId]
+  );
+  return rows;
+}
+
 // The binary blob + mime (and owner/visibility for gating). Null when absent.
 export async function getBlob(pluginId, key) {
   const { rows } = await query(

@@ -2310,5 +2310,51 @@
     "formNote": "Postfächer von Gmail und Google Workspace können sich statt mit einem App-Passwort mit Google anmelden.",
     "appPasswordNote": "Gmail braucht ein App-Passwort, nicht Ihr normales Passwort. Schalten Sie die Bestätigung in zwei Schritten für Ihr Google-Konto ein, erstellen Sie dann ein App-Passwort und geben Sie es im Passwortfeld ein.",
     "createAppPassword": "App-Passwort erstellen"
+  },
+  "templates": {
+    "title": "Vorlagen",
+    "new": "Neue Vorlage",
+    "name": "Name",
+    "content": "Inhalt",
+    "recipientsHint": "Empfänger durch Kommas trennen.",
+    "empty": "Noch keine Vorlagen. Erstelle eine unter Einstellungen → E-Mail → Vorlagen.",
+    "deleteConfirm": "Diese Vorlage löschen?",
+    "insert": "Vorlage einfügen",
+    "insertHint": "Fügt Empfänger und Inhalt hinzu. Füllt einen leeren Betreff aus.",
+    "variables": {
+      "insert": "Variable einfügen",
+      "placeholder": "Platzhalter einfügen",
+      "confirm": "Einfügen",
+      "hint": "Wähle eine Variable zum Einfügen an der Cursorposition.",
+      "date": "Datum",
+      "longDate": "Langes Datum",
+      "dateTime": "Datum und Uhrzeit",
+      "month": "Monat",
+      "fullName": "Vollständiger Name",
+      "givenName": "Vorname",
+      "surname": "Nachname",
+      "salutation": "Anrede",
+      "prefix": "Namenspräfix",
+      "suffix": "Namenssuffix",
+      "title": "Titel",
+      "company": "Unternehmen",
+      "homeAddress": "Privatadresse",
+      "homeAddressInline": "Privatadresse (einzeilig)",
+      "workAddress": "Geschäftsadresse",
+      "workAddressInline": "Geschäftsadresse (einzeilig)",
+      "emailAddress": "Adresse",
+      "displayAs": "Anzeigen als",
+      "workEmail": "Geschäftliche E-Mail",
+      "mobilePhone": "Mobiltelefon",
+      "homePhone": "Privattelefon",
+      "workPhone": "Geschäftstelefon",
+      "groups": {
+        "date": "Datum",
+        "contact": "Kontakt",
+        "address": "Adresse",
+        "email": "E-Mail",
+        "phone": "Telefon"
+      }
+    }
   }
 }

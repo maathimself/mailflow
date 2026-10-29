@@ -63,6 +63,7 @@ export { summarizeMessage, summarizeAvailable } from '../services/summarize.js';
 // Generic per-plugin key/value + blob storage (the plugin_data table), owner-scoped and cascade-
 // cleaned. A plugin can persist its own data without a schema migration or DB access.
 export * as storage from './storage.js';
+export { getOwnedContactByEmail } from '../services/contactAccess.js';
 
 // ── Logging ───────────────────────────────────────────────────────────────────
 // Structured logger. A plugin may log; it cannot reach the transport or other subsystems.

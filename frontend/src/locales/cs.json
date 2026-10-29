@@ -2329,5 +2329,51 @@
     "formNote": "Schránky Gmail a Google Workspace se mohou místo hesla aplikace přihlásit přes Google.",
     "appPasswordNote": "Gmail vyžaduje heslo aplikace, ne vaše běžné heslo. Zapněte pro účet Google dvoufázové ověření, vytvořte heslo aplikace a zadejte ho do pole pro heslo.",
     "createAppPassword": "Vytvořit heslo aplikace"
+  },
+  "templates": {
+    "title": "Šablony",
+    "new": "Nová šablona",
+    "name": "Název",
+    "content": "Obsah",
+    "recipientsHint": "Příjemce oddělujte čárkami.",
+    "empty": "Zatím žádné šablony. Vytvořte ji v Nastavení → Pošta → Šablony.",
+    "deleteConfirm": "Smazat tuto šablonu?",
+    "insert": "Vložit šablonu",
+    "insertHint": "Přidá příjemce a obsah. Vyplní předmět, pokud je prázdný.",
+    "variables": {
+      "insert": "Vložit proměnnou",
+      "placeholder": "Vložit zástupný text",
+      "confirm": "Vložit",
+      "hint": "Vyberte proměnnou, kterou chcete vložit na pozici kurzoru.",
+      "date": "Datum",
+      "longDate": "Dlouhé datum",
+      "dateTime": "Datum a čas",
+      "month": "Měsíc",
+      "fullName": "Celé jméno",
+      "givenName": "Křestní jméno",
+      "surname": "Příjmení",
+      "salutation": "Oslovení",
+      "prefix": "Předpona",
+      "suffix": "Přípona",
+      "title": "Titul",
+      "company": "Společnost",
+      "homeAddress": "Domácí adresa",
+      "homeAddressInline": "Domácí adresa (na jednom řádku)",
+      "workAddress": "Pracovní adresa",
+      "workAddressInline": "Pracovní adresa (na jednom řádku)",
+      "emailAddress": "Adresa",
+      "displayAs": "Zobrazit jako",
+      "workEmail": "Pracovní e-mail",
+      "mobilePhone": "Mobilní telefon",
+      "homePhone": "Domácí telefon",
+      "workPhone": "Pracovní telefon",
+      "groups": {
+        "date": "Datum",
+        "contact": "Kontakt",
+        "address": "Adresa",
+        "email": "E-mail",
+        "phone": "Telefon"
+      }
+    }
   }
 }

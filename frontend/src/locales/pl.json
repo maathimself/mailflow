@@ -2329,5 +2329,51 @@
     "formNote": "Skrzynki Gmail i Google Workspace mogą logować się przez Google zamiast hasłem aplikacji.",
     "appPasswordNote": "Gmail wymaga hasła aplikacji, a nie zwykłego hasła. Włącz weryfikację dwuetapową na koncie Google, utwórz hasło aplikacji i wpisz je w polu hasła.",
     "createAppPassword": "Utwórz hasło aplikacji"
+  },
+  "templates": {
+    "title": "Szablony",
+    "new": "Nowy szablon",
+    "name": "Nazwa",
+    "content": "Treść",
+    "recipientsHint": "Oddziel odbiorców przecinkami.",
+    "empty": "Brak szablonów. Utwórz szablon w Ustawienia → Poczta → Szablony.",
+    "deleteConfirm": "Usunąć ten szablon?",
+    "insert": "Wstaw szablon",
+    "insertHint": "Dodaje odbiorców i treść. Wypełnia temat, jeśli jest pusty.",
+    "variables": {
+      "insert": "Wstaw zmienną",
+      "placeholder": "Wstaw tekst zastępczy",
+      "confirm": "Wstaw",
+      "hint": "Wybierz zmienną do wstawienia w miejscu kursora.",
+      "date": "Data",
+      "longDate": "Pełna data",
+      "dateTime": "Data i godzina",
+      "month": "Miesiąc",
+      "fullName": "Imię i nazwisko",
+      "givenName": "Imię",
+      "surname": "Nazwisko",
+      "salutation": "Zwrot grzecznościowy",
+      "prefix": "Przedrostek",
+      "suffix": "Przyrostek",
+      "title": "Tytuł",
+      "company": "Firma",
+      "homeAddress": "Adres domowy",
+      "homeAddressInline": "Adres domowy (w jednym wierszu)",
+      "workAddress": "Adres służbowy",
+      "workAddressInline": "Adres służbowy (w jednym wierszu)",
+      "emailAddress": "Adres",
+      "displayAs": "Wyświetl jako",
+      "workEmail": "E-mail służbowy",
+      "mobilePhone": "Telefon komórkowy",
+      "homePhone": "Telefon domowy",
+      "workPhone": "Telefon służbowy",
+      "groups": {
+        "date": "Data",
+        "contact": "Kontakt",
+        "address": "Adres",
+        "email": "E-mail",
+        "phone": "Telefon"
+      }
+    }
   }
 }

@@ -2310,5 +2310,51 @@
     "formNote": "Gmail and Google Workspace mailboxes can sign in with Google instead of an app password.",
     "appPasswordNote": "Gmail needs an app password, not your regular password. Turn on 2-Step Verification for your Google account, then create an app password and enter it in the password field.",
     "createAppPassword": "Create an app password"
+  },
+  "templates": {
+    "title": "Templates",
+    "new": "New template",
+    "name": "Name",
+    "content": "Content",
+    "recipientsHint": "Separate recipients with commas.",
+    "empty": "No templates yet. Create one in Settings → Mail → Templates.",
+    "deleteConfirm": "Delete this template?",
+    "insert": "Insert template",
+    "insertHint": "Adds recipients and content. Fills the subject when it is empty.",
+    "variables": {
+      "insert": "Insert variable",
+      "placeholder": "Insert placeholder",
+      "confirm": "Insert",
+      "hint": "Choose a variable to insert at the cursor.",
+      "date": "Date",
+      "longDate": "Long Date",
+      "dateTime": "Date and Time",
+      "month": "Month",
+      "fullName": "Full Name",
+      "givenName": "Given Name",
+      "surname": "Surname",
+      "salutation": "Salutation",
+      "prefix": "Prefix",
+      "suffix": "Suffix",
+      "title": "Title",
+      "company": "Company",
+      "homeAddress": "Home Address",
+      "homeAddressInline": "Home Address (inline)",
+      "workAddress": "Work Address",
+      "workAddressInline": "Work Address (inline)",
+      "emailAddress": "Address",
+      "displayAs": "Display As",
+      "workEmail": "Work Email",
+      "mobilePhone": "Mobile Phone",
+      "homePhone": "Home Phone",
+      "workPhone": "Work Phone",
+      "groups": {
+        "date": "Date",
+        "contact": "Contact",
+        "address": "Address",
+        "email": "Email",
+        "phone": "Phone"
+      }
+    }
   }
 }

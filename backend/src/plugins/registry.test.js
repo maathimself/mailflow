@@ -3,6 +3,25 @@ import { createPluginRegistry } from './registry.js';
 
 const base = { id: 'p1', name: 'Plugin One', version: '1.0.0', tier: 1 };
 
+describe('ordered content transformations', () => {
+  it('awaits activation gates and chains the previous result without invoking disabled hooks', async () => {
+    const registry = createPluginRegistry();
+    registry.register({ ...base, hooks: { content: async ({ value }) => value + 'A' } });
+    registry.register({ ...base, id: 'p2', isActive: async () => false, hooks: { content: () => { throw new Error('disabled'); } } });
+    registry.register({ ...base, id: 'p3', hooks: { content: { isActive: async () => true, handler: ({ value }) => value + 'B' } } });
+    expect(await registry.transformHook('content', {}, 'start')).toBe('startAB');
+  });
+  it('propagates gate and handler failures instead of silently sending untransformed content', async () => {
+    for (const manifest of [
+      { isActive: async () => { throw new Error('gate failed'); }, hooks: { content: () => 'bad' } },
+      { hooks: { content: () => { throw new Error('handler failed'); } } },
+    ]) {
+      const registry = createPluginRegistry(); registry.register({ ...base, ...manifest });
+      await expect(registry.transformHook('content', {}, 'original')).rejects.toThrow('failed');
+    }
+  });
+});
+
 describe('plugin registry — registration & validation', () => {
   it('registers a valid manifest and exposes it', () => {
     const r = createPluginRegistry();

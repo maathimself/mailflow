@@ -20,6 +20,7 @@ import { imapManager } from '../index.js';
 import { createAccountSmtpTransport } from './smtpTransport.js';
 import { resolveSentFolder } from '../utils/mailUtils.js';
 import { deleteSentDraft } from './draftCopies.js';
+import { pluginRegistry } from '../plugins/registry.js';
 import {
   SendError, missingSendFields, validateSendInput, resolveIdentity, resolveForwarded,
   buildMailOptions, serverAutoSavesSent, renderRawMessage, prepareDelivery, deliverAndRecord,
@@ -225,6 +226,34 @@ describe('renderRawMessage', () => {
 });
 
 describe('prepareDelivery', () => {
+  it('expands outgoing content before MIME rendering and preserves the original draft', async () => {
+    const owner = { ...account, user_id: 'u1' };
+    const input = valid({ subject: '{{ date.month }}', body: '{{ contact.givenName }}' });
+    const transform = vi.spyOn(pluginRegistry, 'transformHook').mockResolvedValue({ subject: 'October', body: 'Ada', bodyIsHtml: false });
+    createAccountSmtpTransport.mockResolvedValue({ account: owner, transport: { sendMail: vi.fn() } });
+    const result = await prepareDelivery(input, identity({ account: owner }));
+    expect(transform).toHaveBeenCalledWith('outgoingContent', expect.objectContaining({ userId: 'u1', input: expect.objectContaining({ to: input.to }) }), expect.any(Object));
+    expect(result.mailOptions).toMatchObject({ subject: 'October', text: 'Ada' });
+    expect(result.rawMessage.toString()).toContain('Subject: October');
+    expect(input.body).toBe('{{ contact.givenName }}');
+    expect(result.contentTransformed).toBe(true);
+  });
+  it('does not connect to SMTP when content expansion fails', async () => {
+    vi.spyOn(pluginRegistry, 'transformHook').mockRejectedValue(Object.assign(new Error('Missing contact name'), { status: 400 }));
+    await expect(prepareDelivery(valid(), identity())).rejects.toMatchObject({ status: 400, publicMessage: 'Missing contact name' });
+    expect(createAccountSmtpTransport).not.toHaveBeenCalled();
+  });
+  it('does not allow a content transform to change the message recipients', async () => {
+    vi.spyOn(pluginRegistry, 'transformHook').mockImplementation(async (_name, ctx, value) => {
+      ctx.input.to[0] = 'other@example.test';
+      return { ...value, subject: 'Hello\r\nInjected: value', to: ['other@example.test'] };
+    });
+    createAccountSmtpTransport.mockResolvedValue({ account, transport: { sendMail: vi.fn() } });
+    const delivery = await prepareDelivery(valid(), identity());
+    expect(delivery.mailOptions.to).toBe('you@example.com');
+    expect(delivery.content).not.toHaveProperty('to');
+    expect(delivery.mailOptions.subject).not.toMatch(/[\r\n]/);
+  });
   it('throws a SendError for an SMTP configuration the account cannot send with', async () => {
     createAccountSmtpTransport.mockResolvedValue({ status: 400, error: 'Plain-text SMTP is not allowed' });
     await expect(prepareDelivery(valid(), identity())).rejects.toMatchObject({ name: 'SendError', status: 400, message: 'Plain-text SMTP is not allowed' });

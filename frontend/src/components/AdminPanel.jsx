@@ -2,7 +2,7 @@ import { useCallback, useState, useEffect, useLayoutEffect, useRef, useMemo } fr
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { getPluginMeta } from '../plugins/registry.js';
-import { PluginSlot } from '../plugins/PluginSlot.jsx';
+import { PluginSlot, usePluginCollected } from '../plugins/PluginSlot.jsx';
 import { newAiAction, AI_ACTION_LIMITS } from '../aiActions.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { api } from '../utils/api.js';
@@ -8572,7 +8572,11 @@ export default function AdminPanel() {
   const { t } = useTranslation();
   const { setShowAdmin, adminTab, setAdminTab, user, fontSize } = useStore();
   const isMobile = useMobile();
-  const visibleTabs = TABS.filter(tab => (!tab.adminOnly || user?.isAdmin) && (!tab.mobileHidden || !isMobile));
+  const pluginTabs = usePluginCollected('settings-tabs', { user, isMobile });
+  const visibleTabs = [...TABS, ...pluginTabs].filter(tab => (!tab.adminOnly || user?.isAdmin) && (!tab.mobileHidden || !isMobile));
+  useEffect(() => {
+    if (!visibleTabs.some(tab => tab.id === adminTab)) setAdminTab('accounts');
+  }, [visibleTabs, adminTab, setAdminTab]);
 
   const tabScrollRef = useRef(null);
   const [tabRightOverflow, setTabRightOverflow] = useState(false);
@@ -8601,7 +8605,7 @@ export default function AdminPanel() {
     setAdminTab(tabId);
   };
   const searchResults = searchQuery.trim()
-    ? searchIndex.filter(item => {
+    ? [...searchIndex, ...pluginTabs.map(tab => ({ label: t(tab.labelKey), tab: tab.id, keywords: [], breadcrumb: t(tab.labelKey) }))].filter(item => {
         if (item.adminOnly && !user?.isAdmin) return false;
         if (item.mobileHidden && isMobile) return false;
         const q = searchQuery.toLowerCase();
@@ -8666,6 +8670,7 @@ export default function AdminPanel() {
       {adminTab === 'ai-actions' && <AiActionsTab />}
       {adminTab === 'plugins' && <PluginsSection onNavigate={navigateTo} />}
       {adminTab === 'about' && <AboutTab />}
+      {pluginTabs.filter(tab => tab.id === adminTab).map(tab => <div key={tab.id}>{tab.render({ initialSubTab: pendingSubTab })}</div>)}
     </>
   );
 
@@ -8791,7 +8796,7 @@ export default function AdminPanel() {
               scrollbar. Labels wrap instead of overflowing (see the tab buttons below). */}
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
           {TAB_GROUPS.map((group, gi) => {
-            const groupTabs = visibleTabs.filter(tab => group.tabIds.includes(tab.id));
+            const groupTabs = visibleTabs.filter(tab => group.tabIds.includes(tab.id) || tab.group === group.id);
             if (groupTabs.length === 0) return null;
             return (
               <div key={group.id} style={{ marginBottom: gi < TAB_GROUPS.length - 1 ? 4 : 0 }}>
@@ -8835,7 +8840,7 @@ export default function AdminPanel() {
           })}
 
           {/* About — ungrouped, sits above the close button */}
-          {visibleTabs.filter(tab => !TAB_GROUPS.some(g => g.tabIds.includes(tab.id))).map(tab => {
+          {visibleTabs.filter(tab => !TAB_GROUPS.some(g => g.tabIds.includes(tab.id) || tab.group === g.id)).map(tab => {
             const isActive = adminTab === tab.id && !searchResults;
             return (
               <button

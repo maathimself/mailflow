@@ -158,6 +158,8 @@ async function buildSpec(userId, body, { messageId } = {}) {
     subject: input.subject,
     body: input.body ?? '',
     bodyIsHtml: input.bodyIsHtml === true,
+    ...(input.locale ? { locale: input.locale } : {}),
+    ...(input.timeZone ? { timeZone: input.timeZone } : {}),
     quotedBody: input.quotedBody ?? null,
     quotedBodyHtml: input.quotedBodyHtml ?? null,
     signature: identity.signature ?? null,

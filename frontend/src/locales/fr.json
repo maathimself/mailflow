@@ -2310,5 +2310,51 @@
     "formNote": "Les boîtes Gmail et Google Workspace peuvent se connecter avec Google au lieu d'un mot de passe d'application.",
     "appPasswordNote": "Gmail demande un mot de passe d'application, pas votre mot de passe habituel. Activez la validation en deux étapes de votre compte Google, puis créez un mot de passe d'application et saisissez-le dans le champ du mot de passe.",
     "createAppPassword": "Créer un mot de passe d'application"
+  },
+  "templates": {
+    "title": "Modèles",
+    "new": "Nouveau modèle",
+    "name": "Nom",
+    "content": "Contenu",
+    "recipientsHint": "Séparez les destinataires par des virgules.",
+    "empty": "Aucun modèle. Créez-en un dans Paramètres → Courrier → Modèles.",
+    "deleteConfirm": "Supprimer ce modèle ?",
+    "insert": "Insérer un modèle",
+    "insertHint": "Ajoute les destinataires et le contenu. Remplit l’objet s’il est vide.",
+    "variables": {
+      "insert": "Insérer une variable",
+      "placeholder": "Insérer un espace réservé",
+      "confirm": "Insérer",
+      "hint": "Choisissez une variable à insérer à la position du curseur.",
+      "date": "Date",
+      "longDate": "Date longue",
+      "dateTime": "Date et heure",
+      "month": "Mois",
+      "fullName": "Nom complet",
+      "givenName": "Prénom",
+      "surname": "Nom de famille",
+      "salutation": "Civilité",
+      "prefix": "Préfixe",
+      "suffix": "Suffixe",
+      "title": "Titre",
+      "company": "Entreprise",
+      "homeAddress": "Adresse personnelle",
+      "homeAddressInline": "Adresse personnelle (sur une ligne)",
+      "workAddress": "Adresse professionnelle",
+      "workAddressInline": "Adresse professionnelle (sur une ligne)",
+      "emailAddress": "Adresse",
+      "displayAs": "Afficher comme",
+      "workEmail": "E-mail professionnel",
+      "mobilePhone": "Téléphone mobile",
+      "homePhone": "Téléphone personnel",
+      "workPhone": "Téléphone professionnel",
+      "groups": {
+        "date": "Date",
+        "contact": "Contact",
+        "address": "Adresse",
+        "email": "E-mail",
+        "phone": "Téléphone"
+      }
+    }
   }
 }

@@ -143,7 +143,21 @@ export function createPluginRegistry() {
     return results.filter((r) => r !== undefined);
   }
 
-  return { register, get, list, has, runHook, collectHook, hasActive, hasActiveAsync };
+  // Content transformations are ordered and fail closed: silently skipping one could send
+  // a different message from the one the user intended. Existing event hooks stay best effort.
+  async function transformHook(hookName, ctx, value) {
+    for (const plugin of plugins.values()) {
+      const hook = resolveHook(plugin.hooks?.[hookName]);
+      if (!hook) continue;
+      if (plugin.isActive && !await plugin.isActive(ctx)) continue;
+      if (hook.isActive && !await hook.isActive(ctx)) continue;
+      const next = await hook.handler({ ...ctx, value });
+      if (next !== undefined) value = next;
+    }
+    return value;
+  }
+
+  return { register, get, list, has, runHook, collectHook, transformHook, hasActive, hasActiveAsync };
 }
 
 // The process-wide registry. Core imports this; plugins register into it at boot.

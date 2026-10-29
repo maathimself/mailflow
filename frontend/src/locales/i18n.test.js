@@ -115,6 +115,19 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Two locales sharing a value is only allowed if both appear in the same group.
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
+  'templates.variables.date': [['en', 'fr'], ['it', 'ptBR', 'pl'], ['de', 'cs']],
+  'templates.variables.groups.date': [['en', 'fr'], ['it', 'ptBR', 'pl'], ['de', 'cs']],
+  'templates.variables.groups.contact': [['en', 'fr'], ['de', 'cs', 'pl']],
+  'templates.variables.groups.address': [['de', 'fr']],
+  'templates.variables.groups.email': [['en', 'it'], ['de', 'fr', 'ptBR', 'cs', 'pl']],
+  'templates.variables.groups.phone': [['de', 'cs', 'pl']],
+  'templates.variables.fullName': [['it', 'ptBR']],
+  'templates.variables.givenName': [['it', 'ptBR']],
+  'templates.variables.emailAddress': [['de', 'fr']],
+  'templates.variables.company': [['es', 'ptBR']],
+  'templates.variables.title': [['es', 'ptBR']],
+
+  'templates.name': [['en', 'de'], ['it', 'ptBR']],
   // ── Universal placeholders / brand names (all locales share) ───────────────
   'admin.about.kofi':                       'any', // Ko-fi — brand name, same everywhere
   'admin.about.githubSponsors':             'any', // GitHub Sponsors — product name, same everywhere

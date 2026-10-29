@@ -2310,5 +2310,51 @@
     "formNote": "Los buzones de Gmail y Google Workspace pueden iniciar sesión con Google en lugar de usar una contraseña de aplicación.",
     "appPasswordNote": "Gmail necesita una contraseña de aplicación, no tu contraseña habitual. Activa la verificación en dos pasos de tu cuenta de Google, crea una contraseña de aplicación y escríbela en el campo de contraseña.",
     "createAppPassword": "Crear una contraseña de aplicación"
+  },
+  "templates": {
+    "title": "Plantillas",
+    "new": "Nueva plantilla",
+    "name": "Nombre",
+    "content": "Contenido",
+    "recipientsHint": "Separa los destinatarios con comas.",
+    "empty": "Aún no hay plantillas. Crea una en Configuración → Correo → Plantillas.",
+    "deleteConfirm": "¿Eliminar esta plantilla?",
+    "insert": "Insertar plantilla",
+    "insertHint": "Añade destinatarios y contenido. Completa el asunto si está vacío.",
+    "variables": {
+      "insert": "Insertar variable",
+      "placeholder": "Insertar marcador",
+      "confirm": "Insertar",
+      "hint": "Elige una variable para insertarla en la posición del cursor.",
+      "date": "Fecha",
+      "longDate": "Fecha larga",
+      "dateTime": "Fecha y hora",
+      "month": "Mes",
+      "fullName": "Nombre completo",
+      "givenName": "Nombre",
+      "surname": "Apellido",
+      "salutation": "Tratamiento",
+      "prefix": "Prefijo",
+      "suffix": "Sufijo",
+      "title": "Título",
+      "company": "Empresa",
+      "homeAddress": "Dirección particular",
+      "homeAddressInline": "Dirección particular (en línea)",
+      "workAddress": "Dirección laboral",
+      "workAddressInline": "Dirección laboral (en línea)",
+      "emailAddress": "Dirección",
+      "displayAs": "Mostrar como",
+      "workEmail": "Correo laboral",
+      "mobilePhone": "Teléfono móvil",
+      "homePhone": "Teléfono particular",
+      "workPhone": "Teléfono laboral",
+      "groups": {
+        "date": "Fecha",
+        "contact": "Contacto",
+        "address": "Dirección",
+        "email": "Correo",
+        "phone": "Teléfono"
+      }
+    }
   }
 }

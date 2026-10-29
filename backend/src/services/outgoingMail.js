@@ -216,6 +216,8 @@ export function validateSendInput(body) {
     forwardedAttachments,
     forwardedMessages,
     priority: VALID_PRIORITIES.has(priority) ? priority : 'normal',
+    ...(typeof body.locale === 'string' && body.locale.length <= 100 ? { locale: body.locale } : {}),
+    ...(typeof body.timeZone === 'string' && body.timeZone.length <= 100 ? { timeZone: body.timeZone } : {}),
   };
 }
 
@@ -515,14 +517,73 @@ export async function renderRawMessage(mailOptions) {
 export async function prepareDelivery(input, identity, forwarded, options = {}) {
   if (options.messageId !== undefined) checkedMessageId(options.messageId);
   if (options.date !== undefined) checkedDate(options.date);
+  const date = options.date === undefined ? new Date() : checkedDate(options.date);
+  const addresses = new Map();
+  for (const value of [...input.to, ...input.cc, ...input.bcc]) {
+    const address = parseAddress(value).email;
+    if (!addresses.has(address)) addresses.set(address, value);
+  }
+  const recipients = [...addresses.entries()]
+    .map(([address, value]) => ({ address, value }));
+  const excluded = new Set(options.excludeRecipients || []);
+  const pending = recipients.filter(recipient => !excluded.has(recipient.address));
+  if (!pending.length) throw new SendError(400, 'All personalized recipients have already been delivered.');
+  const transform = async recipient => {
+    try {
+      const result = await pluginRegistry.transformHook('outgoingContent', {
+        userId: identity.account.user_id,
+        input: { to: [...input.to], recipient: recipient.value, locale: input.locale, timeZone: input.timeZone }, date: new Date(date),
+      }, { subject: input.subject, body: input.body, bodyIsHtml: input.bodyIsHtml });
+      if (typeof result.subject !== 'string' || (result.body != null && typeof result.body !== 'string') || result.bodyIsHtml !== input.bodyIsHtml) {
+        throw new Error('Invalid outgoing content transformation');
+      }
+      // Only content and a request for private, per-recipient delivery may cross this seam.
+      return { content: { subject: sanitizeHeaderValue(result.subject), body: result.body, bodyIsHtml: input.bodyIsHtml }, personalize: result.personalize === true };
+    } catch (error) {
+      const failure = new SendError(error.status === 400 ? 400 : 500,
+        error.status === 400 ? error.message : 'Failed to prepare message content');
+      if (failure.status === 400) failure.publicMessage = failure.message;
+      throw failure;
+    }
+  };
+  const first = await transform(pending[0]);
+  if (excluded.size && !first.personalize) throw new SendError(400, 'The plugin needed to personalize this message is no longer enabled.');
+  // Validate every recipient before connecting or delivering any copy.
+  const contents = [first.content];
+  let contentBytes = Buffer.byteLength(JSON.stringify(first.content));
+  if (first.personalize) {
+    if (contentBytes > 10 * 1024 * 1024) throw new SendError(413, 'Personalized message content exceeds 10 MB. Reduce the recipient list or template size.');
+    for (const recipient of pending.slice(1)) {
+      const next = (await transform(recipient)).content;
+      contentBytes += Buffer.byteLength(JSON.stringify(next));
+      if (contentBytes > 10 * 1024 * 1024) throw new SendError(413, 'Personalized message content exceeds 10 MB. Reduce the recipient list or template size.');
+      contents.push(next);
+    }
+  }
   const smtp = await createAccountSmtpTransport(identity.account, options.smtp);
   if (smtp.error) throw new SendError(smtp.status, smtp.error);
   const account = smtp.account;
-  const mailOptions = buildMailOptions(input, identity, forwarded, options);
   const serverAutoSaves = serverAutoSavesSent(account);
-  // For servers that don't auto-save, generate the raw MIME now so we can APPEND it.
-  const rawMessage = serverAutoSaves ? null : await renderRawMessage(mailOptions);
-  return { account, transport: smtp.transport, mailOptions, serverAutoSaves, rawMessage };
+  const base = buildMailOptions({ ...input, ...contents[0] }, identity, forwarded, { ...options, date });
+  const deliveries = [];
+  for (const [index, content] of contents.entries()) {
+    const recipient = pending[index];
+    const hash = createHash('sha256').update(recipient.address).digest('hex').slice(0, 24);
+    const messageId = first.personalize ? base.messageId.replace(/@/, `.${hash}@`) : base.messageId;
+    const materialize = async () => {
+      const mailOptions = buildMailOptions({ ...input, ...content }, identity, forwarded, { ...options, date, messageId });
+      // Headers keep ordinary To/Cc visibility; the SMTP envelope isolates each private body.
+      if (first.personalize) mailOptions.envelope = { from: identity.fromEmail, to: [recipient.address] };
+      const rawMessage = serverAutoSaves ? null : await renderRawMessage(mailOptions);
+      return { account, transport: smtp.transport, mailOptions, serverAutoSaves, rawMessage, content,
+        ...(first.personalize ? { recipient: recipient.address } : {}) };
+    };
+    deliveries.push({ account, messageId, date, materialize, content,
+      ...(first.personalize ? { recipient: recipient.address } : {}),
+      contentTransformed: first.personalize || content.subject !== input.subject || content.body !== input.body });
+  }
+  if (first.personalize) return { ...deliveries[0], personalizedDeliveries: deliveries };
+  return { ...deliveries[0], ...await deliveries[0].materialize() };
 }
 
 // The fields of a nodemailer SMTP error that say what failed: responseCode (e.g. 421, 550),
@@ -619,8 +680,57 @@ async function learnRecipients(userId, allRecipients, now) {
 // - onFailure(): called synchronously when delivery failed, before the rejection.
 export async function deliverAndRecord(
   { userId, input, identity, delivery, sentDraft = null },
-  { onDelivered, onResult, onFailure } = {},
+  { onDelivered, onResult, onFailure, onBatchStart, onAttempt, onBatchFailure } = {},
 ) {
+  if (delivery.personalizedDeliveries) {
+    const copies = delivery.personalizedDeliveries;
+    const results = [];
+    const accepted = [];
+    let active = null;
+    let smtpAttempted = false;
+    try {
+      await onBatchStart?.();
+      for (const copy of copies) {
+        active = copy;
+        const ready = await copy.materialize();
+        await onAttempt?.(copy.recipient);
+        let recorded = false;
+        smtpAttempted = true;
+        const result = await deliverAndRecord({ userId, input, identity, delivery: ready }, {
+          onDelivered: async (early, detail) => {
+            if (!early.rejected?.some(value => String(value).toLowerCase() === copy.recipient)) accepted.push(copy.recipient);
+            await onDelivered?.(early, { ...detail, personalization: { recipient: copy.recipient, messageId: copy.messageId, total: copies.length } });
+            recorded = true;
+          },
+        });
+        // Bookkeeping failures after acceptance cannot authorize the next recipient if the
+        // durable progress callback did not finish. Recovery must decide the outcome.
+        if (!recorded) throw new Error('Personalized delivery progress could not be recorded');
+        results.push(result);
+      }
+      if (sentDraft) await deleteSentDraft(userId, delivery.account, sentDraft);
+      const rejected = results.flatMap(result => result.rejected || []);
+      const result = { ok: true, ...(results[0]?.sentFolder ? { sentFolder: results[0].sentFolder, messageId: copies[0].messageId } : {}),
+        ...(results.some(item => item.sentCopySaved === false) ? { sentCopySaved: false } : {}), ...(rejected.length ? { rejected } : {}) };
+      onResult?.(result);
+      return result;
+    } catch (cause) {
+      if (!active) { onFailure?.(); throw cause; }
+      const smtp = cause.cause || cause;
+      if (!accepted.length && (!smtpAttempted || Number(smtp.responseCode) >= 400 || smtp.code === 'EAUTH' || (smtp.smtpStage && !smtp.smtpStage.bodyStarted))) {
+        // A definitive refusal before any acceptance can follow the ordinary retry/auth path.
+        onFailure?.(); throw cause;
+      }
+      const remaining = copies.map(copy => copy.recipient).filter(recipient => !accepted.includes(recipient));
+      const error = Object.assign(new Error('Personalized delivery interrupted', { cause: new Error('Delivery progress is incomplete') }), {
+        code: 'EPERSONALIZED',
+        publicMessage: `Personalized sending stopped. Confirmed delivered: ${accepted.join(', ') || 'none'}. Not confirmed delivered: ${remaining.join(', ') || 'none'}. Check Sent before retrying; do not resend the whole recipient list.`,
+      });
+      try { await onBatchFailure?.(error); }
+      catch { console.error('Could not persist personalized delivery failure; the in-flight reservation must remain held.'); }
+      throw error;
+    }
+  }
   const { account, transport, mailOptions, serverAutoSaves, rawMessage } = delivery;
   const { fromName, fromEmail } = identity;
   let delivered = false; // true once transport.sendMail has actually handed off the message
@@ -648,7 +758,7 @@ export async function deliverAndRecord(
     // Auto-learn sent recipients. A DB error here must never affect the send response. An
     // immediate send does not wait for it; a held send does, because nobody is waiting on that
     // response.
-    const allRecipients = [...input.to, ...input.cc, ...input.bcc];
+    const allRecipients = delivery.recipient ? [delivery.recipient] : [...input.to, ...input.cc, ...input.bcc];
     if (allRecipients.length) {
       learning = learnRecipients(userId, allRecipients, mailOptions.date);
     }
@@ -664,7 +774,7 @@ export async function deliverAndRecord(
     let sentCopySaved = null;
     const sentMeta = sentFolder ? {
       messageId: mailOptions.messageId,
-      subject: input.subject,
+      subject: mailOptions.subject,
       fromName,
       fromEmail,
       to: mapRecipientList(input.to),
@@ -672,7 +782,7 @@ export async function deliverAndRecord(
       // The Sent copy carries a Bcc header, but the row did not, so the reading pane had no
       // Bcc to show for a message you sent (#585).
       bcc: mapRecipientList(input.bcc),
-      snippet: buildSentSnippet(input.body, input.bodyIsHtml),
+      snippet: buildSentSnippet(delivery.content?.body ?? input.body, input.bodyIsHtml),
       date: mailOptions.date,
       // Carried so the Sent row threads into its conversation via the References chain
       // rather than orphaning at its own Message-ID (#378).

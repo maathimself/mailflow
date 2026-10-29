@@ -29,7 +29,7 @@ vi.mock('../utils/mailUtils.js', () => ({
     "SELECT path FROM folders WHERE account_id = $1 AND special_use = '\\Sent' LIMIT 1", [accountId])).rows[0]?.path ?? null),
 }));
 vi.mock('./pushNotifications.js', () => ({ sendPushToUser: vi.fn(async () => {}) }));
-vi.mock('../plugins/registry.js', () => ({ pluginRegistry: { runHook: vi.fn(async () => {}) } }));
+vi.mock('../plugins/registry.js', () => ({ pluginRegistry: { runHook: vi.fn(async () => {}), transformHook: vi.fn(async (_name, _context, value) => value) } }));
 
 import { runMigrations } from './migrations.js';
 import { ScheduledSender, aad, openJson, storeScheduledMessage } from './scheduledSend.js';

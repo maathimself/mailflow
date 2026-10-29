@@ -2310,5 +2310,51 @@
     "formNote": "Le caselle Gmail e Google Workspace possono accedere con Google invece di usare una password per le app.",
     "appPasswordNote": "Gmail richiede una password per le app, non la tua password abituale. Attiva la verifica in due passaggi per il tuo account Google, poi crea una password per le app e inseriscila nel campo della password.",
     "createAppPassword": "Crea una password per le app"
+  },
+  "templates": {
+    "title": "Modelli",
+    "new": "Nuovo modello",
+    "name": "Nome",
+    "content": "Contenuto",
+    "recipientsHint": "Separa i destinatari con virgole.",
+    "empty": "Nessun modello. Creane uno in Impostazioni → Posta → Modelli.",
+    "deleteConfirm": "Eliminare questo modello?",
+    "insert": "Inserisci modello",
+    "insertHint": "Aggiunge destinatari e contenuto. Compila l’oggetto se è vuoto.",
+    "variables": {
+      "insert": "Inserisci variabile",
+      "placeholder": "Inserisci segnaposto",
+      "confirm": "Inserisci",
+      "hint": "Scegli una variabile da inserire nella posizione del cursore.",
+      "date": "Data",
+      "longDate": "Data estesa",
+      "dateTime": "Data e ora",
+      "month": "Mese",
+      "fullName": "Nome completo",
+      "givenName": "Nome",
+      "surname": "Cognome",
+      "salutation": "Saluto",
+      "prefix": "Prefisso",
+      "suffix": "Suffisso",
+      "title": "Titolo",
+      "company": "Azienda",
+      "homeAddress": "Indirizzo di casa",
+      "homeAddressInline": "Indirizzo di casa (su una riga)",
+      "workAddress": "Indirizzo di lavoro",
+      "workAddressInline": "Indirizzo di lavoro (su una riga)",
+      "emailAddress": "Indirizzo",
+      "displayAs": "Visualizza come",
+      "workEmail": "Email di lavoro",
+      "mobilePhone": "Cellulare",
+      "homePhone": "Telefono di casa",
+      "workPhone": "Telefono di lavoro",
+      "groups": {
+        "date": "Data",
+        "contact": "Contatto",
+        "address": "Indirizzo",
+        "email": "Email",
+        "phone": "Telefono"
+      }
+    }
   }
 }

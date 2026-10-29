@@ -2310,5 +2310,51 @@
     "formNote": "Gmail 및 Google Workspace 사서함은 앱 비밀번호 대신 Google로 로그인할 수 있습니다.",
     "appPasswordNote": "Gmail에는 일반 비밀번호가 아닌 앱 비밀번호가 필요합니다. Google 계정에서 2단계 인증을 켠 다음 앱 비밀번호를 만들어 비밀번호 칸에 입력하세요.",
     "createAppPassword": "앱 비밀번호 만들기"
+  },
+  "templates": {
+    "title": "템플릿",
+    "new": "새 템플릿",
+    "name": "이름",
+    "content": "내용",
+    "recipientsHint": "받는 사람을 쉼표로 구분하세요.",
+    "empty": "템플릿이 없습니다. 설정 → 메일 → 템플릿에서 만드세요.",
+    "deleteConfirm": "이 템플릿을 삭제할까요?",
+    "insert": "템플릿 삽입",
+    "insertHint": "받는 사람과 내용을 추가합니다. 제목이 비어 있으면 채웁니다.",
+    "variables": {
+      "insert": "변수 삽입",
+      "placeholder": "자리 표시자 삽입",
+      "confirm": "삽입",
+      "hint": "커서 위치에 삽입할 변수를 선택하세요.",
+      "date": "날짜",
+      "longDate": "긴 날짜",
+      "dateTime": "날짜 및 시간",
+      "month": "월",
+      "fullName": "전체 이름",
+      "givenName": "이름",
+      "surname": "성",
+      "salutation": "인사말",
+      "prefix": "접두사",
+      "suffix": "접미사",
+      "title": "직함",
+      "company": "회사",
+      "homeAddress": "집 주소",
+      "homeAddressInline": "집 주소 (한 줄)",
+      "workAddress": "직장 주소",
+      "workAddressInline": "직장 주소 (한 줄)",
+      "emailAddress": "주소",
+      "displayAs": "표시 이름",
+      "workEmail": "직장 이메일",
+      "mobilePhone": "휴대전화",
+      "homePhone": "집 전화",
+      "workPhone": "직장 전화",
+      "groups": {
+        "date": "날짜",
+        "contact": "연락처",
+        "address": "주소",
+        "email": "이메일",
+        "phone": "전화"
+      }
+    }
   }
 }

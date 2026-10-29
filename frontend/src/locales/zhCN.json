@@ -2310,5 +2310,51 @@
     "formNote": "Gmail 和 Google Workspace 邮箱可以使用 Google 登录，而不必使用应用专用密码。",
     "appPasswordNote": "Gmail 需要应用专用密码，而不是你的常用密码。请为 Google 帐号开启两步验证，然后创建应用专用密码并填入密码栏。",
     "createAppPassword": "创建应用专用密码"
+  },
+  "templates": {
+    "title": "模板",
+    "new": "新建模板",
+    "name": "名称",
+    "content": "内容",
+    "recipientsHint": "请用逗号分隔收件人。",
+    "empty": "暂无模板。请在设置 → 邮件 → 模板中创建。",
+    "deleteConfirm": "删除此模板？",
+    "insert": "插入模板",
+    "insertHint": "添加收件人和内容，并在主题为空时填写主题。",
+    "variables": {
+      "insert": "插入变量",
+      "placeholder": "插入占位符",
+      "confirm": "插入",
+      "hint": "选择要在光标处插入的变量。",
+      "date": "日期",
+      "longDate": "完整日期",
+      "dateTime": "日期和时间",
+      "month": "月份",
+      "fullName": "全名",
+      "givenName": "名字",
+      "surname": "姓氏",
+      "salutation": "称呼",
+      "prefix": "前缀",
+      "suffix": "后缀",
+      "title": "职称",
+      "company": "公司",
+      "homeAddress": "家庭地址",
+      "homeAddressInline": "家庭地址（单行）",
+      "workAddress": "工作地址",
+      "workAddressInline": "工作地址（单行）",
+      "emailAddress": "地址",
+      "displayAs": "显示为",
+      "workEmail": "工作邮箱",
+      "mobilePhone": "手机",
+      "homePhone": "家庭电话",
+      "workPhone": "工作电话",
+      "groups": {
+        "date": "日期",
+        "contact": "联系人",
+        "address": "地址",
+        "email": "邮箱",
+        "phone": "电话"
+      }
+    }
   }
 }

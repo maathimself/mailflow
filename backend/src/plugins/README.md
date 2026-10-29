@@ -99,6 +99,44 @@ Core carries no plugin-specific UI code. A plugin registers into a small in-proc
   message types core doesn't, and resync on reconnect.
 - `registerPluginMeta(pluginId, meta)` — static metadata (e.g. where the plugin's settings live).
 
+The `settings-tabs` collector receives `{ user, isMobile }` and contributes
+`{ id, group, labelKey, icon, render }` descriptors. Use `group: 'mail'` to appear under Mail.
+Deactivated plugins lose their tabs automatically, including settings search entries.
+
+The `compose-actions` slot appears in the rich-text toolbar's More submenu and the plain-text
+action strip. Its context exposes `{ editor, sessionId, disabled, htmlMode, plaintextEmail,
+isMobile, captureSelection, applyPreset }`. Capture the selection before opening a picker, then
+call `applyPreset({ to, cc, bcc, subject, body }, selection)` with HTML content. Core sanitizes and
+inserts the body, merges recipients, and fills an empty subject. Async pickers must discard results
+when unmounted or when `sessionId` changes. Reusable content editors can use
+`ComposeContentEditor` to share the composer's extensions, image handling, and formatting toolbar.
+Its optional `renderActions({ disabled, captureSelection, insertText })` contributes controls to
+More. `insertText(text, selection)` inserts literal text in rich-text or HTML-source mode and
+restores the saved caret. Templates uses it for variables such as `{{ contact.fullName }}` and
+the editable `{{ add placeholder }}` marker. Variable identifiers remain untranslated. Tokens
+stay intact in templates and drafts and expand in the server's `outgoingContent` hook at send
+time. Date values use the attempt's Date and the composer's locale/time zone (UTC/en for API
+clients that omit them). Contact values come from each distinct To, Cc, and Bcc recipient,
+scoped to the sender's own contacts; additional vCard fields supply addresses, titles, and name
+prefixes/suffixes. A content transform returns `personalize: true` to request isolated delivery
+for every recipient. Core controls recipient selection, deduplication, SMTP envelopes, and
+stable individual Message-IDs. To/Cc headers keep their normal visibility; Bcc stays hidden.
+All variable values are validated before any copy is sent. Ordinary and date-only messages
+remain a single group delivery. MIME copies are built one at a time to bound attachment memory.
+Missing values and unfilled placeholders stop sending with an error. HTML replacements are
+escaped and limited to message text, never HTML attributes or quoted/forwarded mail.
+`transformHook` awaits activation gates, runs transformations in order, and propagates errors.
+Scheduled sends save expanded content in their encrypted payload before SMTP, so recovery uses
+the same content even if contacts or plugin activation change after delivery. Personalized jobs
+also checkpoint attempts and acceptances per recipient. An interrupted group is uncertain,
+never automatically retried as a whole; explicit retries skip confirmed recipients. A Sent
+copy for one recipient does not prove that the rest were delivered. Immediate/Undo Send groups
+retain an idempotency reservation after partial delivery and report the interruption. Each
+delivered variant gets its own Sent copy; the original draft is removed only after completion.
+
+Templates is a bundled, per-user opt-in plugin. It stores private records through `storage.put`
+and lists only the current owner's records through `storage.listValues(pluginId, ownerId)`.
+
 The neutral `message-row-meta` slot receives `{ message }` on ordinary flat and threaded rows.
 GTD fills it for inbox/search with its own metadata endpoint, account gating and state chips;
 core message queries remain plugin-agnostic. Waiting ages use the oldest labeled message date,
