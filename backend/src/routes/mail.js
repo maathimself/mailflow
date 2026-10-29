@@ -128,7 +128,7 @@ function snippetIsGarbled(s) {
 // errors, so a completed mutation is never turned into a 500.
 function notifyMailMutation(rows, userId) {
   for (const accountId of new Set(rows.map(m => m.account_id).filter(Boolean))) {
-    imapManager.scheduleCountRefresh?.(accountId);
+    imapManager.scheduleCountRefresh?.(accountId, rows.filter(m => m.account_id === accountId).map(m => m.folder));
   }
   const byAccount = new Map();
   for (const m of rows) {
@@ -1180,7 +1180,7 @@ router.post('/mark-all-read', async (req, res) => {
   // the server for UNSEEN, and one started beside the write found the folder still unread.
   imapManager.markAllReadImap(account, folder)
     .catch(err => console.warn('markAllReadImap failed:', err.message))
-    .finally(() => imapManager.scheduleCountRefresh?.(accountId));
+    .finally(() => imapManager.scheduleCountRefresh?.(accountId, [folder]));
   imapManager.broadcast({ type: 'sync_complete', accountId }, account.user_id);
   res.json({ ok: true });
 });

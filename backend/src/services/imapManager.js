@@ -4302,8 +4302,10 @@ export class ImapManager {
     this.userFolderSyncIntervalMs.set(userId, newMs);
   }
 
-  scheduleCountRefresh(accountId) {
-    if (!accountId || this._statusAccountTimers.has(accountId)) return;
+  scheduleCountRefresh(accountId, folders = []) {
+    if (!accountId) return;
+    this.folderStatusMonitor.noteChangedFolders(accountId, folders);
+    if (this._statusAccountTimers.has(accountId)) return;
     this._statusAccountTimers.set(accountId, setTimeout(() => {
       this._statusAccountTimers.delete(accountId);
       query("SELECT * FROM email_accounts WHERE id=$1 AND enabled AND protocol='imap'", [accountId])
@@ -8181,7 +8183,7 @@ export class ImapManager {
 
   broadcast(data, userId = null) {
     if (data?.accountId && ['new_messages', 'flags_synced', 'folder_updated', 'folder_emptied', 'snooze_wakeup', 'backfill_complete'].includes(data.type)) {
-      this.scheduleCountRefresh(data.accountId);
+      this.scheduleCountRefresh(data.accountId, [data.folder]);
     }
     recordBroadcast(data?.type);
     const msg = JSON.stringify(data);

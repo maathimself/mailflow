@@ -97,6 +97,17 @@ export class FolderStatusMonitor {
     this.failures = new Map();
     this.forceAgain = new Set();
     this.heldForce = new Map();
+    this.changedFolders = new Map();
+  }
+  // Folders a change just touched are checked in the next cycle ahead of the rotation: waiting
+  // their turn, a folder's badge kept the count from before the change for over a minute on an
+  // account with a dozen folders (#708). They come on top of the batch, so the rotation and the
+  // freshness allowance derived from it are unchanged.
+  noteChangedFolders(accountId, paths) {
+    const valid = (paths || []).filter(p => typeof p === 'string' && p);
+    if (!accountId || !valid.length) return;
+    if (!this.changedFolders.has(accountId)) this.changedFolders.set(accountId, new Set());
+    for (const p of valid) this.changedFolders.get(accountId).add(p);
   }
   refresh(account, { force = false } = {}) {
     if (this.running.has(account.id)) {
@@ -129,12 +140,17 @@ export class FolderStatusMonitor {
   async _refresh(account) {
     this.nextCheck.set(account.id, Date.now() + STATUS_INTERVAL_MS);
     let any = false, failed = false;
+    const pending = this.changedFolders.get(account.id);
+    const first = pending ? [...pending].slice(0, STATUS_FOLDER_BATCH) : [];
+    for (const p of first) pending.delete(p);
+    if (pending && !pending.size) this.changedFolders.delete(account.id);
     try {
       const { rows } = await query(`SELECT f.*,
         (SELECT count(*) FROM messages m WHERE m.account_id=f.account_id AND m.folder=f.path AND NOT m.is_deleted) AS cached_total,
         (SELECT count(*) FROM messages m WHERE m.account_id=f.account_id AND m.folder=f.path AND NOT m.is_deleted AND NOT m.is_read) AS cached_unread
         FROM folders f WHERE f.account_id=$1 AND NOT f.no_select
-        ORDER BY (f.path='INBOX') DESC, f.status_attempted_at ASC NULLS FIRST, f.path LIMIT $2`, [account.id, STATUS_FOLDER_BATCH]);
+        ORDER BY (f.path='INBOX') DESC, (f.path = ANY($3::text[])) DESC, f.status_attempted_at ASC NULLS FIRST, f.path
+        LIMIT $2`, [account.id, STATUS_FOLDER_BATCH + first.length, first]);
       if (!rows.length) return;
       const changed = [];
       // On the fresh-login path this connection stays AUTHENTICATED (no selected mailbox, no
@@ -173,6 +189,8 @@ export class FolderStatusMonitor {
       if (failed) throw new Error('One or more folder status checks failed');
       this.failures.delete(account.id);
     } catch (err) {
+      // A changed folder this cycle never reached is still owed its check.
+      this.noteChangedFolders(account.id, first);
       const failures = (this.failures.get(account.id) || 0) + 1;
       this.failures.set(account.id, failures);
       this.nextCheck.set(account.id, Date.now() + Math.min(600000, STATUS_INTERVAL_MS * 2 ** Math.min(failures - 1, 4)));

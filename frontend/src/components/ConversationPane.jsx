@@ -50,7 +50,7 @@ const NOTHING_TO_TAKE_DRAFT = {
 // the actions and the card that opens to that account's copies; null keeps every copy.
 //
 // Design from #317 by YunQue0912.
-export default function ConversationPane({ threadId, folder, unified = false, accountId = null, selectedMessageId = null }) {
+export default function ConversationPane({ threadId, folder, unified = false, accountId = null, selectedMessageId = null, openedFromRow = false }) {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const withShortcut = useShortcutTitle();
@@ -116,14 +116,22 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   // same thread leaves threadId untouched, so the pane used to re-render with identical
   // props and nothing happened on screen, which read as the click being ignored.
   const stackRef = useRef(null);
+  // A list row stands for the whole conversation, which opens on its newest message. The row's
+  // own message is only the newest in the listed folder, so opening it too put the other
+  // person's last message beside a newer reply of the reader's in Sent, and scrolled to it (#707).
+  // The newest card is then the selected one too, so the outline and the shortcuts follow it.
+  const selectedHere = Boolean(selectedMessageId) && messages.some(message => message.id === selectedMessageId);
+  const focusedId = selectedHere && openedFromRow
+    ? newestConversationMessage(inAccount(messages, accountId))?.id ?? selectedMessageId
+    : selectedMessageId;
   useEffect(() => {
-    if (!selectedMessageId || !messages.some(message => message.id === selectedMessageId)) return;
-    setExpanded(prev => (prev.has(selectedMessageId) ? prev : new Set(prev).add(selectedMessageId)));
+    if (!selectedHere || !focusedId) return;
+    setExpanded(prev => (prev.has(focusedId) ? prev : new Set(prev).add(focusedId)));
     // Long threads run past the fold, so the message that was asked for is brought into
     // view rather than being opened somewhere off screen.
-    const card = stackRef.current?.querySelector(`[data-message-id="${selectedMessageId}"]`);
+    const card = stackRef.current?.querySelector(`[data-message-id="${focusedId}"]`);
     card?.scrollIntoView?.({ block: 'nearest' });
-  }, [selectedMessageId, messages]);
+  }, [selectedHere, focusedId, messages]);
 
   // Swiping on a phone (#229), as in the single-message pane: from the left edge back to the list,
   // and left and right for the next and previous row of the list, which may be a conversation or a
@@ -359,7 +367,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
             key={message.id}
             message={message}
             expanded={expanded.has(message.id)}
-            selected={message.id === selectedMessageId}
+            selected={message.id === focusedId}
             onToggle={toggle}
             onUpdate={updateConversationMessage}
             aiEnabled={aiEnabled}
