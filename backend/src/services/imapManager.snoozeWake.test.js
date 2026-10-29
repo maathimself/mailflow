@@ -20,6 +20,7 @@ vi.mock('../utils/mailUtils.js', async (importOriginal) => ({ ...(await importOr
 
 import { EventEmitter } from 'node:events';
 import { ImapFlow } from 'imapflow';
+import { searchCompiler } from 'imapflow/lib/search-compiler.js';
 import { ImapManager, evictPool } from './imapManager.js';
 import { resolveForConnection } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
@@ -201,7 +202,12 @@ describe('marking a woken message unread without its new uid', () => {
         states: { NOT_AUTHENTICATED: 1, AUTHENTICATED: 2, SELECTED: 3, LOGOUT: 4 }, state: 2, mailbox: false,
         connect: vi.fn(async () => {}), close: vi.fn(), logout: vi.fn(async () => {}), noop: vi.fn(async () => true),
         async getMailboxLock(path) { this.mailbox = { path, exists: 1 }; return { release() {} }; },
-        async search() { return found; },
+        // As a server would: the criteria go through imapflow's compiler, and only a SEARCH for
+        // the woken message's Message-ID header finds anything.
+        async search(criteria) {
+          const wire = searchCompiler(this, criteria).map(a => a.value);
+          return wire.join(' ') === 'HEADER MESSAGE-ID <a@x>' ? found : [];
+        },
         async messageFlagsRemove(range) { unflagged.push(range); return true; },
       });
     });
