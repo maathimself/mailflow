@@ -1,5 +1,7 @@
 import { pickReplyAlias } from './replyAlias.js';
 import { api } from './api.js';
+import { useStore } from '../store/index.js';
+import { folderRole } from './folderDisplay.js';
 
 export function initialComposeFocus({ isReply = false, isForward = false } = {}) {
   return isReply && !isForward ? 'editor' : 'to';
@@ -46,6 +48,17 @@ const replySender = message => Object.hasOwn(message, 'reply_from_email')
   ? { email: message.reply_from_email, name: message.reply_from_name || '' }
   : { email: message.from_email, name: message.from_name || '' };
 
+// A copy in the account's Sent folder is the user's own, even when it went out from a "Send as" or
+// delegated address that MailFlow doesn't list as an alias.
+const SENT_NAMES = /^(?:\[gmail\]\/|\[google mail\]\/)?sent(?:\s+(?:items|mail|messages))?$/i;
+function isSentCopy(message, account) {
+  if (!message?.folder) return false;
+  const folder = (useStore.getState().folders?.[message.account_id] || []).find(f => f.path === message.folder);
+  const role = folderRole(folder || { path: message.folder }, account?.folder_mappings);
+  if (role) return role === 'sent';
+  return SENT_NAMES.test(message.folder);
+}
+
 export function pickMessageReplyAlias(message, account) {
   const { email } = replySender(message);
   return pickReplyAlias({
@@ -74,7 +87,7 @@ export function resolveReplyRecipients(message, account) {
   const externalReplyTo = external(addressList(message.reply_to)).slice(0, 1);
   // Authorship belongs to this account, even when its sent copy carries a team Reply-To. With
   // nobody else in To or Cc, as on a contact form that mails itself, its Reply-To is who to answer.
-  const targets = owned.has(emailKey(from[0]?.email))
+  const targets = owned.has(emailKey(from[0]?.email)) || isSentCopy(message, account)
     ? (externalTo.length ? externalTo : externalCc.length ? externalCc
       : externalReplyTo.length ? externalReplyTo : to.length ? to : cc)
     : addressList(message.reply_to).slice(0, 1);
@@ -138,10 +151,12 @@ export async function openForwardFromMessage(message, { openCompose, getMessageB
     fwdBody = await api.getMessageBody(message.id, Boolean(fwdBody.remoteImagesProxied), { original: true }).catch(() => fwdBody);
   }
   const fwdDate = message.date ? new Date(message.date).toLocaleString() : '';
-  const fwdSafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
+  // A threaded list row names the conversation's first sender; the forwarded message is the row's own.
+  const fwdAuthor = replySender(message);
+  const fwdSafeName = fwdAuthor.name.replace(/[\r\n]+/g, ' ');
   const fwdFromStr = fwdSafeName
-    ? `${fwdSafeName} <${message.from_email}>`
-    : message.from_email || '';
+    ? `${fwdSafeName} <${fwdAuthor.email}>`
+    : fwdAuthor.email || '';
   const safeSubject = (message.subject || '').replace(/[\r\n]+/g, ' ');
   const toStr = parseAddressField(message.to_addresses);
   const ccStr = parseAddressField(message.cc_addresses);
