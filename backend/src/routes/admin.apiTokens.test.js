@@ -8,7 +8,7 @@ vi.mock('../middleware/auth.js', () => ({
 vi.mock('../services/encryption.js', () => ({ decrypt: v => v, encrypt: v => v }));
 vi.mock('../services/hostValidation.js', () => ({ validateHost: vi.fn(), resolveForConnection: vi.fn() }));
 vi.mock('../services/smtpTransport.js', () => ({ createSmtpTransport: vi.fn() }));
-vi.mock('../services/connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn(), invalidateConnectionPolicyCache: vi.fn() }));
+vi.mock('../services/connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn(async () => ({ allowPrivateHosts: false })), invalidateConnectionPolicyCache: vi.fn() }));
 vi.mock('../services/apiTokens.js', async (importOriginal) => ({ ...(await importOriginal()), invalidateApiTokenSettingsCache: vi.fn() }));
 vi.mock('../services/authLimiter.js', () => ({ reloadAuthSettings: vi.fn() }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
@@ -104,7 +104,9 @@ describe('sign-in policy changes and API tokens', () => {
     // An enabled provider, and an identity at it for the admin, so password sign-in can go off.
     query.mockImplementation(async sql => {
       if (sql.includes('COUNT(*)')) return { rows: [{ count: '1' }] };
-      if (sql.startsWith('SELECT allow_insecure FROM oidc_providers')) return { rows: [{ allow_insecure: false }] };
+      if (sql.startsWith('SELECT allow_insecure, issuer_url, client_id FROM oidc_providers')) {
+        return { rows: [{ allow_insecure: false, issuer_url: 'https://idp.example.com', client_id: 'mailflow' }] };
+      }
       if (sql.includes("key = 'internal_auth_disabled'")) return { rows: [{ value: 'false' }] };
       return { rows: [{ username: 'maria' }] };
     });
@@ -150,7 +152,7 @@ describe('sign-in policy changes and API tokens', () => {
     expect(res.json).toHaveBeenCalledWith({ ok: true });
   });
 
-  describe('an SSO provider turned off', () => {
+  describe('an SSO provider turned off, or pointed at another issuer or client', () => {
     const update = body => fetch(`${base}/api/admin/oidc/${PROVIDER}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
@@ -162,10 +164,21 @@ describe('sign-in policy changes and API tokens', () => {
       expect(console.log).toHaveBeenCalledWith('[admin] admin turned off SSO provider corp, and deleted 2 API tokens');
     });
 
-    it('leaves them while it stays on, through any other change', async () => {
+    it.each([
+      ['issuer', { issuer_url: 'https://other-idp.example.com' }],
+      ['client', { client_id: 'mailflow-2' }],
+    ])('takes them along when its %s changes: another identity source vouched for them', async (_what, body) => {
+      expect((await update(body)).status).toBe(200);
+      expect(firstWords()).toEqual(['UPDATE oidc_providers SET', 'DELETE FROM api_tokens']);
+      expect(inTransaction[1]).toEqual(['DELETE FROM api_tokens WHERE oidc_provider_id = $1', [PROVIDER]]);
+      expect(console.log).toHaveBeenCalledWith('[admin] admin changed the issuer or client of SSO provider corp, and deleted 2 API tokens');
+    });
+
+    it('leaves them while it stays on, through any other change, the same issuer and client sent back included', async () => {
       expect((await update({ enabled: true })).status).toBe(200);
-      expect((await update({ name: 'Corp' })).status).toBe(200);
-      expect(firstWords()).toEqual(['UPDATE oidc_providers SET', 'UPDATE oidc_providers SET']);
+      expect((await update({ name: 'Corp', issuer_url: 'https://idp.example.com', client_id: 'mailflow' })).status).toBe(200);
+      expect((await update({ issuer_url: ' https://idp.example.com ', client_id: '' })).status).toBe(200);
+      expect(firstWords()).toEqual(['UPDATE oidc_providers SET', 'UPDATE oidc_providers SET', 'UPDATE oidc_providers SET']);
     });
 
     it('deletes nothing for a provider that is not there', async () => {

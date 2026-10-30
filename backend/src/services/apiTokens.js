@@ -179,12 +179,15 @@ export async function countTokens(userId) {
   return count;
 }
 
-// Returns { token, apiToken } with the secret, which is never available again, or null when the
-// user already has MAX_TOKENS_PER_USER tokens. confirmedWith is what creating it was confirmed
-// with, and oidcProviderId the provider when that was single sign-on (apiTokenReauth.js).
+const POLICY_CHANGED = Object.freeze({ policyChanged: true });
+
+// Returns { token, apiToken } with the secret, which is never available again; null when the user
+// already has MAX_TOKENS_PER_USER tokens; or { policyChanged: true } when the server's sign-in
+// policy no longer allows a token confirmed this way. confirmedWith is what creating it was
+// confirmed with, and oidcProviderId the provider when that was single sign-on (apiTokenReauth.js).
 export async function createToken(userId, { name, scopes, expiresAt, confirmedWith, oidcProviderId = null }) {
   const token = generateToken();
-  const row = await withTransaction(async client => {
+  const result = await withTransaction(async client => {
     // One creation at a time per user, so two at once cannot both pass the limit.
     await client.query('SELECT 1 FROM users WHERE id = $1 FOR UPDATE', [userId]);
     const { rows: [{ count }] } = await client.query(
@@ -192,6 +195,15 @@ export async function createToken(userId, { name, scopes, expiresAt, confirmedWi
       [userId]
     );
     if (count >= MAX_TOKENS_PER_USER) return null;
+    // The sign-in policy, checked again here and held shared until the commit. routes/apiTokens.js
+    // checked it before the confirmation, but an admin may have required two-factor or turned
+    // password sign-in off since; their change (routes/admin.js, which updates these rows and
+    // deletes the tokens it no longer allows in one transaction) now waits for this insert and
+    // sees the row, or this read waits for it and refuses. Both rows are seeded by migrations.
+    const { rows: policy } = await client.query(
+      "SELECT key, value FROM system_settings WHERE key IN ('mfa_enforcement', 'internal_auth_disabled') FOR SHARE"
+    );
+    if (!confirmationAllowed(Object.fromEntries(policy.map(r => [r.key, r.value])), confirmedWith)) return POLICY_CHANGED;
     const { rows: [inserted] } = await client.query(
       `INSERT INTO api_tokens (user_id, name, token_hash, scopes, expires_at, confirmed_with, oidc_provider_id)
        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
@@ -200,7 +212,9 @@ export async function createToken(userId, { name, scopes, expiresAt, confirmedWi
     );
     return inserted;
   });
-  return row ? { token, apiToken: publicToken(row) } : null;
+  if (!result) return null;
+  if (result === POLICY_CHANGED) return result;
+  return { token, apiToken: publicToken(result) };
 }
 
 // The revoked token's name, or null when the user has no such token.
@@ -223,6 +237,15 @@ const POLICY_CONFIRMATIONS = {
   // sign-in, which leaves two-factor to the provider.
   mfaRequired: ['totp', 'oidc'],
 };
+
+// Whether a token confirmed this way may exist under the sign-in policy in `settings`: the
+// system_settings rows mfa_enforcement and internal_auth_disabled, by key. The same rule
+// revokeTokensForPolicy applies after the fact.
+export function confirmationAllowed(settings, confirmedWith) {
+  if (settings.internal_auth_disabled === 'true' && !POLICY_CONFIRMATIONS.ssoOnly.includes(confirmedWith)) return false;
+  if (settings.mfa_enforcement === 'required' && !POLICY_CONFIRMATIONS.mfaRequired.includes(confirmedWith)) return false;
+  return true;
+}
 
 export async function revokeTokensForPolicy(client, policy) {
   const allowed = POLICY_CONFIRMATIONS[policy];

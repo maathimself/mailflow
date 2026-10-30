@@ -16,8 +16,9 @@ import { freshOidcConfirmation } from './oidcConfirmation.js';
 //
 // - 'oidc' when the account cannot sign in with a password: password sign-in is off, or it has
 //   none. Only its single sign-on provider vouches for it, so creating a token needs a sign-in
-//   through the provider in the last 10 minutes (oidcConfirmation.js; routes/oidc.js records it at
-//   sign-in or from the form's Confirm button), and such a token lasts 30 days at most. That bounds how long it can
+//   made through the provider in the last 10 minutes from the form's Confirm button, which makes
+//   the provider ask for credentials again (oidcConfirmation.js; routes/oidc.js, action=reauth).
+//   An ordinary sign-in does not count. Such a token lasts 30 days at most. That bounds how long it can
 //   outlive the provider deprovisioning the user, which MailFlow cannot see.
 // - 'totp' when the user has two-factor on: their current code, checked as the sign-in challenge
 //   checks it (routes/auth.js), with the same replay guard and totp:<uid> limit.
@@ -128,7 +129,7 @@ async function confirmOidc(req, user) {
   if (fresh && (await linkedProviders(user.id)).some(p => p.id === fresh.providerId)) {
     return { confirmedWith: 'oidc', oidcProviderId: fresh.providerId };
   }
-  return { refusal: { status: 400, body: { error: 'Confirm with single sign-on first: a sign-in counts for 10 minutes', reauth: 'oidc' } } };
+  return { refusal: { status: 400, body: { error: 'Confirm through single sign-on first; a confirmation counts for 10 minutes', reauth: 'oidc' } } };
 }
 
 const tooManyAttempts = (reauth, resetMs) => ({

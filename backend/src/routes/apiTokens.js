@@ -74,6 +74,12 @@ router.post('/', async (req, res) => {
     name, scopes, expiresAt: expiryDate(expiresInDays), confirmedWith, oidcProviderId,
   });
   if (!created) return res.status(400).json(limitReached);
+  // The sign-in policy changed between the confirmation and the insert (apiTokens.js holds it
+  // shared), so what confirmed this token no longer qualifies. Not 401: the client signs out on
+  // one. The card reloads and shows what confirms a token now.
+  if (created.policyChanged) {
+    return res.status(409).json({ error: "The server's sign-in policy changed while this token was being created. Confirm again." });
+  }
   const { apiToken } = created;
   logAuthEvent('api_token_created', { userId: user.id, username: user.username, ip: normalizeIp(req.ip), success: true });
   console.log(`[apiToken] ${user.username} created token ${JSON.stringify(apiToken.name)} (${apiToken.id}) scopes=${apiToken.scopes.join(',')} expires=${new Date(apiToken.expiresAt).toISOString()} confirmed=${confirmedWith}`);

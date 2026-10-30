@@ -62,6 +62,9 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('API tokens PostgreSQL'
     await database.query("INSERT INTO users VALUES ($1, 'maria'), ($2, 'olga')", [OWNER, OTHER]);
     await database.query('INSERT INTO oidc_providers VALUES ($1), ($2)', [CORP, OTHER_IDP]);
     await database.query("UPDATE system_settings SET value = 'true' WHERE key = 'api_tokens_enabled'");
+    // The sign-in policy rows, as migrations 0004 and 0020 seed them.
+    await database.query(`INSERT INTO system_settings (key, value) VALUES ('mfa_enforcement', 'off'), ('internal_auth_disabled', 'false')
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
     invalidateApiTokenSettingsCache();
   });
 
@@ -141,6 +144,20 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('API tokens PostgreSQL'
     expect(count).toBe(MAX_TOKENS_PER_USER);
     // Another user's limit is their own.
     expect(await createToken(OTHER, { name: 'hers', scopes: ['read'], expiresAt: new Date(), confirmedWith: 'password' })).not.toBe(null);
+  });
+
+  it('refuses, inside its transaction, a token the sign-in policy no longer allows', async () => {
+    const create = (confirmedWith, providerId = null) => createToken(OWNER, {
+      name: confirmedWith, scopes: ['read'], expiresAt: new Date(Date.now() + 86_400_000), confirmedWith, oidcProviderId: providerId,
+    });
+    await database.query("UPDATE system_settings SET value = 'required' WHERE key = 'mfa_enforcement'");
+    expect(await create('password')).toEqual({ policyChanged: true });
+    expect(await names()).toEqual([]);
+    expect(await create('totp')).toMatchObject({ apiToken: { name: 'totp' } });
+    await database.query("UPDATE system_settings SET value = 'true' WHERE key = 'internal_auth_disabled'");
+    expect(await create('totp')).toEqual({ policyChanged: true });
+    expect(await create('oidc', CORP)).toMatchObject({ apiToken: { name: 'oidc' } });
+    expect(await names()).toEqual(['oidc', 'totp']);
   });
 
   it('revokes only the user\'s own token, and a deleted user takes theirs along', async () => {

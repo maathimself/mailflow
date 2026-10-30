@@ -1,5 +1,5 @@
 import { query } from '../services/db.js';
-import { draftMessageSql, folderRoles, isAllMailFolder, resolveArchiveFolder } from '../utils/mailUtils.js';
+import { draftMessageSql, folderRoles, resolveArchiveFolder } from '../utils/mailUtils.js';
 import { providerProfile } from '../services/imapManager.js';
 import { isValidFolderName, areValidUUIDs, gatherSnoozeConversation } from '../routes/mail.js';
 import { isUuid } from '../utils/uuid.js';
@@ -26,6 +26,8 @@ export async function apiTokenGuards(req, res, next) {
 const DRAFT_SOURCE_ERROR = 'API tokens cannot move or archive drafts';
 export const ALL_MAIL_ARCHIVE_ERROR = "API tokens cannot archive into Gmail's All Mail, where the mail drops out of MailFlow. "
   + "Create a Gmail label named Archive, or choose an archive folder in the account's settings.";
+export const PROTECTED_ARCHIVE_ERROR = 'API tokens cannot archive into Trash, Junk, Drafts, Snoozed or folders MailFlow does not sync: '
+  + "check the account's archive folder setting.";
 const PLAIN_TEXT_ERROR = 'API token drafts must be plain text';
 
 // What the bulk routes accept: 1 to 500 UUID strings. Anything else is left to the route's own
@@ -47,10 +49,11 @@ async function sourceAccounts(userId, ids) {
   return rows;
 }
 
-// An archive goes to the folder resolveArchiveFolder picks for each account, as in the route. On
-// Gmail without an archive label or mapping, that is All Mail: Gmail only drops the Inbox label,
-// but MailFlow does not sync All Mail, so the mail leaves every view and only Gmail can bring it
-// back. The archive button still does that; a token may not.
+// An archive goes to the folder resolveArchiveFolder picks for each account, as in the route, and
+// that folder is held to the same rules as a move's destination: an archive mapping can point
+// anywhere, Trash or Junk included. On Gmail without an archive label or mapping, it is All Mail:
+// Gmail only drops the Inbox label, but MailFlow does not sync All Mail, so the mail leaves every
+// view and only Gmail can bring it back. The archive button still does that; a token may not.
 async function bulkArchive(req) {
   const { ids } = req.body ?? {};
   if (!acceptedIds(ids)) return null;
@@ -58,9 +61,11 @@ async function bulkArchive(req) {
   if (accounts.some(a => a.has_draft)) return { status: 403, error: DRAFT_SOURCE_ERROR };
   for (const account of accounts) {
     const destination = await resolveArchiveFolder(account.id, account.folder_mappings);
-    if (destination && await isAllMailFolder(account.id, destination)) {
-      return { status: 403, error: ALL_MAIL_ARCHIVE_ERROR };
-    }
+    if (!destination) continue; // the route reports an account with no archive folder
+    const roles = await folderRoles(account.id, destination);
+    if (!roles) continue;
+    if (String(roles.specialUse ?? '').toLowerCase() === '\\all') return { status: 403, error: ALL_MAIL_ARCHIVE_ERROR };
+    if (isProtectedDestination(destination, roles, providerProfile(account))) return { status: 403, error: PROTECTED_ARCHIVE_ERROR };
   }
   return null;
 }
@@ -113,6 +118,9 @@ function draft(req) {
   if (!absent(body.existingUid) || !absent(body.existingFolder) || !absent(body.existingAccountId)) {
     return { status: 403, error: 'API tokens can only create new drafts' };
   }
+  // draft.js deletes the scheduled message a draft was made from (fromScheduled). A token may
+  // draft, never take back a message due to go out.
+  if (!absent(body.fromScheduled)) return { status: 403, error: 'API tokens cannot remove a scheduled message' };
   // draft.js takes any truthy bodyIsHtml for HTML, and stores quotedBodyHtml as it is.
   if (!(absent(body.bodyIsHtml) || body.bodyIsHtml === false) || !absent(body.quotedBodyHtml)) {
     return { status: 400, error: PLAIN_TEXT_ERROR };

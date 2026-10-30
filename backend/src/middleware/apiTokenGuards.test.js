@@ -18,6 +18,8 @@ const DRAFT_SOURCE_ERROR = 'API tokens cannot move or archive drafts';
 const PLAIN_TEXT_ERROR = 'API token drafts must be plain text';
 const ALL_MAIL_ERROR = "API tokens cannot archive into Gmail's All Mail, where the mail drops out of MailFlow. "
   + "Create a Gmail label named Archive, or choose an archive folder in the account's settings.";
+const ARCHIVE_ERROR = 'API tokens cannot archive into Trash, Junk, Drafts, Snoozed or folders MailFlow does not sync: '
+  + "check the account's archive folder setting.";
 
 // The database: which accounts the ids are in (and whether one is a draft, or one of `drafts` is
 // among them), each account's folders with the roles folderRoles reads, the folder each account's
@@ -222,6 +224,27 @@ describe('bulk-archive with a token', () => {
     archives = {};
     expect((await archive({ ids: [ID1] })).passed).toBe(true);
   });
+
+  // The destination is held to a move's rules: a mapping can point an archive anywhere.
+  it.each([
+    ['Trash by its flag', 'Bin', { special_use: '\\Trash' }],
+    ['Junk by its name', 'Bulk Mail', { spam_rule: true }],
+    ['the Snoozed folder', 'Snoozed', {}],
+    ['a folder that cannot hold mail', 'Container', { no_select: true }],
+  ])('refuses an archive mapping that points at %s', async (_label, path, roles) => {
+    folders[GENERIC][path] = roles;
+    sources[0].folder_mappings = { archive: path };
+    // A folder that cannot hold mail is not a usable mapping, so the archive falls back to the
+    // Archive folder, which is fine.
+    const result = await archive({ ids: [ID1] });
+    if (roles.no_select) expect(result.passed).toBe(true);
+    else expect(result).toMatchObject({ status: 403, body: { error: ARCHIVE_ERROR } });
+  });
+
+  it('archives into a mapped ordinary folder', async () => {
+    sources[0].folder_mappings = { archive: 'Receipts' };
+    expect((await archive({ ids: [ID1] })).passed).toBe(true);
+  });
 });
 
 describe('snoozing with a token', () => {
@@ -277,6 +300,14 @@ describe('drafts with a token', () => {
       expect(result.req.body.bodyIsHtml).toBe(false);
     }
     expect((await draft({ aliasId: null, existingUid: null, existingFolder: null, existingAccountId: null })).passed).toBe(true);
+  });
+
+  it('refuses to take back a scheduled message, which draft.js deletes for fromScheduled', async () => {
+    for (const fromScheduled of [{ id: ID1, editToken: ID2 }, { id: 'x' }, 'yes', true, 1]) {
+      expect(await draft({ fromScheduled }), JSON.stringify(fromScheduled)).toMatchObject({ status: 403, body: { error: 'API tokens cannot remove a scheduled message' } });
+    }
+    expect((await draft({ fromScheduled: null })).passed).toBe(true);
+    expect(query).not.toHaveBeenCalled();
   });
 
   it('never replaces an existing draft, which expunges the old copy', async () => {

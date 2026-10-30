@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Creating an API token needs a recent sign-in through single sign-on when the account cannot sign
-// in with a password (#617). action=reauth has the provider vouch again for the signed-in user
-// without signing them in again, and an SSO sign-in counts too.
+// Creating an API token needs a sign-in just made through single sign-on when the account cannot
+// sign in with a password (#617). action=reauth has the provider ask the signed-in user for their
+// credentials again (prompt=login, max_age=0) and vouch for them, without changing the MailFlow
+// session; the id_token's auth_time proves the provider did ask. An ordinary sign-in counts for
+// nothing here: the provider may have kept its own session.
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: { connect: vi.fn() } }));
 vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, isEncrypted: () => false }));
 vi.mock('../index.js', () => ({ imapManager: { connectAllForUser: vi.fn() } }));
@@ -90,14 +92,23 @@ async function sessionWith(state) {
 const get = (path, cookie) => realFetch(`${base}${path}`, { headers: { cookie }, redirect: 'manual' });
 const sessionOf = async (cookie) => (await get('/session', cookie)).json();
 const errorIn = (location) => decodeURIComponent(location.split('oidc_error=')[1] ?? '');
-const verifiedIdToken = (nonce) => ({ payload: { iss: issuer, sub: 'idp-user', nonce, email: 'owner@example.com', email_verified: true } });
+// authTime: seconds, as the claim is; null leaves the claim out.
+const verifiedIdToken = (nonce, authTime = Math.floor(Date.now() / 1000)) => ({ payload: {
+  iss: issuer, sub: 'idp-user', nonce, email: 'owner@example.com', email_verified: true,
+  ...(authTime === null ? {} : { auth_time: authTime }),
+} });
 
-// Starts the flow from `cookie`'s session and comes back from the provider.
-async function confirmThroughProvider(cookie) {
+// Starts the flow from `cookie`'s session and comes back from the provider, with an id_token
+// whose auth_time is `authTime` (default: now).
+async function confirmThroughProvider(cookie, { authTime } = {}) {
   const start = await get('/auth/oidc/idp/start?action=reauth', cookie);
-  expect(start.headers.get('location').split('?')[0]).toBe(`${issuer}/authorize`);
+  const authorize = new URL(start.headers.get('location'));
+  expect(`${authorize.origin}${authorize.pathname}`).toBe(`${issuer}/authorize`);
+  // The provider is told to ask for credentials again, and that auth_time is wanted.
+  expect(authorize.searchParams.get('prompt')).toBe('login');
+  expect(authorize.searchParams.get('max_age')).toBe('0');
   const { oidcPending } = await sessionOf(cookie);
-  jwtVerify.mockResolvedValue(verifiedIdToken(oidcPending.nonce));
+  jwtVerify.mockResolvedValue(verifiedIdToken(oidcPending.nonce, authTime));
   return get(`/auth/oidc/idp/callback?code=c1&state=${oidcPending.state}`, cookie);
 }
 
@@ -146,6 +157,70 @@ describe('confirming the signed-in user through single sign-on', () => {
     expect(await sessionOf(cookie)).toMatchObject({ userId: 'u2', oidcConfirmedAt: null });
   });
 
+  it.each([
+    ['without auth_time', null],
+    ['from before the flow began', () => Math.floor(Date.now() / 1000) - 120],
+  ])('refuses an id_token %s: the provider did not ask for credentials again', async (_label, authTime) => {
+    const cookie = await sessionWith({ userId: 'u1' });
+
+    const done = await confirmThroughProvider(cookie, { authTime: typeof authTime === 'function' ? authTime() : authTime });
+
+    expect(errorIn(done.headers.get('location'))).toBe('Sign in again at your provider to confirm');
+    expect(await sessionOf(cookie)).toMatchObject({ userId: 'u1', oidcConfirmedAt: null, oidcConfirmedProviderId: null, oidcPending: null });
+    expect(clientQueries.some(q => q.sql.startsWith('UPDATE user_identities'))).toBe(false);
+  });
+
+  it('allows a minute of clock skew on auth_time', async () => {
+    const cookie = await sessionWith({ userId: 'u1' });
+    const done = await confirmThroughProvider(cookie, { authTime: Math.floor(Date.now() / 1000) - 30 });
+    expect(done.headers.get('location')).toBe('/?oidc_success=reauth');
+    expect((await sessionOf(cookie)).oidcConfirmedProviderId).toBe('p1');
+  });
+
+  it('refuses a reauth flow that recorded no start, as one begun before this check did', async () => {
+    const cookie = await sessionWith({ userId: 'u1', oidcPending: {
+      state: 's1', nonce: 'n1', verifier: 'v1', providerId: 'p1', action: 'reauth', reauthUserId: 'u1', expiresAt: Date.now() + 60_000,
+    } });
+    jwtVerify.mockResolvedValue(verifiedIdToken('n1'));
+
+    const done = await get('/auth/oidc/idp/callback?code=c1&state=s1', cookie);
+
+    expect(errorIn(done.headers.get('location'))).toBe('Sign in again at your provider to confirm');
+    expect((await sessionOf(cookie)).oidcConfirmedAt).toBe(null);
+  });
+
+  it.each([
+    ['without auth_time', null],
+    ['from before the flow began', () => Math.floor(Date.now() / 1000) - 120],
+  ])('refuses an id_token %s: the provider did not ask for credentials again', async (_label, authTime) => {
+    const cookie = await sessionWith({ userId: 'u1' });
+
+    const done = await confirmThroughProvider(cookie, { authTime: typeof authTime === 'function' ? authTime() : authTime });
+
+    expect(errorIn(done.headers.get('location'))).toBe('Sign in again at your provider to confirm');
+    expect(await sessionOf(cookie)).toMatchObject({ userId: 'u1', oidcConfirmedAt: null, oidcConfirmedProviderId: null, oidcPending: null });
+    expect(clientQueries.some(q => q.sql.startsWith('UPDATE user_identities'))).toBe(false);
+  });
+
+  it('allows a minute of clock skew on auth_time', async () => {
+    const cookie = await sessionWith({ userId: 'u1' });
+    const done = await confirmThroughProvider(cookie, { authTime: Math.floor(Date.now() / 1000) - 30 });
+    expect(done.headers.get('location')).toBe('/?oidc_success=reauth');
+    expect((await sessionOf(cookie)).oidcConfirmedProviderId).toBe('p1');
+  });
+
+  it('refuses a reauth flow that recorded no start, as one begun before this check did', async () => {
+    const cookie = await sessionWith({ userId: 'u1', oidcPending: {
+      state: 's1', nonce: 'n1', verifier: 'v1', providerId: 'p1', action: 'reauth', reauthUserId: 'u1', expiresAt: Date.now() + 60_000,
+    } });
+    jwtVerify.mockResolvedValue(verifiedIdToken('n1'));
+
+    const done = await get('/auth/oidc/idp/callback?code=c1&state=s1', cookie);
+
+    expect(errorIn(done.headers.get('location'))).toBe('Sign in again at your provider to confirm');
+    expect((await sessionOf(cookie)).oidcConfirmedAt).toBe(null);
+  });
+
   it('needs a signed-in, unlocked session, and reports a refusal inside the app', async () => {
     const signedOut = await sessionWith({ theme: 'dark' });
     let res = await get('/auth/oidc/idp/start?action=reauth', signedOut);
@@ -158,7 +233,12 @@ describe('confirming the signed-in user through single sign-on', () => {
 });
 
 describe('signing in through single sign-on', () => {
-  it('counts as a confirmation too', async () => {
+  it('is not asked for credentials again, and confirms nothing', async () => {
+    const start = await get('/auth/oidc/idp/start', await sessionWith({ theme: 'dark' }));
+    const authorize = new URL(start.headers.get('location'));
+    expect(authorize.searchParams.has('prompt')).toBe(false);
+    expect(authorize.searchParams.has('max_age')).toBe(false);
+
     const cookie = await sessionWith({ oidcPending: {
       state: 's1', nonce: 'n1', verifier: 'v1', providerId: 'p1', action: 'login', expiresAt: Date.now() + 60_000,
     } });
@@ -168,7 +248,19 @@ describe('signing in through single sign-on', () => {
 
     expect(done.headers.get('location')).toBe('/?oidc_success=login');
     const signedIn = done.headers.get('set-cookie').split(';')[0];
-    expect(await sessionOf(signedIn)).toMatchObject({ userId: 'u1', oidcConfirmedProviderId: 'p1' });
-    expect((await sessionOf(signedIn)).oidcConfirmedAt).toBeGreaterThan(Date.now() - 60_000);
+    expect(await sessionOf(signedIn)).toMatchObject({ userId: 'u1', oidcConfirmedAt: null, oidcConfirmedProviderId: null });
+  });
+
+  it('nor does linking an identity', async () => {
+    const cookie = await sessionWith({ userId: 'u1' });
+    const start = await get('/auth/oidc/idp/start?action=link', cookie);
+    expect(new URL(start.headers.get('location')).searchParams.has('prompt')).toBe(false);
+    const { oidcPending } = await sessionOf(cookie);
+    jwtVerify.mockResolvedValue(verifiedIdToken(oidcPending.nonce));
+
+    const done = await get(`/auth/oidc/idp/callback?code=c1&state=${oidcPending.state}`, cookie);
+
+    expect(done.headers.get('location')).toBe('/?oidc_success=linked');
+    expect(await sessionOf(cookie)).toMatchObject({ userId: 'u1', oidcConfirmedAt: null, oidcConfirmedProviderId: null });
   });
 });

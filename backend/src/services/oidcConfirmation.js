@@ -1,6 +1,8 @@
-// A sign-in through single sign-on vouches for the session's user for a few minutes. Creating an
-// API token needs that when the account cannot sign in with a password (#617): routes/oidc.js
-// records it, and services/apiTokenReauth.js reads it.
+// A sign-in just made through single sign-on, asked for by the token form (routes/oidc.js,
+// action=reauth), vouches for the session's user for a few minutes. Creating an API token needs
+// that when the account cannot sign in with a password (#617); services/apiTokenReauth.js reads it.
+// An ordinary sign-in records nothing here: the provider may have kept its own session, so it
+// proves no more than the MailFlow session already does.
 export const OIDC_CONFIRMATION_MS = 10 * 60 * 1000;
 
 export function recordOidcConfirmation(session, providerId, now = Date.now()) {

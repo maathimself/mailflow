@@ -173,7 +173,7 @@ describe('confirming with the password', () => {
 });
 
 describe('confirming with a sign-in through single sign-on', () => {
-  const refused = { refusal: { status: 400, body: { error: 'Confirm with single sign-on first: a sign-in counts for 10 minutes', reauth: 'oidc' } } };
+  const refused = { refusal: { status: 400, body: { error: 'Confirm through single sign-on first; a confirmation counts for 10 minutes', reauth: 'oidc' } } };
   const signedIn = (msAgo, providerId = CORP.id) => {
     const session = {};
     recordOidcConfirmation(session, providerId, Date.now() - msAgo);

@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
 import bcrypt from 'bcryptjs';
-import { query } from '../services/db.js';
+import { query, withTransaction } from '../services/db.js';
+import { revokedTokensNote } from '../services/apiTokens.js';
 import { requireAuth } from '../middleware/auth.js';
 import { encrypt } from '../services/encryption.js';
 
@@ -101,10 +102,13 @@ router.post('/disable', totpLimiter, async (req, res) => {
   // Not 401: the client takes a 401 outside /auth/ for an expired session and signs out.
   if (!valid) return res.status(403).json({ error: 'Incorrect password' });
 
-  await query(
-    'UPDATE users SET totp_secret = NULL, totp_enabled = false WHERE id = $1',
-    [req.session.userId]
-  );
+  // The API tokens this authenticator confirmed go with it (#617). Those confirmed with the
+  // password, which was just given again, stay.
+  const revoked = await withTransaction(async client => {
+    await client.query('UPDATE users SET totp_secret = NULL, totp_enabled = false WHERE id = $1', [req.session.userId]);
+    return (await client.query("DELETE FROM api_tokens WHERE user_id = $1 AND confirmed_with = 'totp'", [req.session.userId])).rowCount;
+  });
+  if (revoked) console.log(`[totp] user ${req.session.userId} turned two-factor off${revokedTokensNote(revoked)}`);
 
   res.json({ ok: true });
 });

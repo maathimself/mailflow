@@ -8,7 +8,7 @@ vi.mock('./db.js', () => {
 import crypto from 'crypto';
 import { query } from './db.js';
 import {
-  apiTokenCredential, apiTokensEnabled, createToken, expiryDate, findTokenByHash, generateToken, hashToken,
+  apiTokenCredential, apiTokensEnabled, confirmationAllowed, createToken, expiryDate, findTokenByHash, generateToken, hashToken,
   invalidateApiTokenSettingsCache, isTokenFormat, listTokens, MAX_TOKENS_PER_USER, normalizeIp,
   normalizeScopes, normalizeTokenName, recordTokenUse, RECORD_USE_EVERY_MS, resetTokenUseForTests, revokedTokensNote,
   revokeProviderTokens, revokeTokensForPolicy, tokenStillValid,
@@ -251,6 +251,38 @@ describe('creating a token', () => {
     const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO api_tokens'));
     expect(insert[1]).toEqual(['u1', 'Claude', hashToken(created.token), '["read","draft"]', expires, 'totp', null]);
     expect(JSON.stringify(query.mock.calls)).not.toContain(created.token);
+    // The sign-in policy is read inside the transaction and held shared until it commits, so an
+    // admin's change to it waits for this insert or is seen by it.
+    const sqls = query.mock.calls.map(([sql]) => sql);
+    const policy = sqls.findIndex(sql => sql === "SELECT key, value FROM system_settings WHERE key IN ('mfa_enforcement', 'internal_auth_disabled') FOR SHARE");
+    expect(policy).toBeGreaterThan(sqls.indexOf('SELECT 1 FROM users WHERE id = $1 FOR UPDATE'));
+    expect(policy).toBeLessThan(sqls.findIndex(sql => sql.includes('INSERT INTO api_tokens')));
+  });
+
+  it('refuses, inside its transaction, a token the sign-in policy no longer allows, and stores nothing', async () => {
+    let settings = [{ key: 'mfa_enforcement', value: 'required' }, { key: 'internal_auth_disabled', value: 'false' }];
+    query.mockImplementation(async sql => {
+      if (/COUNT/.test(sql)) return { rows: [{ count: 0 }] };
+      if (/FOR SHARE/.test(sql)) return { rows: settings };
+      if (/INSERT INTO api_tokens/.test(sql)) return { rows: [{ id: 't9', scopes: ['read'] }] };
+      return { rows: [] };
+    });
+    const create = confirmedWith => createToken('u1', { name: 'x', scopes: ['read'], expiresAt: new Date(), confirmedWith, oidcProviderId: confirmedWith === 'oidc' ? 'p1' : null });
+    expect(await create('password')).toEqual({ policyChanged: true });
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT'))).toBe(false);
+    expect(await create('totp')).toMatchObject({ apiToken: { id: 't9' } });
+    settings = [{ key: 'mfa_enforcement', value: 'off' }, { key: 'internal_auth_disabled', value: 'true' }];
+    expect(await create('totp')).toEqual({ policyChanged: true });
+    expect(await create('oidc')).toMatchObject({ apiToken: { id: 't9' } });
+  });
+
+  it('allows a confirmation by the same rule that revokes tokens after a policy change', () => {
+    const allowed = (settings) => ['password', 'totp', 'oidc'].filter(c => confirmationAllowed(settings, c));
+    expect(allowed({})).toEqual(['password', 'totp', 'oidc']);
+    expect(allowed({ mfa_enforcement: 'off', internal_auth_disabled: 'false' })).toEqual(['password', 'totp', 'oidc']);
+    expect(allowed({ mfa_enforcement: 'required' })).toEqual(['totp', 'oidc']);
+    expect(allowed({ internal_auth_disabled: 'true' })).toEqual(['oidc']);
+    expect(allowed({ mfa_enforcement: 'required', internal_auth_disabled: 'true' })).toEqual(['oidc']);
   });
 
   it('records the provider when single sign-on confirmed it', async () => {

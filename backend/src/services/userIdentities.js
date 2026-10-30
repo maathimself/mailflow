@@ -43,8 +43,10 @@ export async function removeIdentitiesForPasswordReset(client, userId) {
 }
 
 // Removes one identity of a user unless the user could then no longer sign in: with no identity
-// left, they need a password and password sign-in turned on. Runs in the caller's transaction.
-// Resolves { identity } when removed, { notFound: true }, or { lastSignIn: true }.
+// left, they need a password and password sign-in turned on. The API tokens confirmed through the
+// identity's provider go with the user's last identity there (#617): with none left, that provider
+// no longer vouches for them. Runs in the caller's transaction. Resolves { identity, revokedTokens }
+// when removed, { notFound: true }, or { lastSignIn: true }.
 export async function unlinkUserIdentity(client, userId, identityId) {
   const { rows: [user] } = await client.query(
     'SELECT password_hash IS NOT NULL AS has_password FROM users WHERE id = $1 FOR UPDATE', [userId]);
@@ -53,6 +55,15 @@ export async function unlinkUserIdentity(client, userId, identityId) {
   const identity = identities.find(i => i.id === identityId);
   if (!identity) return { notFound: true };
   if (identities.length === 1 && !(user.has_password && await passwordSignInOn(client))) return { lastSignIn: true };
-  await client.query('DELETE FROM user_identities WHERE id = $1 AND user_id = $2', [identityId, userId]);
-  return { identity };
+  const { rows: [unlinked] } = await client.query(
+    'DELETE FROM user_identities WHERE id = $1 AND user_id = $2 RETURNING provider_id', [identityId, userId]);
+  if (!unlinked) return { notFound: true };
+  const { rows: remaining } = await client.query(
+    'SELECT 1 FROM user_identities WHERE user_id = $1 AND provider_id = $2 LIMIT 1', [userId, unlinked.provider_id]);
+  let revokedTokens = 0;
+  if (!remaining.length) {
+    ({ rowCount: revokedTokens } = await client.query(
+      'DELETE FROM api_tokens WHERE user_id = $1 AND oidc_provider_id = $2', [userId, unlinked.provider_id]));
+  }
+  return { identity, revokedTokens };
 }

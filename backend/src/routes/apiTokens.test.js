@@ -21,6 +21,14 @@ vi.mock('../services/db.js', () => {
     if (sql.startsWith('SELECT username FROM users WHERE id = $1')) return { rows: db.users[params[0]] ? [db.users[params[0]]] : [] };
     if (sql.startsWith('SELECT 1 FROM users WHERE id = $1 FOR UPDATE')) return { rows: [{}] };
     if (sql.includes("key = 'api_tokens_enabled'")) return { rows: [{ value: String(db.enabled) }] };
+    // The policy as createToken re-reads it inside its transaction: a test can make it differ from
+    // what reauthFor saw, as an admin's change in between would.
+    if (sql.includes("key IN ('mfa_enforcement', 'internal_auth_disabled') FOR SHARE")) {
+      return { rows: [
+        { key: 'mfa_enforcement', value: db.mfaEnforcementAtInsert ?? db.mfaEnforcement },
+        { key: 'internal_auth_disabled', value: String(db.internalAuthDisabledAtInsert ?? db.internalAuthDisabled) },
+      ] };
+    }
     if (sql.includes("key IN ('internal_auth_disabled', 'mfa_enforcement')")) {
       return { rows: [{ key: 'internal_auth_disabled', value: String(db.internalAuthDisabled) }, { key: 'mfa_enforcement', value: db.mfaEnforcement }] };
     }
@@ -110,8 +118,8 @@ let log;
 beforeEach(() => {
   rs.store.clear();
   Object.assign(db, {
-    enabled: true, internalAuthDisabled: false, mfaEnforcement: 'off', users: users(), providers: providers(),
-    identities: identities(), tokens: [], events: [], log: [],
+    enabled: true, internalAuthDisabled: false, mfaEnforcement: 'off', mfaEnforcementAtInsert: undefined, internalAuthDisabledAtInsert: undefined,
+    users: users(), providers: providers(), identities: identities(), tokens: [], events: [], log: [],
   });
   session.extra = {};
   invalidateApiTokenSettingsCache();
@@ -303,7 +311,7 @@ describe('creating a token', () => {
 
     it('a single sign-on user: a sign-in through their provider in the last 10 minutes, and at most 30 days', async () => {
       const sso = { ...ok, expiresInDays: 30 };
-      const refused = { error: 'Confirm with single sign-on first: a sign-in counts for 10 minutes', reauth: 'oidc' };
+      const refused = { error: 'Confirm through single sign-on first; a confirmation counts for 10 minutes', reauth: 'oidc' };
       // None at all, one too long ago, one through a provider they have no identity at, and one
       // through a provider turned off since.
       for (const signIn of [() => {}, () => signedInThrough(CORP, 11), () => signedInThrough(OTHER_IDP, 1),
@@ -334,6 +342,20 @@ describe('creating a token', () => {
       expect((await create('u-pw', { ...ok, expiresInDays: 30, password: 'wrong' })).status).toBe(201);
       expect(compare).not.toHaveBeenCalled();
       expect(db.tokens.map(t => t.confirmed_with)).toEqual(['oidc']);
+    });
+
+    it('a sign-in policy that changed since the confirmation: refused with 409, nothing stored, never 401', async () => {
+      db.mfaEnforcementAtInsert = 'required';
+      const res = await create('u-pw', { ...ok, password: 'right' });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: "The server's sign-in policy changed while this token was being created. Confirm again." });
+      expect(db.tokens).toEqual([]);
+      expect(events('api_token_created')).toEqual([]);
+      // A confirmation the new policy still allows goes through.
+      db.mfaEnforcementAtInsert = undefined;
+      db.internalAuthDisabledAtInsert = true;
+      signedInThrough(CORP);
+      expect((await create('u-sso', { ...ok, expiresInDays: 30 })).status).toBe(201);
     });
 
     it('a user without an authenticator while two-factor is required: refused until they set one up', async () => {
