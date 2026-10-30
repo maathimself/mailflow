@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../services/db.js', () => ({ query: vi.fn() }));
+vi.mock('../services/db.js', () => {
+  const query = vi.fn();
+  // The transaction client runs its statements through the same mock, so they are recorded in order.
+  return { query, withTransaction: vi.fn(async fn => fn({ query })) };
+});
 
 import bcrypt from 'bcryptjs';
 import express from 'express';
@@ -39,6 +43,7 @@ describe('POST /api/totp/disable', () => {
     return { status: res.status, json: await res.json() };
   };
   const turnedOff = () => query.mock.calls.some(([sql]) => sql.includes('totp_enabled = false'));
+  const tokensRevoked = () => query.mock.calls.some(([sql]) => sql === "DELETE FROM api_tokens WHERE user_id = $1 AND confirmed_with = 'totp'");
 
   it('refuses a wrong password with 403, not the 401 the client takes for a lost session', async () => {
     // request() in frontend/src/utils/api.js signs the browser out on any 401 outside
@@ -47,6 +52,7 @@ describe('POST /api/totp/disable', () => {
 
     expect(res).toEqual({ status: 403, json: { error: 'Incorrect password' } });
     expect(turnedOff()).toBe(false);
+    expect(tokensRevoked()).toBe(false);
   });
 
   it('turns 2FA off for the right password', async () => {
@@ -54,5 +60,13 @@ describe('POST /api/totp/disable', () => {
 
     expect(res).toEqual({ status: 200, json: { ok: true } });
     expect(turnedOff()).toBe(true);
+  });
+
+  it('deletes the API tokens the authenticator confirmed, with the same transaction, and no others', async () => {
+    await disable('right password');
+    const sqls = query.mock.calls.map(([sql]) => sql);
+    expect(tokensRevoked()).toBe(true);
+    expect(sqls.indexOf("DELETE FROM api_tokens WHERE user_id = $1 AND confirmed_with = 'totp'")).toBe(sqls.findIndex(sql => sql.includes('totp_enabled = false')) + 1);
+    expect(query.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM api_tokens'))[1]).toEqual([userId]);
   });
 });

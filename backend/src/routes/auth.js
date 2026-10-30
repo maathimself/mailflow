@@ -1142,26 +1142,34 @@ router.post('/reset-password', authLimiter, async (req, res) => {
 
   const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
   try {
-    // Atomically consume the token — DELETE RETURNING prevents two concurrent resets
-    // from both reading a valid token, both updating the password, and only then deleting.
-    const tokenResult = await query(
-      `DELETE FROM password_reset_tokens
-       WHERE token_hash = $1 AND expires_at > NOW()
-       RETURNING user_id`,
-      [tokenHash]
-    );
-    if (!tokenResult.rows.length) {
+    // The link is spent, the password set and trusted devices and API tokens revoked together or
+    // not at all: a failure part-way must not leave a new password, a spent link and tokens that
+    // survived, with nothing left to retry with.
+    const userId = await withTransaction(async (client) => {
+      // Atomically consume the token — DELETE RETURNING prevents two concurrent resets
+      // from both reading a valid token, both updating the password, and only then deleting.
+      const tokenResult = await client.query(
+        `DELETE FROM password_reset_tokens
+         WHERE token_hash = $1 AND expires_at > NOW()
+         RETURNING user_id`,
+        [tokenHash]
+      );
+      if (!tokenResult.rows.length) return null;
+      const id = tokenResult.rows[0].user_id;
+
+      const hash = await bcrypt.hash(password, 12);
+      await client.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, id]);
+      // Revoke trusted devices and API tokens here, and every session below, so a pre-existing
+      // (possibly attacker) session/device/token can't survive a compromise-driven password reset.
+      await client.query('DELETE FROM trusted_devices WHERE user_id = $1', [id]);
+      await client.query('DELETE FROM api_tokens WHERE user_id = $1', [id]);
+      return id;
+    });
+    if (!userId) {
       return res.status(400).json({ error: 'Invalid or expired reset link' });
     }
-    const userId = tokenResult.rows[0].user_id;
-
-    const hash = await bcrypt.hash(password, 12);
-    await query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, userId]);
-
-    // Revoke all existing sessions and trusted devices so a pre-existing (possibly
-    // attacker) session/device can't survive a compromise-driven password reset.
+    // Sessions are in Redis, outside the transaction, so they end once it has committed.
     await destroyUserSessions(userId);
-    await query('DELETE FROM trusted_devices WHERE user_id = $1', [userId]);
 
     res.locals.resetRateLimit?.();
     res.json({ ok: true });

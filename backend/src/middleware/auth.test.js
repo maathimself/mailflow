@@ -62,3 +62,40 @@ describe('which requests count as the user being seen', () => {
     expect(touchLastSeen).not.toHaveBeenCalled();
   });
 });
+
+describe('API token requests', () => {
+  // As apiTokenAuth sets them up: a plain request-only session and the token's identity.
+  const tokenRequest = () => ({ session: { userId: USER, destroy: vi.fn() }, apiToken: { id: 't1', userId: USER } });
+  const tokenReply = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn(), setHeader: vi.fn() });
+
+  it('pass requireAuth without counting as the user being seen', async () => {
+    query.mockResolvedValue({ rows: [{ id: USER }] });
+    const next = vi.fn();
+    await requireAuth(tokenRequest(), tokenReply(), next);
+    expect(next).toHaveBeenCalledWith();
+    expect(touchLastSeen).not.toHaveBeenCalled();
+  });
+
+  it('whose user is gone get the token\'s 401, with no session to end', async () => {
+    query.mockResolvedValue({ rows: [] });
+    const req = tokenRequest();
+    const res = tokenReply();
+    const next = vi.fn();
+    await requireAuth(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Invalid or expired API token' });
+    expect(res.setHeader).toHaveBeenCalledWith('WWW-Authenticate', 'Bearer realm="MailFlow", error="invalid_token"');
+    expect(req.session.destroy).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('never pass requireAdmin, even a token of an admin', async () => {
+    query.mockResolvedValue({ rows: [{ is_admin: true }] });
+    const res = tokenReply();
+    const next = vi.fn();
+    await requireAdmin(tokenRequest(), res, next);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+    expect(touchLastSeen).not.toHaveBeenCalled();
+  });
+});

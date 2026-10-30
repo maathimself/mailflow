@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   redis: { scan: vi.fn(), get: vi.fn(), del: vi.fn() },
 }));
 
-vi.mock('../services/db.js', () => ({ query: mocks.query, pool: {} }));
+vi.mock('../services/db.js', () => ({ query: mocks.query, pool: {}, withTransaction: async fn => fn({ query: mocks.query }) }));
 vi.mock('../index.js', () => ({
   imapManager: { closeSockets: mocks.closeSockets, disconnectUser: mocks.disconnectUser },
 }));
