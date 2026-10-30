@@ -78,6 +78,7 @@ async function improveAndApply(text, body = '<p>draft</p>') {
   await React.act(async () => {});
   const button = (label) => [...document.querySelectorAll('button')].find(b => b.textContent === label);
   const press = (el) => React.act(async () => { el.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true })); });
+  await press(document.querySelector('button[aria-label="message.more"]'));
   await press(document.querySelector('button[title="compose.toolbar.aiAssist"]'));
   await press(button('compose.toolbar.aiImprove'));
   await React.act(async () => {});
