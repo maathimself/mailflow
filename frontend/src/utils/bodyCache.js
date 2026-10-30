@@ -55,14 +55,41 @@ export const bodyCache = {
   },
 };
 
+// The user whose mail the cache holds (below). A prefetch that comes back after a sign-out or a
+// switch of user is dropped, never cached for the next one.
+let cachedFor = useStore.getState().user?.id ?? null;
+const keepFor = (owner, id, data) => {
+  if (owner === cachedFor) bodyCache.set(id, data);
+};
+
 // Loads a body into the cache ahead of its opening, once. A failure is left for the opening to
-// meet: it fetches again with its own retries.
+// meet: it fetches again with its own retries. Returns the load, settled either way, or nothing
+// when the body is cached already.
 export function prefetchBody(id, remoteImages = false) {
-  if (!id || entries.has(id)) return;
-  api.getMessageBody(id, remoteImages).then(data => bodyCache.set(id, data)).catch(() => {});
+  if (!id || entries.has(id)) return undefined;
+  const owner = cachedFor;
+  return api.getMessageBody(id, remoteImages).then(data => keepFor(owner, id, data)).catch(() => {});
 }
 
-let cachedFor = useStore.getState().user?.id ?? null;
+// A hover prefetch (#677, utils/hoverPrefetch.js) into the cache. Resolves to what came of it, for
+// the prefetcher's budget: 'ok' (a body, now cached), 'cached' (one was already), 'declined' (the
+// server is backing the provider off just now), 'never' (the server does not prefetch for this
+// account), 'skip' (the stored body is due a repair the click makes; nothing to count),
+// 'throttled' (the server or the provider is busy or limiting: 503, 504, 429) or 'failed'.
+export function prefetchBodyOnHover(id) {
+  if (!id || entries.has(id)) return Promise.resolve('cached');
+  const owner = cachedFor;
+  return api.prefetchMessageBody(id).then(({ body, hint }) => {
+    if (body) {
+      keepFor(owner, id, body);
+      return 'ok';
+    }
+    if (hint === 'never') return 'never';
+    if (hint === 'repair') return 'skip';
+    return 'declined';
+  }, err => ([503, 504, 429].includes(err?.status) ? 'throttled' : 'failed'));
+}
+
 useStore.subscribe((state) => {
   const id = state.user?.id ?? null;
   if (id !== cachedFor) {

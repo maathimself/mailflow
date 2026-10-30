@@ -7,7 +7,7 @@ vi.mock('../middleware/auth.js', () => ({
 vi.mock('../index.js', () => ({
   imapManager: {
     ensureFolder: vi.fn(), moveMessage: vi.fn(), _guardMoveUid: vi.fn(), _unguardMoveUid: vi.fn(),
-    broadcast: vi.fn(), scheduleCountRefresh: vi.fn(),
+    syncFolderOnDemand: vi.fn(), broadcast: vi.fn(), scheduleCountRefresh: vi.fn(),
   },
 }));
 
@@ -158,6 +158,11 @@ function fakeQuery(rawSql, params = []) {
     return result([]);
   }
   if (sql.startsWith('SELECT * FROM email_accounts')) return result([ACCOUNT]);
+  if (sql === 'DELETE FROM messages WHERE id = $1') {
+    const before = messages.length;
+    messages = messages.filter(m => m.id !== params[0]);
+    return result(new Array(before - messages.length).fill({}));
+  }
   const update = sql.match(/^UPDATE messages SET (.+) WHERE id = \$(\d+)$/);
   const updated = update && byId(params[Number(update[2]) - 1]);
   if (updated) {
@@ -250,24 +255,17 @@ describe('POST /api/mail/messages/:id/snooze — Snoozed folder path', () => {
     expect(countedPaths()).toEqual(['INBOX', 'INBOX.Snoozed', 'INBOX', 'INBOX.Snoozed']);
   });
 
-  it('without UIDPLUS, stores, guards and later releases the stale uid under that path too', async () => {
-    // Fake the clock only once the request is in the route: fetch waits on a setTimeout(0)
-    // before it reuses an idle keep-alive socket, so faking it earlier stalls the request.
-    imapManager.moveMessage.mockImplementation(async () => {
-      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-      return null;
-    });
-    try {
-      expect((await snooze()).status).toBe(200);
-      expect(message).toMatchObject({ folder: 'INBOX.Snoozed', uid: 42 });
-      expect(snoozes).toEqual([expect.objectContaining({ snoozed_folder: 'INBOX.Snoozed' })]);
-      expect(imapManager._guardMoveUid).toHaveBeenCalledWith(ACCOUNT_ID, 'INBOX.Snoozed', 42);
-      expect(imapManager._unguardMoveUid).not.toHaveBeenCalledWith(ACCOUNT_ID, 'INBOX.Snoozed', 42);
-      vi.advanceTimersByTime(10_000);
-      expect(imapManager._unguardMoveUid).toHaveBeenCalledWith(ACCOUNT_ID, 'INBOX.Snoozed', 42);
-    } finally {
-      vi.useRealTimers();
-    }
+  // The source uid can belong to another message in Snoozed (#665), so the row is not kept on it.
+  it('without a new uid, drops the row and pulls the Snoozed folder, and still records the snooze', async () => {
+    imapManager.moveMessage.mockResolvedValue(null);
+    imapManager.syncFolderOnDemand.mockResolvedValue(undefined);
+    expect((await snooze()).status).toBe(200);
+    expect(messages).toEqual([]);
+    expect(imapManager.syncFolderOnDemand).toHaveBeenCalledWith(ACCOUNT, 'INBOX.Snoozed');
+    expect(snoozes).toEqual([expect.objectContaining({
+      message_id_header: '<a@example.com>', original_folder: 'INBOX', snoozed_folder: 'INBOX.Snoozed',
+    })]);
+    expect(countedPaths()).toEqual(['INBOX']);
   });
 
   it('refuses a message that is already in the Snoozed folder', async () => {

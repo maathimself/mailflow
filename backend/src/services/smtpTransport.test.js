@@ -168,6 +168,43 @@ async function startSmtpServerWithoutStarttls() {
   };
 }
 
+describe('createSmtpTransport with real SMTP sessions', () => {
+  async function sendThroughPorts(ports) {
+    const { default: realNodemailer } = await vi.importActual('nodemailer');
+    const createTransport = vi.fn(options => realNodemailer.createTransport({
+      ...options,
+      host: '127.0.0.1',
+      port: ports[options.host],
+    }));
+    const transport = createSmtpTransport(resolved, { secure: false, ignoreTLS: true }, createTransport);
+    const outcome = await transport
+      .sendMail({ from: 'sender@example.com', to: 'user@example.com', text: 'Hello' })
+      .catch(err => err);
+    return { createTransport, outcome };
+  }
+
+  it('still moves on to the next address when the first refuses the connection', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const closed = createServer();
+    await new Promise(resolve => closed.listen(0, '127.0.0.1', resolve));
+    const closedPort = closed.address().port;
+    await new Promise(resolve => closed.close(resolve));
+    const healthy = await startSmtpServerWithoutStarttls();
+    try {
+      const { createTransport, outcome } = await sendThroughPorts({
+        '203.0.113.10': closedPort,
+        '203.0.113.11': healthy.port,
+      });
+
+      expect(outcome.accepted).toEqual(['user@example.com']);
+      expect(healthy.commands).toContain('DATA');
+      expect(createTransport).toHaveBeenCalledTimes(2);
+    } finally {
+      await healthy.close();
+    }
+  });
+});
+
 describe('createAccountSmtpTransport', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -316,6 +353,16 @@ describe('createAccountSmtpTransport', () => {
 
     expect(refreshGoogleToken).not.toHaveBeenCalled();
     expect(result.account.oauth_access_token).toBe('valid-token');
+  });
+
+  it('marks a host the connection policy refuses, so a scheduled send does not retry it', async () => {
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false, allowInsecureTls: false });
+    resolveForConnection.mockRejectedValue(new Error('Host resolves to a private or reserved IP address'));
+    const err = await createAccountSmtpTransport({
+      smtp_host: 'mail.internal', smtp_port: 465, smtp_tls: 'SSL', auth_user: 'u', auth_pass: 'p',
+    }).catch(e => e);
+    expect(err.message).toBe('Host resolves to a private or reserved IP address');
+    expect(err.hostRefused).toBe(true);
   });
 
   it('returns a policy error instead of creating a plain-text transport', async () => {

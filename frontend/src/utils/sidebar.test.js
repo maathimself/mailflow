@@ -6,9 +6,11 @@ import {
   buildFolderTree,
   subtreeUnread,
   collapsedTooltip,
+  existingHiddenPaths,
   FOLDER_ORDER_DRAG_TYPE,
   folderDropPosition,
   hasRenderedInbox,
+  moveHiddenPaths,
   normalizeFolderOrder,
   reorderFolderPaths,
   resolveFolderOrderDrop,
@@ -345,5 +347,42 @@ describe('subtreeUnread (#536)', () => {
       { path: 'P/Q', name: 'Q', unread_count: 3, counts_stale: true },
     ], []);
     assert.deepEqual(subtreeUnread(stale), { count: 3, known: true, stale: true });
+  });
+});
+
+// #694: a hidden folder deleted at the provider kept the sidebar's hidden-folders toggle.
+describe('existingHiddenPaths', () => {
+  const present = [{ path: 'INBOX' }, { path: 'Receipts' }, { path: 'Old/Child' }];
+
+  it('keeps only hidden paths that are still folders of the account', () => {
+    assert.deepEqual(existingHiddenPaths(['Receipts', 'Gone', 'Old/Child'], present), ['Receipts', 'Old/Child']);
+  });
+
+  it('is empty when every hidden folder is gone, so the toggle goes away', () => {
+    assert.deepEqual(existingHiddenPaths(['Gone'], present), []);
+  });
+
+  it('is empty without hidden paths or before the folders load', () => {
+    assert.deepEqual(existingHiddenPaths(undefined, present), []);
+    assert.deepEqual(existingHiddenPaths(['Receipts'], undefined), []);
+  });
+});
+
+describe('moveHiddenPaths', () => {
+  const tree = [{ path: 'Work', delimiter: '.' }, { path: 'Work.Old', delimiter: '.' }];
+
+  it('drops only the folder MailFlow deleted', () => {
+    assert.deepEqual(moveHiddenPaths(['Work', 'Work.Old', 'Other'], 'Work', null, tree), ['Work.Old', 'Other']);
+  });
+
+  it('moves a renamed folder and its subfolders to the new path', () => {
+    assert.deepEqual(
+      moveHiddenPaths(['Work', 'Work.Old', 'Workshop', 'Other'], 'Work', 'Jobs', tree),
+      ['Jobs', 'Jobs.Old', 'Workshop', 'Other'],
+    );
+  });
+
+  it('leaves the list alone when the folder was not hidden', () => {
+    assert.deepEqual(moveHiddenPaths(['Other'], 'Work', 'Jobs', tree), ['Other']);
   });
 });

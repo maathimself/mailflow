@@ -10,6 +10,8 @@ import { openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFr
 import { resolveContextMenuMessage } from '../utils/contextMenuPolicy.js';
 import { classifyWithUndo } from '../utils/gtdClassification.js';
 import { doneGtdRow } from '../utils/gtdDone.js';
+import { cancelScheduledMarkRead, scheduleMarkReadTimer } from '../utils/markRead.js';
+import { reserveReadIntent, releaseReadIntent, readIntentIdsSince } from '../utils/readOrder.js';
 
 // One pending delayed auto-read across ALL GTD surfaces (module scope, not per hook
 // instance): the sidebar and the tab browse list are mounted together in desktop row
@@ -24,7 +26,7 @@ let autoMarkRead = { timer: null, identity: null, owner: null };
 // this: a fresh open — from ANY GTD surface — genuinely supersedes the prior row's
 // pending read.
 const cancelAutoMarkRead = () => {
-  clearTimeout(autoMarkRead.timer);
+  cancelScheduledMarkRead(autoMarkRead.timer);
   autoMarkRead = { timer: null, identity: null, owner: null };
 };
 
@@ -39,6 +41,23 @@ export const cancelAutoMarkReadFor = (thread) => {
     cancelAutoMarkRead();
   }
 };
+
+// `ids` less the messages read or unread by hand since `since`, every copy of them: the server
+// fans a read out to the account's other copies with the same Message-ID, so reading the label copy
+// would undo an unread of the Inbox copy. Copies are matched by message_id, from `known` (the rail
+// thread and the thread's messages) and the messages on screen.
+export function withoutActedSince(ids, since, known = []) {
+  const acted = readIntentIdsSince(since);
+  if (!acted.size) return ids;
+  const st = useStore.getState();
+  const keyOf = new Map();
+  const shown = [
+    ...(st.messages || []), ...(st.searchResults || []), ...Object.values(st.threadMessages || {}).flat(), ...known,
+  ];
+  for (const m of shown) if (m?.id && m.message_id) keyOf.set(m.id, `${m.account_id}\u0000${m.message_id}`);
+  const actedKeys = new Set([...acted].map(id => keyOf.get(id)).filter(Boolean));
+  return ids.filter(id => !acted.has(id) && !actedKeys.has(keyOf.get(id)));
+}
 
 // The triage engine behind every GTD row surface: the right-sidebar section rows and
 // the tab browse list that replaces the inbox while a GTD pill is active. Each surface
@@ -98,29 +117,46 @@ export function useGtdTriage() {
   // unread, so marking READ acts on every message in the thread (collectThreadReadIds —
   // the same-message_id fan-out alone can't reach an INBOX-only sibling reply), while
   // marking UNREAD needs only the head copy. On failure, flip back.
+  //
+  // The place in line is taken now, when the user acts, not once the thread's ids are in: a
+  // "Mark as unread" from the reading pane while getThread is still out would otherwise reach the
+  // server first and be overwritten by this older read (utils/readOrder.js). Messages acted on
+  // meanwhile are left out of the request, and one with nothing left sends nothing.
   const setRead = async (thread, read) => {
-    // Explicit mark-unread wins over a pending auto-read: cancel the timer before the no-op
-    // guard so it can't later flip this just-opened thread back to read.
-    if (!read) cancelAutoMarkReadFor(thread);
+    // An explicit read or unread wins over a pending auto-read: cancel the timer before the
+    // no-op guard, so it can neither flip this just-opened thread back to read nor send a
+    // second read for it.
+    cancelAutoMarkReadFor(thread);
     if (!!thread.is_read === read) return;
+    const since = reserveReadIntent();
     const identity = thread.message_id || thread.id;
     markGtdThreadRead(identity, read);
     try {
-      await api.bulkRead(await collectThreadReadIds(thread, read, api.getThread), read);
+      let threadMessages = [];
+      const ids = await collectThreadReadIds(thread, read, async key => {
+        const data = await api.getThread(key);
+        threadMessages = Array.isArray(data?.messages) ? data.messages : [];
+        return data;
+      });
+      await api.bulkRead(withoutActedSince(ids, since, [thread, ...threadMessages]), read, { since });
       // Belt-and-braces under the WS read fan-out: reconcile the sidebar counts (the
       // debounce coalesces this with any gtd_sections_updated the mark triggers).
       scheduleGtdSectionsFetch();
     } catch (err) {
       console.error('GTD read toggle failed:', err.message);
-      markGtdThreadRead(identity, !read);
+      // Set by hand since: the rail already shows that, and flipping back would undo it.
+      if (withoutActedSince([thread.id], since, [thread]).length) markGtdThreadRead(identity, !read);
+    } finally {
+      releaseReadIntent(since);
     }
   };
 
   const openRow = (thread) => {
     cancelAutoMarkRead();
     const identity = thread.message_id || thread.id;
+    let opened = null;
     return openGtdThreadWithAutoRead(thread, {
-      openThread: () => openDeepLinkMessage(thread.id, {
+      openThread: async () => (opened = await openDeepLinkMessage(thread.id, {
         getMessage: api.getMessage,
         getThread: api.getThread,
         setThreadMessages,
@@ -128,8 +164,11 @@ export function useGtdTriage() {
         thread,
         onMiss: scheduleGtdSectionsFetch,
         singleAccountView: Boolean(useStore.getState().selectedAccountId),
-      }),
+      })),
       isCancelled: () => !mountedRef.current,
+      // Registered under the opened message's id, so a manual read or unread on it from the
+      // reading pane, the list or a hotkey cancels it like the list's own delayed read (#683).
+      setTimer: (fn, ms) => scheduleMarkReadTimer(opened?.id ?? thread.id, fn, ms),
       getPreferences: () => useStore.getState(),
       readThread: setRead,
       publishTimer: timerHandle => {
@@ -197,7 +236,7 @@ export function useGtdTriage() {
   });
 
   const removeStateRow = (thread, state) => unclassifyThread(thread.id, state, {
-    gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t,
+    gtdUnclassify: api.gtdUnclassify, addNotification, scheduleGtdSectionsFetch, t, message: thread,
   });
 
   // ContextMenu's onAction, routed to the primitives above. GTD section heads are

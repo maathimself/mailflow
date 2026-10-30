@@ -197,6 +197,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
       )
       SELECT id, uid, folder, message_id, thread_id, thread_subject AS subject,
              thread_from_name AS from_name, thread_from_email AS from_email,
+             from_name AS reply_from_name, from_email AS reply_from_email,
              to_addresses, cc_addresses, reply_to, in_reply_to, thread_references,
              date, snippet, is_starred, is_read, has_attachments, account_id,
              account_name, account_email, account_color,

@@ -61,6 +61,14 @@ describe('holdSend', () => {
     await flush();
     expect(await getSendStatus('u1', id)).toEqual({ status: 'failed', error: 'Authentication failed.' });
   });
+
+  it('records the code of a failure the composer has its own words for', async () => {
+    const run = vi.fn().mockRejectedValue(Object.assign(new Error('Send failed'), { publicMessage: 'Outlook does not allow it.', publicCode: 'smtp_auth_disabled' }));
+    const { id } = await holdSend({ userId: 'u1', delayMs: 1000, run });
+    await vi.advanceTimersByTimeAsync(1000);
+    await flush();
+    expect(await getSendStatus('u1', id)).toEqual({ status: 'failed', error: 'Outlook does not allow it.', code: 'smtp_auth_disabled' });
+  });
 });
 
 describe('cancelSend', () => {
@@ -122,5 +130,29 @@ describe('flushHeldSends', () => {
 
   it('does nothing when nothing is held', async () => {
     expect(await flushHeldSends(5000)).toBe(0);
+  });
+});
+
+describe('a send held once a shutdown has begun', () => {
+  it('is delivered at once, and the last flush before the exit waits for it', async () => {
+    // A module of its own: the shutdown flag stays set for the rest of the process.
+    vi.resetModules();
+    const hold = await import('./sendHold.js');
+    hold.beginHeldSendShutdown();
+    let finish;
+    const run = vi.fn(() => new Promise(resolve => { finish = resolve; }));
+    const { id } = await hold.holdSend({ userId: 'u1', delayMs: 10_000, run });
+    await flush();
+    expect(run).toHaveBeenCalledOnce();
+    expect(await hold.getSendStatus('u1', id)).toMatchObject({ status: 'sending' });
+    // An Undo now is too late: it is already being delivered.
+    expect(await hold.cancelSend('u1', id)).toMatchObject({ cancelled: false });
+    let done = false;
+    const flushed = hold.flushHeldSends(5000).then(n => { done = true; return n; });
+    await flush();
+    expect(done).toBe(false);
+    finish({ ok: true });
+    expect(await flushed).toBe(1);
+    expect(await hold.getSendStatus('u1', id)).toMatchObject({ status: 'sent' });
   });
 });

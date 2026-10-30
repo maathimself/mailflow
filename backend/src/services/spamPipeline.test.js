@@ -316,7 +316,7 @@ describe('classifyAndTagMessage — Authentication-Results trust gate', () => {
   });
 });
 
-describe('autoMove — non-UIDPLUS destination guard (mirrors the manual /spam path)', () => {
+describe('autoMove: a move with or without a new UID (mirrors the manual /spam path)', () => {
   const spamMessage = {
     subject: 'CHEAP VIAGRA!!! WIN $$$',
     body_text: 'Click here. Buy now. Limited time offer, act now!',
@@ -325,39 +325,24 @@ describe('autoMove — non-UIDPLUS destination guard (mirrors the manual /spam p
     attachments: [{ filename: 'invoice.exe' }],
   };
 
-  it('guards the destination UID and keeps the stale source UID when the server has no UIDPLUS', async () => {
-    vi.useFakeTimers();
-    try {
-      getModelForUser.mockResolvedValue(trainedModel(200));
-      query.mockResolvedValueOnce({ rows: [messageRow(spamMessage)] });
+  // The source uid can belong to another message in the spam folder (#665), so the row is not
+  // kept on it.
+  it('drops the row and pulls the spam folder when the move names no new UID', async () => {
+    getModelForUser.mockResolvedValue(trainedModel(200));
+    query.mockResolvedValueOnce({ rows: [messageRow(spamMessage)] });
 
-      const imap = imapFacade();
-      imap.moveMessage.mockResolvedValue(null); // non-UIDPLUS: no new UID returned
+    const imap = imapFacade();
+    imap.moveMessage.mockResolvedValue(null);
+    imap.syncFolderOnDemand = vi.fn(async () => {});
 
-      const result = await classifyAndTagMessage(MESSAGE_ID, { imap });
-      expect(result.moved).toBe(true);
+    const result = await classifyAndTagMessage(MESSAGE_ID, { imap });
+    expect(result.moved).toBe(true);
 
-      // Source guarded before the move, destination guarded after it.
-      expect(imap._guardMoveUid).toHaveBeenCalledWith(ACCOUNT_ID, 'INBOX', 100);
-      expect(imap._guardMoveUid).toHaveBeenCalledWith(ACCOUNT_ID, 'Junk', 100);
-
-      // The row moves to the destination keeping the (stale) source UID.
-      const update = query.mock.calls.find(
-        ([sql]) => sql.includes('UPDATE messages SET folder = $1 WHERE id = $2'),
-      );
-      expect(update[1]).toEqual(['Junk', MESSAGE_ID]);
-      // No re-keying UPDATE is issued on this branch.
-      expect(query.mock.calls.some(
-        ([sql]) => sql.includes('UPDATE messages SET folder = $1, uid = $2'),
-      )).toBe(false);
-
-      // The destination guard is held for the 10s grace period, then released.
-      expect(imap._unguardMoveUid).not.toHaveBeenCalledWith(ACCOUNT_ID, 'Junk', 100);
-      vi.advanceTimersByTime(10_000);
-      expect(imap._unguardMoveUid).toHaveBeenCalledWith(ACCOUNT_ID, 'Junk', 100);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(imap._guardMoveUid).toHaveBeenCalledWith(ACCOUNT_ID, 'INBOX', 100);
+    expect(imap._guardMoveUid).not.toHaveBeenCalledWith(ACCOUNT_ID, 'Junk', 100);
+    expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE messages SET folder'))).toBe(false);
+    expect(query.mock.calls).toContainEqual(['DELETE FROM messages WHERE id = $1', [MESSAGE_ID]]);
+    expect(imap.syncFolderOnDemand).toHaveBeenCalledWith({ id: ACCOUNT_ID }, 'Junk');
   });
 
   it('does not guard the destination on a UIDPLUS move', async () => {

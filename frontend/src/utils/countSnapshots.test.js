@@ -1,6 +1,7 @@
 import { test, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mergeCountSnapshots, adjustCountPending, expireCountPending, settleCountPending, displayCountSnapshot, mergeFolderSnapshots, PENDING_COUNT_MS, PENDING_SETTLE_MS } from './countSnapshots.js';
+import { UNDO_COMMIT_DELAY_MS } from './undoableAction.js';
 const accounts = [{ id: 'a', enabled: true }, { id: 'b', enabled: true }, { id: 'x', enabled: true, include_in_unified_inbox: false }];
 const sample = (a, b, revision = '1') => ({ byAccount: { a, b, x: 7 }, snapshots: Object.fromEntries(['a', 'b', 'x'].map(id => [id, { revision, known: true, stale: false, observedAt: new Date(0).toISOString() }])) });
 test('reflected reads never get subtracted from a newer server snapshot a second time', () => {
@@ -17,13 +18,29 @@ test('arrivals in another account cannot acknowledge a pending read', () => {
   const updated = sample(9, 21, '2');
   assert.deepEqual(displayCountSnapshot(updated, pending, accounts, 2).byAccount, { a: 9, b: 21, x: 7 });
 });
-test('continuous clicks cannot extend the deadline, and expiry adopts the latest observation', () => {
+test('a later click gets its own full window, and expiry adopts the latest observation', () => {
+  // A deadline fixed at the first click expired before the second click's observation could
+  // arrive, and the badge showed the count from before the second click (#701).
   const initial = sample(10, 20);
   let pending = adjustCountPending({}, initial, 'a', -1, 0);
   pending = adjustCountPending(pending, initial, 'a', -1, 4999);
-  assert.equal(pending.a.expiresAt, PENDING_COUNT_MS);
-  assert.equal(displayCountSnapshot(sample(8, 20, '3'), pending, accounts, PENDING_COUNT_MS).byAccount.a, 8);
-  assert.deepEqual(expireCountPending(pending, PENDING_COUNT_MS), {});
+  assert.equal(pending.a.expiresAt, 4999 + PENDING_COUNT_MS);
+  assert.equal(displayCountSnapshot(initial, pending, accounts, PENDING_COUNT_MS).byAccount.a, 8);
+  assert.equal(displayCountSnapshot(sample(8, 20, '3'), pending, accounts, 4999 + PENDING_COUNT_MS).byAccount.a, 8);
+  assert.deepEqual(expireCountPending(pending, 4999 + PENDING_COUNT_MS), {});
+});
+
+test('an observation of the first read cannot settle a window a second read joined (#701)', () => {
+  // Marking two unread messages read 6.5s apart: the count measured after the first arrives
+  // past the first read's floor, but before the second can have been observed.
+  const initial = sample(3, 20);
+  let pending = adjustCountPending({}, initial, 'a', -1, 0);
+  pending = adjustCountPending(pending, initial, 'a', -1, 6500);
+  const afterFirst = mergeCountSnapshots(initial, sample(2, 20, '2'));
+  pending = settleCountPending(pending, afterFirst, 7000);
+  assert.equal(displayCountSnapshot(afterFirst, pending, accounts, 7000).byAccount.a, 1);
+  const afterSecond = mergeCountSnapshots(afterFirst, sample(1, 20, '3'));
+  assert.deepEqual(settleCountPending(pending, afterSecond, 6500 + PENDING_SETTLE_MS), {});
 });
 test('rollback cancels the deduction; a delayed rollback is bounded by its own fixed window', () => {
   const initial = sample(10, 20);
@@ -111,6 +128,46 @@ test('windows settle independently, and each keeps its own floor', () => {
   assert.ok(settled.b, 'b is only 3000ms past its own');
   assert.equal(displayCountSnapshot(newer, settled, accounts, 7000).byAccount.a, 9);
   assert.equal(displayCountSnapshot(newer, settled, accounts, 7000).byAccount.b, 18);
+});
+
+test('an observation from before a held delete was sent cannot settle it (#701)', () => {
+  // Deleting three unread messages one at a time. Each delete reaches the server only when its
+  // undo window closes, so the observation of the first lands after the second was clicked and
+  // the third's lands last. Counted from the click, that first observation settled the window
+  // and the badge went back up; after the last delete it showed 1 until its own STATUS came in.
+  const held = { commitDelayMs: UNDO_COMMIT_DELAY_MS };
+  const accountsA = [{ id: 'a', enabled: true }];
+  let server = mergeCountSnapshots(sample(3, 0), sample(3, 0));
+  let pending = adjustCountPending({}, displayCountSnapshot(server, {}, accountsA, 0), 'a', -1, 0, held);
+  const shown = now => displayCountSnapshot(server, pending, accountsA, now).byAccount.a;
+  const observe = (count, rev, now) => {
+    server = mergeCountSnapshots(server, sample(count, 0, rev));
+    pending = settleCountPending(pending, server, now);
+  };
+  const remove = now => {
+    pending = adjustCountPending(pending, displayCountSnapshot(server, pending, accountsA, now), 'a', -1, now, held);
+  };
+  assert.equal(shown(0), 2);
+  remove(6600);
+  assert.equal(shown(6600), 1);
+  observe(2, '2', 10600);
+  assert.equal(shown(10600), 1, 'the first delete\'s observation predates the second being sent');
+  remove(13000);
+  assert.equal(shown(13000), 0);
+  observe(1, '3', 17200);
+  assert.equal(shown(17200), 0, 'the second delete\'s observation predates the last being sent');
+  observe(0, '4', 23900);
+  assert.deepEqual(pending, {}, 'the last delete\'s own observation settles it');
+  assert.equal(shown(23900), 0);
+});
+
+test('a held change still has a backstop, counted from when it is sent', () => {
+  const initial = sample(10, 20);
+  const pending = adjustCountPending({}, initial, 'a', -1, 0, { commitDelayMs: UNDO_COMMIT_DELAY_MS });
+  assert.equal(pending.a.expiresAt, UNDO_COMMIT_DELAY_MS + PENDING_COUNT_MS);
+  assert.equal(displayCountSnapshot(initial, pending, accounts, PENDING_COUNT_MS).byAccount.a, 9,
+    'still waiting for the observation of a change sent 4.75s after the click');
+  assert.deepEqual(expireCountPending(pending, UNDO_COMMIT_DELAY_MS + PENDING_COUNT_MS), {});
 });
 
 test('the backstop still applies when the observation never arrives', () => {

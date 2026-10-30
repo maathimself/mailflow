@@ -60,6 +60,31 @@ test('actual store settles on the observation the mutation triggered, without a 
   assert.equal(refreshes,0,'a settled window must not leave its backstop timer armed');
   window.removeEventListener('mailflow:counts_refresh',refresh);
 });
+test('deleting the last unread message one at a time leaves the badge at 0 (#701)', () => {
+  // The deletes wait out their undo window before the server hears of them, so each STATUS that
+  // comes back describes the mailbox before the next delete. None of them may put a deleted
+  // message back on the badge, and the last delete must not leave it at 1.
+  const store = useStore.getState();
+  store.setUnreadCounts(snapshot(3, 0, '2'));
+  const seen = [];
+  const look = () => seen.push(useStore.getState().unreadCounts.byAccount.a);
+  store.decrementUnread('a', 1, { undoable: true }); look();
+  mock.timers.tick(6600);
+  store.decrementUnread('a', 1, { undoable: true }); look();
+  mock.timers.tick(4000);
+  store.setUnreadCounts(snapshot(2, 0, '3')); look();
+  mock.timers.tick(2400);
+  store.decrementUnread('a', 1, { undoable: true }); look();
+  mock.timers.tick(4200);
+  store.setUnreadCounts(snapshot(1, 0, '4')); look();
+  mock.timers.tick(3000); look();
+  mock.timers.tick(3700);
+  store.setUnreadCounts(snapshot(0, 0, '5')); look();
+  mock.timers.tick(PENDING_COUNT_MS * 2); look();
+  assert.deepEqual(seen, [2, 1, 1, 0, 0, 0, 0, 0]);
+  assert.deepEqual(useStore.getState().pendingCounts, {});
+});
+
 test('locking cancels pending work and rejects delayed snapshots', () => {
   useStore.getState().decrementUnread('a');
   useStore.getState().setLocked(true);

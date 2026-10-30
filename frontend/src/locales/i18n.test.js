@@ -124,12 +124,16 @@ const SAME_VALUE_ALLOWED = {
   'admin.accounts.presetGmail':             'any', // Gmail
   'admin.accounts.presetIcloud':            'any', // iCloud
   'admin.accounts.presetYahoo':             'any', // Yahoo Mail
+  'addAccount.tile.outlook':                'any', // Outlook.com, Hotmail, Live, MSN
+  'addAccount.tile.gmail':                  'any', // Gmail
+  'addAccount.tile.yahoo':                  'any', // Yahoo Mail
+  'addAccount.tile.icloud':                 'any', // iCloud Mail
+  'mailSignIn.ms.title':                    'any', // Microsoft
   'admin.accounts.smtpHostPh':              'any', // smtp.gmail.com
   'admin.ai.baseUrlPh':                      'any', // http://localhost:11434/v1
   'admin.ai.chatgptModelPh':                 'any', // gpt-5.6-luna
   'admin.appearance.customCssPlaceholder':   'any', // CSS code snippet, same in all locales
   'admin.integrations.microsoft.clientIdPh':'any', // xxxxxxxx-xxxx-…
-  'admin.integrations.microsoft.title':     'any', // Microsoft 365 / Outlook.com
   'admin.integrations.google.title':        'any', // Gmail / Google Workspace — brand names
   'admin.integrations.google.clientIdPh':   'any', // xxxxxxxx.apps.googleusercontent.com
   'admin.integrations.google.clientSecretPh':'any', // GOCSPX-…
@@ -193,6 +197,19 @@ const SAME_VALUE_ALLOWED = {
   'admin.privacy.addSenderPh': [['en', 'ko', 'ru', 'zhCN']],
   'admin.blockList.emailPlaceholder': [['en', 'ko']],
   'admin.aliases.replyToLabel': [['en', 'pl']],
+  // Send later (#543): "Date" is spelled alike in en and fr, "Datum" in cs and de, "Data" in
+  // it, pl and pt-BR
+  'compose.scheduleSend.dateLabel': [['en', 'fr'], ['cs', 'de'], ['it', 'pl', 'ptBR']],
+  // The Scheduled view (#543): Spanish and Portuguese share "Editar", "Enviando", "Abrir" and
+  // "Para:"; a time with its zone in parentheses is a format, the same everywhere but Chinese,
+  // which uses full-width parentheses.
+  'scheduled.actions.edit': [['es', 'ptBR']],
+  'scheduled.actions.restore': [['es', 'ptBR']],
+  'scheduled.chip.sending': [['es', 'ptBR']],
+  'scheduled.toast.open': [['es', 'ptBR']],
+  'scheduled.to': [['es', 'ptBR']],
+  'scheduled.toMore': [['es', 'ptBR']],
+  'scheduled.zoneTime': [['cs', 'de', 'en', 'es', 'fr', 'it', 'ko', 'pl', 'ptBR', 'ru']],
 
   'admin.rules.actionForwardPlaceholder': [['es', 'it']],
   'admin.sso.domainsPh':       [['de', 'en', 'ko', 'pl', 'ru', 'zhCN']],
@@ -229,8 +246,6 @@ const SAME_VALUE_ALLOWED = {
   // "QR code" — same in en and es; de "QR-Code", fr "code QR", it "codice QR", ru "QR-код", zhCN "QR码"
   'admin.security.qrCodeAlt': [['en', 'es', 'ptBR']],
 
-  // "Visita:" — "Visit:" translates identically in es and it (Romance languages)
-  'admin.integrations.microsoft.deviceCodeVisit': [['es', 'it']],
 
   // "Notifications" — same spelling in en and fr
   'admin.notifications.title':  [['en', 'fr']],
@@ -274,6 +289,10 @@ const SAME_VALUE_ALLOWED = {
 
   // "Backup" — loanword used as-is in it and ptBR; "Restaurar…" is the same verb in es and ptBR
   'admin.tabs.backup':    [['en', 'it', 'ptBR']],
+  // "Continuar", "Copiar código", "Copiado": the same words in Spanish and Portuguese
+  'addAccount.continue': [['es', 'ptBR']],
+  'msSignIn.copy':       [['es', 'ptBR']],
+  'msSignIn.copied':     [['es', 'ptBR']],
   'admin.backup.restore': [['es', 'ptBR']],
 
   // "Telefon" / "Projekt" — established Polish/German technical loanwords
@@ -414,9 +433,6 @@ const SAME_VALUE_ALLOWED = {
   'admin.integrations.carddav.disconnect':           [['es', 'ptBR']], // "Desconectar"
   'admin.integrations.carddav.syncing':              [['es', 'ptBR']], // "Sincronizando…"
   'admin.integrations.google.configured':            [['es', 'ptBR']], // "Configurado"
-  'admin.integrations.microsoft.configured':         [['es', 'ptBR']], // "Configurado"
-  'admin.integrations.microsoft.deviceCodeCancel':   [['es', 'ptBR']], // "Cancelar"
-  'admin.integrations.tabApps':                      [['en', 'ptBR']], // "Apps"
   'admin.integrations.todoist.connect':              [['es', 'ptBR']], // "Conectar"
   'admin.integrations.todoist.connected':            [['es', 'ptBR']], // "Conectado"
   'admin.integrations.todoist.connecting':           [['es', 'ptBR']], // "Conectando..."
@@ -538,6 +554,10 @@ const SAME_VALUE_ALLOWED = {
   // is the natural word for the wide preset in both Italian and Portuguese.
   'messageList.layouts.compact.label': [['en', 'fr'], ['es', 'ptBR']],
   'messageList.layouts.wide.label':    [['it', 'ptBR']],
+  // The same words as admin.appearance.layout and the usual "Menu"; "Favoritos" in both.
+  'messageList.layout': [['de', 'en', 'it', 'ptBR']],
+  'messageList.menu':   [['en', 'fr', 'it', 'pl', 'ptBR']],
+  'sidebar.favorites':  [['es', 'ptBR']],
 
   // ── Attachment viewer ─────────────────────────────────────────────────────
   // "Imprimir" / "Preparando…" / "Abrir" / "{{current}} de {{total}}" are spelled the same in

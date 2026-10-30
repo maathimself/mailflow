@@ -85,7 +85,7 @@ export function runThreadAction({ messages, commit, resolve, notification, addNo
   const unread = targets.filter(message => !message.is_read);
   const store = useStore.getState();
   targets.forEach(message => store.removeMessage(message.id));
-  unread.forEach(message => store.decrementUnread(message.account_id));
+  unread.forEach(message => store.decrementUnread(message.account_id, 1, { undoable: true }));
   onRemove?.(targets);
 
   const restore = () => {

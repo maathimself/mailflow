@@ -421,6 +421,18 @@ describe('POST /api/gtd/classify — apply a GTD label (COPY)', () => {
     expect(imapManager.removeMessageCopy).not.toHaveBeenCalledWith(ACCT_ID, 77, 'Watch');
   });
 
+  // removeMessageCopy refuses an old label row whose uid holds another message (#665).
+  it('answers 409 when the old label copy changed on the server, keeping the new one', async () => {
+    stubQueries({ folders: ['Todo'], siblings: { Todo: 42 } });
+    imapManager.removeMessageCopy.mockRejectedValueOnce(Object.assign(new Error('holds another message'), { copyChanged: true }));
+    const res = await classify({ messageId: MSG_ID, state: 'watch' });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ changed: true, error: expect.stringMatching(/changed on the server/) });
+    expect(imapManager.copyMessage).toHaveBeenCalled();
+    expect(imapManager.removeMessageCopy).not.toHaveBeenCalledWith(ACCT_ID, 77, 'Watch');
+  });
+
   it('retains a non-UIDPLUS target copy after old-state removal fails', async () => {
     stubQueries({ folders: ['Todo'], siblings: { Todo: 42 } });
     const originalQuery = query.getMockImplementation();
@@ -529,6 +541,20 @@ describe('DELETE /api/gtd/classify — remove a GTD label', () => {
     expect(await res.json()).toEqual({ ok: true, removed: true, folder: 'Todo' });
     // resolveCopyUid found the state-folder copy (uid 42) via the shared Message-ID join.
     expect(imapManager.removeMessageCopy).toHaveBeenCalledWith(ACCT_ID, 42, 'Todo');
+  });
+
+  // removeMessageCopy refuses a uid whose server copy is another message (#665): nothing is removed,
+  // and the user is told to refresh, as Delete forever does.
+  it('answers 409 when the label copy changed on the server, and 500 for any other failure', async () => {
+    stubQueries({ sibling: { uid: 42 }, folders: ['INBOX', 'Todo'] });
+    imapManager.removeMessageCopy.mockRejectedValueOnce(Object.assign(new Error('holds another message'), { copyChanged: true }));
+    let res = await unclassify({ messageId: MSG_ID, state: 'todo' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ changed: true, error: expect.stringMatching(/changed on the server/) });
+
+    imapManager.removeMessageCopy.mockRejectedValueOnce(new Error('connection lost'));
+    res = await unclassify({ messageId: MSG_ID, state: 'todo' });
+    expect(res.status).toBe(500);
   });
 
   it('returns removed:false when no copy exists in the state folder (nothing to delete)', async () => {
@@ -660,6 +686,14 @@ describe('POST /api/gtd/classify/undo — remove only the request-owned copy', (
     expect(res.status).toBe(409);
     expect((await res.json()).error).toMatch(/folder changed/i);
     expect(imapManager.removeMessageCopy).not.toHaveBeenCalled();
+  });
+
+  it('a copy that holds another message on the server is 409 changed, not a server error', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    imapManager.removeMessageCopy.mockRejectedValueOnce(Object.assign(new Error('holds another message'), { copyChanged: true }));
+    const res = await undoClassify(token);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ changed: true, error: expect.stringMatching(/changed on the server/) });
   });
 
   it('does not remove a UID that belongs to another message', async () => {

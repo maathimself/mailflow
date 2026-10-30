@@ -191,6 +191,13 @@
       "aiDismiss": "关闭",
       "aiGenerating": "生成中…",
       "aiError": "AI 错误：{{message}}",
+      "aiReply": "用 AI 回复",
+      "aiReplyPlaceholder": "回复要说什么？例如：批准设计稿",
+      "aiReplyInstruction": "AI 回复的指示",
+      "aiReplyGenerate": "生成",
+      "aiReplyReading": "正在阅读对话…",
+      "aiReplyPartial": "基于对话的最新部分：其余内容太长，无法发送给 AI。",
+      "aiReplyLeftOut": "基于对话中最近的 {{count}} 封邮件：更早的邮件未包含在内。",
       "aiTooLong": "此草稿有 {{count}} 个字符，超过 AI 可接受的 {{max}} 个。请缩短内容或删除引用的文字后重试。",
       "aiNotAllowed": "管理员已为您的账户关闭 AI。",
       "aiFeatureOff": "管理员已关闭 AI 写作助手。"
@@ -202,7 +209,81 @@
     "recipientMenu": {
       "copy": "复制地址",
       "copyAll": "复制此栏全部"
-    }
+    },
+    "scheduleSend": {
+      "title": "稍后发送",
+      "tooltip": "稍后发送 (Ctrl+Shift+Enter)",
+      "tomorrowMorning": "明天上午",
+      "tomorrowAfternoon": "明天下午",
+      "mondayMorning": "周一上午",
+      "pick": "选择日期和时间",
+      "dateLabel": "日期",
+      "timeLabel": "时间",
+      "dateTimeLabel": "日期和时间",
+      "sendsAt": "将于 {{when}} 发送",
+      "timeZone": "时区：{{zone}}",
+      "schedule": "定时发送",
+      "scheduledFor": "已定时于 {{when}}",
+      "change": "更改",
+      "changeTime": "更改时间",
+      "errors": {
+        "invalid": "请输入日期和时间。",
+        "past": "该时间已过去。",
+        "tooSoon": "请选择至少一分钟之后的时间。",
+        "tooFar": "请选择未来 366 天内的时间。",
+        "clockBehind": "此设备的时钟比服务器慢 {{minutes}} 分钟，服务器时间为 {{time}}。",
+        "clockAhead": "此设备的时钟比服务器快 {{minutes}} 分钟，服务器时间为 {{time}}。",
+        "holdLost": "此邮件已在另一个窗口中打开，因此无法再在此处保存。你的文字仍保留在这里，可以复制。",
+        "deletedElsewhere": "此邮件已在别处删除，无法再在此保存。你的文字仍在这里，可以复制。",
+        "sentElsewhere": "此邮件已从另一个窗口发出，无法再在此保存。你的文字仍在这里，可以复制。",
+        "versionConflict": "此邮件已在其他地方更改。请关闭后从“定时”中重新打开以查看最新版本。",
+        "notHeld": "此邮件未在此处打开编辑。请关闭后从“定时”中重新打开。",
+        "pickNewTime": "定时时间已过。请选择新的时间。",
+        "failed": "无法定时发送此邮件。",
+        "tooMany": "定时邮件已达上限。请先发送或删除一些。",
+        "tooMuchStorage": "定时邮件已占满可用空间。请先发送或删除一些。",
+        "rateLimited": "短时间内定时的邮件过多。请一分钟后再试。",
+        "payloadTooLarge": "此邮件过大，无法定时发送：正文和内嵌图片占用的空间过多。",
+        "heldElsewhere": "此邮件已在另一个窗口中打开。"
+      },
+      "edit": {
+        "update": "更新",
+        "updating": "正在保存…",
+        "options": "定时选项",
+        "unschedule": "取消定时（存为草稿）",
+        "unscheduleTitle": "将此邮件移到草稿箱？",
+        "unscheduleGo": "存为草稿",
+        "unscheduled": "已移到草稿箱",
+        "unscheduleKept": "已存到草稿箱，但定时邮件仍处于定时状态：此窗口已不再持有它。如果不应发送，请在“定时”中删除它。",
+        "closeTitle": "保存对此定时邮件的更改？",
+        "saveChanges": "保存更改",
+        "discardChanges": "放弃更改",
+        "switchBlocked": "请先更新或关闭你正在编辑的定时邮件。",
+        "sendNow": "立即发送",
+        "pickNewTime": "选择新时间",
+        "keepPaused": "保持暂停",
+        "dueTitle": "此邮件原定于 {{when}} 发送。",
+        "dueBody": "现在关闭，它会保持暂停，未经你确认绝不会发出。",
+        "keptPaused": "已暂停。需要发送时，请在“定时”中恢复。",
+        "heldElsewhereBody": "改为在此处编辑，另一个窗口将无法再保存它。",
+        "takeOver": "改为在此编辑",
+        "close": "关闭"
+      },
+      "confirm": {
+        "title": "再次定时？",
+        "go": "仍然定时"
+      },
+      "laterToday": "今天稍晚",
+      "undoFailed": "无法撤销定时",
+      "sendNow": {
+        "undone": "未发送。它已按原样回到“定时”。",
+        "undoFailed": "无法撤销立即发送"
+      },
+      "scheduleAnyway": "仍要定时发送",
+      "undoFailedOpen": "撤销失败。请在“定时”中打开。"
+    },
+    "selectAccount": "请选择用于发送的账户",
+    "smtpAuthDisabled": "Microsoft 已为此账户关闭从邮件应用（SMTP）发送。你仍可以在网页版 Outlook 中发送。如果是工作或学校账户，管理员可以重新开启。"
   },
   "message": {
     "find": {
@@ -252,6 +333,7 @@
     "showOriginal": "显示原始颜色",
     "cannotShowDark": "无法以深色显示此邮件，否则文字将难以阅读",
     "printConversation": "打印会话",
+    "conversationActions": "会话操作",
     "preparingPrint": "正在准备打印…",
     "more": "更多",
     "summarize": "摘要",
@@ -464,6 +546,7 @@
       "failed": "无法保存此发件人的分类"
     },
     "changeLayout": "更改布局",
+    "layout": "布局",
     "layouts": {
       "focused": {
         "label": "专注",
@@ -488,7 +571,8 @@
     },
     "snoozedUntil": "暂停至 {{when}}",
     "snoozedEmpty": "没有暂停的邮件",
-    "snoozedEmptyDesc": "暂停的邮件会在这里等待，直到恢复。"
+    "snoozedEmptyDesc": "暂停的邮件会在这里等待，直到恢复。",
+    "menu": "菜单"
   },
   "lockScreen": {
     "subtitle": "输入 PIN 码以解锁",
@@ -514,11 +598,12 @@
     "settings": "设置",
     "lock": "锁定",
     "signOut": "退出登录",
-    "connectionError": "连接错误",
     "folderMenu": {
       "markAllRead": "全部标为已读",
       "syncFolder": "同步此文件夹",
       "renameFavorite": "重命名收藏夹",
+      "favorite": "添加到收藏夹",
+      "unfavorite": "从收藏夹移除",
       "rename": "重命名",
       "createSubfolder": "新建子文件夹",
       "hide": "隐藏文件夹",
@@ -532,7 +617,8 @@
       "syncNow": "立即同步",
       "syncFoldersNow": "立即同步文件夹",
       "settings": "账户设置",
-      "reconnect": "重新连接",
+      "tryAgain": "重试",
+      "signInAgain": "重新登录",
       "moveUp": "上移",
       "moveDown": "下移",
       "moveFailed": "账户重新排序失败"
@@ -547,7 +633,141 @@
     "emptied": "文件夹已清空",
     "backToAccounts": "返回账户列表",
     "updateAvailable": "有可用更新：v{{version}}",
-    "snoozed": "已暂停"
+    "snoozed": "已暂停",
+    "scheduled": "定时",
+    "scheduledPending": "等待发送：{{n}}",
+    "scheduledAttention": "需要处理：{{n}}",
+    "favorites": "收藏夹",
+    "reorderFolder": "拖动以调整文件夹顺序"
+  },
+  "scheduled": {
+    "refresh": "刷新",
+    "loadFailed": "无法加载定时邮件。",
+    "empty": "没有定时邮件",
+    "emptyDesc": "在撰写窗口中使用“稍后发送”。",
+    "moreSent": "不显示更早发送的邮件。",
+    "sentMessage": "已发送的邮件",
+    "to": "收件人：{{names}}",
+    "toMore": "收件人：{{names}} 等另外 {{more}} 人",
+    "detail": "给出的原因：{{detail}}",
+    "zoneTime": "{{time}}（{{zone}}）",
+    "sections": {
+      "attention": "需要处理",
+      "scheduled": "已定时",
+      "sent": "已发送",
+      "deleted": "已删除"
+    },
+    "when": {
+      "today": "今天 {{time}}",
+      "tomorrow": "明天 {{time}}",
+      "yesterday": "昨天 {{time}}"
+    },
+    "chip": {
+      "sending": "正在发送",
+      "editing": "正在编辑",
+      "failed": "失败",
+      "paused": "已暂停",
+      "uncertain": "请检查投递",
+      "sent": "已发送",
+      "sentLate": "延迟发送",
+      "retrying": "正在重试",
+      "deleted": "已删除"
+    },
+    "reason": {
+      "overdue": "已延迟超过 6 小时，因此 MailFlow 暂未发送。请立即发送或选择新时间。",
+      "restored": "恢复备份时已暂停。",
+      "editAbandoned": "到发送时间时它正处于编辑状态。",
+      "accountDisabled": "其账户已关闭。",
+      "needsReauth": "请重新登录该账户后再发送。",
+      "user": "你已将其暂停。",
+      "paused": "已暂停发送。",
+      "smtpRejected": "邮件服务器拒绝了它。",
+      "tooLarge": "对邮件服务器来说太大。",
+      "config": "该账户的发送设置需要检查。",
+      "tls": "与邮件服务器的安全连接失败。",
+      "invalidMessage": "无法生成该邮件。",
+      "aliasMissing": "原定的发件地址已不存在。",
+      "decryptFailed": "无法在此服务器上解密。",
+      "accountMissing": "其账户已不存在。",
+      "gaveUp": "邮件服务器一直出错，MailFlow 已停止重试。",
+      "failed": "无法发送。",
+      "uncertain": "MailFlow 在发送过程中停止，邮件可能已送达，也可能没有。请检查“已发送”文件夹。",
+      "retrying": "上次尝试失败。下次尝试：{{when}}。",
+      "deleted": "可在 {{when}} 前恢复。"
+    },
+    "sent": {
+      "markedSent": "你已将其标记为已发送。",
+      "late": "延迟发送：原定 {{scheduled}}，实际 {{sent}} 发送。",
+      "lateOffline": "延迟发送：原定 {{scheduled}}，因 MailFlow 离线，实际 {{sent}} 发送。",
+      "refused": "邮件服务器拒绝了以下收件人：{{list}}",
+      "deferred": "未送达 {{list}}：对方服务器要求稍后重试，而 MailFlow 不会重试。请重新发给他们。",
+      "noSentFolder": "未保存副本：该账户没有“已发送”文件夹。",
+      "noSentCopy": "无法在“已发送”中保存副本。"
+    },
+    "a11y": {
+      "scheduledFor": "定时于 {{when}}",
+      "sentAt": "已于 {{when}} 发送",
+      "to": "发给 {{names}}",
+      "toMore": "发给 {{names}} 等另外 {{more}} 人",
+      "subject": "主题 {{subject}}"
+    },
+    "actions": {
+      "edit": "编辑",
+      "reschedule": "重新定时",
+      "sendNow": "立即发送",
+      "resume": "恢复",
+      "retry": "重试",
+      "sendAnyway": "仍然发送",
+      "markSent": "标记为已发送",
+      "cancel": "删除",
+      "delete": "永久删除",
+      "viewSent": "在“已发送”中查看",
+      "remove": "从列表中移除",
+      "more": "更多操作",
+      "menu": "定时邮件操作",
+      "restore": "恢复邮件"
+    },
+    "confirm": {
+      "uncertainTitle": "可能已经送达",
+      "uncertainBody": "MailFlow 在发送时停止了。请先检查“已发送”文件夹。仍要再次发送吗？",
+      "restoredTitle": "因恢复备份而暂停",
+      "restoredBody": "恢复备份时已将其暂停。如果旧服务器仍在运行，它也可能发送这封邮件。要从这里发送吗？",
+      "restoredGo": "从这里发送",
+      "sendAnywayTitle": "要再次发送吗？",
+      "sendAnywayBody": "它可能已经送达：MailFlow 在发送时停止了。请先检查“已发送”文件夹。如果已发出，收件人会收到两次。",
+      "markSentTitle": "要标记为已发送吗？",
+      "markSentBody": "如果你已在“已发送”文件夹中找到它，再这样做。MailFlow 会删除其内容，且不会发送。",
+      "deleteTitle": "要永久删除吗？",
+      "deleteBody": "它不会被发送，且无法恢复。"
+    },
+    "toast": {
+      "resumed": "已恢复，正在发送。",
+      "sendingNow": "正在发送。",
+      "markedSent": "已标记为已发送",
+      "deleted": "已删除定时邮件",
+      "deletedForGood": "已永久删除",
+      "restored": "已恢复",
+      "sent": "定时邮件已发送",
+      "notSent": "未发送：{{reason}}",
+      "open": "打开",
+      "restoredPaused": "已恢复并暂停。需要发送时请恢复发送。"
+    },
+    "errors": {
+      "needsReauth": "请先重新登录该账户，然后再恢复。",
+      "accountDisabled": "请先重新开启该账户，然后再恢复。",
+      "undoExpired": "来不及撤销：邮件正在发出。",
+      "notFound": "这封定时邮件已不存在。",
+      "sending": "它正在发送中。",
+      "aboutToSend": "即将发送。",
+      "sent": "它已经发送。",
+      "cancelled": "它已被删除。",
+      "editing": "它正在另一个窗口中编辑。",
+      "failed": "无法更改定时邮件。",
+      "restoreFailed": "无法恢复",
+      "restoreExpired": "已无法恢复。",
+      "linkNotFound": "未找到该定时邮件。"
+    },
+    "serverReply": "服务器回复：{{detail}}"
   },
   "contextMenu": {
     "find": "查找",
@@ -844,7 +1064,8 @@
       "groupAdmin": "管理",
       "behavior": "行为",
       "plugins": "插件",
-      "backup": "备份"
+      "backup": "备份",
+      "mailSignIn": "邮件服务商"
     },
     "rules": {
       "title": "收件箱规则",
@@ -975,7 +1196,8 @@
       "errorRequired": "邮箱地址、用户名和 IMAP 服务器为必填项",
       "errorPasswordRequired": "添加新账户时必须填写密码",
       "microsoftImapUnsupported": "Outlook.com / Hotmail 需要使用 OAuth2（新式验证）",
-      "microsoftImapNote": "微软已停用个人 Outlook.com、Hotmail 和 Live 账户的密码 IMAP（基本身份验证）。你仍然可以通过 Microsoft OAuth2（新式验证）连接这些账户——在“集成 → Microsoft 365 / Outlook.com”中进行配置。设备代码登录最适合个人账户，且无需应用专用密码。",
+      "microsoftImapNote": "Microsoft 不再接受 Outlook.com、Hotmail、Live 和 MSN 邮箱的密码，而此服务器尚未设置 Microsoft 登录。请让管理员在“邮件服务商”中开启。",
+      "microsoftImapNoteReady": "Microsoft 不再接受 Outlook.com、Hotmail、Live 和 MSN 邮箱的密码。请改为在“添加帐户”中使用“使用 Microsoft 登录”添加此邮箱。",
       "reindex": "重新索引以供搜索",
       "reindexing": "正在索引邮件...",
       "reindexProgress": "已索引 {{synced}} / {{total}} 封邮件",
@@ -997,7 +1219,12 @@
       "trustedAuthservDetected": "在您最近的邮件中出现过（点击使用）：",
       "trustedAuthservDetectedNone": "暂无数据——为该账户启用反垃圾邮件后才会分析邮件。",
       "trustedAuthservWarn": "只信任您确认为邮件服务商接收服务器的 ID。",
-      "enabledGlobally": "已全局启用"
+      "enabledGlobally": "已全局启用",
+      "microsoftImapNoteSignIn": "Microsoft 不再接受 Outlook.com、Hotmail、Live 和 MSN 邮箱的密码。请改用 Microsoft 登录：无需应用密码。",
+      "deleteScheduled": "将随之删除的尚未发送的定时邮件：{{n}} 封。",
+      "deleteTitle": "要移除账户吗？",
+      "deleteBody": "此账户的所有已同步邮件都将被删除。此操作无法撤销。",
+      "deleteConfirm": "移除"
     },
     "folderMappings": {
       "title": "文件夹映射",
@@ -1505,7 +1732,7 @@
     },
     "sso": {
       "title": "单点登录",
-      "description": "配置外部 OIDC 服务商，使用户能够通过其组织账户登录。",
+      "description": "通过组织的身份提供商（OIDC）登录 MailFlow 本身的方式。连接邮箱请前往“邮件服务商”。",
       "empty": "尚未配置任何 SSO 服务商。",
       "addProvider": "+ 添加 SSO 服务商",
       "templatePickerTitle": "选择服务商模板",
@@ -1573,22 +1800,14 @@
     "integrations": {
       "title": "集成",
       "loading": "加载中…",
-      "tabEmailProviders": "邮件提供商",
-      "tabApps": "应用",
       "microsoft": {
-        "title": "Microsoft 365 / Outlook.com",
-        "description": "为企业、学校或个人 Microsoft 账户（Outlook.com、Hotmail）提供 OAuth2 支持",
-        "configured": "已配置",
-        "notConfigured": "尚未配置",
-        "redirecting": "跳转中…",
-        "connect": "连接 Microsoft 账户",
         "setupTitle": "Azure 应用注册设置",
         "step1": "前往 portal.azure.com → Microsoft Entra ID → 应用注册 → 新注册。在「支持的账户类型」下，选择「任何组织目录中的账户和个人 Microsoft 账户」以允许 Outlook.com/Hotmail 登录",
         "step2": "将重定向 URI 类型设为「Web」，并粘贴下方所示的 URI",
         "step3": "API 权限 → 添加权限 → 我的组织使用的 API（若未列出，请搜索「Exchange」）→ Office 365 Exchange Online → 委托的权限 → IMAP.AccessAsUser.All 与 SMTP.Send",
         "step4": "API 权限 → 添加权限 → Microsoft Graph → 委托的权限 → offline_access、openid、email、profile",
-        "step5": "点击「为您的组织授予管理员同意」（仅适用于企业 / 学校账户 — 个人账户跳过此步骤）",
-        "step6": "证书和密码 → 新客户端密码 — 复制其「值」（而非「ID」）",
+        "step5": "点击「为您的组织授予管理员同意」（仅适用于企业 / 学校账户，个人账户跳过此步骤）",
+        "step6": "证书和密码 → 新客户端密码：复制其「值」（而非「ID」）",
         "clientId": "应用程序（客户端）ID",
         "clientIdPh": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
         "tenantId": "目录（租户）ID",
@@ -1599,30 +1818,13 @@
         "redirectUri": "重定向 URI",
         "redirectUriNote": "此项必须与在 Azure 中注册的重定向 URI 完全一致。建议值：{{uri}}",
         "save": "保存配置",
-        "savedNote": "配置已保存。点击「连接账户」以进行授权。",
-        "connectedNote": "Microsoft 365 账户连接成功！请前往「账户」选项卡查看。",
-        "userNoteConfigured": "您的管理员已设置 Microsoft 365 登录。请在下方连接您的 Outlook.com、Hotmail 或 Microsoft 365 账户。",
-        "userNoteNotConfigured": "管理员尚未设置 Microsoft 365 登录。请联系您的管理员进行配置。",
-        "remove": "移除",
-        "deviceCodeTitle": "使用设备码连接",
-        "deviceCodeNote": "无需重定向 URI 或客户端密钥。在 Azure 中，前往「身份验证」并将「允许公共客户端流」设置为「是」。最适合 Outlook.com / Hotmail 个人账户。",
-        "deviceCodeStart": "启动设备码流程",
-        "deviceCodeInstructions": "在任意设备上访问以下链接，输入代码以授权 MailFlow：",
-        "deviceCodeVisit": "访问：",
-        "deviceCodeEnter": "输入代码：",
-        "deviceCodeWaiting": "等待授权中…",
-        "deviceCodeExpired": "代码已过期，请重新开始。",
-        "deviceCodeDeclined": "授权被拒绝。",
-        "deviceCodeError": "发生错误，请重试。",
-        "deviceCodeCancel": "取消"
+        "remove": "移除"
       },
       "google": {
         "title": "Gmail / Google Workspace",
         "description": "适用于 Gmail 和 Google Workspace 邮箱的 OAuth2 — 当管理员停用应用专用密码时必须使用",
         "configured": "已配置",
         "notConfigured": "未配置",
-        "redirecting": "正在跳转…",
-        "connect": "连接 Google 账号",
         "setupTitle": "Google Cloud OAuth 客户端设置",
         "step1": "前往 console.cloud.google.com 并选择（或新建）一个项目。若为 Workspace 域，请使用该域下的账号登录，使项目归属于该组织",
         "step2": "API 和服务 → 库 → 启用 Gmail API",
@@ -1636,10 +1838,6 @@
         "redirectUri": "重定向 URI",
         "redirectUriNote": "必须与 OAuth 客户端中已授权的重定向 URI 完全一致。建议：{{uri}}",
         "save": "保存配置",
-        "savedNote": "配置已保存。点击“连接 Google 账号”进行授权。",
-        "connectedNote": "Google 账号连接成功！请查看“账号”标签页。",
-        "userNoteConfigured": "管理员已设置 Google 登录。请在下方连接你的 Gmail 或 Google Workspace 账号。",
-        "userNoteNotConfigured": "管理员尚未设置 Google 登录，请联系管理员。",
         "remove": "移除"
       },
       "todoist": {
@@ -1699,7 +1897,9 @@
       "sourceCode": "源代码",
       "sponsor": "支持开发",
       "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "githubSponsors": "GitHub Sponsors",
+      "businessLicense": "企业许可证",
+      "sponsorBlurb": "MailFlow 由一人开发和维护。赞助用于支付修复问题、审查代码和发布新版本所需的时间。"
     },
     "search": {
       "placeholder": "搜索设置…",
@@ -1903,6 +2103,7 @@
     "show": "显示右侧边栏"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}：带此标签的最早邮件距今的天数：{{count}}",
     "title": "GTD",
     "inbox": "收件箱",
     "waiting": "等待中",
@@ -1916,14 +2117,18 @@
     "tabEmpty": "这里还没有内容",
     "removeFrom": "从{{state}}中移除",
     "classified": "已添加标签",
+    "classifiedMany": "已将 {{count}} 封标记为{{state}}",
+    "classifiedSome": "已将 {{count}}/{{total}} 封标记为{{state}}",
     "classifyFailed": "无法添加标签",
     "undoFailed": "无法撤销标签",
     "removed": "已移除标签",
     "removeFailed": "无法移除标签",
     "onlyCopy": "这是该邮件的唯一副本，移除标签会将其删除。请改为归档或移动。",
+    "labelChanged": "此标签已在服务器上更改，未被移除。请刷新后重试。",
     "done": "标记为完成",
     "doneFailed": "无法标记为完成",
     "doneArchiveFailed": "已标记为完成，但归档失败——邮件仍在收件箱中",
+    "doneThreadRemains": "此会话中的部分邮件无法清除，因此它仍留在原 GTD 分区中",
     "state": {
       "todo": "待办",
       "watch": "关注",
@@ -1956,5 +2161,155 @@
     "trash": "已删除",
     "spam": "垃圾邮件",
     "archive": "归档"
+  },
+  "accountErrors": {
+    "label": {
+      "turnOnImap": "开启 IMAP",
+      "imapOff": "IMAP 已关闭",
+      "signInAgain": "重新登录",
+      "cantConnect": "无法连接",
+      "openRow": "查看问题及解决方法"
+    },
+    "imapOffPersonal": {
+      "title": "Outlook.com 阻止了邮件应用",
+      "body": "Microsoft 已让你登录，但此邮箱的 IMAP 已关闭。开启方法：",
+      "step1": "打开 Outlook.com 并登录。",
+      "step2": "前往 设置 > 邮件 > 转发和 IMAP。",
+      "step3": "开启“允许设备和应用使用 IMAP”，然后选择保存。",
+      "outro": "然后回到这里，选择重试。"
+    },
+    "imapOffWork": {
+      "title": "此邮箱的 IMAP 已关闭",
+      "body": "Microsoft 已让你登录，但你的组织为 {{email}} 关闭了 IMAP。请让 IT 管理员开启它，然后选择重试。"
+    },
+    "signIn": {
+      "title": "重新登录 Microsoft",
+      "titleGoogle": "重新登录 Google",
+      "body": "MailFlow 为此帐户保存的登录已失效。这通常发生在更改密码后、长时间未使用后，或在帐户设置中移除了访问权限之后。"
+    },
+    "appConfig": {
+      "title": "此帐户的登录设置不正确",
+      "bodyUser": "邮件服务商拒绝了 MailFlow 用于登录的应用。请让管理员检查登录设置。",
+      "bodyAdmin": "邮件服务商拒绝了 MailFlow 用于登录的应用。请在“邮件服务商”中检查它的设置。下方详细信息显示了服务商的回复。"
+    },
+    "authFailed": {
+      "title": "服务器拒绝了密码",
+      "body": "邮件服务器不接受此帐户的用户名或密码。如果你更改过密码或使用应用专用密码，请通过“编辑帐户”更新。"
+    },
+    "connection": {
+      "title": "MailFlow 无法连接到此帐户",
+      "body": "MailFlow 会自动继续尝试。下方详细信息显示了服务器的回复。"
+    },
+    "action": {
+      "openOutlook": "打开 Outlook.com",
+      "retry": "重试",
+      "signIn": "重新登录",
+      "edit": "编辑帐户"
+    },
+    "details": "详细信息",
+    "wrongAccount": "你登录的是 {{signedInAs}}，而不是 {{expected}}。请使用 {{expected}} 登录以修复此帐户。",
+    "signInDialog": {
+      "title": "重新登录",
+      "body": "以 {{email}} 登录，重新连接此帐户。",
+      "success": "已登录。MailFlow 正在重新连接此帐户。",
+      "continueGoogle": "前往 Google",
+      "waitingGoogle": "请在 Google 页面完成登录，然后回到这里。"
+    },
+    "signInFailed": "登录未成功",
+    "signInFailedBody": "请在“设置 > 帐户”中从该帐户重新开始。"
+  },
+  "addAccount": {
+    "title": "添加邮件帐户",
+    "emailLabel": "你的电子邮件地址",
+    "continue": "继续",
+    "invalidEmail": "请输入电子邮件地址，例如 you@example.com。",
+    "orChoose": "或选择你的服务商",
+    "tile": {
+      "outlook": "Outlook.com, Hotmail, Live, MSN",
+      "outlookSub": "使用 Microsoft 登录",
+      "work": "Microsoft 365（工作或学校）",
+      "workSub": "使用你所在组织的 Microsoft 帐户登录",
+      "gmail": "Gmail",
+      "gmailSub": "使用应用密码",
+      "gmailSignIn": "使用 Google 登录",
+      "yahoo": "Yahoo Mail",
+      "yahooSub": "使用应用密码",
+      "icloud": "iCloud Mail",
+      "icloudSub": "使用 App 专用密码",
+      "other": "其他（IMAP）",
+      "otherSub": "输入服务器设置"
+    },
+    "personalOff": "此服务器上不可用。",
+    "workOff": "此服务器上不可用。",
+    "openSettings": "打开邮件服务商设置"
+  },
+  "msSignIn": {
+    "titlePersonal": "使用 Microsoft 登录",
+    "titleWork": "使用你的工作或学校帐户登录",
+    "beforeTitle": "开始之前",
+    "beforeBody": "Outlook.com 需要允许邮件应用。如果你从未设置过：",
+    "step1": "打开 Microsoft 的登录页面。",
+    "step1Button": "打开 Microsoft 登录",
+    "step2": "在那里输入此代码，然后按照 Microsoft 页面上的步骤操作。",
+    "copy": "复制代码",
+    "copied": "已复制",
+    "waiting": "正在等待你在 Microsoft 页面完成登录…",
+    "starting": "正在从 Microsoft 获取代码…",
+    "checking": "正在检查 MailFlow 能否访问你的邮箱…",
+    "connected": "{{email}} 已连接。正在同步你的邮件。",
+    "stillConnecting": "已以 {{email}} 登录。MailFlow 仍在连接，并会自动继续尝试。帐户列表会显示何时就绪。",
+    "declined": "你在 Microsoft 页面取消了登录。",
+    "expired": "登录完成前代码已过期。代码有效期为 15 分钟。",
+    "error": "Microsoft 登录未成功。",
+    "newCode": "获取新代码",
+    "startOver": "重新开始",
+    "done": "完成",
+    "finePrintShared": "Microsoft 可能会将 MailFlow 显示为未验证的应用。这是正常的：MailFlow 的共享应用只是向 Microsoft 表明 MailFlow 的身份。你在 Microsoft 自己的页面登录，Microsoft 会将访问权限直接发送到此服务器。",
+    "finePrintOwn": "你在 Microsoft 自己的页面登录，Microsoft 会将访问权限直接发送到此服务器。",
+    "continueMicrosoft": "继续前往 Microsoft",
+    "redirectWaiting": "请在打开的 Microsoft 页面完成登录，然后回到这里。",
+    "useCode": "改用代码",
+    "useRedirect": "改为在 Microsoft 页面登录",
+    "back": "返回",
+    "lost": "MailFlow 丢失了此次登录的进度，例如因为服务器重新启动。如果你已在 Microsoft 页面完成登录，该帐户可能已在你的列表中。",
+    "checkAccounts": "查看你的帐户"
+  },
+  "mailSignIn": {
+    "title": "邮件服务商",
+    "description": "MailFlow 连接 Microsoft 和 Google 邮箱的方式。这与单点登录（SSO）不同，后者是登录 MailFlow 本身的方式。每个人在“帐户 > 添加帐户”中添加自己的帐户。",
+    "required": "请先填写必填字段。",
+    "redirectRequired": "Google 需要重定向 URI：即在 OAuth 客户端中注册的、以 /oauth/google/callback 结尾的 URI。",
+    "saved": "已保存。",
+    "ms": {
+      "title": "Microsoft",
+      "description": "Outlook.com、Hotmail、Live、MSN 和 Microsoft 365 邮箱",
+      "personalTitle": "个人帐户（Outlook.com、Hotmail、Live、MSN）",
+      "statusShared": "正在使用 MailFlow 的共享应用",
+      "statusOwn": "正在使用你自己的应用",
+      "statusOff": "已关闭",
+      "sharedSwitch": "允许通过 MailFlow 的共享应用登录",
+      "sharedSwitchDesc": "无需设置。关闭后，已连接的帐户仍可继续使用。",
+      "ownHandlesPersonal": "你自己的应用负责个人帐户，因此不会使用 MailFlow 的共享应用。",
+      "workTitle": "工作和学校帐户（Microsoft 365）",
+      "workOff": "未设置",
+      "setupToggle": "设置你自己的 Microsoft Entra 应用"
+    },
+    "google": {
+      "setupToggle": "设置你自己的 Google OAuth 客户端"
+    }
+  },
+  "accountForm": {
+    "signedInMicrosoft": "已以 {{email}} 使用 Microsoft 登录",
+    "signedInGoogle": "已以 {{email}} 使用 Google 登录",
+    "signedInNote": "服务器信息来自此次登录。如果帐户无法连接，请重新登录。",
+    "mailboxLabel": "要打开的邮箱",
+    "mailboxHelp": "如需打开共享或委托的邮箱，请输入其地址。打开自己的邮箱时保持不变即可。"
+  },
+  "googleSignIn": {
+    "title": "使用 Google 登录",
+    "finePrint": "你在 Google 自己的页面登录，Google 会将访问权限直接发送到此服务器。",
+    "formNote": "Gmail 和 Google Workspace 邮箱可以使用 Google 登录，而不必使用应用专用密码。",
+    "appPasswordNote": "Gmail 需要应用专用密码，而不是你的常用密码。请为 Google 帐号开启两步验证，然后创建应用专用密码并填入密码栏。",
+    "createAppPassword": "创建应用专用密码"
   }
 }

@@ -9,26 +9,16 @@
 // established it owns (via one of the user-keyed reads) and only ever read within that account —
 // they never span accounts or users.
 import { query } from './db.js';
+import { findOwnedAccount, findOwnedMessage } from './ownership.js';
 
 // A message the user owns (joined through their accounts), or null. Full row (m.*).
 export async function loadOwnedMessage(userId, messageId) {
-  const { rows } = await query(
-    `SELECT m.*
-       FROM messages m
-       JOIN email_accounts a ON a.id = m.account_id
-      WHERE m.id = $1 AND a.user_id = $2`,
-    [messageId, userId]
-  );
-  return rows[0] || null;
+  return findOwnedMessage(userId, messageId);
 }
 
 // One of the user's accounts by id (ownership enforced), or null. Full row.
 export async function getOwnedAccount(userId, accountId) {
-  const { rows } = await query(
-    'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
-    [accountId, userId]
-  );
-  return rows[0] || null;
+  return findOwnedAccount(userId, accountId);
 }
 
 // All of the user's accounts (light columns for listing/iteration). The caller filters by its
@@ -93,7 +83,7 @@ export async function getThreadKeysForMessageIdHeaders(accountId, messageIdHeade
 export async function getMessagesByThreadKeys(accountId, threadKeys) {
   if (!threadKeys || threadKeys.length === 0) return [];
   const { rows } = await query(
-    `SELECT thread_key, uid, folder, message_id, from_email, date, id
+    `SELECT thread_key, uid, folder, message_id, from_email, date, id, is_read
        FROM messages
       WHERE account_id = $1 AND thread_key = ANY($2::text[]) AND is_deleted = false`,
     [accountId, threadKeys]
@@ -145,6 +135,55 @@ export async function getMessageAnnotations(accountId, ids, pluginId) {
   const out = {};
   for (const r of rows) if (r.ann != null) out[r.id] = r.ann;
   return out;
+}
+
+// Label-folder membership for a bounded set of message rows. Targets are scoped to one account;
+// their live siblings are joined by thread key or RFC Message-ID so plugins can decorate existing rows
+// without adding feature-specific joins to the core message-list query.
+// Label copies are read once per distinct thread key and Message-ID, not once per target: a page
+// of rows from one long conversation would otherwise rescan that conversation for every row.
+export async function getLabelMetadata(accountId, messageIds, labelFolders) {
+  if (!messageIds?.length || !labelFolders?.length) return [];
+  if (messageIds.length > 100) throw new RangeError('Label metadata accepts at most 100 message ids');
+  const { rows } = await query(
+    `WITH targets AS MATERIALIZED (
+       SELECT target.id, target.thread_key, target.message_id
+         FROM messages target
+        WHERE target.account_id = $1
+          AND target.id = ANY($2::uuid[])
+          AND target.is_deleted = false
+     ), by_thread AS (
+       SELECT thread_key, folder, MIN(date) AS date
+         FROM messages
+        WHERE account_id = $1
+          AND folder = ANY($3::text[])
+          AND is_deleted = false
+          AND thread_key = ANY(ARRAY(SELECT DISTINCT thread_key FROM targets))
+        GROUP BY thread_key, folder
+     ), by_message AS (
+       SELECT message_id, folder, MIN(date) AS date
+         FROM messages
+        WHERE account_id = $1
+          AND folder = ANY($3::text[])
+          AND is_deleted = false
+          AND message_id = ANY(ARRAY(SELECT DISTINCT message_id FROM targets WHERE message_id IS NOT NULL))
+        GROUP BY message_id, folder
+     )
+     SELECT id AS message_id, folder, MIN(date) AS date
+       FROM (
+         SELECT t.id, b.folder, b.date FROM targets t JOIN by_thread b ON b.thread_key = t.thread_key
+         UNION ALL
+         SELECT t.id, b.folder, b.date FROM targets t JOIN by_message b ON b.message_id = t.message_id
+       ) labeled
+      GROUP BY id, folder
+      ORDER BY id, folder`,
+    [accountId, messageIds, labelFolders]
+  );
+  return rows.map(row => ({
+    messageId: row.message_id,
+    folder: row.folder,
+    date: row.date == null ? null : new Date(row.date).toISOString(),
+  }));
 }
 
 // Merge `patch` into a plugin's namespace of a message's annotations (creating the namespace if

@@ -42,7 +42,7 @@ export default function SpamExplainModal({ messageId, onClose }) {
       <div style={cardStyle} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h3 style={{ margin: 0, fontSize: 16 }}>{t('spam.explainTitle')}</h3>
-          <button type="button" onClick={onClose} aria-label={t('common.close')}
+          <button type="button" onClick={onClose} aria-label={t('window.close')} title={t('window.close')}
             style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 18 }}>
             ✕
           </button>

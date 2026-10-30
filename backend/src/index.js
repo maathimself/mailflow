@@ -14,6 +14,7 @@ import { mountBodyParsers } from './middleware/bodyParsers.js';
 
 import sendRoutes from './routes/send.js';
 import draftRoutes from './routes/draft.js';
+import scheduledRoutes from './routes/scheduled.js';
 import oauthRoutes from './routes/oauth.js';
 import integrationsRoutes, { loadIntegrationConfigs } from './routes/integrations.js';
 import authRoutes from './routes/auth.js';
@@ -45,11 +46,12 @@ import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
 import { parseVCard } from './utils/vcard.js';
 import { reloadAuthSettings } from './services/authLimiter.js';
-import { createWebSocketServer, setupWebSocket } from './services/websocket.js';
+import { closeWebSocketClients, createWebSocketServer, setupWebSocket } from './services/websocket.js';
 import { ImapManager } from './services/imapManager.js';
 import { getUpdateStatus } from './services/updateCheck.js';
 import { recordHttp } from './services/performanceMetrics.js';
-import { flushHeldSends } from './services/sendHold.js';
+import { shutDown } from './services/sendShutdown.js';
+import { startScheduledSender } from './services/scheduledSend.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta = {};
@@ -184,6 +186,7 @@ app.use('/api/spam', spamRoutes);
 app.use('/api/mail', mailRoutes);
 app.use('/api/mail', sendRoutes);
 app.use('/api/mail', draftRoutes);
+app.use('/api/mail', scheduledRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/admin/backup', backupRoutes);
 app.use('/api/admin', adminRoutes);
@@ -269,6 +272,10 @@ await loadIntegrationConfigs();
 // Start background snooze watcher — polls every 60 seconds to restore snoozed messages
 imapManager.startSnoozeWatcher();
 
+// Send scheduled messages as they fall due (#543). Its first tick recovers sends a previous
+// process left unfinished, before it claims anything.
+startScheduledSender();
+
 // Schedule periodic CardDAV contact sync for any connected accounts.
 startCardavScheduler();
 
@@ -303,18 +310,16 @@ httpServer.listen(PORT, () => {
   console.log(`MailFlow backend running on port ${PORT}`);
 });
 
-function exitAfterClose(code) {
-  // A send held for its undo window lives only in this process: deliver it now rather than
-  // lose it with the restart (services/sendHold.js). Bounded to leave room for the rest.
-  const heldSendsFlushed = flushHeldSends(8000)
-    .catch(err => console.error('Flushing held sends failed:', err.message));
-  httpServer.close(async () => {
-    await heldSendsFlushed;
-    try { await redisClient.quit(); } catch { /* ignore */ }
-    process.exit(code);
+function exitAfterClose(code, { wsCode = 1001, wsReason = 'Shutting down' } = {}) {
+  // A send held for its undo window lives only in this process: it is delivered now rather than
+  // lost with the restart, and the scheduled sender's sends in flight finish (sendShutdown.js).
+  shutDown({
+    code,
+    httpServer,
+    closeClients: () => closeWebSocketClients(wss, wsCode, wsReason),
+    quit: () => redisClient.quit(),
+    exit: c => process.exit(c),
   });
-  // Force exit if graceful shutdown takes more than 10 s
-  setTimeout(() => process.exit(code || 1), 10_000).unref();
 }
 
 process.on('SIGTERM', () => {
@@ -328,8 +333,7 @@ process.on('SIGTERM', () => {
 // either way.
 export function restartAfterRestore() {
   console.log('Restore complete — restarting so every connection and cache starts from the restored data');
-  wss.clients.forEach(ws => ws.close(1012, 'Restarting'));
-  exitAfterClose(3);
+  exitAfterClose(3, { wsCode: 1012, wsReason: 'Restarting' });
 }
 
 process.on('unhandledRejection', (reason) => {

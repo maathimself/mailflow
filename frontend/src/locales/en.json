@@ -191,6 +191,13 @@
       "aiDismiss": "Dismiss",
       "aiGenerating": "Generating…",
       "aiError": "AI error: {{message}}",
+      "aiReply": "Reply with AI",
+      "aiReplyPlaceholder": "What should the reply say? E.g. approve the artwork",
+      "aiReplyInstruction": "Instruction for the AI reply",
+      "aiReplyGenerate": "Generate",
+      "aiReplyReading": "Reading the conversation…",
+      "aiReplyPartial": "Based on the latest part of the conversation: the rest was too long to send to the AI.",
+      "aiReplyLeftOut": "Based on the latest {{count}} messages of the conversation: older ones were left out.",
       "aiTooLong": "this draft has {{count}} characters, more than the {{max}} the AI can take. Shorten it or remove the quoted text, then try again.",
       "aiNotAllowed": "your administrator has turned AI off for your account.",
       "aiFeatureOff": "your administrator has turned the AI writing assistant off."
@@ -202,7 +209,81 @@
     "recipientMenu": {
       "copy": "Copy address",
       "copyAll": "Copy all in this field"
-    }
+    },
+    "scheduleSend": {
+      "title": "Send later",
+      "tooltip": "Send later (Ctrl+Shift+Enter)",
+      "tomorrowMorning": "Tomorrow morning",
+      "tomorrowAfternoon": "Tomorrow afternoon",
+      "mondayMorning": "Monday morning",
+      "pick": "Pick date and time",
+      "dateLabel": "Date",
+      "timeLabel": "Time",
+      "dateTimeLabel": "Date and time",
+      "sendsAt": "Sends {{when}}",
+      "timeZone": "Time zone: {{zone}}",
+      "schedule": "Schedule send",
+      "scheduledFor": "Scheduled for {{when}}",
+      "change": "Change",
+      "changeTime": "Change time",
+      "errors": {
+        "invalid": "Enter a date and a time.",
+        "past": "That time has already passed.",
+        "tooSoon": "Pick a time at least a minute from now.",
+        "tooFar": "Pick a time within the next 366 days.",
+        "clockBehind": "This device's clock is {{minutes}} min behind the server's, which says it is {{time}}.",
+        "clockAhead": "This device's clock is {{minutes}} min ahead of the server's, which says it is {{time}}.",
+        "holdLost": "This message was opened in another window, so it can no longer be saved here. Your text is still here to copy.",
+        "deletedElsewhere": "This message was deleted somewhere else, so it can no longer be saved here. Your text is still here to copy.",
+        "sentElsewhere": "This message was sent from another window, so it can no longer be saved here. Your text is still here to copy.",
+        "versionConflict": "This message was changed somewhere else. Close it and open it again from Scheduled to see the latest version.",
+        "notHeld": "This message is not open for editing here. Close it and open it again from Scheduled.",
+        "pickNewTime": "Its scheduled time has passed. Pick a new time.",
+        "failed": "The message could not be scheduled.",
+        "tooMany": "You have as many scheduled messages as you can have. Send or delete some first.",
+        "tooMuchStorage": "Your scheduled messages take up as much space as they can. Send or delete some first.",
+        "rateLimited": "Too many messages scheduled in a short time. Try again in a minute.",
+        "payloadTooLarge": "This message is too large to schedule: its text and inline images take up too much space.",
+        "heldElsewhere": "This message is open in another window."
+      },
+      "edit": {
+        "update": "Update",
+        "updating": "Saving…",
+        "options": "Scheduling options",
+        "unschedule": "Unschedule (save as draft)",
+        "unscheduleTitle": "Move this message to Drafts?",
+        "unscheduleGo": "Save as draft",
+        "unscheduled": "Moved to Drafts",
+        "unscheduleKept": "Saved to Drafts, but the scheduled message is still scheduled: this window no longer held it. Delete it from Scheduled if it should not go out.",
+        "closeTitle": "Save changes to this scheduled message?",
+        "saveChanges": "Save changes",
+        "discardChanges": "Discard changes",
+        "switchBlocked": "Update or close the scheduled message you are editing first.",
+        "sendNow": "Send now",
+        "pickNewTime": "Pick a new time",
+        "keepPaused": "Keep paused",
+        "dueTitle": "This was due {{when}}.",
+        "dueBody": "Closed now, it stays paused, so it never goes out without you.",
+        "keptPaused": "Paused. Resume it from Scheduled when it should go.",
+        "heldElsewhereBody": "Edit it here instead, and the other window can no longer save it.",
+        "takeOver": "Edit here instead",
+        "close": "Close"
+      },
+      "confirm": {
+        "title": "Schedule it again?",
+        "go": "Schedule anyway"
+      },
+      "laterToday": "Later today",
+      "undoFailed": "Could not undo the schedule",
+      "sendNow": {
+        "undone": "Not sent. It is back in Scheduled as it was.",
+        "undoFailed": "Could not undo Send now"
+      },
+      "scheduleAnyway": "Schedule anyway",
+      "undoFailedOpen": "Undo failed. Open it from Scheduled."
+    },
+    "selectAccount": "Choose an account to send from",
+    "smtpAuthDisabled": "Microsoft has turned off sending from mail apps (SMTP) for this account. You can still send from Outlook on the web. For a work or school account, your admin can turn it back on."
   },
   "message": {
     "find": {
@@ -252,6 +333,7 @@
     "showOriginal": "Show original colors",
     "cannotShowDark": "This email can't be shown dark without making text hard to read",
     "printConversation": "Print conversation",
+    "conversationActions": "Conversation actions",
     "preparingPrint": "Preparing to print…",
     "more": "More",
     "summarize": "Summarize",
@@ -464,6 +546,7 @@
       "failed": "Couldn't save the category for this sender"
     },
     "changeLayout": "Change layout",
+    "layout": "Layout",
     "layouts": {
       "focused": {
         "label": "Focused",
@@ -488,7 +571,8 @@
     },
     "snoozedUntil": "Snoozed until {{when}}",
     "snoozedEmpty": "Nothing snoozed",
-    "snoozedEmptyDesc": "Snoozed mail waits here until it comes back."
+    "snoozedEmptyDesc": "Snoozed mail waits here until it comes back.",
+    "menu": "Menu"
   },
   "lockScreen": {
     "subtitle": "Enter your PIN to unlock",
@@ -514,11 +598,12 @@
     "settings": "Settings",
     "lock": "Lock",
     "signOut": "Sign out",
-    "connectionError": "Connection error",
     "folderMenu": {
       "markAllRead": "Mark all as read",
       "syncFolder": "Sync folder",
       "renameFavorite": "Rename favorite",
+      "favorite": "Add to Favorites",
+      "unfavorite": "Remove from Favorites",
       "rename": "Rename",
       "createSubfolder": "Create subfolder",
       "hide": "Hide folder",
@@ -532,7 +617,8 @@
       "syncNow": "Sync now",
       "syncFoldersNow": "Sync folders now",
       "settings": "Account settings",
-      "reconnect": "Reconnect",
+      "tryAgain": "Try again",
+      "signInAgain": "Sign in again",
       "moveUp": "Move up",
       "moveDown": "Move down",
       "moveFailed": "Failed to reorder accounts"
@@ -547,7 +633,141 @@
     "emptied": "Folder emptied",
     "backToAccounts": "Back to accounts",
     "updateAvailable": "Update available: v{{version}}",
-    "snoozed": "Snoozed"
+    "snoozed": "Snoozed",
+    "scheduled": "Scheduled",
+    "scheduledPending": "Waiting to be sent: {{n}}",
+    "scheduledAttention": "Need attention: {{n}}",
+    "favorites": "Favorites",
+    "reorderFolder": "Drag to reorder folder"
+  },
+  "scheduled": {
+    "refresh": "Refresh",
+    "loadFailed": "The scheduled messages could not be loaded.",
+    "empty": "Nothing scheduled",
+    "emptyDesc": "Use Send later in the composer.",
+    "moreSent": "Older sent messages are not shown.",
+    "sentMessage": "Sent message",
+    "to": "To: {{names}}",
+    "toMore": "To: {{names}} +{{more}}",
+    "detail": "Reason given: {{detail}}",
+    "zoneTime": "{{time}} ({{zone}})",
+    "sections": {
+      "attention": "Needs attention",
+      "scheduled": "Scheduled",
+      "sent": "Sent",
+      "deleted": "Deleted"
+    },
+    "when": {
+      "today": "Today {{time}}",
+      "tomorrow": "Tomorrow {{time}}",
+      "yesterday": "Yesterday {{time}}"
+    },
+    "chip": {
+      "sending": "Sending",
+      "editing": "Editing",
+      "failed": "Failed",
+      "paused": "Paused",
+      "uncertain": "Check delivery",
+      "sent": "Sent",
+      "sentLate": "Sent late",
+      "retrying": "Retrying",
+      "deleted": "Deleted"
+    },
+    "reason": {
+      "overdue": "It was more than 6 hours late, so MailFlow held it. Send it now or pick a new time.",
+      "restored": "It was paused when a backup was restored.",
+      "editAbandoned": "It was open for editing when it was due.",
+      "accountDisabled": "Its account is turned off.",
+      "needsReauth": "Sign in to the account again to send it.",
+      "user": "You paused it.",
+      "paused": "It is paused.",
+      "smtpRejected": "The mail server refused it.",
+      "tooLarge": "It is too large for the mail server.",
+      "config": "The account's sending settings need attention.",
+      "tls": "The secure connection to the mail server failed.",
+      "invalidMessage": "The message could not be put together.",
+      "aliasMissing": "The address it was to be sent from no longer exists.",
+      "decryptFailed": "It could not be decrypted on this server.",
+      "accountMissing": "Its account no longer exists.",
+      "gaveUp": "The mail server kept failing, so MailFlow stopped trying.",
+      "failed": "It could not be sent.",
+      "uncertain": "MailFlow stopped while sending it. It may or may not have been delivered. Check your Sent folder.",
+      "retrying": "The last attempt failed. Next attempt: {{when}}.",
+      "deleted": "Can be restored until {{when}}."
+    },
+    "sent": {
+      "markedSent": "You marked it as sent.",
+      "late": "Sent late: scheduled for {{scheduled}}, sent {{sent}}.",
+      "lateOffline": "Sent late: scheduled for {{scheduled}}, sent {{sent}} because MailFlow was offline.",
+      "refused": "Refused by the mail server for: {{list}}",
+      "deferred": "Not delivered to {{list}}: their server asked to try later, and MailFlow does not try again. Send it to them again.",
+      "noSentFolder": "No copy was saved: the account has no Sent folder.",
+      "noSentCopy": "No copy could be saved in Sent."
+    },
+    "a11y": {
+      "scheduledFor": "Scheduled for {{when}}",
+      "sentAt": "Sent {{when}}",
+      "to": "to {{names}}",
+      "toMore": "to {{names}} and {{more}} more",
+      "subject": "subject {{subject}}"
+    },
+    "actions": {
+      "edit": "Edit",
+      "reschedule": "Reschedule",
+      "sendNow": "Send now",
+      "resume": "Resume",
+      "retry": "Try again",
+      "sendAnyway": "Send anyway",
+      "markSent": "Mark as sent",
+      "cancel": "Delete",
+      "delete": "Delete for good",
+      "viewSent": "View in Sent",
+      "remove": "Remove from list",
+      "more": "More actions",
+      "menu": "Scheduled message actions",
+      "restore": "Restore"
+    },
+    "confirm": {
+      "uncertainTitle": "It may already have been delivered",
+      "uncertainBody": "MailFlow stopped while sending it. Check your Sent folder first. Send it again anyway?",
+      "restoredTitle": "Paused by a backup restore",
+      "restoredBody": "This was paused when a backup was restored. If the old server still runs, it may send it too. Send it from here?",
+      "restoredGo": "Send from here",
+      "sendAnywayTitle": "Send it again?",
+      "sendAnywayBody": "It may already have been delivered: MailFlow stopped while sending it. Check your Sent folder first. If it went out, the recipients get it twice.",
+      "markSentTitle": "Mark it as sent?",
+      "markSentBody": "Do this when you found it in your Sent folder. MailFlow deletes its content and never sends it.",
+      "deleteTitle": "Delete it for good?",
+      "deleteBody": "It is not sent, and it cannot be restored."
+    },
+    "toast": {
+      "resumed": "Resumed. It is being sent now.",
+      "sendingNow": "It is being sent now.",
+      "markedSent": "Marked as sent",
+      "deleted": "Scheduled message deleted",
+      "deletedForGood": "Deleted for good",
+      "restored": "Restored",
+      "sent": "Scheduled message sent",
+      "notSent": "Not sent: {{reason}}",
+      "open": "Open",
+      "restoredPaused": "Restored and paused. Resume it when it should go."
+    },
+    "errors": {
+      "needsReauth": "Sign in to the account again first, then resume it.",
+      "accountDisabled": "Turn the account on again first, then resume it.",
+      "undoExpired": "Too late to undo: the message is going out.",
+      "notFound": "This scheduled message no longer exists.",
+      "sending": "It is being sent right now.",
+      "aboutToSend": "It is about to be sent.",
+      "sent": "It has already been sent.",
+      "cancelled": "It was deleted.",
+      "editing": "It is open for editing in another window.",
+      "failed": "The scheduled message could not be changed.",
+      "restoreFailed": "Could not restore it",
+      "restoreExpired": "It can no longer be restored.",
+      "linkNotFound": "That scheduled message was not found."
+    },
+    "serverReply": "Server reply: {{detail}}"
   },
   "contextMenu": {
     "find": "Find",
@@ -829,7 +1049,7 @@
       "privacy": "Privacy",
       "shortcuts": "Shortcuts",
       "users": "Users",
-      "sso": "SSO",
+      "sso": "Single Sign-On",
       "integrations": "Integrations",
       "theme": "Theme",
       "fontsAndLanguage": "Language & Font",
@@ -844,7 +1064,8 @@
       "groupAdmin": "Administration",
       "behavior": "Behavior",
       "plugins": "Plugins",
-      "backup": "Backup"
+      "backup": "Backup",
+      "mailSignIn": "Email providers"
     },
     "rules": {
       "title": "Inbox rules",
@@ -975,7 +1196,8 @@
       "errorRequired": "Email, username, and IMAP host are required",
       "errorPasswordRequired": "Password is required for new accounts",
       "microsoftImapUnsupported": "Outlook.com / Hotmail requires OAuth2 (Modern Auth)",
-      "microsoftImapNote": "Microsoft has disabled password-based (basic auth) IMAP for personal Outlook.com, Hotmail, and Live accounts. You can still connect these accounts using Microsoft OAuth2 (Modern Auth) — configure it under Integrations → Microsoft 365 / Outlook.com. The device-code sign-in works best for personal accounts, and no app password is needed.",
+      "microsoftImapNote": "Microsoft no longer accepts passwords for Outlook.com, Hotmail, Live and MSN mailboxes, and sign-in with Microsoft is not set up on this server. Ask your administrator to turn it on under Email providers.",
+      "microsoftImapNoteReady": "Microsoft no longer accepts passwords for Outlook.com, Hotmail, Live and MSN mailboxes. Add this mailbox with Sign in with Microsoft under Add account instead.",
       "reindex": "Re-index for search",
       "reindexing": "Indexing messages...",
       "reindexProgress": "{{synced}} / {{total}} messages indexed",
@@ -997,7 +1219,12 @@
       "trustedAuthservDetected": "Seen on your recent mail (click to use):",
       "trustedAuthservDetectedNone": "No data yet — messages are inspected once antispam is enabled for this account.",
       "trustedAuthservWarn": "Only trust an ID you recognize as your mail provider's receiving server.",
-      "enabledGlobally": "Enabled globally"
+      "enabledGlobally": "Enabled globally",
+      "microsoftImapNoteSignIn": "Microsoft no longer accepts passwords for Outlook.com, Hotmail, Live and MSN mailboxes. Sign in with Microsoft instead: no app password is needed.",
+      "deleteScheduled": "Scheduled messages not yet sent that are deleted with it: {{n}}.",
+      "deleteTitle": "Remove account?",
+      "deleteBody": "All synced messages for this account will be deleted. This cannot be undone.",
+      "deleteConfirm": "Remove"
     },
     "folderMappings": {
       "title": "Folder mappings",
@@ -1505,7 +1732,7 @@
     },
     "sso": {
       "title": "Single Sign-On",
-      "description": "Configure external OIDC providers so users can sign in with their organization accounts.",
+      "description": "How people sign in to MailFlow itself, through your organization's identity provider (OIDC). Connecting mailboxes is under Email providers.",
       "passwordLoginTitle": "Password Login",
       "passwordLoginDesc": "When disabled, users can only sign in via SSO. Requires at least one enabled SSO provider and your admin account must be linked to an SSO identity.",
       "passwordLoginEnabled": "Password login is enabled",
@@ -1573,56 +1800,31 @@
     "integrations": {
       "title": "Integrations",
       "loading": "Loading…",
-      "tabEmailProviders": "Email Providers",
-      "tabApps": "Apps",
       "microsoft": {
-        "title": "Microsoft 365 / Outlook.com",
-        "description": "OAuth2 for work, school, or personal Microsoft accounts (Outlook.com, Hotmail)",
-        "configured": "Configured",
-        "notConfigured": "Not configured",
-        "redirecting": "Redirecting…",
-        "connect": "Connect Microsoft account",
         "setupTitle": "Azure App Registration setup",
         "step1": "Go to portal.azure.com → Microsoft Entra ID → App registrations → New registration. Under Supported account types, select 'Accounts in any organizational directory and personal Microsoft accounts' to allow Outlook.com/Hotmail logins",
         "step2": "Set redirect URI type to Web and paste the URI shown below",
         "step3": "API permissions → Add a permission → APIs my organization uses (search 'Exchange' if not listed) → Office 365 Exchange Online → Delegated → IMAP.AccessAsUser.All and SMTP.Send",
         "step4": "API permissions → Add a permission → Microsoft Graph → Delegated → offline_access, openid, email, profile",
-        "step5": "Click Grant admin consent for your organization (org/work accounts only — personal accounts skip this step)",
-        "step6": "Certificates & secrets → New client secret — copy the Value (not the ID)",
-        "clientId": "Application (Client) ID",
+        "step5": "Click Grant admin consent for your organization (org/work accounts only, personal accounts skip this step)",
+        "step6": "Certificates & secrets → New client secret: copy the Value (not the ID)",
+        "clientId": "Application (client) ID",
         "clientIdPh": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-        "tenantId": "Directory (Tenant) ID",
+        "tenantId": "Directory (tenant) ID",
         "tenantIdPh": "consumers, common, or tenant UUID",
         "tenantIdNote": "Use 'consumers' for personal Outlook.com/Hotmail only, 'common' for both personal and org, or your tenant UUID for a single organization",
-        "clientSecret": "Client Secret",
+        "clientSecret": "Client secret",
         "clientSecretPh": "Client secret value from Azure",
         "redirectUri": "Redirect URI",
         "redirectUriNote": "This must exactly match the redirect URI registered in Azure. Suggested: {{uri}}",
         "save": "Save configuration",
-        "savedNote": "Configuration saved. Click \"Connect account\" to authorize.",
-        "connectedNote": "Microsoft 365 account connected successfully! Check the Accounts tab.",
-        "userNoteConfigured": "Your administrator has set up Microsoft 365 sign-in. Connect your Outlook.com, Hotmail, or Microsoft 365 account below.",
-        "userNoteNotConfigured": "Microsoft 365 sign-in has not been set up by an administrator yet. Please ask your administrator to configure it.",
-        "remove": "Remove",
-        "deviceCodeTitle": "Connect with device code",
-        "deviceCodeNote": "No redirect URI or client secret needed. In Azure, go to Authentication and set 'Allow public client flows' to Yes. Best for personal Outlook.com / Hotmail accounts.",
-        "deviceCodeStart": "Start device code flow",
-        "deviceCodeInstructions": "Visit the link below on any device and enter the code to authorize MailFlow:",
-        "deviceCodeVisit": "Visit:",
-        "deviceCodeEnter": "Enter code:",
-        "deviceCodeWaiting": "Waiting for authorization…",
-        "deviceCodeExpired": "Code expired. Click start again.",
-        "deviceCodeDeclined": "Authorization was declined.",
-        "deviceCodeError": "An error occurred. Please try again.",
-        "deviceCodeCancel": "Cancel"
+        "remove": "Remove"
       },
       "google": {
         "title": "Gmail / Google Workspace",
-        "description": "OAuth2 for Gmail and Google Workspace mailboxes — required when an admin has disabled app passwords",
+        "description": "Gmail and Google Workspace mailboxes, for when app passwords are turned off",
         "configured": "Configured",
         "notConfigured": "Not configured",
-        "redirecting": "Redirecting…",
-        "connect": "Connect Google account",
         "setupTitle": "Google Cloud OAuth client setup",
         "step1": "Go to console.cloud.google.com and select (or create) a project. For a Workspace domain, sign in with an account in that domain so the project belongs to the organisation",
         "step2": "APIs & Services → Library → enable the Gmail API",
@@ -1636,10 +1838,6 @@
         "redirectUri": "Redirect URI",
         "redirectUriNote": "This must exactly match an authorized redirect URI on the OAuth client. Suggested: {{uri}}",
         "save": "Save configuration",
-        "savedNote": "Configuration saved. Click \"Connect Google account\" to authorize.",
-        "connectedNote": "Google account connected successfully! Check the Accounts tab.",
-        "userNoteConfigured": "Your administrator has set up Google sign-in. Connect your Gmail or Google Workspace account below.",
-        "userNoteNotConfigured": "Google sign-in has not been set up by an administrator yet. Please ask your administrator to configure it.",
         "remove": "Remove"
       },
       "todoist": {
@@ -1699,7 +1897,9 @@
       "sourceCode": "Source code",
       "sponsor": "Support development",
       "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "githubSponsors": "GitHub Sponsors",
+      "businessLicense": "Business license",
+      "sponsorBlurb": "MailFlow is built and maintained by one person. Sponsorships pay for the time that goes into fixes, reviews and releases."
     },
     "search": {
       "placeholder": "Search settings…",
@@ -1903,6 +2103,7 @@
     "show": "Show right sidebar"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: oldest labeled message age (days): {{count}}",
     "title": "GTD",
     "inbox": "Inbox",
     "waiting": "Waiting",
@@ -1916,14 +2117,18 @@
     "tabEmpty": "Nothing here yet",
     "removeFrom": "Remove from {{state}}",
     "classified": "Label applied",
+    "classifiedMany": "Tagged {{count}} as {{state}}",
+    "classifiedSome": "Tagged {{count}} of {{total}} as {{state}}",
     "classifyFailed": "Couldn't apply label",
     "undoFailed": "Couldn't undo label",
     "removed": "Label removed",
     "removeFailed": "Couldn't remove label",
     "onlyCopy": "This is the only copy of the message, so removing the label would delete it. Archive or move it instead.",
+    "labelChanged": "This label changed on the server and was not removed. Refresh and try again.",
     "done": "Mark done",
     "doneFailed": "Couldn't mark done",
     "doneArchiveFailed": "Marked done, but archiving failed — still in your Inbox",
+    "doneThreadRemains": "Some messages in this conversation couldn't be cleared, so it stays in its GTD section",
     "state": {
       "todo": "Todo",
       "watch": "Watch",
@@ -1956,5 +2161,155 @@
     "trash": "Trash",
     "spam": "Spam",
     "archive": "Archive"
+  },
+  "accountErrors": {
+    "label": {
+      "turnOnImap": "Turn on IMAP",
+      "imapOff": "IMAP is off",
+      "signInAgain": "Sign in again",
+      "cantConnect": "Can't connect",
+      "openRow": "Show what's wrong and how to fix it"
+    },
+    "imapOffPersonal": {
+      "title": "Outlook.com is blocking mail apps",
+      "body": "Microsoft signed you in, but IMAP is turned off for this mailbox. To turn it on:",
+      "step1": "Open Outlook.com and sign in.",
+      "step2": "Go to Settings > Mail > Forwarding and IMAP.",
+      "step3": "Turn on Let devices and apps use IMAP, then select Save.",
+      "outro": "Then come back here and select Try again."
+    },
+    "imapOffWork": {
+      "title": "IMAP is turned off for this mailbox",
+      "body": "Microsoft signed you in, but your organization has turned off IMAP for {{email}}. Ask your IT administrator to turn it on, then select Try again."
+    },
+    "signIn": {
+      "title": "Sign in to Microsoft again",
+      "titleGoogle": "Sign in to Google again",
+      "body": "MailFlow's saved sign-in for this account stopped working. This happens after a password change, after a long time without use, or when access was removed in your account settings."
+    },
+    "appConfig": {
+      "title": "Sign-in for this account isn't set up correctly",
+      "bodyUser": "The mail provider rejected the app MailFlow signs in with. Ask your administrator to check the sign-in settings.",
+      "bodyAdmin": "The mail provider rejected the app MailFlow signs in with. Check its settings under Email providers. Details below show what the provider said."
+    },
+    "authFailed": {
+      "title": "The server rejected the password",
+      "body": "The mail server didn't accept the username or password for this account. If you changed your password, or use an app password, update it with Edit account."
+    },
+    "connection": {
+      "title": "MailFlow can't connect to this account",
+      "body": "MailFlow keeps trying on its own. Details below show what the server said."
+    },
+    "action": {
+      "openOutlook": "Open Outlook.com",
+      "retry": "Try again",
+      "signIn": "Sign in again",
+      "edit": "Edit account"
+    },
+    "details": "Details",
+    "wrongAccount": "You signed in as {{signedInAs}}, not {{expected}}. Sign in with {{expected}} to fix this account.",
+    "signInDialog": {
+      "title": "Sign in again",
+      "body": "Sign in as {{email}} to reconnect this account.",
+      "success": "Signed in. MailFlow is reconnecting this account.",
+      "continueGoogle": "Continue to Google",
+      "waitingGoogle": "Finish signing in on the Google page, then come back here."
+    },
+    "signInFailed": "Sign-in didn't work",
+    "signInFailedBody": "Start again from the account in Settings > Accounts."
+  },
+  "addAccount": {
+    "title": "Add an email account",
+    "emailLabel": "Your email address",
+    "continue": "Continue",
+    "invalidEmail": "Enter an email address like you@example.com.",
+    "orChoose": "Or choose your provider",
+    "tile": {
+      "outlook": "Outlook.com, Hotmail, Live, MSN",
+      "outlookSub": "Sign in with Microsoft",
+      "work": "Microsoft 365 (work or school)",
+      "workSub": "Sign in with your organization's Microsoft account",
+      "gmail": "Gmail",
+      "gmailSub": "Use an app password",
+      "gmailSignIn": "Sign in with Google",
+      "yahoo": "Yahoo Mail",
+      "yahooSub": "Use an app password",
+      "icloud": "iCloud Mail",
+      "icloudSub": "Use an app-specific password",
+      "other": "Other (IMAP)",
+      "otherSub": "Enter your server settings"
+    },
+    "personalOff": "Not available on this server.",
+    "workOff": "Not available on this server.",
+    "openSettings": "Open email provider settings"
+  },
+  "msSignIn": {
+    "titlePersonal": "Sign in with Microsoft",
+    "titleWork": "Sign in with your work or school account",
+    "beforeTitle": "Before you start",
+    "beforeBody": "Outlook.com has to allow mail apps. If you have never done this:",
+    "step1": "Open Microsoft's sign-in page.",
+    "step1Button": "Open Microsoft sign-in",
+    "step2": "Enter this code there, then follow the steps on Microsoft's page.",
+    "copy": "Copy code",
+    "copied": "Copied",
+    "waiting": "Waiting for you to finish signing in on Microsoft's page…",
+    "starting": "Getting a code from Microsoft…",
+    "checking": "Checking that MailFlow can reach your mailbox…",
+    "connected": "{{email}} is connected. Your mail is syncing now.",
+    "stillConnecting": "Signed in as {{email}}. MailFlow is still connecting and keeps trying on its own. The account list shows when it is ready.",
+    "declined": "You canceled the sign-in on Microsoft's page.",
+    "expired": "The code expired before sign-in finished. Codes last 15 minutes.",
+    "error": "Microsoft sign-in didn't work.",
+    "newCode": "Get a new code",
+    "startOver": "Start over",
+    "done": "Done",
+    "finePrintShared": "Microsoft may show MailFlow as an unverified app. That is expected: MailFlow's shared app only identifies MailFlow to Microsoft. You sign in on Microsoft's own page, and Microsoft sends access straight to this server.",
+    "finePrintOwn": "You sign in on Microsoft's own page, and Microsoft sends access straight to this server.",
+    "continueMicrosoft": "Continue to Microsoft",
+    "redirectWaiting": "Finish signing in on the Microsoft page that opened, then come back here.",
+    "useCode": "Use a code instead",
+    "useRedirect": "Sign in on Microsoft's page instead",
+    "back": "Back",
+    "lost": "MailFlow lost track of this sign-in, for example because the server restarted. If you finished signing in on Microsoft's page, the account may already be in your list.",
+    "checkAccounts": "Check your accounts"
+  },
+  "mailSignIn": {
+    "title": "Email providers",
+    "description": "How MailFlow connects to people's Microsoft and Google mailboxes. This is separate from Single Sign-On, which is how people sign in to MailFlow itself. Everyone adds their own accounts under Accounts > Add account.",
+    "required": "Fill in the required fields first.",
+    "redirectRequired": "Google needs a redirect URI: the one registered on the OAuth client, ending in /oauth/google/callback.",
+    "saved": "Saved.",
+    "ms": {
+      "title": "Microsoft",
+      "description": "Outlook.com, Hotmail, Live, MSN and Microsoft 365 mailboxes",
+      "personalTitle": "Personal accounts (Outlook.com, Hotmail, Live, MSN)",
+      "statusShared": "Using MailFlow's shared app",
+      "statusOwn": "Using your own app",
+      "statusOff": "Off",
+      "sharedSwitch": "Let people sign in with MailFlow's shared app",
+      "sharedSwitchDesc": "Needs no setup. Accounts already connected keep working if you turn this off.",
+      "ownHandlesPersonal": "Your own app handles personal accounts, so MailFlow's shared app is not used.",
+      "workTitle": "Work and school accounts (Microsoft 365)",
+      "workOff": "Not set up",
+      "setupToggle": "Set up your own Microsoft Entra app"
+    },
+    "google": {
+      "setupToggle": "Set up your own Google OAuth client"
+    }
+  },
+  "accountForm": {
+    "signedInMicrosoft": "Signed in with Microsoft as {{email}}",
+    "signedInGoogle": "Signed in with Google as {{email}}",
+    "signedInNote": "The server comes from this sign-in. If the account stops connecting, sign in again.",
+    "mailboxLabel": "Mailbox to open",
+    "mailboxHelp": "For a shared or delegated mailbox, enter its address. Leave as is for your own mailbox."
+  },
+  "googleSignIn": {
+    "title": "Sign in with Google",
+    "finePrint": "You sign in on Google's own page, and Google sends access straight to this server.",
+    "formNote": "Gmail and Google Workspace mailboxes can sign in with Google instead of an app password.",
+    "appPasswordNote": "Gmail needs an app password, not your regular password. Turn on 2-Step Verification for your Google account, then create an app password and enter it in the password field.",
+    "createAppPassword": "Create an app password"
   }
 }

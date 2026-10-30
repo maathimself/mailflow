@@ -36,6 +36,66 @@ export function deriveKey(purpose) {
   return derived;
 }
 
+// Bytes in, bytes out, for large values where the enc:v1 hex text form would double the size:
+// 0x01 | iv (12) | tag (16) | ciphertext, AES-256-GCM like encrypt() but under deriveKey(purpose),
+// never the credential key. `aad` (a non-empty string or Buffer) binds the value to where it is stored: it
+// is authenticated, not stored, so a value copied to another place does not decrypt there.
+const BYTES_VERSION = 0x01;
+const TAG_BYTES = 16;
+const BYTES_HEADER = 1 + IV_BYTES + TAG_BYTES;
+
+function bytesKey(purpose) {
+  if (typeof purpose !== 'string' || !purpose) throw new TypeError('purpose is required');
+  return deriveKey(purpose);
+}
+
+// An empty aad would bind the value to nothing, so it is refused like a missing one.
+function aadBuffer(aad) {
+  const buf = Buffer.isBuffer(aad) ? aad : typeof aad === 'string' ? Buffer.from(aad, 'utf8') : null;
+  if (!buf?.length) throw new TypeError('aad must be a non-empty string or Buffer');
+  return buf;
+}
+
+// Throws if ENCRYPTION_KEY is not configured: callers must not silently store plaintext.
+export function encryptBytes(plaintext, { purpose, aad } = {}) {
+  if (!(plaintext instanceof Uint8Array)) throw new TypeError('plaintext must be a Buffer');
+  const key = bytesKey(purpose);
+  const additional = aadBuffer(aad);
+  if (!key) throw new Error('ENCRYPTION_KEY is not set or invalid, cannot encrypt');
+
+  const iv = crypto.randomBytes(IV_BYTES);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv, { authTagLength: TAG_BYTES });
+  cipher.setAAD(additional);
+  const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  return Buffer.concat([Buffer.from([BYTES_VERSION]), iv, cipher.getAuthTag(), encrypted]);
+}
+
+// Decrypts a value produced by encryptBytes() with the same purpose and aad. Returns null when it
+// cannot be trusted: wrong or missing ENCRYPTION_KEY, another aad, tampered or truncated data.
+export function decryptBytes(stored, { purpose, aad } = {}) {
+  const key = bytesKey(purpose);
+  const additional = aadBuffer(aad);
+  if (!key) {
+    console.error('ENCRYPTION_KEY not set, cannot decrypt stored data');
+    return null;
+  }
+  if (!(stored instanceof Uint8Array) || stored.length < BYTES_HEADER || stored[0] !== BYTES_VERSION) {
+    console.error('Malformed encrypted data');
+    return null;
+  }
+
+  const data = Buffer.from(stored.buffer, stored.byteOffset, stored.length);
+  try {
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, data.subarray(1, 1 + IV_BYTES), { authTagLength: TAG_BYTES });
+    decipher.setAAD(additional);
+    decipher.setAuthTag(data.subarray(1 + IV_BYTES, BYTES_HEADER));
+    return Buffer.concat([decipher.update(data.subarray(BYTES_HEADER)), decipher.final()]);
+  } catch {
+    console.error('Failed to decrypt stored data: wrong ENCRYPTION_KEY or tampered data');
+    return null;
+  }
+}
+
 // Returns a prefixed string: enc:v1:<iv_hex>:<tag_hex>:<ciphertext_hex>
 // Throws if ENCRYPTION_KEY is not configured — callers must not silently store plaintext credentials.
 export function encrypt(plaintext) {
@@ -72,7 +132,9 @@ export function decrypt(value) {
     const iv = Buffer.from(ivHex, 'hex');
     const tag = Buffer.from(tagHex, 'hex');
     const ciphertext = Buffer.from(ctHex, 'hex');
-    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    // encrypt() always writes a 16-byte tag. Without the length, GCM accepts a tag cut down to
+    // as little as 4 bytes and checks only those, which makes forging one far easier.
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv, { authTagLength: TAG_BYTES });
     decipher.setAuthTag(tag);
     return decipher.update(ciphertext) + decipher.final('utf8');
   } catch {

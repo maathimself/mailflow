@@ -36,16 +36,26 @@ export function expireCountPending(pending, now = Date.now()) {
   return Object.fromEntries(Object.entries(pending).filter(([, p]) => p.expiresAt > now));
 }
 
-export function adjustCountPending(pending, displayed, accountId, delta, now = Date.now()) {
+export function adjustCountPending(pending, displayed, accountId, delta, now = Date.now(), { commitDelayMs = 0 } = {}) {
   const next = expireCountPending(pending, now);
   const base = displayed.byAccount[accountId];
   if (!Number.isFinite(base) || !Number.isFinite(delta)) return next;
-  // The baseline, deadline and observation watermark never move while this window is open, so
-  // continuous activity cannot freeze the count. sinceRevision records which observation was on
-  // screen when the window opened, so settleCountPending can recognise a strictly later one.
-  const p = next[accountId] || { base, delta: 0, openedAt: now, expiresAt: now + PENDING_COUNT_MS,
+  // The baseline and observation watermark never move while this window is open. sinceRevision
+  // records which observation was on screen when the window opened, so settleCountPending can
+  // recognise a strictly later one.
+  //
+  // The floor and backstop count from the latest change, from when the server is told of it: a
+  // change held for undo (delete, archive, move) is sent only when its undo window closes. Counted
+  // from the first click, the count measured after an earlier change settled the window, or the
+  // backstop expired it, before the latest change could be observed, and the badge went back to
+  // the count from before it. After the last unread message that read as the badge sticking at
+  // 1 (#701). The cost is that while the user keeps acting, an arrival reaches the badge only
+  // once they stop; their own changes are always shown.
+  const sentAt = now + commitDelayMs;
+  const p = next[accountId] || { base, delta: 0, openedAt: sentAt, expiresAt: sentAt + PENDING_COUNT_MS,
     sinceRevision: String(revision(displayed.snapshots?.[accountId])) };
-  next[accountId] = { ...p, delta: p.delta + delta };
+  next[accountId] = { ...p, delta: p.delta + delta,
+    openedAt: Math.max(p.openedAt ?? sentAt, sentAt), expiresAt: Math.max(p.expiresAt, sentAt + PENDING_COUNT_MS) };
   return next;
 }
 

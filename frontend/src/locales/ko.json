@@ -175,6 +175,13 @@
       "aiWriteDraft": "초안 작성",
       "aiAssist": "AI 어시스트",
       "aiError": "AI 오류: {{message}}",
+      "aiReply": "AI로 답장",
+      "aiReplyPlaceholder": "답장에 무엇을 쓸까요? 예: 디자인 승인",
+      "aiReplyInstruction": "AI 답장 지시",
+      "aiReplyGenerate": "생성",
+      "aiReplyReading": "대화를 읽는 중…",
+      "aiReplyPartial": "대화의 최근 부분을 바탕으로 했습니다. 나머지는 AI에 보내기에 너무 깁니다.",
+      "aiReplyLeftOut": "대화의 최근 메시지 {{count}}개를 바탕으로 했습니다. 이전 메시지는 제외되었습니다.",
       "aiTooLong": "이 초안은 {{count}}자로, AI가 받을 수 있는 {{max}}자를 넘습니다. 내용을 줄이거나 인용된 텍스트를 지운 뒤 다시 시도하세요.",
       "aiNotAllowed": "관리자가 이 계정에서 AI를 사용할 수 없도록 설정했습니다.",
       "aiFeatureOff": "관리자가 AI 작성 도우미를 껐습니다.",
@@ -202,10 +209,85 @@
       "reopen": "다시 열기",
       "tooLate": "실행 취소하기에 너무 늦었습니다: 메시지를 이미 보내는 중입니다",
       "undoFailed": "실행 취소할 수 없습니다: 서버가 응답하지 않습니다"
-    }
+    },
+    "scheduleSend": {
+      "title": "나중에 보내기",
+      "tooltip": "나중에 보내기 (Ctrl+Shift+Enter)",
+      "tomorrowMorning": "내일 오전",
+      "tomorrowAfternoon": "내일 오후",
+      "mondayMorning": "월요일 오전",
+      "pick": "날짜 및 시간 선택",
+      "dateLabel": "날짜",
+      "timeLabel": "시간",
+      "dateTimeLabel": "날짜 및 시간",
+      "sendsAt": "{{when}}에 보냄",
+      "timeZone": "시간대: {{zone}}",
+      "schedule": "예약 전송",
+      "scheduledFor": "{{when}}에 예약됨",
+      "change": "변경",
+      "changeTime": "시간 변경",
+      "errors": {
+        "invalid": "날짜와 시간을 입력하세요.",
+        "past": "이미 지난 시간입니다.",
+        "tooSoon": "지금부터 최소 1분 이후의 시간을 선택하세요.",
+        "tooFar": "앞으로 366일 이내의 시간을 선택하세요.",
+        "clockBehind": "이 기기의 시계가 서버보다 {{minutes}}분 느립니다. 서버 시간은 {{time}}입니다.",
+        "clockAhead": "이 기기의 시계가 서버보다 {{minutes}}분 빠릅니다. 서버 시간은 {{time}}입니다.",
+        "holdLost": "이 메시지가 다른 창에서 열려 여기서는 더 이상 저장할 수 없습니다. 복사할 수 있도록 작성한 내용은 여기에 남아 있습니다.",
+        "deletedElsewhere": "이 메시지는 다른 곳에서 삭제되어 여기서 더 이상 저장할 수 없습니다. 작성한 내용은 복사할 수 있도록 그대로 남아 있습니다.",
+        "sentElsewhere": "이 메시지는 다른 창에서 보내져 여기서 더 이상 저장할 수 없습니다. 작성한 내용은 복사할 수 있도록 그대로 남아 있습니다.",
+        "versionConflict": "이 메시지가 다른 곳에서 변경되었습니다. 최신 버전을 보려면 닫고 예약됨에서 다시 여세요.",
+        "notHeld": "이 메시지는 여기서 편집 중이 아닙니다. 닫고 예약됨에서 다시 여세요.",
+        "pickNewTime": "예약된 시간이 지났습니다. 새 시간을 선택하세요.",
+        "failed": "메시지를 예약하지 못했습니다.",
+        "tooMany": "예약할 수 있는 메시지 수가 이미 가득 찼습니다. 먼저 일부를 보내거나 삭제하세요.",
+        "tooMuchStorage": "예약된 메시지가 사용할 수 있는 공간을 모두 차지하고 있습니다. 먼저 일부를 보내거나 삭제하세요.",
+        "rateLimited": "짧은 시간에 너무 많은 메시지를 예약했습니다. 1분 후에 다시 시도하세요.",
+        "payloadTooLarge": "이 메시지는 너무 커서 예약할 수 없습니다. 본문과 삽입된 이미지가 너무 많은 공간을 차지합니다.",
+        "heldElsewhere": "이 메시지는 다른 창에서 열려 있습니다."
+      },
+      "edit": {
+        "update": "업데이트",
+        "updating": "저장 중…",
+        "options": "예약 옵션",
+        "unschedule": "예약 취소 (임시 보관함에 저장)",
+        "unscheduleTitle": "이 메시지를 임시 보관함으로 옮길까요?",
+        "unscheduleGo": "임시 보관함에 저장",
+        "unscheduled": "임시 보관함으로 옮김",
+        "unscheduleKept": "임시 보관함에 저장했지만 예약된 메시지는 여전히 예약되어 있습니다. 이 창이 더 이상 메시지를 잡고 있지 않았습니다. 보내지 않으려면 예약됨에서 삭제하세요.",
+        "closeTitle": "이 예약 메시지의 변경 사항을 저장할까요?",
+        "saveChanges": "변경 사항 저장",
+        "discardChanges": "변경 사항 버리기",
+        "switchBlocked": "편집 중인 예약 메시지를 먼저 업데이트하거나 닫으세요.",
+        "sendNow": "지금 보내기",
+        "pickNewTime": "새 시간 선택",
+        "keepPaused": "일시 중지 유지",
+        "dueTitle": "이 메시지는 {{when}}에 보낼 예정이었습니다.",
+        "dueBody": "지금 닫으면 일시 중지 상태로 남아, 확인 없이는 보내지지 않습니다.",
+        "keptPaused": "일시 중지했습니다. 보낼 때 예약됨에서 다시 시작하세요.",
+        "heldElsewhereBody": "대신 여기서 편집하면 다른 창에서는 더 이상 저장할 수 없습니다.",
+        "takeOver": "여기서 편집",
+        "close": "닫기"
+      },
+      "confirm": {
+        "title": "다시 예약할까요?",
+        "go": "그래도 예약"
+      },
+      "laterToday": "오늘 늦게",
+      "undoFailed": "예약을 취소하지 못했습니다",
+      "sendNow": {
+        "undone": "보내지 않았습니다. 예약됨에 그대로 돌아왔습니다.",
+        "undoFailed": "지금 보내기를 취소하지 못했습니다"
+      },
+      "scheduleAnyway": "그래도 예약하기",
+      "undoFailedOpen": "실행 취소하지 못했습니다. 예약됨에서 여세요."
+    },
+    "selectAccount": "보낼 계정을 선택하세요",
+    "smtpAuthDisabled": "Microsoft가 이 계정에서 메일 앱(SMTP)으로 보내기를 껐습니다. 웹용 Outlook에서는 계속 보낼 수 있습니다. 회사 또는 학교 계정이라면 관리자가 다시 켤 수 있습니다."
   },
   "message": {
     "printConversation": "대화 인쇄",
+    "conversationActions": "대화 작업",
     "preparingPrint": "인쇄 준비 중…",
     "find": {
       "title": "검색",
@@ -486,9 +568,11 @@
     },
     "noAccountsDesc": "시작하려면 이메일 계정을 추가하세요",
     "changeLayout": "레이아웃 변경",
+    "layout": "레이아웃",
     "snoozedUntil": "{{when}}까지 다시 알림 대기",
     "snoozedEmpty": "다시 알림 대기 중인 메일 없음",
-    "snoozedEmptyDesc": "다시 알림으로 미룬 메일은 돌아올 때까지 여기에서 기다립니다."
+    "snoozedEmptyDesc": "다시 알림으로 미룬 메일은 돌아올 때까지 여기에서 기다립니다.",
+    "menu": "메뉴"
   },
   "lockScreen": {
     "unlockButton": "잠금 해제",
@@ -514,6 +598,8 @@
       "rename": "이름 바꾸기",
       "delete": "폴더 삭제",
       "renameFavorite": "즐겨찾기 이름 바꾸기",
+      "favorite": "즐겨찾기에 추가",
+      "unfavorite": "즐겨찾기에서 제거",
       "empty": "폴더 비우기",
       "syncFolder": "폴더 동기화",
       "createSubfolder": "하위 폴더 만들기",
@@ -523,7 +609,6 @@
     "hiddenFolders_other": "{{count}} 숨겨진 폴더",
     "blockImages": "이미지 차단",
     "hideHidden": "숨겨진 폴더 숨기기",
-    "connectionError": "연결 오류",
     "folderPh": "폴더 이름…",
     "subfolderPh": "하위 폴더 이름…",
     "accountMenu": {
@@ -532,7 +617,8 @@
       "syncNow": "지금 동기화",
       "settings": "계정 설정",
       "moveDown": "아래로 이동",
-      "reconnect": "다시 연결",
+      "tryAgain": "다시 시도",
+      "signInAgain": "다시 로그인",
       "moveUp": "위로 이동",
       "syncFoldersNow": "지금 폴더 동기화",
       "moveFailed": "계정을 재정렬하지 못했습니다."
@@ -547,7 +633,141 @@
     "emptied": "폴더가 비었습니다",
     "updateAvailable": "사용 가능한 업데이트: v{{version}}",
     "backToAccounts": "계정으로 돌아가기",
-    "snoozed": "다시 알림"
+    "snoozed": "다시 알림",
+    "scheduled": "예약됨",
+    "scheduledPending": "보내기 대기 중: {{n}}",
+    "scheduledAttention": "확인 필요: {{n}}",
+    "favorites": "즐겨찾기",
+    "reorderFolder": "끌어서 폴더 순서 변경"
+  },
+  "scheduled": {
+    "refresh": "새로 고침",
+    "loadFailed": "예약된 메시지를 불러올 수 없습니다.",
+    "empty": "예약된 메시지 없음",
+    "emptyDesc": "작성 창에서 나중에 보내기를 사용하세요.",
+    "moreSent": "이전에 보낸 메시지는 표시되지 않습니다.",
+    "sentMessage": "보낸 메시지",
+    "to": "받는 사람: {{names}}",
+    "toMore": "받는 사람: {{names}} 외 {{more}}명",
+    "detail": "전달된 이유: {{detail}}",
+    "zoneTime": "{{time}} ({{zone}})",
+    "sections": {
+      "attention": "확인 필요",
+      "scheduled": "예약됨",
+      "sent": "보냄",
+      "deleted": "삭제됨"
+    },
+    "when": {
+      "today": "오늘 {{time}}",
+      "tomorrow": "내일 {{time}}",
+      "yesterday": "어제 {{time}}"
+    },
+    "chip": {
+      "sending": "보내는 중",
+      "editing": "편집 중",
+      "failed": "실패",
+      "paused": "일시 중지됨",
+      "uncertain": "전송 확인 필요",
+      "sent": "보냄",
+      "sentLate": "늦게 보냄",
+      "retrying": "다시 시도 중",
+      "deleted": "삭제됨"
+    },
+    "reason": {
+      "overdue": "6시간 넘게 늦어져 MailFlow가 보내지 않고 보류했습니다. 지금 보내거나 새 시간을 고르세요.",
+      "restored": "백업을 복원할 때 일시 중지되었습니다.",
+      "editAbandoned": "보낼 시간에 편집 중이었습니다.",
+      "accountDisabled": "계정이 꺼져 있습니다.",
+      "needsReauth": "보내려면 계정에 다시 로그인하세요.",
+      "user": "직접 일시 중지했습니다.",
+      "paused": "일시 중지되어 있습니다.",
+      "smtpRejected": "메일 서버가 거부했습니다.",
+      "tooLarge": "메일 서버에 비해 너무 큽니다.",
+      "config": "계정의 보내기 설정을 확인해야 합니다.",
+      "tls": "메일 서버와의 보안 연결에 실패했습니다.",
+      "invalidMessage": "메시지를 구성할 수 없었습니다.",
+      "aliasMissing": "보낼 주소가 더 이상 없습니다.",
+      "decryptFailed": "이 서버에서 복호화할 수 없었습니다.",
+      "accountMissing": "계정이 더 이상 없습니다.",
+      "gaveUp": "메일 서버 오류가 계속되어 MailFlow가 다시 시도하지 않습니다.",
+      "failed": "보낼 수 없었습니다.",
+      "uncertain": "보내는 도중 MailFlow가 멈췄습니다. 전달되었을 수도, 아닐 수도 있습니다. 보낸 편지함을 확인하세요.",
+      "retrying": "마지막 시도가 실패했습니다. 다음 시도: {{when}}.",
+      "deleted": "{{when}}까지 복원할 수 있습니다."
+    },
+    "sent": {
+      "markedSent": "보냄으로 표시했습니다.",
+      "late": "늦게 보냄: {{scheduled}}에 예약, {{sent}}에 보냄.",
+      "lateOffline": "늦게 보냄: {{scheduled}}에 예약, MailFlow가 오프라인이어서 {{sent}}에 보냄.",
+      "refused": "메일 서버가 거부한 받는 사람: {{list}}",
+      "deferred": "{{list}}에게 전달되지 않음: 상대 서버가 나중에 다시 시도하라고 했지만 MailFlow는 다시 시도하지 않습니다. 다시 보내세요.",
+      "noSentFolder": "사본이 저장되지 않음: 계정에 보낸 편지함이 없습니다.",
+      "noSentCopy": "보낸 편지함에 사본을 저장할 수 없었습니다."
+    },
+    "a11y": {
+      "scheduledFor": "{{when}}에 예약됨",
+      "sentAt": "{{when}}에 보냄",
+      "to": "받는 사람 {{names}}",
+      "toMore": "받는 사람 {{names}} 외 {{more}}명",
+      "subject": "제목 {{subject}}"
+    },
+    "actions": {
+      "edit": "편집",
+      "reschedule": "다시 예약",
+      "sendNow": "지금 보내기",
+      "resume": "다시 시작",
+      "retry": "다시 시도",
+      "sendAnyway": "그래도 보내기",
+      "markSent": "보냄으로 표시",
+      "cancel": "삭제",
+      "delete": "영구 삭제",
+      "viewSent": "보낸 편지함에서 보기",
+      "remove": "목록에서 제거",
+      "more": "추가 작업",
+      "menu": "예약 메시지 작업",
+      "restore": "복원"
+    },
+    "confirm": {
+      "uncertainTitle": "이미 전달되었을 수 있습니다",
+      "uncertainBody": "보내는 도중 MailFlow가 멈췄습니다. 먼저 보낸 편지함을 확인하세요. 그래도 다시 보낼까요?",
+      "restoredTitle": "백업 복원으로 일시 중지됨",
+      "restoredBody": "백업을 복원할 때 일시 중지되었습니다. 이전 서버가 아직 실행 중이면 그쪽에서도 보낼 수 있습니다. 여기서 보낼까요?",
+      "restoredGo": "여기서 보내기",
+      "sendAnywayTitle": "다시 보낼까요?",
+      "sendAnywayBody": "이미 전달되었을 수 있습니다. 보내는 도중 MailFlow가 멈췄습니다. 먼저 보낸 편지함을 확인하세요. 이미 보내졌다면 받는 사람이 두 번 받게 됩니다.",
+      "markSentTitle": "보냄으로 표시할까요?",
+      "markSentBody": "보낸 편지함에서 찾았을 때 사용하세요. MailFlow는 내용을 삭제하고 절대 보내지 않습니다.",
+      "deleteTitle": "영구 삭제할까요?",
+      "deleteBody": "보내지 않으며 복원할 수 없습니다."
+    },
+    "toast": {
+      "resumed": "다시 시작했습니다. 지금 보내는 중입니다.",
+      "sendingNow": "지금 보내는 중입니다.",
+      "markedSent": "보냄으로 표시함",
+      "deleted": "예약 메시지를 삭제했습니다",
+      "deletedForGood": "영구 삭제했습니다",
+      "restored": "복원했습니다",
+      "sent": "예약 메시지를 보냈습니다",
+      "notSent": "보내지 않음: {{reason}}",
+      "open": "열기",
+      "restoredPaused": "복원했고 일시 중지했습니다. 보낼 때 다시 시작하세요."
+    },
+    "errors": {
+      "needsReauth": "먼저 계정에 다시 로그인한 뒤 다시 시작하세요.",
+      "accountDisabled": "먼저 계정을 다시 켠 뒤 다시 시작하세요.",
+      "undoExpired": "실행 취소하기에 너무 늦었습니다. 메시지가 나가는 중입니다.",
+      "notFound": "이 예약 메시지는 더 이상 없습니다.",
+      "sending": "지금 바로 보내는 중입니다.",
+      "aboutToSend": "곧 보내집니다.",
+      "sent": "이미 보냈습니다.",
+      "cancelled": "삭제되었습니다.",
+      "editing": "다른 창에서 편집 중입니다.",
+      "failed": "예약 메시지를 변경할 수 없었습니다.",
+      "restoreFailed": "복원할 수 없었습니다",
+      "restoreExpired": "더 이상 복원할 수 없습니다.",
+      "linkNotFound": "해당 예약 메시지를 찾을 수 없습니다."
+    },
+    "serverReply": "서버 응답: {{detail}}"
   },
   "contextMenu": {
     "openInNewWindow": "새 창에서 열기",
@@ -843,7 +1063,8 @@
       "behavior": "동작",
       "plugins": "플러그인",
       "backup": "백업",
-      "groupAiExtensions": "AI 및 확장"
+      "groupAiExtensions": "AI 및 확장",
+      "mailSignIn": "이메일 제공업체"
     },
     "close": "닫기",
     "rules": {
@@ -972,7 +1193,8 @@
       "skipTlsVerifyDesc": "자체 서명된 인증서를 수락합니다. 로컬 네트워크의 서버에만 사용하세요.",
       "smtpAuthNote": "보내는(SMTP) 서버가 위의 로그인과 다른 사용자 이름과 비밀번호를 사용하는 경우에만 필요합니다. 재사용하려면 비워두세요.",
       "errorRequired": "이메일, 사용자 이름, IMAP 호스트가 필요합니다.",
-      "microsoftImapNote": "Microsoft는 개인 Outlook.com, Hotmail 및 Live 계정에 대해 비밀번호 기반(기본 인증) IMAP를 비활성화했습니다. Microsoft OAuth2(최신 인증)를 사용하여 이러한 계정을 계속 연결할 수 있습니다. 통합 → Microsoft 365 / Outlook.com에서 구성하세요. 기기 코드 로그인은 개인 계정에 가장 적합하며 앱 비밀번호가 필요하지 않습니다.",
+      "microsoftImapNote": "Microsoft는 더 이상 Outlook.com, Hotmail, Live, MSN 사서함의 비밀번호를 받지 않으며, 이 서버에는 Microsoft 로그인이 설정되어 있지 않습니다. 관리자에게 이메일 제공업체에서 켜 달라고 요청하세요.",
+      "microsoftImapNoteReady": "Microsoft는 더 이상 Outlook.com, Hotmail, Live, MSN 사서함의 비밀번호를 받지 않습니다. 대신 계정 추가에서 'Microsoft로 로그인'으로 이 사서함을 추가하세요.",
       "microsoftImapUnsupported": "Outlook.com/Hotmail에는 OAuth2(최신 인증)가 필요합니다.",
       "reindex": "검색을 위해 다시 색인화",
       "syncFoldersError": "폴더 동기화 실패",
@@ -997,7 +1219,12 @@
       "antispamEnabled": "이 계정에 스팸 방지 활성화",
       "enabledGlobally": "전체에서 활성화됨",
       "trustedAuthservPlaceholder": "mx.example.com",
-      "errorPasswordRequired": "새 계정에는 비밀번호가 필요합니다"
+      "errorPasswordRequired": "새 계정에는 비밀번호가 필요합니다",
+      "microsoftImapNoteSignIn": "Microsoft는 더 이상 Outlook.com, Hotmail, Live, MSN 사서함의 비밀번호를 받지 않습니다. 대신 Microsoft로 로그인하세요. 앱 비밀번호가 필요 없습니다.",
+      "deleteScheduled": "함께 삭제되는, 아직 보내지 않은 예약 메시지: {{n}}개.",
+      "deleteTitle": "계정을 제거할까요?",
+      "deleteBody": "이 계정의 동기화된 메시지가 모두 삭제됩니다. 되돌릴 수 없습니다.",
+      "deleteConfirm": "제거"
     },
     "folderMappings": {
       "title": "폴더 매핑",
@@ -1505,7 +1732,7 @@
     },
     "sso": {
       "title": "싱글 사인온(SSO)",
-      "description": "사용자가 조직 계정으로 로그인할 수 있도록 외부 OIDC 공급자를 구성합니다.",
+      "description": "조직의 ID 공급자(OIDC)를 통해 MailFlow 자체에 로그인하는 방식입니다. 사서함 연결은 이메일 제공업체에서 설정합니다.",
       "passwordLoginTitle": "비밀번호 로그인",
       "passwordLoginDesc": "비활성화되면 사용자는 SSO를 통해서만 로그인할 수 있습니다. 활성화된 SSO 공급자가 하나 이상 필요하며 관리자 계정이 SSO ID에 연결되어 있어야 합니다.",
       "passwordLoginDisabled": "비밀번호 로그인이 비활성화되었습니다",
@@ -1573,15 +1800,7 @@
     "integrations": {
       "title": "통합",
       "loading": "불러오는 중…",
-      "tabApps": "앱",
-      "tabEmailProviders": "이메일 제공업체",
       "microsoft": {
-        "configured": "설정됨",
-        "notConfigured": "설정되지 않음",
-        "connect": "마이크로소프트 계정 연결",
-        "title": "Microsoft 365 / Outlook.com",
-        "description": "직장, 학교 또는 개인 Microsoft 계정용 OAuth2(Outlook.com, Hotmail)",
-        "redirecting": "리디렉션 중…",
         "step4": "API 권한 → 권한 추가 → Microsoft Graph → 위임됨 → offline_access, openid, email, profile",
         "step6": "인증서 및 비밀 → 새 클라이언트 비밀 - 값(ID 아님) 복사",
         "step2": "리디렉션 URI 유형을 웹으로 설정하고 아래 표시된 URI를 붙여넣습니다.",
@@ -1599,30 +1818,13 @@
         "tenantIdNote": "개인 Outlook.com/Hotmail만 허용하려면 'consumers', 개인과 조직 계정 모두 허용하려면 'common', 단일 조직만 허용하려면 테넌트 UUID를 입력하세요.",
         "clientIdPh": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
         "clientSecretPh": "Azure의 클라이언트 비밀 값",
-        "remove": "제거",
-        "connectedNote": "Microsoft 365 계정이 성공적으로 연결되었습니다! 계정 탭을 확인하세요.",
-        "deviceCodeTitle": "기기 코드로 연결",
-        "deviceCodeStart": "기기 코드 연결 시작",
-        "savedNote": "구성이 저장되었습니다. 승인하려면 \"계정 연결\"을 클릭하세요.",
-        "deviceCodeVisit": "접속 주소:",
-        "deviceCodeNote": "리디렉션 URI나 클라이언트 비밀번호가 필요하지 않습니다. Azure에서 인증으로 이동하여 '공용 클라이언트 흐름 허용'을 예로 설정합니다. 개인 Outlook.com/Hotmail 계정에 가장 적합합니다.",
-        "deviceCodeInstructions": "어느 기기에서나 아래 링크를 방문하고 코드를 입력하여 MailFlow를 인증하세요.",
-        "userNoteConfigured": "관리자가 Microsoft 365 로그인을 설정했습니다. 아래에서 Outlook.com, Hotmail 또는 Microsoft 365 계정을 연결하세요.",
-        "deviceCodeError": "오류가 발생했습니다. 다시 시도해 주세요.",
-        "userNoteNotConfigured": "아직 관리자가 Microsoft 365 로그인을 설정하지 않았습니다. 관리자에게 구성을 요청하세요.",
-        "deviceCodeCancel": "취소",
-        "deviceCodeExpired": "코드가 만료되었습니다. 다시 시작을 클릭하세요.",
-        "deviceCodeEnter": "코드 입력:",
-        "deviceCodeDeclined": "승인이 거부되었습니다.",
-        "deviceCodeWaiting": "승인을 기다리는 중…"
+        "remove": "제거"
       },
       "google": {
         "configured": "설정됨",
         "notConfigured": "설정되지 않음",
-        "redirecting": "리디렉션 중…",
         "title": "Gmail / Google Workspace",
         "description": "Gmail 및 Google Workspace 편지함용 OAuth2 - 관리자가 앱 비밀번호를 비활성화한 경우 필요",
-        "connect": "Google 계정 연결",
         "setupTitle": "Google Cloud OAuth 클라이언트 설정",
         "clientId": "클라이언트 ID",
         "clientSecret": "클라이언트 비밀번호",
@@ -1636,11 +1838,7 @@
         "remove": "제거",
         "redirectUriNote": "이는 OAuth 클라이언트의 승인된 리디렉션 URI와 정확히 일치해야 합니다. 제안: {{uri}}",
         "clientIdPh": "xxxxxxxx.apps.googleusercontent.com",
-        "connectedNote": "Google 계정이 성공적으로 연결되었습니다! 계정 탭을 확인하세요.",
-        "savedNote": "구성이 저장되었습니다. 승인하려면 'Google 계정 연결'을 클릭하세요.",
-        "userNoteNotConfigured": "아직 관리자가 Google 로그인을 설정하지 않았습니다. 관리자에게 구성을 요청하세요.",
-        "clientSecretPh": "GOCSPX-…",
-        "userNoteConfigured": "관리자가 Google 로그인을 설정했습니다. 아래에서 Gmail 또는 Google Workspace 계정을 연결하세요."
+        "clientSecretPh": "GOCSPX-…"
       },
       "todoist": {
         "title": "Todoist",
@@ -1696,7 +1894,9 @@
       "backendBuild": "백엔드 빌드",
       "frontendBuild": "프런트엔드 빌드",
       "sponsor": "개발 지원",
-      "githubSponsors": "GitHub 후원자"
+      "githubSponsors": "GitHub 후원자",
+      "businessLicense": "비즈니스 라이선스",
+      "sponsorBlurb": "MailFlow는 한 사람이 개발하고 유지 관리합니다. 후원금은 버그 수정, 코드 리뷰, 릴리스에 들어가는 시간을 충당합니다."
     },
     "ssoError": {
       "title": "SSO 오류"
@@ -1899,6 +2099,7 @@
     "priorityNormal": "우선순위 없음"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}}: 라벨이 있는 가장 오래된 메일의 경과 일수: {{count}}",
     "title": "GTD",
     "inbox": "받은편지함",
     "waiting": "대기 중",
@@ -1911,6 +2112,8 @@
     "allClearHint": "처리할 항목이 없습니다.",
     "classifyFailed": "라벨을 적용할 수 없습니다.",
     "classified": "라벨이 적용됨",
+    "classifiedMany": "{{count}}개를 {{state}}(으)로 지정함",
+    "classifiedSome": "{{total}}개 중 {{count}}개를 {{state}}(으)로 지정함",
     "toggleSection": "{{section}} 전환",
     "inboxZero": "받은 편지함 제로 ✓",
     "done": "완료로 표시",
@@ -1926,7 +2129,9 @@
     "removed": "라벨이 삭제됨",
     "removeFailed": "라벨을 삭제할 수 없습니다.",
     "onlyCopy": "이 메시지의 유일한 사본이므로 라벨을 삭제하면 메시지도 삭제됩니다. 대신 보관하거나 이동하세요.",
-    "doneArchiveFailed": "완료로 표시했지만 보관에 실패했습니다. 여전히 받은편지함에 있습니다."
+    "labelChanged": "이 라벨이 서버에서 변경되어 삭제되지 않았습니다. 새로고침한 후 다시 시도하세요.",
+    "doneArchiveFailed": "완료로 표시했지만 보관에 실패했습니다. 여전히 받은편지함에 있습니다.",
+    "doneThreadRemains": "이 대화의 일부 메시지를 정리하지 못해 GTD 섹션에 그대로 남아 있습니다"
   },
   "rightSidebar": {
     "show": "오른쪽 사이드바 표시",
@@ -1956,5 +2161,155 @@
     "trash": "휴지통",
     "archive": "보관함",
     "spam": "스팸함"
+  },
+  "accountErrors": {
+    "label": {
+      "turnOnImap": "IMAP 켜기",
+      "imapOff": "IMAP 꺼짐",
+      "signInAgain": "다시 로그인",
+      "cantConnect": "연결할 수 없음",
+      "openRow": "문제와 해결 방법 보기"
+    },
+    "imapOffPersonal": {
+      "title": "Outlook.com이 메일 앱을 차단하고 있습니다",
+      "body": "Microsoft 로그인은 되었지만 이 사서함의 IMAP이 꺼져 있습니다. 켜는 방법:",
+      "step1": "Outlook.com을 열고 로그인합니다.",
+      "step2": "설정 > 메일 > 전달 및 IMAP으로 이동합니다.",
+      "step3": "'디바이스 및 앱에서 IMAP 사용 허용'을 켠 다음 저장을 선택합니다.",
+      "outro": "그런 다음 여기로 돌아와 다시 시도를 선택하세요."
+    },
+    "imapOffWork": {
+      "title": "이 사서함의 IMAP이 꺼져 있습니다",
+      "body": "Microsoft 로그인은 되었지만 조직에서 {{email}}의 IMAP을 꺼 두었습니다. IT 관리자에게 켜 달라고 요청한 다음 다시 시도를 선택하세요."
+    },
+    "signIn": {
+      "title": "Microsoft에 다시 로그인하세요",
+      "titleGoogle": "Google에 다시 로그인하세요",
+      "body": "MailFlow가 이 계정에 저장한 로그인이 더 이상 작동하지 않습니다. 비밀번호를 바꾼 뒤, 오래 사용하지 않은 뒤, 또는 계정 설정에서 접근 권한을 제거한 뒤에 이런 일이 생깁니다."
+    },
+    "appConfig": {
+      "title": "이 계정의 로그인이 올바르게 설정되지 않았습니다",
+      "bodyUser": "메일 제공업체가 MailFlow의 로그인 앱을 거부했습니다. 관리자에게 로그인 설정을 확인해 달라고 요청하세요.",
+      "bodyAdmin": "메일 제공업체가 MailFlow의 로그인 앱을 거부했습니다. 이메일 제공업체에서 앱 설정을 확인하세요. 아래 세부 정보에 제공업체의 응답이 있습니다."
+    },
+    "authFailed": {
+      "title": "서버가 비밀번호를 거부했습니다",
+      "body": "메일 서버가 이 계정의 사용자 이름이나 비밀번호를 받아들이지 않았습니다. 비밀번호를 바꿨거나 앱 비밀번호를 사용한다면 계정 편집에서 업데이트하세요."
+    },
+    "connection": {
+      "title": "MailFlow가 이 계정에 연결할 수 없습니다",
+      "body": "MailFlow가 계속 자동으로 시도합니다. 아래 세부 정보에 서버의 응답이 있습니다."
+    },
+    "action": {
+      "openOutlook": "Outlook.com 열기",
+      "retry": "다시 시도",
+      "signIn": "다시 로그인",
+      "edit": "계정 편집"
+    },
+    "details": "세부 정보",
+    "wrongAccount": "{{expected}}이(가) 아니라 {{signedInAs}}(으)로 로그인했습니다. 이 계정을 고치려면 {{expected}}(으)로 로그인하세요.",
+    "signInDialog": {
+      "title": "다시 로그인",
+      "body": "이 계정을 다시 연결하려면 {{email}}(으)로 로그인하세요.",
+      "success": "로그인했습니다. MailFlow가 이 계정을 다시 연결하는 중입니다.",
+      "continueGoogle": "Google로 계속",
+      "waitingGoogle": "Google 페이지에서 로그인을 마친 다음 여기로 돌아오세요."
+    },
+    "signInFailed": "로그인하지 못했습니다",
+    "signInFailedBody": "설정 > 계정에서 해당 계정부터 다시 시작하세요."
+  },
+  "addAccount": {
+    "title": "이메일 계정 추가",
+    "emailLabel": "이메일 주소",
+    "continue": "계속",
+    "invalidEmail": "you@example.com 같은 이메일 주소를 입력하세요.",
+    "orChoose": "또는 제공업체 선택",
+    "tile": {
+      "outlook": "Outlook.com, Hotmail, Live, MSN",
+      "outlookSub": "Microsoft로 로그인",
+      "work": "Microsoft 365(회사 또는 학교)",
+      "workSub": "조직의 Microsoft 계정으로 로그인",
+      "gmail": "Gmail",
+      "gmailSub": "앱 비밀번호 사용",
+      "gmailSignIn": "Google로 로그인",
+      "yahoo": "Yahoo Mail",
+      "yahooSub": "앱 비밀번호 사용",
+      "icloud": "iCloud Mail",
+      "icloudSub": "앱 전용 비밀번호 사용",
+      "other": "기타(IMAP)",
+      "otherSub": "서버 설정 입력"
+    },
+    "personalOff": "이 서버에서는 사용할 수 없습니다.",
+    "workOff": "이 서버에서는 사용할 수 없습니다.",
+    "openSettings": "이메일 제공업체 설정 열기"
+  },
+  "msSignIn": {
+    "titlePersonal": "Microsoft로 로그인",
+    "titleWork": "회사 또는 학교 계정으로 로그인",
+    "beforeTitle": "시작하기 전에",
+    "beforeBody": "Outlook.com에서 메일 앱을 허용해야 합니다. 아직 한 적이 없다면:",
+    "step1": "Microsoft 로그인 페이지를 엽니다.",
+    "step1Button": "Microsoft 로그인 열기",
+    "step2": "거기에 이 코드를 입력한 다음 Microsoft 페이지의 안내를 따르세요.",
+    "copy": "코드 복사",
+    "copied": "복사됨",
+    "waiting": "Microsoft 페이지에서 로그인을 마칠 때까지 기다리는 중…",
+    "starting": "Microsoft에서 코드를 받는 중…",
+    "checking": "MailFlow가 사서함에 연결할 수 있는지 확인하는 중…",
+    "connected": "{{email}}이(가) 연결되었습니다. 메일을 동기화하는 중입니다.",
+    "stillConnecting": "{{email}}(으)로 로그인했습니다. MailFlow가 아직 연결 중이며 계속 자동으로 시도합니다. 준비되면 계정 목록에 표시됩니다.",
+    "declined": "Microsoft 페이지에서 로그인을 취소했습니다.",
+    "expired": "로그인을 마치기 전에 코드가 만료되었습니다. 코드는 15분 동안 유효합니다.",
+    "error": "Microsoft 로그인이 되지 않았습니다.",
+    "newCode": "새 코드 받기",
+    "startOver": "처음부터 다시",
+    "done": "완료",
+    "finePrintShared": "Microsoft에서 MailFlow를 확인되지 않은 앱으로 표시할 수 있습니다. 정상입니다. MailFlow 공용 앱은 Microsoft에 MailFlow를 알리는 역할만 합니다. Microsoft 페이지에서 직접 로그인하며, Microsoft는 접근 권한을 이 서버로 바로 보냅니다.",
+    "finePrintOwn": "Microsoft 페이지에서 직접 로그인하며, Microsoft는 접근 권한을 이 서버로 바로 보냅니다.",
+    "continueMicrosoft": "Microsoft로 계속",
+    "redirectWaiting": "열린 Microsoft 페이지에서 로그인을 마친 다음 여기로 돌아오세요.",
+    "useCode": "대신 코드 사용",
+    "useRedirect": "대신 Microsoft 페이지에서 로그인",
+    "back": "뒤로",
+    "lost": "서버가 다시 시작되는 등의 이유로 MailFlow가 이 로그인을 추적하지 못했습니다. Microsoft 페이지에서 로그인을 마쳤다면 계정이 이미 목록에 있을 수 있습니다.",
+    "checkAccounts": "계정 확인"
+  },
+  "mailSignIn": {
+    "title": "이메일 제공업체",
+    "description": "MailFlow가 Microsoft 및 Google 사서함에 연결하는 방식입니다. MailFlow 자체에 로그인하는 방식인 SSO와는 별개입니다. 각자 계정 > 계정 추가에서 자신의 계정을 추가합니다.",
+    "required": "먼저 필수 항목을 채우세요.",
+    "redirectRequired": "Google에는 리디렉션 URI가 필요합니다. OAuth 클라이언트에 등록된, /oauth/google/callback으로 끝나는 URI를 입력하세요.",
+    "saved": "저장했습니다.",
+    "ms": {
+      "title": "Microsoft",
+      "description": "Outlook.com, Hotmail, Live, MSN 및 Microsoft 365 사서함",
+      "personalTitle": "개인 계정(Outlook.com, Hotmail, Live, MSN)",
+      "statusShared": "MailFlow 공용 앱 사용 중",
+      "statusOwn": "자체 앱 사용 중",
+      "statusOff": "꺼짐",
+      "sharedSwitch": "MailFlow 공용 앱으로 로그인 허용",
+      "sharedSwitchDesc": "설정이 필요 없습니다. 끄더라도 이미 연결된 계정은 계속 작동합니다.",
+      "ownHandlesPersonal": "자체 앱이 개인 계정을 처리하므로 MailFlow 공용 앱은 사용되지 않습니다.",
+      "workTitle": "회사 및 학교 계정(Microsoft 365)",
+      "workOff": "설정 안 됨",
+      "setupToggle": "자체 Microsoft Entra 앱 설정"
+    },
+    "google": {
+      "setupToggle": "자체 Google OAuth 클라이언트 설정"
+    }
+  },
+  "accountForm": {
+    "signedInMicrosoft": "Microsoft로 {{email}} 계정에 로그인됨",
+    "signedInGoogle": "Google로 {{email}} 계정에 로그인됨",
+    "signedInNote": "서버 정보는 이 로그인에서 가져옵니다. 계정이 연결되지 않으면 다시 로그인하세요.",
+    "mailboxLabel": "열 사서함",
+    "mailboxHelp": "공유 또는 위임된 사서함이면 해당 주소를 입력하세요. 본인 사서함이면 그대로 두세요."
+  },
+  "googleSignIn": {
+    "title": "Google로 로그인",
+    "finePrint": "Google 페이지에서 직접 로그인하며, Google은 접근 권한을 이 서버로 바로 보냅니다.",
+    "formNote": "Gmail 및 Google Workspace 사서함은 앱 비밀번호 대신 Google로 로그인할 수 있습니다.",
+    "appPasswordNote": "Gmail에는 일반 비밀번호가 아닌 앱 비밀번호가 필요합니다. Google 계정에서 2단계 인증을 켠 다음 앱 비밀번호를 만들어 비밀번호 칸에 입력하세요.",
+    "createAppPassword": "앱 비밀번호 만들기"
   }
 }

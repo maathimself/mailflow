@@ -15,8 +15,10 @@ import { useSwipeBack } from '../hooks/useSwipeBack.js';
 import SwipePager from './SwipePager.jsx';
 import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/printMessage.js';
 import ConversationMessageCard from './ConversationMessageCard.jsx';
+import { aiReplyAvailable } from '../utils/aiReply.js';
 import ContextMenu from './ContextMenu.jsx';
 import { prefetchBody } from '../utils/bodyCache.js';
+import { ActionBtn, ArchiveIcon, MoveIcon, SnoozeIcon, SpamIcon, PrintIcon, TrashIcon, useShortcutTitle } from './MessageActions.jsx';
 
 // What the reader is told when an action finds nothing to take (runAction below). In the unified
 // inbox, which has no "this account" to speak of, only Spam and Snooze can: keepDraftsApart and
@@ -39,23 +41,6 @@ const NOTHING_TO_TAKE_DRAFT = {
   move: 'message.moved.otherAccountDraft',
 };
 
-function ThreadBtn({ onClick, title, children }) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      aria-label={title}
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 10px',
-        background: 'none', border: '1px solid var(--border)', borderRadius: 4,
-        color: 'var(--text-primary)', font: 'inherit', fontSize: 13, cursor: 'pointer',
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
 // The whole conversation, stacked, with only what the reader has opened rendered.
 //
 // The thread endpoint already returns every message across folders, Sent replies included,
@@ -65,13 +50,15 @@ function ThreadBtn({ onClick, title, children }) {
 // the actions and the card that opens to that account's copies; null keeps every copy.
 //
 // Design from #317 by YunQue0912.
-export default function ConversationPane({ threadId, folder, unified = false, accountId = null, selectedMessageId = null }) {
+export default function ConversationPane({ threadId, folder, unified = false, accountId = null, selectedMessageId = null, openedFromRow = false }) {
   const { t } = useTranslation();
   const isMobile = useMobile();
+  const withShortcut = useShortcutTitle();
   const addNotification = useStore(s => s.addNotification);
   const accounts = useStore(s => s.accounts);
   const setSelectedMessage = useStore(s => s.setSelectedMessage);
   const updateMessage = useStore(s => s.updateMessage);
+  const plaintextEmail = useStore(s => s.plaintextEmail);
   const [messages, setMessages] = useState([]);
   const [expanded, setExpanded] = useState(() => new Set());
   const [error, setError] = useState(null);
@@ -85,6 +72,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
     api.ai.status().then(setAiStatus).catch(() => {});
   }, []);
   const aiEnabled = Boolean(aiStatus?.enabled && aiStatus?.features?.summarize);
+  const aiReplyEnabled = aiReplyAvailable(aiStatus, plaintextEmail);
 
   // Read when the conversation arrives, without making the pick a reason to fetch it again.
   const pickedRef = useRef(selectedMessageId);
@@ -128,14 +116,22 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   // same thread leaves threadId untouched, so the pane used to re-render with identical
   // props and nothing happened on screen, which read as the click being ignored.
   const stackRef = useRef(null);
+  // A list row stands for the whole conversation, which opens on its newest message. The row's
+  // own message is only the newest in the listed folder, so opening it too put the other
+  // person's last message beside a newer reply of the reader's in Sent, and scrolled to it (#707).
+  // The newest card is then the selected one too, so the outline and the shortcuts follow it.
+  const selectedHere = Boolean(selectedMessageId) && messages.some(message => message.id === selectedMessageId);
+  const focusedId = selectedHere && openedFromRow
+    ? newestConversationMessage(inAccount(messages, accountId))?.id ?? selectedMessageId
+    : selectedMessageId;
   useEffect(() => {
-    if (!selectedMessageId || !messages.some(message => message.id === selectedMessageId)) return;
-    setExpanded(prev => (prev.has(selectedMessageId) ? prev : new Set(prev).add(selectedMessageId)));
+    if (!selectedHere || !focusedId) return;
+    setExpanded(prev => (prev.has(focusedId) ? prev : new Set(prev).add(focusedId)));
     // Long threads run past the fold, so the message that was asked for is brought into
     // view rather than being opened somewhere off screen.
-    const card = stackRef.current?.querySelector(`[data-message-id="${selectedMessageId}"]`);
+    const card = stackRef.current?.querySelector(`[data-message-id="${focusedId}"]`);
     card?.scrollIntoView?.({ block: 'nearest' });
-  }, [selectedMessageId, messages]);
+  }, [selectedHere, focusedId, messages]);
 
   // Swiping on a phone (#229), as in the single-message pane: from the left edge back to the list,
   // and left and right for the next and previous row of the list, which may be a conversation or a
@@ -293,6 +289,53 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   return (
     <div ref={paneRef} style={{ ...fill, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {mobileBackBar}
+      {/* Thread-level actions, the way Gmail does it: archiving a conversation archives all of it,
+          so the reader does not file the same thread message by message. The reading pane's buttons,
+          in its order and pinned at the top as its toolbar is (#650); snooze, which the reading pane
+          keeps in its menu, sits with the other ways of putting the conversation away. */}
+      <div role="group" aria-label={t('message.conversationActions')} style={{
+        padding: isMobile ? '0 8px' : '8px 16px', borderBottom: '1px solid var(--border-subtle)',
+        display: 'flex', alignItems: 'center', gap: isMobile ? 0 : 6, flexShrink: 0,
+        background: 'var(--bg-primary)',
+      }}>
+        <ActionBtn onClick={() => runAction('archive', archiveThread)} label={t('message.archive')} title={withShortcut(t('message.archive'), 'archive')} touch={isMobile}>
+          <ArchiveIcon />
+        </ActionBtn>
+        <ActionBtn onClick={e => openPicker(e, 'move')} label={t('contextMenu.moveToFolder')} touch={isMobile} popup expanded={picker?.view === 'move'}>
+          <MoveIcon />
+        </ActionBtn>
+        <ActionBtn onClick={e => openPicker(e, 'snooze')} label={t('contextMenu.snooze.label')} touch={isMobile} popup expanded={picker?.view === 'snooze'}>
+          <SnoozeIcon />
+        </ActionBtn>
+        <div style={{ flex: 1 }} />
+        <ActionBtn onClick={() => runAction('spam', spamThread)} label={t('contextMenu.markAsSpam')} touch={isMobile}>
+          <SpamIcon />
+        </ActionBtn>
+        <ActionBtn onClick={printConversation} label={t('message.printConversation')} touch={isMobile}>
+          <PrintIcon />
+        </ActionBtn>
+        <ActionBtn onClick={() => runAction('delete', deleteThread)} label={t('message.delete')} danger touch={isMobile}>
+          <TrashIcon />
+        </ActionBtn>
+      </div>
+
+      {picker && (
+        <ContextMenu
+          x={picker.x}
+          y={picker.y}
+          message={picker.message}
+          variant="conversation"
+          defaultMoveView={picker.view === 'move'}
+          defaultSnoozeView={picker.view === 'snooze'}
+          onClose={() => setPicker(null)}
+          onAction={(action, data) => {
+            if (action === 'moveTo') runAction('move', (list, opts) => moveThread(list, data, opts));
+            else if (action === 'snooze') runAction('snooze', (list, opts) => snoozeThread(list, data, opts));
+            setPicker(null);
+          }}
+        />
+      )}
+
       <SwipePager
         enabled={isMobile}
         prev={isMobile ? adjacentRow('prev', threadId) : null}
@@ -319,61 +362,16 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
           background: 'var(--bg-primary)',
         }}
       >
-        {/* Thread-level actions, the way Gmail does it: archiving a conversation archives
-            all of it, so the reader does not file the same thread message by message. */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-          <ThreadBtn onClick={() => runAction('archive', archiveThread)} title={t('message.archive')}>
-            {t('message.archive')}
-          </ThreadBtn>
-          <ThreadBtn onClick={() => runAction('delete', deleteThread)} title={t('message.delete')}>
-            {t('message.delete')}
-          </ThreadBtn>
-          <ThreadBtn onClick={() => runAction('spam', spamThread)} title={t('contextMenu.markAsSpam')}>
-            {t('contextMenu.markAsSpam')}
-          </ThreadBtn>
-          <ThreadBtn
-            onClick={e => openPicker(e, 'move')}
-            title={t('contextMenu.moveToFolder')}
-          >
-            {t('contextMenu.moveToFolder')}
-          </ThreadBtn>
-          <ThreadBtn
-            onClick={e => openPicker(e, 'snooze')}
-            title={t('contextMenu.snooze.label')}
-          >
-            {t('contextMenu.snooze.label')}
-          </ThreadBtn>
-          <ThreadBtn onClick={printConversation} title={t('message.printConversation')}>
-            {t('message.printConversation')}
-          </ThreadBtn>
-        </div>
-
-        {picker && (
-          <ContextMenu
-            x={picker.x}
-            y={picker.y}
-            message={picker.message}
-            variant="conversation"
-            defaultMoveView={picker.view === 'move'}
-            defaultSnoozeView={picker.view === 'snooze'}
-            onClose={() => setPicker(null)}
-            onAction={(action, data) => {
-              if (action === 'moveTo') runAction('move', (list, opts) => moveThread(list, data, opts));
-              else if (action === 'snooze') runAction('snooze', (list, opts) => snoozeThread(list, data, opts));
-              setPicker(null);
-            }}
-          />
-        )}
-
         {messages.map(message => (
           <ConversationMessageCard
             key={message.id}
             message={message}
             expanded={expanded.has(message.id)}
-            selected={message.id === selectedMessageId}
+            selected={message.id === focusedId}
             onToggle={toggle}
             onUpdate={updateConversationMessage}
             aiEnabled={aiEnabled}
+            aiReplyEnabled={aiReplyEnabled}
           />
         ))}
       </div>

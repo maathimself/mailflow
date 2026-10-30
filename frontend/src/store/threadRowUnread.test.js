@@ -38,3 +38,29 @@ test('in the unified inbox the row still counts every cached copy', () => {
   assert.equal(row.unread_count, 1);
   assert.equal(row.is_read, false);
 });
+
+// A row's own is_read flip moves its unread_count by one when the update does not set the count
+// itself. "Mark as unread" from the reading pane sent is_read alone and left a row opened (and so
+// set to unread_count 0) at 0, so the context menu offered "Mark as unread" again (#683).
+const flip = (row, updates) => {
+  useStore.setState({ selectedAccountId: null, messages: [row], searchResults: [], threadMessages: {} });
+  useStore.getState().updateMessage(row.id, updates);
+  return useStore.getState().messages[0];
+};
+
+test('marking a row unread raises its unread_count with it (#683)', () => {
+  const row = flip({ id: 'm', account_id: 'a', is_read: true, unread_count: 0 }, { is_read: false });
+  assert.equal(row.unread_count, 1);
+});
+
+test('a conversation row counts the one message that changed (#683)', () => {
+  assert.equal(flip({ ...ROW, is_read: true, unread_count: 2 }, { is_read: false }).unread_count, 3);
+  assert.equal(flip({ ...ROW, is_read: false, unread_count: 3 }, { is_read: true }).unread_count, 2);
+  assert.equal(flip({ ...ROW, is_read: false, unread_count: 0 }, { is_read: true }).unread_count, 0, 'never below zero');
+});
+
+test('an explicit unread_count, an unchanged flag and a row without a count are left alone (#683)', () => {
+  assert.equal(flip({ ...ROW, is_read: true, unread_count: 0 }, { is_read: false, unread_count: 4 }).unread_count, 4);
+  assert.equal(flip({ ...ROW, is_read: false, unread_count: 2 }, { is_read: false }).unread_count, 2);
+  assert.equal('unread_count' in flip({ id: 'n', account_id: 'a', is_read: true }, { is_read: false }), false);
+});

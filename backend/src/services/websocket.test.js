@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import WebSocket from 'ws';
 vi.mock('./diagnosticsRing.js', () => ({ recordWsConnect: vi.fn(), recordWsDisconnect: vi.fn() }));
-import { createWebSocketServer, setupWebSocket } from './websocket.js';
+import { closeWebSocketClients, createWebSocketServer, setupWebSocket } from './websocket.js';
 
 function setup(sessionMiddleware, manager = { connectAllForUser: vi.fn().mockResolvedValue() }) {
   const wss = new EventEmitter();
@@ -112,5 +112,50 @@ describe('WebSocket client messages', () => {
       expect(await nextEvent(client)).toBe('close');
     });
     expect(warn).toHaveBeenCalledWith('WebSocket transport error:', 'Too many message fragments');
+  });
+});
+
+describe('closing the clients on shutdown', () => {
+  it('lets the HTTP server finish closing at once, the client told it is going away', async () => {
+    const server = createServer();
+    const wss = createWebSocketServer(server);
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const client = new WebSocket(`ws://127.0.0.1:${server.address().port}`);
+    await new Promise(resolve => client.once('open', resolve));
+    const started = Date.now();
+    let serverClosed = false;
+    const closed = new Promise(resolve => server.close(() => { serverClosed = true; resolve(); }));
+    const told = new Promise(resolve => client.once('close', (code, reason) => resolve([code, String(reason)])));
+    // An open WebSocket keeps the server from closing.
+    await new Promise(resolve => setTimeout(resolve, 100));
+    expect(serverClosed).toBe(false);
+    closeWebSocketClients(wss, 1001, 'Shutting down');
+    expect(await told).toEqual([1001, 'Shutting down']);
+    await closed;
+    expect(Date.now() - started).toBeLessThan(2000);
+    await new Promise(resolve => wss.close(resolve));
+  });
+
+  it('cuts off a client that does not answer the close handshake', () => {
+    vi.useFakeTimers();
+    try {
+      const ws = { close: vi.fn(), terminate: vi.fn() };
+      const wss = { clients: new Set([ws]) };
+      closeWebSocketClients(wss, 1012, 'Restarting', { terminateAfterMs: 2000 });
+      expect(ws.close).toHaveBeenCalledWith(1012, 'Restarting');
+      vi.advanceTimersByTime(1999);
+      expect(ws.terminate).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(ws.terminate).toHaveBeenCalledOnce();
+      // One that went meanwhile is not in the set any more, and is left alone.
+      const gone = { close: vi.fn(), terminate: vi.fn() };
+      const later = { clients: new Set([gone]) };
+      closeWebSocketClients(later, 1001, 'Shutting down');
+      later.clients.delete(gone);
+      vi.advanceTimersByTime(2000);
+      expect(gone.terminate).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

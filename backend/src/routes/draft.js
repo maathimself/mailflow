@@ -2,14 +2,18 @@ import nodemailer from 'nodemailer';
 import { randomBytes } from 'crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
+import { findOwnedAccount } from '../services/ownership.js';
 import { requireAuth } from '../middleware/auth.js';
 import { sanitizeSignature, sanitizeComposeBody, sanitizeEmail, composeHtmlToText, proxyRemoteImages } from '../services/emailSanitizer.js';
 import { imageProxyPath } from '../services/imageProxy.js';
 import { storeFetchedBody } from '../services/messageBodyStore.js';
 import { embedInlineDataImages } from '../utils/inlineImages.js';
 import { imapManager } from '../index.js';
-import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
+import { noteDraftsChanged, resolveDraftsFolder, isDraftsPath, findReplacedDraft } from '../services/draftCopies.js';
 import { draftFolderPaths, createReplyGraph, replyChainIdsFor, indexReplyDrafts, createReplyDraftIndex, headerIds } from '../services/replyDraftLookup.js';
+
+// deleteSentDraft lived here before it moved to services/draftCopies.js.
+export { deleteSentDraft } from '../services/draftCopies.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -199,17 +203,6 @@ router.get('/messages/:id/reply-draft', async (req, res) => {
   }
 });
 
-// Tells the user's tabs that a Drafts folder changed, so the Inbox re-checks its reply-draft
-// markers. The composer refreshes its own tab; this reaches the user's other tabs and devices.
-// Best-effort: the draft is already saved or deleted, and a failed notice only delays a marker.
-function noteDraftsChanged(userId, accountId) {
-  try {
-    imapManager.broadcast({ type: 'drafts_changed', accountId }, userId);
-  } catch (err) {
-    console.warn('Drafts change notice failed:', err.message);
-  }
-}
-
 // The signature block's style. utils/draftSignature.js in the frontend matches it to recognise a
 // block whose marker attribute was lost, so the two must stay in step.
 const SIGNATURE_BLOCK_STYLE = 'margin-top:16px;color:#555;font-size:13px';
@@ -336,96 +329,11 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
   };
 }
 
-async function resolveDraftsFolder(account) {
-  const mapped = account.folder_mappings?.drafts;
-  if (mapped) return mapped;
-  const result = await query(
-    "SELECT path FROM folders WHERE account_id = $1 AND special_use = '\\Drafts' LIMIT 1",
-    [account.id]
-  );
-  return result.rows[0]?.path || null;
-}
-
-// These routes permanently expunge, so they may only touch a Drafts folder: the canonical set; the
-// folder this file appends drafts to (resolveDraftsFolder trusts the raw mapping, and a save must
-// always be able to replace its own previous copy); and the server's own \Drafts folder, which the
-// message list still opens as Drafts when the mapping points somewhere else.
-async function isDraftsPath(account, folder, draftsFolder) {
-  if (typeof folder !== 'string' || !folder) return false;
-  if (folder === (draftsFolder ?? await resolveDraftsFolder(account))) return true;
-  if ((await resolveAllDraftsPaths(account.id, account.folder_mappings)).has(folder)) return true;
-  const specialUse = await query(
-    "SELECT 1 FROM folders WHERE account_id = $1 AND path = $2 AND special_use = '\\Drafts' LIMIT 1",
-    [account.id, folder]
-  );
-  return specialUse.rows.length > 0;
-}
-
-// The previous copy a save replaces, or null (logged) when it cannot be pinned down. It lives in
-// the account it was last saved to, which is not the saving account once From has been switched.
-// The uid goes to IMAP as a UID set, so it must be a single uid ("1:*" would expunge the folder),
-// in a Drafts folder, with a local row whose Message-ID the delete checks the server copy against.
-async function findReplacedDraft(userId, account, draftsFolder, { existingUid, existingFolder, existingAccountId }) {
-  const refuse = (why) => {
-    console.error(`Draft: refusing to delete old uid=${JSON.stringify(existingUid)} in folder ${JSON.stringify(existingFolder)}: ${why}`);
-    return null;
-  };
-  const uid = (typeof existingUid === 'number' || typeof existingUid === 'string')
-    && /^[1-9]\d*$/.test(String(existingUid)) ? Number(existingUid) : null;
-  if (!uid) return refuse('not a single uid');
-
-  // A composer from before existingAccountId was sent means the saving account.
-  let holder = account;
-  if (existingAccountId != null && existingAccountId !== account.id) {
-    if (typeof existingAccountId !== 'string') return refuse('invalid account');
-    const { rows } = await query('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [existingAccountId, userId]);
-    if (!rows.length) return refuse(`account ${JSON.stringify(existingAccountId)} not found`);
-    holder = rows[0];
-  }
-  if (!(await isDraftsPath(holder, existingFolder, holder === account ? draftsFolder : undefined))) {
-    return refuse('not a Drafts folder');
-  }
-
-  const { rows: [row] } = await query(
-    'SELECT message_id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
-    [holder.id, uid, existingFolder]
-  );
-  if (!row?.message_id) return refuse('no local row with a Message-ID to check the server copy against');
-  return { account: holder, uid, folder: existingFolder, messageId: row.message_id };
-}
-
-// Deletes the draft a message was sent from, once routes/send.js has delivered it. This runs on
-// the server, after delivery, because with undo send the delivery happens after the composer has
-// closed, possibly with the tab gone too: a draft deleted when Send was clicked would take with it
-// the only other copy of a message whose delivery then failed. The checks are those of a save
-// replacing its previous copy. Never throws: a draft left behind is logged, not a failed send.
-export async function deleteSentDraft(userId, account, { uid, folder, accountId } = {}) {
-  try {
-    const target = await findReplacedDraft(userId, account, undefined, { existingUid: uid, existingFolder: folder, existingAccountId: accountId });
-    if (!target) return false;
-    const deleted = await imapManager.permanentDeleteMessage(target.account, target.uid, target.folder, { expectMessageId: target.messageId });
-    if (!deleted) {
-      console.error(`Draft: not deleting sent draft uid=${target.uid} in folder ${JSON.stringify(target.folder)}: the server copy's Message-ID does not match its local row`);
-      return false;
-    }
-    await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [target.account.id, target.uid, target.folder]);
-    noteDraftsChanged(userId, target.account.id);
-    return true;
-  } catch (err) {
-    console.error(`Draft: failed to delete sent draft uid=${JSON.stringify(uid)}: ${err.message}`);
-    return false;
-  }
-}
-
 router.post('/draft', async (req, res) => {
   const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder, existingAccountId, inReplyTo, references } = req.body;
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
 
-  const ownerCheck = await query(
-    'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
-    [accountId, req.session.userId]
-  );
-  if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
+  if (!(await findOwnedAccount(req.session.userId, accountId, { columns: 'id' }))) return res.status(404).json({ error: 'Account not found' });
 
   try {
     const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, inReplyTo, references });
@@ -488,8 +396,27 @@ router.post('/draft', async (req, res) => {
       }
     }
 
+    // Unschedule (design 2.4): the scheduled message this draft was made from goes only now that
+    // the draft is stored, and only while the composer still holds it, so there is always a copy.
+    let scheduledRemoved;
+    const fromScheduled = req.body.fromScheduled;
+    if (fromScheduled && typeof fromScheduled === 'object' && UUID_RE.test(String(fromScheduled.id))
+      && UUID_RE.test(String(fromScheduled.editToken))) {
+      const removed = await query(
+        `DELETE FROM scheduled_messages
+          WHERE id = $1 AND user_id = $2 AND status = 'editing' AND edit_token = $3 RETURNING id`,
+        [fromScheduled.id, req.session.userId, fromScheduled.editToken]
+      ).catch(err => { console.error(`Draft: could not remove the scheduled message: ${err.message}`); return { rows: [] }; });
+      scheduledRemoved = removed.rows.length > 0;
+      if (scheduledRemoved) imapManager.broadcast({ type: 'scheduled_changed', id: fromScheduled.id, status: 'deleted' }, req.session.userId);
+    }
+
     noteDraftsChanged(req.session.userId, account.id);
-    res.json({ uid, folder: draftsFolder, ...(req.body.includeIdentity === true ? { messageId: meta.messageId } : {}) });
+    res.json({
+      uid, folder: draftsFolder,
+      ...(req.body.includeIdentity === true ? { messageId: meta.messageId } : {}),
+      ...(scheduledRemoved !== undefined ? { scheduledRemoved } : {}),
+    });
   } catch (err) {
     console.error('Save draft failed:', err.message);
     res.status(err.status || 500).json({ error: err.message || 'Failed to save draft' });
@@ -503,18 +430,29 @@ router.delete('/draft/:uid', async (req, res) => {
   const { accountId, folder } = req.query;
   if (!accountId || !folder) return res.status(400).json({ error: 'accountId and folder required' });
 
-  const ownerCheck = await query(
-    'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
-    [accountId, req.session.userId]
-  );
-  if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
+  const account = await findOwnedAccount(req.session.userId, accountId);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
 
   try {
-    const account = ownerCheck.rows[0];
     if (!(await isDraftsPath(account, folder))) {
       return res.status(400).json({ error: 'Folder is not a Drafts folder' });
     }
-    await imapManager.permanentDeleteMessage(account, uid, folder);
+    // As a delete from the message list, the server copy must still be the row's message. A uid
+    // with no row is deleted unchecked: the composer has it from its own save.
+    const { rows: [row] } = await query(
+      'SELECT message_id, date, from_email, subject FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+      [account.id, uid, folder]
+    );
+    const deleted = await imapManager.permanentDeleteMessage(account, uid, folder, row ? { expectRow: row } : {});
+    if (deleted === false) {
+      // Sync never corrects a row whose uid holds another message: drop it and pull the folder.
+      console.warn(`Draft: not deleting uid=${uid} in folder ${JSON.stringify(folder)}: the server copy there is not its row's message`);
+      await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
+      imapManager.syncFolderOnDemand(account, folder)
+        .catch(err => console.warn('post-delete folder sync failed:', err.message));
+      noteDraftsChanged(req.session.userId, account.id);
+      return res.status(409).json({ error: 'This draft changed on the server and was not deleted. Refresh and try again.' });
+    }
     await query(
       'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
       [account.id, uid, folder]

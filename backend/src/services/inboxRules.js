@@ -392,16 +392,14 @@ export async function applyBlockList(messages, account, imapManager) {
           const result = await imapManager.bulkMoveMessages(account, [msg.uid], msg.folder, strategy.destination);
           if (!result.failed?.length) {
             const newUid = result.uidMap?.get(Number(msg.uid));
-            if (newUid) {
-              await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [strategy.destination, newUid, msg.id]);
-            } else {
-              imapManager._guardMoveUid(account.id, strategy.destination, msg.uid);
-              await query('UPDATE messages SET folder = $1 WHERE id = $2', [strategy.destination, msg.id]);
-              setTimeout(() => imapManager._unguardMoveUid(account.id, strategy.destination, msg.uid), 10_000);
-            }
             const wasUnread = !(msg.isRead ?? msg.is_read);
             adjustFolderCounts(account.id, msg.folder, -1, wasUnread ? -1 : 0);
-            adjustFolderCounts(account.id, strategy.destination, 1, wasUnread ? 1 : 0);
+            if (newUid) {
+              await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [strategy.destination, newUid, msg.id]);
+              adjustFolderCounts(account.id, strategy.destination, 1, wasUnread ? 1 : 0);
+            } else {
+              await dropMovedRow(imapManager, account, msg, strategy.destination);
+            }
           } else {
             remaining.push(msg);
           }
@@ -426,6 +424,15 @@ export async function applyBlockList(messages, account, imapManager) {
 
 // The categories a set_category action may assign; the same set PATCH /messages/:id/category takes.
 export const RULE_CATEGORIES = new Set(['primary', 'newsletter', 'promotion', 'automated', 'social']);
+
+// After a move that named no new uid: the source uid can belong to another message in the
+// destination (#665), so the row is dropped rather than kept on it, and a sync of the destination
+// files the message under its real uid. The destination's counts come from that sync.
+async function dropMovedRow(imapManager, account, msg, destination) {
+  await query('DELETE FROM messages WHERE id = $1', [msg.id]);
+  imapManager.syncFolderOnDemand(account, destination)
+    .catch(err => console.warn(`inboxRules: sync of ${destination} after a move without a new uid failed: ${err.message}`));
+}
 
 async function applyAction(action, msg, account, imapManager, ruleId, resolverCache = {}) {
   switch (action.type) {
@@ -457,6 +464,10 @@ async function applyAction(action, msg, account, imapManager, ruleId, resolverCa
         'UPDATE messages SET is_read = true, read_changed_at = NOW() WHERE id = $1',
         [msg.id]
       );
+      if (msg.uid == null) {
+        console.warn(`inboxRules: mark_read skipped for msg ${msg.id}: a move left its new uid unknown`);
+        break;
+      }
       imapManager.setFlag(account, msg.uid, msg.folder, '\\Seen', true).catch(err => {
         console.error('inboxRules: setFlag \\Seen failed:', err.message);
         // Durable retry so a later flag-sync pull can't silently revert the rule's effect.
@@ -479,6 +490,10 @@ async function applyAction(action, msg, account, imapManager, ruleId, resolverCa
         'UPDATE messages SET is_starred = true, star_changed_at = NOW() WHERE id = $1',
         [msg.id]
       );
+      if (msg.uid == null) {
+        console.warn(`inboxRules: star skipped for msg ${msg.id}: a move left its new uid unknown`);
+        break;
+      }
       imapManager.setFlag(account, msg.uid, msg.folder, '\\Flagged', true).catch(err => {
         console.error('inboxRules: setFlag \\Flagged failed:', err.message);
         // Durable retry so a later flag-sync pull can't silently revert the rule's effect.
@@ -494,6 +509,7 @@ async function applyAction(action, msg, account, imapManager, ruleId, resolverCa
       // correct slot even after we update msg.folder/uid for subsequent rules.
       const srcFolder = msg.folder;
       const srcUid = msg.uid;
+      if (srcUid == null) return false;
       // Guard the source UID before the IMAP move so reconcileDeletes cannot delete
       // the DB row if an EXPUNGE notification arrives while the move is in flight.
       imapManager._guardMoveUid(account.id, srcFolder, srcUid);
@@ -510,27 +526,21 @@ async function applyAction(action, msg, account, imapManager, ruleId, resolverCa
         // the destination's server UID set, and deletes the DB row — silently losing
         // the message.
         const newUid = moveResult.uidMap?.get(Number(srcUid));
-        if (newUid) {
-          await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [destFolder, newUid, msg.id]);
-        } else {
-          // Non-UIDPLUS server: DB will hold the stale source UID in the destination
-          // folder until the next sync corrects it. Guard the stale UID in the
-          // destination so reconcileDeletes does not treat it as an orphan in the
-          // meantime. The guard auto-expires after 10 s — well beyond the 1.5 s
-          // EXPUNGE debounce; a regular sync (~60 s) will update the UID before the
-          // next periodic reconcile (every 10 sync ticks, ~10 min).
-          imapManager._guardMoveUid(account.id, destFolder, srcUid);
-          await query('UPDATE messages SET folder = $1 WHERE id = $2', [destFolder, msg.id]);
-          setTimeout(() => imapManager._unguardMoveUid(account.id, destFolder, srcUid), 10_000);
-        }
         const wasUnread = !(msg.isRead ?? msg.is_read);
         adjustFolderCounts(account.id, srcFolder, -1, wasUnread ? -1 : 0);
-        adjustFolderCounts(account.id, destFolder, 1, wasUnread ? 1 : 0);
-        // Update the in-memory msg so subsequent non-destination actions in later rules
-        // (e.g. mark_read) target the correct destination folder and uid rather than
-        // the now-stale INBOX values.
-        msg.folder = destFolder;
-        msg.uid = newUid || srcUid;
+        if (newUid) {
+          await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [destFolder, newUid, msg.id]);
+          adjustFolderCounts(account.id, destFolder, 1, wasUnread ? 1 : 0);
+          // Update the in-memory msg so subsequent non-destination actions in later rules
+          // (e.g. mark_read) target the correct destination folder and uid rather than
+          // the now-stale INBOX values.
+          msg.folder = destFolder;
+          msg.uid = newUid;
+        } else {
+          await dropMovedRow(imapManager, account, msg, destFolder);
+          msg.folder = destFolder;
+          msg.uid = null;
+        }
       } finally {
         imapManager._unguardMoveUid(account.id, srcFolder, srcUid);
       }
@@ -551,6 +561,7 @@ async function applyAction(action, msg, account, imapManager, ruleId, resolverCa
       if (!archiveFolder) return false;
       const srcFolder = msg.folder;
       const srcUid = msg.uid;
+      if (srcUid == null) return false;
       imapManager._guardMoveUid(account.id, srcFolder, srcUid);
       try {
         const archiveResult = await imapManager.bulkMoveMessages(account, [srcUid], srcFolder, archiveFolder);
@@ -564,14 +575,12 @@ async function applyAction(action, msg, account, imapManager, ruleId, resolverCa
         } else if (newArchiveUid) {
           await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [archiveFolder, newArchiveUid, msg.id]);
         } else {
-          imapManager._guardMoveUid(account.id, archiveFolder, srcUid);
-          await query('UPDATE messages SET folder = $1 WHERE id = $2', [archiveFolder, msg.id]);
-          setTimeout(() => imapManager._unguardMoveUid(account.id, archiveFolder, srcUid), 10_000);
+          await dropMovedRow(imapManager, account, msg, archiveFolder);
         }
         adjustFolderCounts(account.id, srcFolder, -1, wasUnread ? -1 : 0);
-        if (!resolverCache.archiveIsAllMail) adjustFolderCounts(account.id, archiveFolder, 1, wasUnread ? 1 : 0);
+        if (!resolverCache.archiveIsAllMail && newArchiveUid) adjustFolderCounts(account.id, archiveFolder, 1, wasUnread ? 1 : 0);
         msg.folder = archiveFolder;
-        msg.uid = newArchiveUid || srcUid;
+        msg.uid = newArchiveUid || null;
       } finally {
         imapManager._unguardMoveUid(account.id, srcFolder, srcUid);
       }
@@ -591,25 +600,29 @@ async function applyAction(action, msg, account, imapManager, ruleId, resolverCa
       const strategy = getDeleteStrategy(msg.folder, trashFolder, allTrashPaths);
       if (strategy.action === 'no_trash') return false;
       if (strategy.action === 'move') {
-        imapManager._guardMoveUid(account.id, msg.folder, msg.uid);
+        const srcFolder = msg.folder;
+        const srcUid = msg.uid;
+        if (srcUid == null) return false;
+        imapManager._guardMoveUid(account.id, srcFolder, srcUid);
         try {
-          const deleteResult = await imapManager.bulkMoveMessages(account, [msg.uid], msg.folder, strategy.destination);
-          if (deleteResult.failed?.length) throw new Error(`IMAP delete-move failed for uid ${msg.uid}`);
-          const newDeleteUid = deleteResult.uidMap?.get(Number(msg.uid));
+          const deleteResult = await imapManager.bulkMoveMessages(account, [srcUid], srcFolder, strategy.destination);
+          if (deleteResult.failed?.length) throw new Error(`IMAP delete-move failed for uid ${srcUid}`);
+          const newDeleteUid = deleteResult.uidMap?.get(Number(srcUid));
+          const wasUnread = !(msg.isRead ?? msg.is_read);
+          adjustFolderCounts(account.id, srcFolder, -1, wasUnread ? -1 : 0);
           if (newDeleteUid) {
             await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [strategy.destination, newDeleteUid, msg.id]);
+            adjustFolderCounts(account.id, strategy.destination, 1, wasUnread ? 1 : 0);
           } else {
-            imapManager._guardMoveUid(account.id, strategy.destination, msg.uid);
-            await query('UPDATE messages SET folder = $1 WHERE id = $2', [strategy.destination, msg.id]);
-            setTimeout(() => imapManager._unguardMoveUid(account.id, strategy.destination, msg.uid), 10_000);
+            await dropMovedRow(imapManager, account, msg, strategy.destination);
           }
-          const wasUnread = !(msg.isRead ?? msg.is_read);
-          adjustFolderCounts(account.id, msg.folder, -1, wasUnread ? -1 : 0);
-          adjustFolderCounts(account.id, strategy.destination, 1, wasUnread ? 1 : 0);
+          msg.folder = strategy.destination;
+          msg.uid = newDeleteUid || null;
         } finally {
-          imapManager._unguardMoveUid(account.id, msg.folder, msg.uid);
+          imapManager._unguardMoveUid(account.id, srcFolder, srcUid);
         }
       } else if (strategy.action === 'expunge') {
+        if (msg.uid == null) return false;
         await imapManager.setFlag(account, msg.uid, msg.folder, '\\Deleted', true);
         await query('UPDATE messages SET is_deleted = true WHERE id = $1', [msg.id]);
         const wasUnread = !(msg.isRead ?? msg.is_read);

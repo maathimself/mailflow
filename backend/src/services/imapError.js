@@ -37,6 +37,14 @@ export function extractImapError(err) {
     if (text) return `${code}${String(text).trim()}`;
   }
   if (err.responseText) return `${code}${String(err.responseText).trim()}`;
+  // imapflow reports some authentication failures with the server's sentence as a plain string
+  // in err.response: Outlook's "User is authenticated but not connected." (IMAP turned off for
+  // the mailbox, answered to NAMESPACE after a successful login) arrives as
+  // AuthenticationFailure('Authentication failed') with that text there. Keep both.
+  if (err.authenticationFailed && typeof err.response === 'string' && err.response.trim()) {
+    const text = err.response.trim();
+    return `${code}${err.message && !text.includes(err.message) ? `${err.message}: ` : ''}${text}`;
+  }
   if (err.response?.command) return `${code}${err.response.command}: ${err.message}`;
 
   return `${code}${err.serverResponse || err.message || String(err)}`;

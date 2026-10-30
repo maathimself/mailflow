@@ -355,7 +355,7 @@ describe('fanOutReadToSiblings', () => {
     expect(upd).toBeTruthy();
     // Scoped by account_id + message_id; prior-state filter excludes rows already at target.
     expect(upd[0]).toContain('WHERE account_id = $2 AND message_id = $3 AND is_read <> $1');
-    expect(upd[0]).toContain('RETURNING folder');
+    expect(upd[0]).toContain('RETURNING id, account_id, uid, folder, message_id, is_deleted');
     expect(upd[1]).toEqual([true, 'acct-1', '<abc@x>']);
 
     // One unread decrement per returned sibling folder (mark-read → unread −1).
@@ -412,7 +412,7 @@ describe('fanOutBulkReadToSiblings', () => {
     const upd = callWith('UPDATE messages m SET is_read');
     expect(upd[0]).toContain('FROM (');                    // derives acted (account_id, message_id) pairs
     expect(upd[0]).toContain('m.id <> ALL($2::uuid[])');   // never re-count the acted rows
-    expect(upd[0]).toContain('RETURNING m.account_id, m.folder');
+    expect(upd[0]).toContain('RETURNING m.id, m.account_id, m.uid, m.folder, m.message_id, m.is_deleted');
     expect(upd[1]).toEqual([true, ['id1', 'id2']]);
 
     // Two flipped rows in the same folder aggregate to a single −2 unread adjustment.

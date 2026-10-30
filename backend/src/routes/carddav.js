@@ -13,6 +13,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { query } from '../services/db.js';
+import { findOwnedAddressBook } from '../services/ownership.js';
 import { parseVCard } from '../utils/vcard.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { consume as rlConsume, release as rlRelease } from '../services/rateLimiter.js';
@@ -282,12 +283,8 @@ router.propfind('/:userId/:bookId/', async (req, res) => {
 
   const depth = req.headers['depth'] || '0';
 
-  const bookResult = await query(
-    'SELECT * FROM address_books WHERE id = $1 AND user_id = $2',
-    [req.params.bookId, userId]
-  );
-  if (!bookResult.rows.length) return res.status(404).end();
-  const book = bookResult.rows[0];
+  const book = await findOwnedAddressBook(userId, req.params.bookId);
+  if (!book) return res.status(404).end();
 
   const bookPath = `/carddav/${userId}/${book.id}/`;
 
@@ -329,12 +326,8 @@ router.report('/:userId/:bookId/', async (req, res) => {
   const userId = req.cardavUserId;
   if (req.params.userId !== userId) return res.status(403).end();
 
-  const bookResult = await query(
-    'SELECT * FROM address_books WHERE id = $1 AND user_id = $2',
-    [req.params.bookId, userId]
-  );
-  if (!bookResult.rows.length) return res.status(404).end();
-  const book = bookResult.rows[0];
+  const book = await findOwnedAddressBook(userId, req.params.bookId);
+  if (!book) return res.status(404).end();
   const bookPath = `/carddav/${userId}/${book.id}/`;
 
   const body = await rawBody(req);
@@ -412,12 +405,9 @@ router.put('/:userId/:bookId/:filename', async (req, res) => {
   const primaryEmail = parsed.emails[0]?.value?.toLowerCase() || null;
 
   try {
-    const bookResult = await query(
-      'SELECT id FROM address_books WHERE id = $1 AND user_id = $2',
-      [req.params.bookId, userId]
-    );
-    if (!bookResult.rows.length) return res.status(404).end();
-    const bookId = bookResult.rows[0].id;
+    const book = await findOwnedAddressBook(userId, req.params.bookId, { columns: 'id' });
+    if (!book) return res.status(404).end();
+    const bookId = book.id;
 
     const existing = await query(
       'SELECT id, etag FROM contacts WHERE address_book_id = $1 AND uid = $2',

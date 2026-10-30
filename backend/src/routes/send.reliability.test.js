@@ -95,6 +95,26 @@ describe('send failure semantics', () => {
     expect((await post()).status).toBe(500);
     expect(redisClient.del).toHaveBeenCalledWith('send_idem:u1:send1');
   });
+  it('answers an SMTP rejection with the safe message only, whatever the error carries', async () => {
+    sendMail.mockRejectedValueOnce(Object.assign(new Error('550 5.1.1 <x@y.invalid> unknown'), { responseCode: 550, code: 'EENVELOPE', command: 'RCPT TO' }));
+    const res = await post();
+    expect(res.status).toBe(500);
+    expect(await res.text()).toBe(JSON.stringify({ error: 'Message was rejected by the mail server.' }));
+  });
+  it('names an account whose SMTP sending Microsoft turned off, by code, and no other error', async () => {
+    const reply = '535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled for the Mailbox. Visit https://aka.ms/smtp_auth_disabled for more information.';
+    sendMail.mockRejectedValueOnce(Object.assign(new Error(`Invalid login: ${reply}`), { responseCode: 535, code: 'EAUTH', command: 'AUTH XOAUTH2', response: reply }));
+    let res = await post();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      error: 'Microsoft has turned off sending from mail apps (SMTP) for this account. You can still send from Outlook on the web. For a work or school account, your admin can turn it back on.',
+      code: 'smtp_auth_disabled',
+    });
+    sendMail.mockRejectedValueOnce(Object.assign(new Error('Invalid login: 535 5.7.139 Authentication unsuccessful, basic authentication is disabled.'), { responseCode: 535, code: 'EAUTH' }));
+    res = await post();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Authentication failed. Check your email account credentials.' });
+  });
   it('blocks a concurrent submission', async () => {
     redisClient.set.mockResolvedValueOnce(null);
     expect((await post()).status).toBe(409);

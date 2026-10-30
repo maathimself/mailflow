@@ -1,3 +1,4 @@
+import { pluginRegistry } from '../plugins/registry.js';
 import { query } from '../services/db.js';
 import { recordSyncSignal } from '../services/diagnosticsRing.js';
 
@@ -215,16 +216,17 @@ export function adjustFolderCounts(accountId, path, totalDelta, unreadDelta) {
 // each returned folder gets its unread count adjusted. Callers gate on the message
 // actually having siblings, so a plain single-folder message never reaches here.
 export async function fanOutReadToSiblings(accountId, messageId, read) {
-  if (!messageId) return; // no shared header → no siblings to fan out to
+  if (!messageId) return []; // no shared header → no siblings to fan out to
   const res = await query(
     `UPDATE messages SET is_read = $1, read_changed_at = NOW()
       WHERE account_id = $2 AND message_id = $3 AND is_read <> $1
-      RETURNING folder`,
+      RETURNING id, account_id, uid, folder, message_id, is_deleted`,
     [read, accountId, messageId]
   );
   for (const row of res.rows) {
     adjustFolderCounts(accountId, row.folder, 0, read ? -1 : 1);
   }
+  return res.rows;
 }
 
 // Star fan-out counterpart. Stars never contribute to folder unread counts (the star
@@ -246,7 +248,7 @@ export async function fanOutStarToSiblings(accountId, messageId, starred) {
 // single array param so the statement composes with the route's 500-id cap without
 // per-id placeholder expansion.
 export async function fanOutBulkReadToSiblings(actedIds, read) {
-  if (!actedIds.length) return;
+  if (!actedIds.length) return [];
   const res = await query(
     `UPDATE messages m SET is_read = $1, read_changed_at = NOW()
        FROM (
@@ -258,7 +260,7 @@ export async function fanOutBulkReadToSiblings(actedIds, read) {
         AND m.message_id = acted.message_id
         AND m.is_read <> $1
         AND m.id <> ALL($2::uuid[])
-      RETURNING m.account_id, m.folder`,
+      RETURNING m.id, m.account_id, m.uid, m.folder, m.message_id, m.is_deleted`,
     [read, actedIds]
   );
   const deltas = {};
@@ -270,6 +272,51 @@ export async function fanOutBulkReadToSiblings(actedIds, read) {
   for (const { accountId, folder, unread } of Object.values(deltas)) {
     adjustFolderCounts(accountId, folder, 0, unread);
   }
+  return res.rows;
+}
+
+// Header identity and a configured label relationship are conservative copy evidence.
+// Check every live row, not just flipped rows, and require an unchanged acted witness.
+// Display bodies are mutable caches, so their representation cannot disprove a copy.
+export async function readCopyTargets(accountId, messageId, actedRows) {
+  if (typeof messageId !== 'string') return [];
+  const bare = messageId.trim().replace(/^<([^<>]+)>$/, '$1');
+  if (!/^[^<>\s@]+@[^<>\s@]+$/.test(bare)) return [];
+  const folders = new Set((await pluginRegistry.collectHook('relocateExemptFolders', { accountId })).flat());
+  if (!folders.size) return [];
+  const { rows } = await query(
+    `SELECT id, account_id, uid, folder, message_id, is_deleted, is_read, from_email, date, subject,
+            to_addresses, cc_addresses
+       FROM messages WHERE account_id = $1 AND message_id = $2 AND is_deleted = false LIMIT 65`,
+    [accountId, messageId]
+  );
+  if (rows.length < 2 || rows.length > 64 || new Set(rows.map(r => r.folder)).size !== rows.length) return [];
+  if (!rows.some(r => folders.has(r.folder))) return [];
+  const witnesses = Array.isArray(actedRows) ? actedRows : [actedRows];
+  if (!witnesses.some(w => w && !w.is_deleted && rows.some(r => r.id === w.id && r.folder === w.folder && Number(r.uid) === Number(w.uid)))) return [];
+  if (rows.some(r => !r.from_email || !r.date || !Number.isSafeInteger(Number(r.uid)) || Number(r.uid) <= 0)) return [];
+  for (const field of ['from_email', 'date', 'subject', 'to_addresses', 'cc_addresses']) {
+    if (new Set(rows.map(r => JSON.stringify(r[field] ?? null))).size > 1) return [];
+  }
+  return rows;
+}
+
+// The caller may detach added-copy work after its clicked write. A failed copy enters the
+// existing retry queue; successful IDs describe confirmed STOREs only.
+export async function pushSeen(manager, account, accountId, rows, read) {
+  const unique = [...new Map(rows.filter(r => !r.is_deleted && r.is_read === read && Number(r.uid) > 0).map(r => [r.id, r])).values()];
+  const pushedIds = [];
+  await Promise.all(unique.map(async row => {
+    try {
+      await manager.setFlag(account, row.uid, row.folder, '\\Seen', read);
+      manager._resolveFlagPush(accountId, row.id, '\\Seen');
+      pushedIds.push(row.id);
+    } catch (err) {
+      console.warn(`Read-copy push failed for ${row.id}:`, err.message);
+      manager._enqueueFlagPush(accountId, row.id, '\\Seen', read);
+    }
+  }));
+  return pushedIds;
 }
 
 // Determine what action to take when deleting a message.

@@ -30,7 +30,7 @@ async function todoistFetch(token, method, path, body) {
     // frontend signs the user out on any 401 outside /auth/.
     if (res.status === 401) {
       throw Object.assign(
-        new Error('Todoist rejected the saved API token. Disconnect Todoist in MailFlow Settings → Integrations → Apps and connect it again with a new token.'),
+        new Error('Todoist rejected the saved API token. Disconnect Todoist in MailFlow Settings → Integrations and connect it again with a new token.'),
         { status: 409 },
       );
     }

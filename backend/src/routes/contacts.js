@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query } from '../services/db.js';
+import { findOwnedContact, CONTACT_READ_ONLY } from '../services/ownership.js';
 import { requireAuth } from '../middleware/auth.js';
 import { generateVCard, photoContentType } from '../utils/vcard.js';
 import { safeFetch } from '../services/safeFetch.js';
@@ -217,19 +218,14 @@ router.get('/gravatar', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const userId = req.session.userId;
   try {
-    const result = await query(
-      `SELECT c.id, c.uid, c.display_name, c.first_name, c.last_name,
+    const contact = await findOwnedContact(userId, req.params.id, {
+      columns: `c.id, c.uid, c.display_name, c.first_name, c.last_name,
               c.primary_email, c.emails, c.phones, c.organization,
               c.notes, c.photo_data, c.is_auto, c.send_count, c.last_sent,
-              c.etag, c.vcard, c.created_at, c.updated_at,
-              (ab.source = 'carddav') AS read_only
-       FROM contacts c
-       JOIN address_books ab ON ab.id = c.address_book_id
-       WHERE c.id = $1 AND c.user_id = $2`,
-      [req.params.id, userId]
-    );
-    if (!result.rows.length) return res.status(404).json({ error: 'Contact not found' });
-    res.json(result.rows[0]);
+              c.etag, c.vcard, c.created_at, c.updated_at, ${CONTACT_READ_ONLY}`,
+    });
+    if (!contact) return res.status(404).json({ error: 'Contact not found' });
+    res.json(contact);
   } catch (err) {
     console.error('Contact get error:', err);
     res.status(500).json({ error: 'Failed to fetch contact' });
@@ -300,14 +296,8 @@ router.patch('/:id', async (req, res) => {
 
   try {
     // Load current contact (with its book source to block edits to synced contacts)
-    const cur = await query(
-      `SELECT c.*, ab.source AS book_source FROM contacts c
-       JOIN address_books ab ON ab.id = c.address_book_id
-       WHERE c.id = $1 AND c.user_id = $2`,
-      [req.params.id, userId]
-    );
-    if (!cur.rows.length) return res.status(404).json({ error: 'Contact not found' });
-    const c = cur.rows[0];
+    const c = await findOwnedContact(userId, req.params.id, { columns: 'c.*, ab.source AS book_source' });
+    if (!c) return res.status(404).json({ error: 'Contact not found' });
     if (c.book_source === 'carddav') {
       return res.status(403).json({ error: 'This contact is synced from CardDAV and is read-only' });
     }
@@ -369,13 +359,9 @@ router.delete('/:id', async (req, res) => {
   const userId = req.session.userId;
   try {
     // Block deletion of CardDAV-synced (read-only) contacts; they reappear on next sync anyway.
-    const owner = await query(
-      `SELECT ab.source FROM contacts c JOIN address_books ab ON ab.id = c.address_book_id
-       WHERE c.id = $1 AND c.user_id = $2`,
-      [req.params.id, userId]
-    );
-    if (!owner.rows.length) return res.status(404).json({ error: 'Contact not found' });
-    if (owner.rows[0].source === 'carddav') {
+    const owned = await findOwnedContact(userId, req.params.id, { columns: 'ab.source' });
+    if (!owned) return res.status(404).json({ error: 'Contact not found' });
+    if (owned.source === 'carddav') {
       return res.status(403).json({ error: 'This contact is synced from CardDAV and is read-only' });
     }
     const result = await query(

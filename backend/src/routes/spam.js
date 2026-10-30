@@ -10,6 +10,7 @@
 
 import { Router } from 'express';
 import { query } from '../services/db.js';
+import { findOwnedAccount, findOwnedMessage } from '../services/ownership.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { tokenize, extractFlagFeatures } from '../services/spamTokenizer.js';
 import { scoreRules } from '../services/spamRules.js';
@@ -234,16 +235,13 @@ router.get('/authserv-ids', requireAdmin, async (req, res, next) => {
     if (!accountId || !UUID_RE.test(accountId)) {
       return res.status(400).json({ error: 'Invalid accountId' });
     }
-    const owned = await query(
-      'SELECT id, trusted_authserv_id FROM email_accounts WHERE id = $1 AND user_id = $2',
-      [accountId, req.session.userId],
-    );
-    if (!owned.rows.length) return res.status(404).json({ error: 'Account not found' });
+    const owned = await findOwnedAccount(req.session.userId, accountId, { columns: 'id, trusted_authserv_id' });
+    if (!owned) return res.status(404).json({ error: 'Account not found' });
 
     const { analyzed, detected } = await detectAuthservIds(accountId);
     res.json({
       accountId,
-      trustedAuthservId: owned.rows[0].trusted_authserv_id ?? null,
+      trustedAuthservId: owned.trusted_authserv_id ?? null,
       analyzed,
       detected,
     });
@@ -257,13 +255,9 @@ router.get('/explain', async (req, res, next) => {
     if (!messageId || !UUID_RE.test(messageId)) {
       return res.status(400).json({ error: 'Invalid messageId' });
     }
-    const data = await query(
-      `SELECT m.*, a.user_id AS owner_id, a.folder_mappings
-       FROM messages m JOIN email_accounts a ON m.account_id = a.id
-       WHERE m.id = $1 AND a.user_id = $2`,
-      [messageId, req.session.userId],
-    );
-    const row = data.rows[0];
+    const row = await findOwnedMessage(req.session.userId, messageId, {
+      columns: 'm.*, a.user_id AS owner_id, a.folder_mappings',
+    });
     if (!row) return res.status(404).json({ error: 'Message not found' });
 
     const storedDetails = typeof row.spam_details === 'string'
@@ -339,12 +333,7 @@ accountSpamRouter.post('/:id/spam/reset-training', async (req, res, next) => {
     if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid account id' });
     const userId = req.session.userId;
 
-    // Ownership check.
-    const owned = await query(
-      'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
-      [id, userId],
-    );
-    if (!owned.rows.length) return res.status(404).json({ error: 'Account not found' });
+    if (!(await findOwnedAccount(userId, id, { columns: 'id' }))) return res.status(404).json({ error: 'Account not found' });
 
     const logRes = await query(
       'DELETE FROM spam_training_log WHERE user_id = $1 AND account_id = $2',

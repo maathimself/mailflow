@@ -13,6 +13,8 @@ import { redisClient } from './redis.js';
 
 const STATUS_TTL_S = 3600;
 const jobs = new Map(); // id -> { userId, run, onCancel, state, timer, promise }
+// Set once a graceful shutdown has begun (beginHeldSendShutdown).
+let shuttingDown = false;
 
 const statusKey = (userId, id) => `send_hold:${userId}:${id}`;
 
@@ -35,9 +37,18 @@ export async function holdSend({ userId, delayMs, run, onCancel }) {
   // Recorded before the timer exists, so a crash at any later point reads as 'pending'.
   await writeStatus(userId, id, { status: 'pending', sendAt });
   const job = { userId, run, onCancel, state: 'pending', timer: null, promise: null };
-  job.timer = setTimeout(() => { start(id); }, delayMs);
   jobs.set(id, job);
+  // A send request already in flight when the shutdown began: its hold would outlive the process,
+  // so it is delivered at once, as the held sends were, and the shutdown waits for it
+  // (flushHeldSends, run again before the exit). Its Undo then finds it already sending.
+  if (shuttingDown) start(id);
+  else job.timer = setTimeout(() => { start(id); }, delayMs);
   return { id, sendAt };
+}
+
+// From here on a new held send is delivered at once rather than held (see holdSend).
+export function beginHeldSendShutdown() {
+  shuttingDown = true;
 }
 
 function start(id) {
@@ -55,6 +66,8 @@ function start(id) {
       await writeStatus(job.userId, id, {
         status: 'failed',
         error: err?.publicMessage || 'Failed to send message. Please try again.',
+        // A failure the composer says in the user's language (outgoingMail.js publicSendCode).
+        ...(err?.publicCode ? { code: err.publicCode } : {}),
       });
     } finally {
       jobs.delete(id);

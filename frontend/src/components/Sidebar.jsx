@@ -16,6 +16,8 @@ import {
   FOLDER_ORDER_DRAG_TYPE,
   folderDropPosition,
   hasRenderedInbox,
+  existingHiddenPaths,
+  moveHiddenPaths,
   resolveFolderOrderDrop,
 } from '../utils/sidebar.js';
 import { useMobile } from '../hooks/useMobile.js';
@@ -23,6 +25,9 @@ import LogoMark from './LogoMark.jsx';
 import ProfileModal from './ProfileModal.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import { SNOOZED_FOLDER } from '../utils/snoozeActions.js';
+import { SCHEDULED_VIEW } from '../utils/scheduledCompose.js';
+import { SendLaterIcon } from './SendLater.jsx';
+import { describeAccountError, needsSignIn } from '../utils/accountErrors.js';
 
 const ICONS = {
   snoozed: (
@@ -264,7 +269,7 @@ export default function Sidebar() {
   const uiScale = useUiScale();
   const {
     accounts, unreadCounts, selectedAccountId, selectedFolder,
-    setSelectedAccount, setShowAdmin, setAdminTab, openCompose,
+    setSelectedAccount, setShowAdmin, setAdminTab, setAccountsIntent, openCompose,
     folders, setFolders, setAccounts, user, setUser, lockScreen, sidebarCollapsed: sidebarCollapsedPref, toggleSidebar,
     blockRemoteImages, setBlockRemoteImages, setMobileSidebarOpen, addNotification,
     searchAllFolders, setSearchAllFolders,
@@ -359,7 +364,7 @@ export default function Sidebar() {
     if (!msgs.length) return;
     msgs.forEach(msg => {
       state.removeMessage(msg.id);
-      if (!msg.is_read) state.decrementUnread(msg.account_id);
+      if (!msg.is_read) state.decrementUnread(msg.account_id, 1, { undoable: true });
     });
     let undone = false;
     const timer = setTimeout(async () => {
@@ -477,6 +482,18 @@ export default function Sidebar() {
     setHiddenFolders(updated);
   }, [hiddenFolders, setHiddenFolders]);
 
+  // Keep a hidden folder hidden under the name MailFlow renamed it to, and forget one MailFlow
+  // deleted, so a new folder made later with the same name is not born hidden (#694).
+  const moveHiddenFolder = useCallback((accountId, oldPath, newPath) => {
+    const all = useStore.getState().hiddenFolders;
+    const current = all[accountId] || [];
+    const next = moveHiddenPaths(current, oldPath, newPath, folders[accountId]);
+    if (next.length === current.length && next.every((p, i) => p === current[i])) return;
+    const updated = { ...all };
+    if (next.length === 0) delete updated[accountId]; else updated[accountId] = next;
+    setHiddenFolders(updated);
+  }, [folders, setHiddenFolders]);
+
   // Loading state for folder ops
   const [folderOpLoading, setFolderOpLoading] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(null); // { message, onConfirm }
@@ -520,6 +537,9 @@ export default function Sidebar() {
 
   const isUnified = selectedAccountId === null;
   const snoozedCount = useStore(s => s.snoozedCount);
+  const scheduledCount = useStore(s => s.scheduledCount);
+  const scheduledAttention = useStore(s => s.scheduledAttention);
+  const isScheduledView = isUnified && selectedFolder === SCHEDULED_VIEW;
 
   // Focus rename/create inputs when they appear
   useEffect(() => {
@@ -579,6 +599,7 @@ export default function Sidebar() {
     setFolderOpLoading(true);
     try {
       const { newPath } = await api.renameFolder(renamingFolder.accountId, renamingFolder.path, renamingFolder.value.trim());
+      if (newPath) moveHiddenFolder(renamingFolder.accountId, renamingFolder.path, newPath);
       const updated = await api.getFolders(renamingFolder.accountId);
       setFolders(renamingFolder.accountId, updated);
       // If we were viewing the renamed folder, navigate to it
@@ -603,6 +624,7 @@ export default function Sidebar() {
       onConfirm: async () => {
         try {
           await api.deleteFolder(accountId, folderPath);
+          moveHiddenFolder(accountId, folderPath, null);
           const updated = await api.getFolders(accountId);
           setFolders(accountId, updated);
           if (selectedAccountId === accountId && selectedFolder === folderPath) {
@@ -765,6 +787,15 @@ export default function Sidebar() {
     ];
   };
 
+  // Settings > Accounts at this account's row, where its error is explained, optionally
+  // starting "Sign in again" there.
+  const openAccountRow = (account, action = 'focus') => {
+    setAccountsIntent({ accountId: account.id, action });
+    setAdminTab('accounts');
+    setShowAdmin(true);
+    setMobileSidebarOpen(false);
+  };
+
   // ── Account context menu items ─────────────────────────────────────────────
   const buildAccountMenuItems = (account) => {
     const idx = accounts.findIndex(a => a.id === account.id);
@@ -816,8 +847,13 @@ export default function Sidebar() {
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
         action: () => { setAdminTab('accounts'); setShowAdmin(true); },
       },
-      {
-        label: t('sidebar.accountMenu.reconnect'),
+      // An account whose sign-in stopped working is fixed by signing in, not by retrying.
+      needsSignIn(account) ? {
+        label: t('sidebar.accountMenu.signInAgain'),
+        icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>,
+        action: () => openAccountRow(account, 'signIn'),
+      } : {
+        label: t('sidebar.accountMenu.tryAgain'),
         icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>,
         action: () => api.reconnectAccount(account.id).catch(console.error),
       },
@@ -922,7 +958,7 @@ export default function Sidebar() {
             mailboxRow
             icon={ICONS.inbox}
             label={t('sidebar.allInboxes')}
-            active={isUnified && selectedFolder !== SNOOZED_FOLDER && !showContacts}
+            active={isUnified && selectedFolder !== SNOOZED_FOLDER && !isScheduledView && !showContacts}
             collapsed={sidebarCollapsed}
             badge={unreadCounts.total}
             badgeStale={!unreadCounts.complete}
@@ -941,6 +977,23 @@ export default function Sidebar() {
             active={isUnified && selectedFolder === SNOOZED_FOLDER && !showContacts}
             collapsed={sidebarCollapsed}
             onClick={() => setSelectedAccount(null, SNOOZED_FOLDER)}
+          />
+        )}
+
+        {/* Scheduled (#543, design 5.2): every account's scheduled messages. Shown, like Snoozed,
+            while there is any (pending or needing attention) and while it is open. The badge is the
+            pending count; a red dot and the tooltip say how many need attention. */}
+        {(scheduledCount > 0 || scheduledAttention > 0 || isScheduledView) && (
+          <NavItem
+            mailboxRow
+            icon={<SendLaterIcon size={16} />}
+            label={t('sidebar.scheduled')}
+            active={isScheduledView && !showContacts}
+            collapsed={sidebarCollapsed}
+            badge={scheduledCount}
+            badgeTitle={t('sidebar.scheduledPending', { n: scheduledCount })}
+            alert={scheduledAttention > 0 ? t('sidebar.scheduledAttention', { n: scheduledAttention }) : null}
+            onClick={() => setSelectedAccount(null, SCHEDULED_VIEW)}
           />
         )}
 
@@ -1163,7 +1216,8 @@ export default function Sidebar() {
           const expanded = expandedAccounts[account.id];
           const isSelected = selectedAccountId === account.id;
           const accountFolders = folders[account.id] || [];
-          const accountHiddenPaths = hiddenFolders[account.id] || [];
+          // Only hidden folders that still exist: a deleted one must not keep the toggle (#694).
+          const accountHiddenPaths = existingHiddenPaths(hiddenFolders[account.id], accountFolders);
           const showingHidden = showHiddenFor.has(account.id);
 
           const selectInbox = () => setSelectedAccount(account.id, 'INBOX');
@@ -1246,9 +1300,18 @@ export default function Sidebar() {
                         </div>
                       )}
                       {account.sync_error && (
-                        <div style={{ fontSize: 11, color: 'var(--red)' }}>
-                          {t('sidebar.connectionError')}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); openAccountRow(account); }}
+                          title={t('accountErrors.label.openRow')}
+                          style={{
+                            display: 'block', padding: 0, border: 'none', background: 'none', cursor: 'pointer',
+                            fontSize: 11, color: 'var(--red)', textAlign: 'left', textDecoration: 'underline',
+                            textDecorationStyle: 'dotted', textUnderlineOffset: 2,
+                          }}
+                        >
+                          {t(describeAccountError(account).labelKey)}
+                        </button>
                       )}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -2078,8 +2141,13 @@ export default function Sidebar() {
   );
 }
 
-function NavItem({ icon, label, active, collapsed, badge, badgeStale = false, onClick, mailboxRow = false }) {
+// `alert` (the Scheduled entry's "2 need attention") adds a red dot and is said with the label.
+function NavItem({ icon, label, active, collapsed, badge, badgeStale = false, badgeTitle, alert = null, onClick, mailboxRow = false }) {
   const navBadge = unreadBadge({ count: badge, stale: badgeStale, max: 999 });
+  // The name says what the badge and the dot show: "Scheduled, Waiting to be sent: 1, Need
+  // attention: 3". Only an entry with its own badge title (Scheduled) names its count.
+  const parts = [label, badgeTitle && navBadge ? badgeTitle : null, alert].filter(Boolean);
+  const name = parts.length > 1 ? parts.join(', ') : null;
   return (
     <div
       data-mailbox-row={mailboxRow ? '' : undefined}
@@ -2088,8 +2156,8 @@ function NavItem({ icon, label, active, collapsed, badge, badgeStale = false, on
       onKeyDown={activateOnKey(onClick)}
       role="button"
       tabIndex={0}
-      title={collapsedTooltip(label, collapsed)}
-      aria-label={collapsedTooltip(label, collapsed)}
+      title={name || collapsedTooltip(label, collapsed)}
+      aria-label={name || collapsedTooltip(label, collapsed)}
       style={{
         display: 'flex', alignItems: 'center',
         gap: 8, padding: collapsed ? '9px' : '8px 10px',
@@ -2111,8 +2179,11 @@ function NavItem({ icon, label, active, collapsed, badge, badgeStale = false, on
       {!collapsed && (
         <>
           <span style={{ fontSize: 13, fontWeight: active ? 500 : 400, flex: 1 }}>{label}</span>
+          {alert && (
+            <span data-nav-alert="" aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', flexShrink: 0 }} />
+          )}
           {navBadge && (
-            <span title={navBadge.title} style={{
+            <span title={badgeTitle || navBadge.title} style={{
               fontSize: 11, fontWeight: 600, color: 'var(--accent-text)',
               background: 'var(--accent)', padding: '1px 7px',
               borderRadius: 10, minWidth: 20, textAlign: 'center',
@@ -2122,11 +2193,11 @@ function NavItem({ icon, label, active, collapsed, badge, badgeStale = false, on
           )}
         </>
       )}
-      {collapsed && navBadge && (
+      {collapsed && (navBadge || alert) && (
         <div style={{
           position: 'absolute', top: 6, right: 6,
           width: 7, height: 7, borderRadius: '50%',
-          background: 'var(--accent)',
+          background: alert ? 'var(--red)' : 'var(--accent)',
         }} />
       )}
     </div>

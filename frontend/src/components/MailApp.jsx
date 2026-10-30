@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { REPAIR_FLAG, signInResultNotice, trustedWrongAccount } from '../utils/accountErrors.js';
 import InboxReplyDraftObserver from './InboxReplyDraftObserver.js';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
@@ -22,6 +23,15 @@ import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.jsx';
 import { takePendingDeepLink, watchPendingDeepLink } from '../utils/pendingDeepLink.js';
+import { scheduledFeed } from '../utils/scheduledFeed.js';
+import { noticeToast, scheduledLinkId } from '../utils/scheduledView.js';
+import { openScheduledView } from '../utils/scheduledCompose.js';
+import { openSentMessage } from '../utils/openSentMessage.js';
+
+// Opens the Scheduled view at one message, highlighted (a notification link or a toast's Open).
+function openScheduledMessage(id) {
+  openScheduledView(useStore, id);
+}
 
 const ContactsPage = lazy(() => import('./ContactsPage.jsx'));
 const WindowLayer  = lazy(() => import('./WindowLayer.jsx'));
@@ -79,16 +89,6 @@ export default function MailApp() {
 
   const scale = fontSize / 100;
   const hasNativeBridge = Boolean(window.mailflowNative || window.Capacitor?.isNativePlatform?.());
-
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
-      }
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, []);
 
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -271,6 +271,20 @@ export default function MailApp() {
 
   const wsRef = useWebSocket();
 
+  // Scheduled messages (#543, design 5.3): the list and counts follow scheduled_changed, and a
+  // message the sender sent, failed or paused is told in a toast, with View or Open.
+  useEffect(() => scheduledFeed.start({
+    onNotices: (notices) => {
+      for (const notice of notices) {
+        useStore.getState().addNotification(noticeToast(notice, {
+          t,
+          openView: openScheduledMessage,
+          openSent: row => openSentMessage(useStore, { accountId: row.accountId, folder: row.result.sentFolder, messageId: row.result.messageId }),
+        }));
+      }
+    },
+  }), [t]);
+
   // Open a specific message by id (fetch → cache → select). Shared by the on-load
   // deep-link path and the service-worker notification-tap path so both behave
   // identically.
@@ -301,6 +315,9 @@ export default function MailApp() {
   // then open the message. IndexedDB is the reliable channel on iOS (postMessage can
   // be missed on a focus-with-reload, openWindow's URL is ignored on cold launch).
   const openPendingDeepLink = useCallback((url) => {
+    // A scheduled message's push (#543, design 5.3) opens the Scheduled view at that message.
+    const scheduledId = scheduledLinkId(url, window.location.origin);
+    if (scheduledId) { openScheduledMessage(scheduledId); return; }
     try {
       const id = new URL(url, window.location.origin).searchParams.get('m');
       if (id) openDeepLinkMessage(id);
@@ -314,6 +331,11 @@ export default function MailApp() {
   // stored id, plus any target the SW persisted for a notification tap.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const scheduledId = scheduledLinkId(window.location.href);
+    if (scheduledId) {
+      history.replaceState(null, '', window.location.pathname);
+      openScheduledMessage(scheduledId);
+    }
     const deepLinkId = params.get('m') || sessionStorage.getItem('mailflow_deep_link_id');
     if (deepLinkId) {
       sessionStorage.removeItem('mailflow_deep_link_id');
@@ -428,10 +450,13 @@ export default function MailApp() {
     const stopResume = installResumeRefresh({
       doc: document, win: window,
       shouldSkip: () => useStore.getState().isLocked,
+      // The counts request stands for the whole resync: the list reload and the folder requests
+      // fail on their own without saying so, and when the network is not back yet, all of them
+      // do. Its failure has installResumeRefresh run the resync again.
       onResync: () => {
-        refreshCounts();
         refreshFolders();
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        return api.getUnreadCounts().then(setUnreadCounts);
       },
     });
 
@@ -705,13 +730,36 @@ export default function MailApp() {
 
     if (provider) {
       window.history.replaceState({}, '', '/');
+      try { sessionStorage.removeItem(REPAIR_FLAG); } catch { /* storage unavailable */ }
       api.getAccounts()
         .then(accounts => { setAccounts(accounts); })
         .catch(console.error);
       setAdminTab('accounts');
       setShowAdmin(true);
+      // How the first connection went, kept in the session by the sign-in: read it (which also
+      // clears it) and say so here, since no other tab is waiting for it.
+      if (params.get('oauth_result')) {
+        api.oauthResult().then((result) => {
+          const note = signInResultNotice(result, provider);
+          if (note) addNotification({ type: note.type, title: t(note.titleKey, note.values), body: note.bodyKey ? t(note.bodyKey, note.values) : undefined });
+        }).catch(() => {});
+      }
     } else if (oauthError) {
+      // A sign-in that ends in this tab, rather than in the one that started it, says how it went
+      // instead of vanishing. The addresses in a wrong-account answer are shown only for a repair
+      // this tab (or the one that opened it) started: anyone can craft such a link.
       window.history.replaceState({}, '', '/');
+      let repairStarted = false;
+      try { repairStarted = !!sessionStorage.getItem(REPAIR_FLAG); sessionStorage.removeItem(REPAIR_FLAG); } catch { /* storage unavailable */ }
+      const details = params.get('oauth_result') ? api.oauthResult().catch(() => null) : Promise.resolve(null);
+      details.then((result) => {
+        const wrong = trustedWrongAccount(result || { error: oauthError }, repairStarted);
+        addNotification({
+          type: 'error',
+          title: t('accountErrors.signInFailed'),
+          body: wrong ? t('accountErrors.wrongAccount', wrong) : t('accountErrors.signInFailedBody'),
+        });
+      });
     } else if (oidcSuccess) {
       window.history.replaceState({}, '', '/');
       if (oidcSuccess === 'linked') {

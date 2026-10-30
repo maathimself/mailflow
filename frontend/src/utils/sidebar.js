@@ -30,6 +30,29 @@ export function hasRenderedInbox(folders, {
   return !isHidden || Boolean(showingHidden);
 }
 
+// Hidden folders are kept per account as a list of paths in the user's preferences. A folder
+// deleted or renamed at the provider leaves its path in that list (#694), so the sidebar counts
+// and reveals only the hidden folders that still exist. The path itself is kept: a folder missing
+// from LIST is not proof it is gone for good (Gmail's "Show in IMAP" setting, a renamed folder
+// renamed back), and when it comes back it stays hidden, as the user left it.
+export function existingHiddenPaths(hiddenPaths, folders) {
+  if (!Array.isArray(hiddenPaths) || !Array.isArray(folders)) return [];
+  const present = new Set(folders.map(folder => folder?.path));
+  return hiddenPaths.filter(path => present.has(path));
+}
+
+// The hidden paths after MailFlow itself renames a folder (its subfolders move with it, as IMAP
+// RENAME moves them) or deletes one (newPath null: only that folder goes, as with IMAP DELETE).
+export function moveHiddenPaths(hiddenPaths, oldPath, newPath, folders = []) {
+  if (!Array.isArray(hiddenPaths)) return [];
+  if (newPath == null) return hiddenPaths.filter(path => path !== oldPath);
+  const prefix = oldPath + delimiterFor(folders);
+  return hiddenPaths.map(path => {
+    if (path === oldPath) return newPath;
+    return path.startsWith(prefix) ? newPath + path.slice(oldPath.length) : path;
+  });
+}
+
 export const FOLDER_ORDER_DRAG_TYPE = 'application/x-mailflow-folder-order';
 
 function delimiterFor(folders) {

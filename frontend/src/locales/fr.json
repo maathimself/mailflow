@@ -191,6 +191,13 @@
       "aiDismiss": "Ignorer",
       "aiGenerating": "Génération en cours…",
       "aiError": "Erreur IA : {{message}}",
+      "aiReply": "Répondre avec l'IA",
+      "aiReplyPlaceholder": "Que doit dire la réponse ? Ex. : approuver la maquette",
+      "aiReplyInstruction": "Instruction pour la réponse de l'IA",
+      "aiReplyGenerate": "Générer",
+      "aiReplyReading": "Lecture de la conversation…",
+      "aiReplyPartial": "Basée sur la partie la plus récente de la conversation : le reste était trop long pour être envoyé à l'IA.",
+      "aiReplyLeftOut": "Basée sur les {{count}} messages les plus récents de la conversation : les plus anciens ont été laissés de côté.",
       "aiTooLong": "ce brouillon contient {{count}} caractères, plus que les {{max}} que l'IA peut traiter. Raccourcissez-le ou supprimez le texte cité, puis réessayez.",
       "aiNotAllowed": "votre administrateur a désactivé l'IA pour votre compte.",
       "aiFeatureOff": "votre administrateur a désactivé l'aide à la rédaction par IA."
@@ -202,7 +209,81 @@
     "recipientMenu": {
       "copy": "Copier l'adresse",
       "copyAll": "Tout copier dans ce champ"
-    }
+    },
+    "scheduleSend": {
+      "title": "Envoyer plus tard",
+      "tooltip": "Envoyer plus tard (Ctrl+Maj+Entrée)",
+      "tomorrowMorning": "Demain matin",
+      "tomorrowAfternoon": "Demain après-midi",
+      "mondayMorning": "Lundi matin",
+      "pick": "Choisir la date et l'heure",
+      "dateLabel": "Date",
+      "timeLabel": "Heure",
+      "dateTimeLabel": "Date et heure",
+      "sendsAt": "Envoi le {{when}}",
+      "timeZone": "Fuseau horaire : {{zone}}",
+      "schedule": "Programmer l'envoi",
+      "scheduledFor": "Programmé pour le {{when}}",
+      "change": "Modifier",
+      "changeTime": "Changer l'heure",
+      "errors": {
+        "invalid": "Saisissez une date et une heure.",
+        "past": "Ce moment est déjà passé.",
+        "tooSoon": "Choisissez un moment au moins une minute plus tard.",
+        "tooFar": "Choisissez un moment dans les 366 prochains jours.",
+        "clockBehind": "L'horloge de cet appareil retarde de {{minutes}} min sur celle du serveur, pour qui il est {{time}}.",
+        "clockAhead": "L'horloge de cet appareil avance de {{minutes}} min sur celle du serveur, pour qui il est {{time}}.",
+        "holdLost": "Ce message a été ouvert dans une autre fenêtre et ne peut plus être enregistré ici. Votre texte reste ici pour être copié.",
+        "deletedElsewhere": "Ce message a été supprimé ailleurs et ne peut plus être enregistré ici. Votre texte reste ici pour être copié.",
+        "sentElsewhere": "Ce message a été envoyé depuis une autre fenêtre et ne peut plus être enregistré ici. Votre texte reste ici pour être copié.",
+        "versionConflict": "Ce message a été modifié ailleurs. Fermez-le et rouvrez-le depuis Programmés pour voir la dernière version.",
+        "notHeld": "Ce message n'est pas ouvert en modification ici. Fermez-le et rouvrez-le depuis Programmés.",
+        "pickNewTime": "L'heure prévue est passée. Choisissez-en une nouvelle.",
+        "failed": "Le message n'a pas pu être programmé.",
+        "tooMany": "Vous avez déjà le nombre maximal de messages programmés. Envoyez-en ou supprimez-en d'abord.",
+        "tooMuchStorage": "Vos messages programmés occupent déjà tout l'espace disponible. Envoyez-en ou supprimez-en d'abord.",
+        "rateLimited": "Trop de messages programmés en peu de temps. Réessayez dans une minute.",
+        "payloadTooLarge": "Ce message est trop volumineux pour être programmé : son texte et ses images intégrées prennent trop de place.",
+        "heldElsewhere": "Ce message est ouvert dans une autre fenêtre."
+      },
+      "edit": {
+        "update": "Mettre à jour",
+        "updating": "Enregistrement…",
+        "options": "Options de programmation",
+        "unschedule": "Déprogrammer (enregistrer comme brouillon)",
+        "unscheduleTitle": "Déplacer ce message dans les brouillons ?",
+        "unscheduleGo": "Enregistrer comme brouillon",
+        "unscheduled": "Déplacé dans les brouillons",
+        "unscheduleKept": "Enregistré dans les brouillons, mais le message programmé l'est toujours : cette fenêtre ne le détenait plus. Supprimez-le dans Programmés s'il ne doit pas partir.",
+        "closeTitle": "Enregistrer les modifications de ce message programmé ?",
+        "saveChanges": "Enregistrer les modifications",
+        "discardChanges": "Abandonner les modifications",
+        "switchBlocked": "Mettez d'abord à jour ou fermez le message programmé que vous modifiez.",
+        "sendNow": "Envoyer maintenant",
+        "pickNewTime": "Choisir une nouvelle heure",
+        "keepPaused": "Laisser en pause",
+        "dueTitle": "Ce message était prévu pour le {{when}}.",
+        "dueBody": "Fermé maintenant, il reste en pause et ne part jamais sans vous.",
+        "keptPaused": "En pause. Reprenez-le depuis Programmés quand il doit partir.",
+        "heldElsewhereBody": "Modifiez-le plutôt ici, et l'autre fenêtre ne pourra plus l'enregistrer.",
+        "takeOver": "Modifier ici plutôt",
+        "close": "Fermer"
+      },
+      "confirm": {
+        "title": "Le programmer à nouveau ?",
+        "go": "Programmer quand même"
+      },
+      "laterToday": "Plus tard aujourd'hui",
+      "undoFailed": "Impossible d'annuler la programmation",
+      "sendNow": {
+        "undone": "Non envoyé. Il est de retour dans Programmés, comme avant.",
+        "undoFailed": "Impossible d'annuler l'envoi immédiat"
+      },
+      "scheduleAnyway": "Programmer malgré tout",
+      "undoFailedOpen": "L'annulation a échoué. Ouvrez-le depuis Programmés."
+    },
+    "selectAccount": "Choisissez un compte d'envoi",
+    "smtpAuthDisabled": "Microsoft a désactivé l'envoi depuis les applications de messagerie (SMTP) pour ce compte. Vous pouvez toujours envoyer depuis Outlook sur le web. Pour un compte professionnel ou scolaire, votre administrateur peut le réactiver."
   },
   "message": {
     "find": {
@@ -252,6 +333,7 @@
     "showOriginal": "Afficher les couleurs d'origine",
     "cannotShowDark": "Cet e-mail ne peut pas être affiché en sombre sans rendre le texte difficile à lire",
     "printConversation": "Imprimer la conversation",
+    "conversationActions": "Actions sur la conversation",
     "preparingPrint": "Préparation de l'impression…",
     "more": "Plus",
     "summarize": "Résumer",
@@ -464,6 +546,7 @@
       "failed": "Impossible d’enregistrer la catégorie pour cet expéditeur"
     },
     "changeLayout": "Changer la disposition",
+    "layout": "Disposition",
     "layouts": {
       "focused": {
         "label": "Concentré",
@@ -488,7 +571,8 @@
     },
     "snoozedUntil": "En attente jusqu'à {{when}}",
     "snoozedEmpty": "Rien en attente",
-    "snoozedEmptyDesc": "Les messages mis en attente patientent ici jusqu'à leur retour."
+    "snoozedEmptyDesc": "Les messages mis en attente patientent ici jusqu'à leur retour.",
+    "menu": "Menu"
   },
   "lockScreen": {
     "subtitle": "Saisissez votre PIN pour déverrouiller",
@@ -514,11 +598,12 @@
     "settings": "Paramètres",
     "lock": "Verrouiller",
     "signOut": "Se déconnecter",
-    "connectionError": "Erreur de connexion",
     "folderMenu": {
       "markAllRead": "Tout marquer comme lu",
       "syncFolder": "Synchroniser le dossier",
       "renameFavorite": "Renommer le favori",
+      "favorite": "Ajouter aux favoris",
+      "unfavorite": "Retirer des favoris",
       "rename": "Renommer",
       "createSubfolder": "Créer un sous-dossier",
       "hide": "Masquer le dossier",
@@ -532,7 +617,8 @@
       "syncNow": "Synchroniser maintenant",
       "syncFoldersNow": "Synchroniser les dossiers maintenant",
       "settings": "Paramètres du compte",
-      "reconnect": "Reconnecter",
+      "tryAgain": "Réessayer",
+      "signInAgain": "Se reconnecter",
       "moveUp": "Déplacer vers le haut",
       "moveDown": "Déplacer vers le bas",
       "moveFailed": "Impossible de réordonner les comptes"
@@ -547,7 +633,141 @@
     "emptied": "Dossier vidé",
     "backToAccounts": "Retour aux comptes",
     "updateAvailable": "Mise à jour disponible : v{{version}}",
-    "snoozed": "En attente"
+    "snoozed": "En attente",
+    "scheduled": "Programmés",
+    "scheduledPending": "En attente d'envoi : {{n}}",
+    "scheduledAttention": "À vérifier : {{n}}",
+    "favorites": "Favoris",
+    "reorderFolder": "Faites glisser pour réorganiser le dossier"
+  },
+  "scheduled": {
+    "refresh": "Actualiser",
+    "loadFailed": "Impossible de charger les messages programmés.",
+    "empty": "Rien de programmé",
+    "emptyDesc": "Utilisez Envoyer plus tard dans l'éditeur.",
+    "moreSent": "Les messages envoyés plus anciens ne sont pas affichés.",
+    "sentMessage": "Message envoyé",
+    "to": "À : {{names}}",
+    "toMore": "À : {{names}} +{{more}}",
+    "detail": "Motif indiqué : {{detail}}",
+    "zoneTime": "{{time}} ({{zone}})",
+    "sections": {
+      "attention": "À vérifier",
+      "scheduled": "Programmé",
+      "sent": "Envoyés",
+      "deleted": "Supprimés"
+    },
+    "when": {
+      "today": "Aujourd'hui {{time}}",
+      "tomorrow": "Demain {{time}}",
+      "yesterday": "Hier {{time}}"
+    },
+    "chip": {
+      "sending": "Envoi en cours",
+      "editing": "En cours de modification",
+      "failed": "Échec",
+      "paused": "En pause",
+      "uncertain": "Vérifiez la remise",
+      "sent": "Envoyé",
+      "sentLate": "Envoyé en retard",
+      "retrying": "Nouvelle tentative",
+      "deleted": "Supprimé"
+    },
+    "reason": {
+      "overdue": "Il avait plus de 6 heures de retard, MailFlow l'a donc retenu. Envoyez-le maintenant ou choisissez une autre heure.",
+      "restored": "Il a été mis en pause lors de la restauration d'une sauvegarde.",
+      "editAbandoned": "Il était ouvert en modification à l'heure prévue.",
+      "accountDisabled": "Son compte est désactivé.",
+      "needsReauth": "Reconnectez-vous au compte pour l'envoyer.",
+      "user": "Vous l'avez mis en pause.",
+      "paused": "Il est en pause.",
+      "smtpRejected": "Le serveur de messagerie l'a refusé.",
+      "tooLarge": "Il est trop volumineux pour le serveur de messagerie.",
+      "config": "Les paramètres d'envoi du compte sont à vérifier.",
+      "tls": "La connexion sécurisée au serveur de messagerie a échoué.",
+      "invalidMessage": "Le message n'a pas pu être assemblé.",
+      "aliasMissing": "L'adresse d'envoi prévue n'existe plus.",
+      "decryptFailed": "Il n'a pas pu être déchiffré sur ce serveur.",
+      "accountMissing": "Son compte n'existe plus.",
+      "gaveUp": "Le serveur de messagerie a échoué à chaque essai, MailFlow a donc arrêté.",
+      "failed": "Il n'a pas pu être envoyé.",
+      "uncertain": "MailFlow s'est arrêté pendant l'envoi. Il a peut-être été remis, peut-être pas. Vérifiez votre dossier Envoyés.",
+      "retrying": "La dernière tentative a échoué. Prochaine tentative : {{when}}.",
+      "deleted": "Peut être restauré jusqu'à {{when}}."
+    },
+    "sent": {
+      "markedSent": "Vous l'avez marqué comme envoyé.",
+      "late": "Envoyé en retard : programmé pour {{scheduled}}, envoyé {{sent}}.",
+      "lateOffline": "Envoyé en retard : programmé pour {{scheduled}}, envoyé {{sent}} car MailFlow était hors ligne.",
+      "refused": "Refusé par le serveur de messagerie pour : {{list}}",
+      "deferred": "Non remis à {{list}} : leur serveur a demandé de réessayer plus tard, et MailFlow ne réessaie pas. Renvoyez-le-leur.",
+      "noSentFolder": "Aucune copie enregistrée : le compte n'a pas de dossier Envoyés.",
+      "noSentCopy": "Impossible d'enregistrer une copie dans Envoyés."
+    },
+    "a11y": {
+      "scheduledFor": "Programmé pour {{when}}",
+      "sentAt": "Envoyé {{when}}",
+      "to": "à {{names}}",
+      "toMore": "à {{names}} et {{more}} autres",
+      "subject": "objet {{subject}}"
+    },
+    "actions": {
+      "edit": "Modifier",
+      "reschedule": "Reprogrammer",
+      "sendNow": "Envoyer maintenant",
+      "resume": "Reprendre",
+      "retry": "Réessayer",
+      "sendAnyway": "Envoyer quand même",
+      "markSent": "Marquer comme envoyé",
+      "cancel": "Supprimer",
+      "delete": "Supprimer définitivement",
+      "viewSent": "Voir dans Envoyés",
+      "remove": "Retirer de la liste",
+      "more": "Plus d'actions",
+      "menu": "Actions du message programmé",
+      "restore": "Restaurer"
+    },
+    "confirm": {
+      "uncertainTitle": "Il a peut-être déjà été remis",
+      "uncertainBody": "MailFlow s'est arrêté pendant l'envoi. Vérifiez d'abord votre dossier Envoyés. L'envoyer à nouveau quand même ?",
+      "restoredTitle": "Mis en pause par une restauration",
+      "restoredBody": "Il a été mis en pause lors de la restauration d'une sauvegarde. Si l'ancien serveur tourne encore, il pourrait l'envoyer aussi. L'envoyer d'ici ?",
+      "restoredGo": "Envoyer d'ici",
+      "sendAnywayTitle": "L'envoyer à nouveau ?",
+      "sendAnywayBody": "Il a peut-être déjà été remis : MailFlow s'est arrêté pendant l'envoi. Vérifiez d'abord votre dossier Envoyés. S'il est parti, les destinataires le recevront deux fois.",
+      "markSentTitle": "Le marquer comme envoyé ?",
+      "markSentBody": "Faites-le si vous l'avez trouvé dans votre dossier Envoyés. MailFlow supprime son contenu et ne l'envoie jamais.",
+      "deleteTitle": "Le supprimer définitivement ?",
+      "deleteBody": "Il ne sera pas envoyé et ne pourra pas être restauré."
+    },
+    "toast": {
+      "resumed": "Repris. Il est en cours d'envoi.",
+      "sendingNow": "Il est en cours d'envoi.",
+      "markedSent": "Marqué comme envoyé",
+      "deleted": "Message programmé supprimé",
+      "deletedForGood": "Supprimé définitivement",
+      "restored": "Restauré",
+      "sent": "Message programmé envoyé",
+      "notSent": "Non envoyé : {{reason}}",
+      "open": "Ouvrir",
+      "restoredPaused": "Restauré et mis en pause. Reprenez-le quand il doit partir."
+    },
+    "errors": {
+      "needsReauth": "Reconnectez-vous d'abord au compte, puis reprenez-le.",
+      "accountDisabled": "Réactivez d'abord le compte, puis reprenez-le.",
+      "undoExpired": "Trop tard pour annuler : le message est en train de partir.",
+      "notFound": "Ce message programmé n'existe plus.",
+      "sending": "Il est en train d'être envoyé.",
+      "aboutToSend": "Il est sur le point d'être envoyé.",
+      "sent": "Il a déjà été envoyé.",
+      "cancelled": "Il a été supprimé.",
+      "editing": "Il est ouvert en modification dans une autre fenêtre.",
+      "failed": "Le message programmé n'a pas pu être modifié.",
+      "restoreFailed": "Impossible de le restaurer",
+      "restoreExpired": "Il ne peut plus être restauré.",
+      "linkNotFound": "Ce message programmé est introuvable."
+    },
+    "serverReply": "Réponse du serveur : {{detail}}"
   },
   "contextMenu": {
     "find": "Rechercher",
@@ -844,7 +1064,8 @@
       "groupAdmin": "Administration",
       "behavior": "Comportement",
       "plugins": "Extensions",
-      "backup": "Sauvegarde"
+      "backup": "Sauvegarde",
+      "mailSignIn": "Fournisseurs de messagerie"
     },
     "rules": {
       "title": "Règles de boîte de réception",
@@ -973,7 +1194,8 @@
       "errorRequired": "L'e-mail, le nom d'utilisateur et le serveur IMAP sont requis",
       "errorPasswordRequired": "Le mot de passe est requis pour les nouveaux comptes",
       "microsoftImapUnsupported": "Outlook.com / Hotmail nécessite OAuth2 (Modern Auth)",
-      "microsoftImapNote": "Microsoft a désactivé la connexion IMAP par mot de passe (authentification de base) pour les comptes personnels Outlook.com, Hotmail et Live. Vous pouvez toujours connecter ces comptes via Microsoft OAuth2 (Modern Auth) : configurez-le dans Intégrations → Microsoft 365 / Outlook.com. La connexion par code d'appareil convient le mieux aux comptes personnels et ne nécessite aucun mot de passe d'application.",
+      "microsoftImapNote": "Microsoft n'accepte plus les mots de passe pour les boîtes Outlook.com, Hotmail, Live et MSN, et la connexion avec Microsoft n'est pas configurée sur ce serveur. Demandez à votre administrateur de l'activer dans Fournisseurs de messagerie.",
+      "microsoftImapNoteReady": "Microsoft n'accepte plus les mots de passe pour les boîtes Outlook.com, Hotmail, Live et MSN. Ajoutez plutôt cette boîte avec « Se connecter avec Microsoft » dans Ajouter un compte.",
       "reindex": "Réindexer pour la recherche",
       "reindexing": "Indexation des messages...",
       "reindexProgress": "{{synced}} / {{total}} messages indexés",
@@ -997,7 +1219,12 @@
       "trustedAuthservDetected": "Vus dans vos messages récents (cliquez pour utiliser) :",
       "trustedAuthservDetectedNone": "Pas encore de données : les messages sont analysés lorsque l'antispam est actif pour ce compte.",
       "trustedAuthservWarn": "Ne faites confiance qu'à un ID que vous reconnaissez comme le serveur de réception de votre fournisseur.",
-      "enabledGlobally": "Activé globalement"
+      "enabledGlobally": "Activé globalement",
+      "microsoftImapNoteSignIn": "Microsoft n'accepte plus les mots de passe pour les boîtes Outlook.com, Hotmail, Live et MSN. Connectez-vous plutôt avec Microsoft : aucun mot de passe d'application n'est nécessaire.",
+      "deleteScheduled": "Messages programmés pas encore envoyés supprimés avec lui : {{n}}.",
+      "deleteTitle": "Retirer le compte ?",
+      "deleteBody": "Tous les messages synchronisés de ce compte seront supprimés. Cette action est irréversible.",
+      "deleteConfirm": "Retirer"
     },
     "folderMappings": {
       "title": "Mappage des dossiers",
@@ -1505,7 +1732,7 @@
     },
     "sso": {
       "title": "Authentification unique",
-      "description": "Configurez des fournisseurs OIDC externes pour que les utilisateurs puissent se connecter avec leurs comptes d'organisation.",
+      "description": "Comment les utilisateurs se connectent à MailFlow lui-même, via le fournisseur d'identité de votre organisation (OIDC). La connexion des boîtes mail se trouve dans Fournisseurs de messagerie.",
       "empty": "Aucun fournisseur SSO configuré pour l'instant.",
       "addProvider": "+ Ajouter un fournisseur SSO",
       "templatePickerTitle": "Choisir un modèle de fournisseur",
@@ -1573,22 +1800,14 @@
     "integrations": {
       "title": "Intégrations",
       "loading": "Chargement…",
-      "tabEmailProviders": "Fournisseurs de messagerie",
-      "tabApps": "Applications",
       "microsoft": {
-        "title": "Microsoft 365 / Outlook.com",
-        "description": "OAuth2 pour les comptes Microsoft professionnels, scolaires ou personnels (Outlook.com, Hotmail)",
-        "configured": "Configuré",
-        "notConfigured": "Non configuré",
-        "redirecting": "Redirection…",
-        "connect": "Connecter un compte Microsoft",
         "setupTitle": "Configuration de l'inscription d'application Azure",
         "step1": "Aller sur portal.azure.com → Microsoft Entra ID → Inscriptions d'applications → Nouvelle inscription. Sous 'Types de comptes pris en charge', sélectionner 'Comptes dans un annuaire organisationnel et comptes personnels Microsoft' pour autoriser les connexions Outlook.com/Hotmail",
         "step2": "Définir le type d'URI de redirection sur Web et coller l'URI indiqué ci-dessous",
         "step3": "Autorisations d'API → Ajouter une autorisation → API utilisées par mon organisation (chercher 'Exchange' si absente) → Office 365 Exchange Online → Déléguée → IMAP.AccessAsUser.All et SMTP.Send",
         "step4": "Autorisations d'API → Ajouter une autorisation → Microsoft Graph → Déléguée → offline_access, openid, email, profile",
-        "step5": "Cliquer sur Accorder le consentement administrateur pour votre organisation (comptes professionnels uniquement — les comptes personnels ignorent cette étape)",
-        "step6": "Certificats et secrets → Nouveau secret client — copier la Valeur (pas l'ID)",
+        "step5": "Cliquer sur Accorder le consentement administrateur pour votre organisation (comptes professionnels uniquement, les comptes personnels ignorent cette étape)",
+        "step6": "Certificats et secrets → Nouveau secret client : copier la Valeur (pas l'ID)",
         "clientId": "ID d'application (client)",
         "clientIdPh": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
         "tenantId": "ID de répertoire (locataire)",
@@ -1599,30 +1818,13 @@
         "redirectUri": "URI de redirection",
         "redirectUriNote": "Doit correspondre exactement à l'URI de redirection enregistrée dans Azure. Suggestion : {{uri}}",
         "save": "Enregistrer la configuration",
-        "savedNote": "Configuration enregistrée. Cliquez sur « Connecter un compte » pour autoriser.",
-        "connectedNote": "Compte Microsoft 365 connecté avec succès ! Vérifiez l'onglet Comptes.",
-        "userNoteConfigured": "Votre administrateur a configuré la connexion Microsoft 365. Connectez votre compte Outlook.com, Hotmail ou Microsoft 365 ci-dessous.",
-        "userNoteNotConfigured": "La connexion Microsoft 365 n'a pas encore été configurée par un administrateur. Veuillez demander à votre administrateur de la configurer.",
-        "remove": "Supprimer",
-        "deviceCodeTitle": "Connexion par code d'appareil",
-        "deviceCodeNote": "Aucun URI de redirection ni secret client requis. Dans Azure, allez dans Authentification et activez 'Autoriser les flux de clients publics'. Idéal pour les comptes Outlook.com / Hotmail personnels.",
-        "deviceCodeStart": "Démarrer le flux de code d'appareil",
-        "deviceCodeInstructions": "Visitez le lien ci-dessous sur n'importe quel appareil et entrez le code pour autoriser MailFlow :",
-        "deviceCodeVisit": "Visitez :",
-        "deviceCodeEnter": "Entrez le code :",
-        "deviceCodeWaiting": "En attente d'autorisation…",
-        "deviceCodeExpired": "Code expiré. Recommencez.",
-        "deviceCodeDeclined": "L'autorisation a été refusée.",
-        "deviceCodeError": "Une erreur s'est produite. Veuillez réessayer.",
-        "deviceCodeCancel": "Annuler"
+        "remove": "Supprimer"
       },
       "google": {
         "title": "Gmail / Google Workspace",
         "description": "OAuth2 pour les boîtes Gmail et Google Workspace — nécessaire lorsqu'un administrateur a désactivé les mots de passe d'application",
         "configured": "Configuré",
         "notConfigured": "Non configuré",
-        "redirecting": "Redirection…",
-        "connect": "Connecter un compte Google",
         "setupTitle": "Configuration du client OAuth Google Cloud",
         "step1": "Rendez-vous sur console.cloud.google.com et sélectionnez (ou créez) un projet. Pour un domaine Workspace, connectez-vous avec un compte de ce domaine afin que le projet appartienne à l'organisation",
         "step2": "API et services → Bibliothèque → activez l'API Gmail",
@@ -1636,10 +1838,6 @@
         "redirectUri": "URI de redirection",
         "redirectUriNote": "Elle doit correspondre exactement à une URI de redirection autorisée sur le client OAuth. Suggestion : {{uri}}",
         "save": "Enregistrer la configuration",
-        "savedNote": "Configuration enregistrée. Cliquez sur « Connecter un compte Google » pour autoriser.",
-        "connectedNote": "Compte Google connecté avec succès ! Consultez l'onglet Comptes.",
-        "userNoteConfigured": "Votre administrateur a configuré la connexion Google. Connectez votre compte Gmail ou Google Workspace ci-dessous.",
-        "userNoteNotConfigured": "La connexion Google n'a pas encore été configurée par un administrateur. Veuillez le lui demander.",
         "remove": "Supprimer"
       },
       "todoist": {
@@ -1699,7 +1897,9 @@
       "sourceCode": "Code source",
       "sponsor": "Soutenir le développement",
       "kofi": "Ko-fi",
-      "githubSponsors": "GitHub Sponsors"
+      "githubSponsors": "GitHub Sponsors",
+      "businessLicense": "Licence entreprise",
+      "sponsorBlurb": "MailFlow est développé et maintenu par une seule personne. Les parrainages financent le temps consacré aux correctifs, aux revues de code et aux nouvelles versions."
     },
     "search": {
       "placeholder": "Rechercher dans les paramètres…",
@@ -1903,6 +2103,7 @@
     "show": "Afficher la barre latérale droite"
   },
   "gtd": {
+    "oldestLabeledAge": "{{state}} : âge du plus ancien message portant cette étiquette (jours) : {{count}}",
     "title": "GTD",
     "inbox": "Boîte de réception",
     "waiting": "En attente",
@@ -1916,14 +2117,18 @@
     "tabEmpty": "Rien ici pour l'instant",
     "removeFrom": "Retirer de {{state}}",
     "classified": "Étiquette appliquée",
+    "classifiedMany": "{{count}} étiquetés {{state}}",
+    "classifiedSome": "{{count}} sur {{total}} étiquetés {{state}}",
     "classifyFailed": "Impossible d'appliquer l'étiquette",
     "undoFailed": "Impossible d'annuler l'étiquette",
     "removed": "Étiquette retirée",
     "removeFailed": "Impossible de retirer l'étiquette",
     "onlyCopy": "C'est la seule copie du message : retirer le libellé la supprimerait. Archivez-le ou déplacez-le plutôt.",
+    "labelChanged": "Ce libellé a changé sur le serveur et n'a pas été retiré. Actualisez et réessayez.",
     "done": "Marquer comme terminé",
     "doneFailed": "Impossible de marquer comme terminé",
     "doneArchiveFailed": "Marqué comme terminé, mais l'archivage a échoué — toujours dans la boîte de réception",
+    "doneThreadRemains": "Certains messages de cette conversation n'ont pas pu être retirés, elle reste donc dans sa section GTD",
     "state": {
       "todo": "À faire",
       "watch": "Surveiller",
@@ -1956,5 +2161,155 @@
     "trash": "Corbeille",
     "spam": "Indésirables",
     "archive": "Archives"
+  },
+  "accountErrors": {
+    "label": {
+      "turnOnImap": "Activer IMAP",
+      "imapOff": "IMAP désactivé",
+      "signInAgain": "Se reconnecter",
+      "cantConnect": "Connexion impossible",
+      "openRow": "Voir le problème et comment le résoudre"
+    },
+    "imapOffPersonal": {
+      "title": "Outlook.com bloque les applications de messagerie",
+      "body": "Microsoft vous a connecté, mais IMAP est désactivé pour cette boîte aux lettres. Pour l'activer :",
+      "step1": "Ouvrez Outlook.com et connectez-vous.",
+      "step2": "Allez dans Paramètres > Courrier > Transfert et IMAP.",
+      "step3": "Activez « Autoriser les appareils et les applications à utiliser IMAP », puis sélectionnez Enregistrer.",
+      "outro": "Revenez ensuite ici et sélectionnez Réessayer."
+    },
+    "imapOffWork": {
+      "title": "IMAP est désactivé pour cette boîte aux lettres",
+      "body": "Microsoft vous a connecté, mais votre organisation a désactivé IMAP pour {{email}}. Demandez à votre service informatique de l'activer, puis sélectionnez Réessayer."
+    },
+    "signIn": {
+      "title": "Se reconnecter à Microsoft",
+      "titleGoogle": "Se reconnecter à Google",
+      "body": "La connexion enregistrée par MailFlow pour ce compte ne fonctionne plus. Cela arrive après un changement de mot de passe, après une longue période sans utilisation ou lorsque l'accès a été retiré dans les paramètres de votre compte."
+    },
+    "appConfig": {
+      "title": "La connexion de ce compte n'est pas configurée correctement",
+      "bodyUser": "Le fournisseur de messagerie a refusé l'application avec laquelle MailFlow se connecte. Demandez à votre administrateur de vérifier les paramètres de connexion.",
+      "bodyAdmin": "Le fournisseur de messagerie a refusé l'application avec laquelle MailFlow se connecte. Vérifiez ses paramètres dans Fournisseurs de messagerie. Les détails ci-dessous indiquent la réponse du fournisseur."
+    },
+    "authFailed": {
+      "title": "Le serveur a refusé le mot de passe",
+      "body": "Le serveur de messagerie n'a pas accepté le nom d'utilisateur ou le mot de passe de ce compte. Si vous avez changé de mot de passe ou utilisez un mot de passe d'application, mettez-le à jour avec Modifier le compte."
+    },
+    "connection": {
+      "title": "MailFlow ne parvient pas à se connecter à ce compte",
+      "body": "MailFlow continue d'essayer de lui-même. Les détails ci-dessous indiquent la réponse du serveur."
+    },
+    "action": {
+      "openOutlook": "Ouvrir Outlook.com",
+      "retry": "Réessayer",
+      "signIn": "Se reconnecter",
+      "edit": "Modifier le compte"
+    },
+    "details": "Détails",
+    "wrongAccount": "Vous vous êtes connecté en tant que {{signedInAs}}, et non {{expected}}. Connectez-vous avec {{expected}} pour réparer ce compte.",
+    "signInDialog": {
+      "title": "Se reconnecter",
+      "body": "Connectez-vous en tant que {{email}} pour reconnecter ce compte.",
+      "success": "Connecté. MailFlow reconnecte ce compte.",
+      "continueGoogle": "Continuer vers Google",
+      "waitingGoogle": "Terminez la connexion sur la page Google, puis revenez ici."
+    },
+    "signInFailed": "La connexion n'a pas fonctionné",
+    "signInFailedBody": "Recommencez depuis le compte dans Paramètres > Comptes."
+  },
+  "addAccount": {
+    "title": "Ajouter un compte de messagerie",
+    "emailLabel": "Votre adresse e-mail",
+    "continue": "Continuer",
+    "invalidEmail": "Saisissez une adresse e-mail comme vous@example.com.",
+    "orChoose": "Ou choisissez votre fournisseur",
+    "tile": {
+      "outlook": "Outlook.com, Hotmail, Live, MSN",
+      "outlookSub": "Se connecter avec Microsoft",
+      "work": "Microsoft 365 (travail ou école)",
+      "workSub": "Se connecter avec le compte Microsoft de votre organisation",
+      "gmail": "Gmail",
+      "gmailSub": "Utiliser un mot de passe d'application",
+      "gmailSignIn": "Se connecter avec Google",
+      "yahoo": "Yahoo Mail",
+      "yahooSub": "Utiliser un mot de passe d'application",
+      "icloud": "iCloud Mail",
+      "icloudSub": "Utiliser un mot de passe pour app",
+      "other": "Autre (IMAP)",
+      "otherSub": "Saisir les paramètres du serveur"
+    },
+    "personalOff": "Non disponible sur ce serveur.",
+    "workOff": "Non disponible sur ce serveur.",
+    "openSettings": "Ouvrir les paramètres des fournisseurs de messagerie"
+  },
+  "msSignIn": {
+    "titlePersonal": "Se connecter avec Microsoft",
+    "titleWork": "Se connecter avec votre compte professionnel ou scolaire",
+    "beforeTitle": "Avant de commencer",
+    "beforeBody": "Outlook.com doit autoriser les applications de messagerie. Si vous ne l'avez jamais fait :",
+    "step1": "Ouvrez la page de connexion de Microsoft.",
+    "step1Button": "Ouvrir la connexion Microsoft",
+    "step2": "Saisissez-y ce code, puis suivez les étapes sur la page de Microsoft.",
+    "copy": "Copier le code",
+    "copied": "Copié",
+    "waiting": "En attente de la fin de votre connexion sur la page de Microsoft…",
+    "starting": "Obtention d'un code auprès de Microsoft…",
+    "checking": "Vérification que MailFlow peut accéder à votre boîte aux lettres…",
+    "connected": "{{email}} est connecté. Vos e-mails se synchronisent.",
+    "stillConnecting": "Connecté en tant que {{email}}. MailFlow établit encore la connexion et continue d'essayer de lui-même. La liste des comptes indique quand il est prêt.",
+    "declined": "Vous avez annulé la connexion sur la page de Microsoft.",
+    "expired": "Le code a expiré avant la fin de la connexion. Les codes sont valables 15 minutes.",
+    "error": "La connexion Microsoft n'a pas fonctionné.",
+    "newCode": "Obtenir un nouveau code",
+    "startOver": "Recommencer",
+    "done": "Terminé",
+    "finePrintShared": "Microsoft peut indiquer que MailFlow est une application non vérifiée. C'est normal : l'application partagée de MailFlow ne fait qu'identifier MailFlow auprès de Microsoft. Vous vous connectez sur la page de Microsoft, et Microsoft envoie l'accès directement à ce serveur.",
+    "finePrintOwn": "Vous vous connectez sur la page de Microsoft, et Microsoft envoie l'accès directement à ce serveur.",
+    "continueMicrosoft": "Continuer vers Microsoft",
+    "redirectWaiting": "Terminez la connexion sur la page Microsoft qui s'est ouverte, puis revenez ici.",
+    "useCode": "Utiliser un code à la place",
+    "useRedirect": "Se connecter sur la page de Microsoft à la place",
+    "back": "Retour",
+    "lost": "MailFlow a perdu la trace de cette connexion, par exemple parce que le serveur a redémarré. Si vous avez terminé la connexion sur la page de Microsoft, le compte est peut-être déjà dans votre liste.",
+    "checkAccounts": "Vérifier vos comptes"
+  },
+  "mailSignIn": {
+    "title": "Fournisseurs de messagerie",
+    "description": "Comment MailFlow se connecte aux boîtes Microsoft et Google. C'est distinct de l'authentification unique (SSO), qui permet de se connecter à MailFlow lui-même. Chacun ajoute ses propres comptes dans Comptes > Ajouter un compte.",
+    "required": "Remplissez d'abord les champs obligatoires.",
+    "redirectRequired": "Google a besoin d'un URI de redirection : celui enregistré sur le client OAuth, qui se termine par /oauth/google/callback.",
+    "saved": "Enregistré.",
+    "ms": {
+      "title": "Microsoft",
+      "description": "Boîtes Outlook.com, Hotmail, Live, MSN et Microsoft 365",
+      "personalTitle": "Comptes personnels (Outlook.com, Hotmail, Live, MSN)",
+      "statusShared": "Utilise l'application partagée de MailFlow",
+      "statusOwn": "Utilise votre propre application",
+      "statusOff": "Désactivé",
+      "sharedSwitch": "Autoriser la connexion avec l'application partagée de MailFlow",
+      "sharedSwitchDesc": "Aucune configuration nécessaire. Les comptes déjà connectés continuent de fonctionner si vous la désactivez.",
+      "ownHandlesPersonal": "Votre propre application gère les comptes personnels, l'application partagée de MailFlow n'est donc pas utilisée.",
+      "workTitle": "Comptes professionnels et scolaires (Microsoft 365)",
+      "workOff": "Non configuré",
+      "setupToggle": "Configurer votre propre application Microsoft Entra"
+    },
+    "google": {
+      "setupToggle": "Configurer votre propre client OAuth Google"
+    }
+  },
+  "accountForm": {
+    "signedInMicrosoft": "Connecté avec Microsoft en tant que {{email}}",
+    "signedInGoogle": "Connecté avec Google en tant que {{email}}",
+    "signedInNote": "Le serveur provient de cette connexion. Si le compte ne se connecte plus, reconnectez-vous.",
+    "mailboxLabel": "Boîte aux lettres à ouvrir",
+    "mailboxHelp": "Pour une boîte partagée ou déléguée, saisissez son adresse. Laissez tel quel pour votre propre boîte."
+  },
+  "googleSignIn": {
+    "title": "Se connecter avec Google",
+    "finePrint": "Vous vous connectez sur la page de Google, et Google envoie l'accès directement à ce serveur.",
+    "formNote": "Les boîtes Gmail et Google Workspace peuvent se connecter avec Google au lieu d'un mot de passe d'application.",
+    "appPasswordNote": "Gmail demande un mot de passe d'application, pas votre mot de passe habituel. Activez la validation en deux étapes de votre compte Google, puis créez un mot de passe d'application et saisissez-le dans le champ du mot de passe.",
+    "createAppPassword": "Créer un mot de passe d'application"
   }
 }

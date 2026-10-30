@@ -32,7 +32,7 @@ vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./spamPipeline.js', () => ({ classifyAndTagMessage: vi.fn() }));
 vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }));
 
-import { acquirePooledClient, releasePooledClient, evictPool, POOL_SIZE, ACQUIRE_TIMEOUT_MS, POOL_REFRESH_TIMEOUT_MS } from './imapManager.js';
+import { acquirePooledClient, releasePooledClient, evictPool, registerPoolSecondaryGate, POOL_SIZE, ACQUIRE_TIMEOUT_MS, POOL_REFRESH_TIMEOUT_MS } from './imapManager.js';
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
 import { resolveForConnection } from './hostValidation.js';
@@ -253,5 +253,74 @@ describe('refreshing a reused pooled session', () => {
     expect(got).toBe(held[0]);
     expect(held[0].noop).toHaveBeenCalledTimes(1);
     for (const c of [got, ...held.slice(1)]) releasePooledClient(ACCOUNT, c);
+  });
+});
+
+// Background work (body prefetch) leaves the last idle session to the user's click, which would
+// otherwise wait for a fresh login behind the prefetch a list load started.
+describe('background acquisitions leave the last idle session to the user', () => {
+  const warm = async (n) => {
+    const held = [];
+    for (let i = 0; i < n; i++) held.push(await acquirePooledClient(ACCOUNT));
+    for (const c of held) releasePooledClient(ACCOUNT, c);
+    return held;
+  };
+
+  it('opens a session of its own while the pool may grow, and the click gets the idle one', async () => {
+    const [prewarmed] = await warm(1);
+    const prefetch = await acquirePooledClient(ACCOUNT, { background: true });
+    expect(prefetch).not.toBe(prewarmed);
+    expect(ImapFlow).toHaveBeenCalledTimes(2);
+    const click = await acquirePooledClient(ACCOUNT);
+    expect(click).toBe(prewarmed);
+    expect(ImapFlow).toHaveBeenCalledTimes(2);
+  });
+
+  it('takes an idle session when another one stays idle', async () => {
+    await warm(2);
+    await acquirePooledClient(ACCOUNT, { background: true });
+    expect(ImapFlow).toHaveBeenCalledTimes(2);
+  });
+
+  it('takes the last idle session at the ceiling rather than wait', async () => {
+    const held = [];
+    for (let i = 0; i < POOL_SIZE; i++) held.push(await acquirePooledClient(ACCOUNT));
+    releasePooledClient(ACCOUNT, held[0]);
+    await expect(acquirePooledClient(ACCOUNT, { background: true })).resolves.toBe(held[0]);
+    expect(ImapFlow).toHaveBeenCalledTimes(POOL_SIZE);
+  });
+
+  it('takes the last idle session while the provider refuses logins, rather than fail', async () => {
+    const [prewarmed] = await warm(1);
+    registerPoolSecondaryGate({ isBlocked: () => ({ until: Date.now() + 60_000 }) });
+    try {
+      await expect(acquirePooledClient(ACCOUNT, { background: true })).resolves.toBe(prewarmed);
+      expect(ImapFlow).toHaveBeenCalledTimes(1);
+    } finally {
+      registerPoolSecondaryGate({ isBlocked: () => null });
+    }
+  });
+
+  it('changes nothing on a provider whose pool holds one session', async () => {
+    const yahoo = { ...ACCOUNT, id: 'acct-yahoo', imap_host: 'imap.mail.yahoo.com' };
+    try {
+      const prewarmed = await acquirePooledClient(yahoo);
+      releasePooledClient(yahoo, prewarmed);
+      const prefetch = await acquirePooledClient(yahoo, { background: true });
+      expect(prefetch).toBe(prewarmed);
+      // Busy, so the click queues for it exactly as before; nothing new is opened.
+      const click = acquirePooledClient(yahoo);
+      releasePooledClient(yahoo, prefetch);
+      await expect(click).resolves.toBe(prewarmed);
+      expect(ImapFlow).toHaveBeenCalledTimes(1);
+    } finally {
+      evictPool(yahoo.id);
+    }
+  });
+
+  it('an ordinary acquisition still takes the last idle session', async () => {
+    const [prewarmed] = await warm(1);
+    await expect(acquirePooledClient(ACCOUNT)).resolves.toBe(prewarmed);
+    expect(ImapFlow).toHaveBeenCalledTimes(1);
   });
 });

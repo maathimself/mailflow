@@ -60,8 +60,8 @@ describe('POST /api/mail/send — forwardedMessages', () => {
     expect(res.status).toBe(200);
     expect(imapManager.fetchRawMessage).toHaveBeenCalledWith(account, 9, 'Junk');
     const [lookupSql, lookupParams] = query.mock.calls.find(([sql]) => sql.includes('FROM messages m') && sql.includes('m.id = ANY'));
-    expect(lookupSql).toMatch(/a\.user_id = \$2/); // only the signed-in user's own messages
-    expect(lookupParams).toEqual([[SPAM_ID], 'u1']);
+    expect(lookupSql).toMatch(/a\.user_id = \$1/); // only the signed-in user's own messages
+    expect(lookupParams).toEqual(['u1', [SPAM_ID]]);
     const [att] = sendMail.mock.calls[0][0].attachments;
     expect(att.contentType).toBe('message/rfc822');
     expect(att.contentDisposition).toBe('attachment');
@@ -76,7 +76,11 @@ describe('POST /api/mail/send — forwardedMessages', () => {
       .sendMail({ from: 'me@example.com', to: opts.to, subject: opts.subject, text: 'x', attachments: opts.attachments }, (err, info) => (err ? reject(err) : resolve(info.message.toString()))));
     expect(raw).toMatch(/Content-Type: message\/rfc822/);
     expect(raw).toMatch(/Content-Disposition: attachment; filename=/);
-    expect(raw).toMatch(/Content-Transfer-Encoding: 8bit/);
+    // RFC 2046 allows only 7bit, 8bit or binary for message/rfc822: never base64 or
+    // quoted-printable, or a spam reporter can't read the original. Nodemailer picks 7bit
+    // for an all-ASCII message and 8bit otherwise.
+    const forwarded = raw.split('Content-Type: message/rfc822')[1];
+    expect(forwarded).toMatch(/^[^\r\n]*\r?\nContent-Transfer-Encoding: (7bit|8bit)\r?\n/);
     expect(raw).toContain('Received: from bad.example by mx.example');
     expect(raw).toContain('Message-ID: <spam-1@bad.example>');
   });
