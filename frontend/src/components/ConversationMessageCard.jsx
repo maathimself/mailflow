@@ -287,7 +287,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
   // (spam, archive, move, delete: ConversationPane).
   const darkLabel = darkRefused ? t('message.cannotShowDark') : shownDark ? t('message.showOriginal') : t('message.showDark');
   // By Reply, or in More on a phone, as in the reading pane.
-  const aiReply = () => openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll: replyDefault === 'replyAll', aiReply: true });
+  const aiReply = () => openReplyFromMessage(message, { accounts, folders: useStore.getState().folders, openCompose, getMessageBody: loadedBody, replyAll: replyDefault === 'replyAll', aiReply: true });
   const toolItems = [
     aiReplyEnabled && isMobile && { key: 'aiReply', label: t('compose.toolbar.aiReply'), icon: <AiReplyIcon />, onClick: aiReply },
     todoistConnected && { key: 'todoist', label: t('todoist.title'), icon: <TodoistIcon />, onClick: () => setShowTodoistModal(true) },
@@ -349,7 +349,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
             <ReplySplitButton
               key={`reply-${message.id}`}
               defaultReplyAll={replyDefault === 'replyAll'}
-              onReply={replyAll => openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll })}
+              onReply={replyAll => openReplyFromMessage(message, { accounts, folders: useStore.getState().folders, openCompose, getMessageBody: loadedBody, replyAll })}
               touch={isMobile}
             />
             {aiReplyEnabled && !isMobile && (
