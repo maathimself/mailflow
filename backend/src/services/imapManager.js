@@ -6578,7 +6578,7 @@ export class ImapManager {
     return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
-        const uids = await client.search({ header: ['Message-ID', mid] }, { uid: true });
+        const uids = await client.search({ header: { 'Message-ID': mid } }, { uid: true });
         if (!uids?.length) return null;
         return uids[uids.length - 1];
       } finally {
@@ -8094,7 +8094,7 @@ export class ImapManager {
             await withFreshClient(account, async (client) => {
               const lock = await client.getMailboxLock(row.original_folder);
               try {
-                const uids = await client.search({ header: ['Message-ID', row.message_id_header] }, { uid: true });
+                const uids = await client.search({ header: { 'Message-ID': row.message_id_header } }, { uid: true });
                 if (uids.length === 1) {
                   const r = await client.messageFlagsRemove(String(uids[0]), ['\\Seen'], { uid: true });
                   if (r === false) console.warn(`Snooze wakeup: messageFlagsRemove returned false for ${row.original_folder}`);
