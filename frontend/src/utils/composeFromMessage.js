@@ -1,5 +1,6 @@
 import { pickReplyAlias } from './replyAlias.js';
 import { api } from './api.js';
+import { folderRole } from './folderDisplay.js';
 
 export function initialComposeFocus({ isReply = false, isForward = false } = {}) {
   return isReply && !isForward ? 'editor' : 'to';
@@ -42,9 +43,34 @@ function arrayField(raw) {
 
 const addressList = raw => arrayField(raw).filter(a => a && emailKey(a.email));
 
+// A conversation row in the grouped list is labeled with its thread's first sender and subject,
+// but stands for the thread's newest message: the list query adds that message's own sender and
+// subject as reply_from_* and reply_subject. Shown or acted on, the message is its own.
+export function rowOwnMessage(row) {
+  if (!row || !Object.hasOwn(row, 'reply_from_email')) return row;
+  return {
+    ...row,
+    from_email: row.reply_from_email,
+    from_name: row.reply_from_name,
+    ...(Object.hasOwn(row, 'reply_subject') ? { subject: row.reply_subject } : {}),
+  };
+}
+
 const replySender = message => Object.hasOwn(message, 'reply_from_email')
   ? { email: message.reply_from_email, name: message.reply_from_name || '' }
   : { email: message.from_email, name: message.from_name || '' };
+
+// A copy in the account's Sent folder is the user's own, even when it went out from a "Send as" or
+// delegated address that MailFlow doesn't list as an alias. `folders` is the store's folder lists by
+// account; the store isn't imported here, as backend tests load this file without the frontend's packages.
+const SENT_NAMES = /^(?:\[gmail\]\/|\[google mail\]\/)?sent(?:\s+(?:items|mail|messages))?$/i;
+function isSentCopy(message, account, folders) {
+  if (!message?.folder) return false;
+  const folder = (folders?.[message.account_id] || []).find(f => f.path === message.folder);
+  const role = folderRole(folder || { path: message.folder }, account?.folder_mappings);
+  if (role) return role === 'sent';
+  return SENT_NAMES.test(message.folder);
+}
 
 export function pickMessageReplyAlias(message, account) {
   const { email } = replySender(message);
@@ -57,7 +83,7 @@ export function pickMessageReplyAlias(message, account) {
   });
 }
 
-export function resolveReplyRecipients(message, account) {
+export function resolveReplyRecipients(message, account, folders) {
   const owned = new Set([account?.email_address, ...(account?.aliases || []).map(a => a?.email)].map(emailKey).filter(Boolean));
   const unique = (list, excluded = new Set()) => list.filter(a => {
     const key = emailKey(a.email);
@@ -74,7 +100,7 @@ export function resolveReplyRecipients(message, account) {
   const externalReplyTo = external(addressList(message.reply_to)).slice(0, 1);
   // Authorship belongs to this account, even when its sent copy carries a team Reply-To. With
   // nobody else in To or Cc, as on a contact form that mails itself, its Reply-To is who to answer.
-  const targets = owned.has(emailKey(from[0]?.email))
+  const targets = owned.has(emailKey(from[0]?.email)) || isSentCopy(message, account, folders)
     ? (externalTo.length ? externalTo : externalCc.length ? externalCc
       : externalReplyTo.length ? externalReplyTo : to.length ? to : cc)
     : addressList(message.reply_to).slice(0, 1);
@@ -84,9 +110,9 @@ export function resolveReplyRecipients(message, account) {
 }
 
 // `aiReply` opens the composer with "Reply with AI" ready for the user's instruction.
-export async function openReplyFromMessage(message, { accounts, openCompose, getMessageBody, replyAll = false, aiReply = false }) {
+export async function openReplyFromMessage(message, { accounts, folders, openCompose, getMessageBody, replyAll = false, aiReply = false }) {
   const myAccount = accounts.find(a => a.id === message.account_id);
-  const { to: sender, allRecipients } = resolveReplyRecipients(message, myAccount);
+  const { to: sender, allRecipients } = resolveReplyRecipients(message, myAccount, folders);
 
   const replyAliasId = pickMessageReplyAlias(message, myAccount);
 
@@ -131,7 +157,8 @@ export async function openReplyFromMessage(message, { accounts, openCompose, get
   });
 }
 
-export async function openForwardFromMessage(message, { openCompose, getMessageBody }) {
+export async function openForwardFromMessage(row, { openCompose, getMessageBody }) {
+  const message = rowOwnMessage(row);
   let fwdBody = await getMessageBody(message.id).catch(() => null);
   // Large inline images are fitted for reading; a recipient gets them as they were sent.
   if (fwdBody?.inlineImagesFitted) {

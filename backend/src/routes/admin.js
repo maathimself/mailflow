@@ -243,6 +243,63 @@ router.get('/settings', async (req, res) => {
   res.json({ settings });
 });
 
+// ── Business license notice ────────────────────────────────────────────────────
+
+// Admins of an instance that looks like a business (BUSINESS_NOTICE_MIN_USERS users, or single
+// sign-on configured) are asked once to consider the voluntary business license. Everything is
+// decided here from local data; nothing is sent anywhere. The answer is stored instance-wide, so
+// one admin's choice covers the others.
+const BUSINESS_NOTICE_KEY = 'business_notice';
+const BUSINESS_NOTICE_MIN_USERS = 3;
+const BUSINESS_NOTICE_MIN_AGE_DAYS = 14;
+const BUSINESS_NOTICE_REMIND_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Stored value: 'licensed' | 'not_business' | 'later:<ISO date>' | absent
+export function businessNoticeDue(state, now = new Date()) {
+  if (!state) return true;
+  if (state === 'licensed' || state === 'not_business') return false;
+  const later = /^later:(.+)$/.exec(state);
+  if (later) {
+    const until = new Date(later[1]);
+    return Number.isNaN(until.getTime()) || until <= now;
+  }
+  return true;
+}
+
+export async function getBusinessNotice(req, res) {
+  const [setting, users, oidc] = await Promise.all([
+    query('SELECT value FROM system_settings WHERE key = $1', [BUSINESS_NOTICE_KEY]),
+    query('SELECT COUNT(*) AS total, MIN(created_at) AS first FROM users'),
+    query('SELECT COUNT(*) AS count FROM oidc_providers WHERE enabled = true'),
+  ]);
+  const total = parseInt(users.rows[0].total);
+  const first = users.rows[0].first ? new Date(users.rows[0].first) : null;
+  // A fresh install is still being tried out: wait until it has been in use for a while
+  const settled = first !== null && Date.now() - first.getTime() >= BUSINESS_NOTICE_MIN_AGE_DAYS * DAY_MS;
+  const looksLikeBusiness = total >= BUSINESS_NOTICE_MIN_USERS || parseInt(oidc.rows[0].count) > 0;
+  res.json({ show: looksLikeBusiness && settled && businessNoticeDue(setting.rows[0]?.value) });
+}
+
+const BUSINESS_NOTICE_CHOICES = new Set(['licensed', 'not_business', 'later']);
+
+export async function setBusinessNotice(req, res) {
+  const choice = req.body?.choice;
+  if (!BUSINESS_NOTICE_CHOICES.has(choice)) return res.status(400).json({ error: 'Invalid choice' });
+  const value = choice === 'later'
+    ? `later:${new Date(Date.now() + BUSINESS_NOTICE_REMIND_DAYS * DAY_MS).toISOString()}`
+    : choice;
+  await query(
+    `INSERT INTO system_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+    [BUSINESS_NOTICE_KEY, value],
+  );
+  res.json({ ok: true });
+}
+
+router.get('/business-notice', getBusinessNotice);
+router.post('/business-notice', setBusinessNotice);
+
 router.get('/auth-events', async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 100, 500);
   const offset = Math.max(parseInt(req.query.offset) || 0, 0);

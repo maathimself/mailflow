@@ -130,6 +130,7 @@
       "keepEditing": "Continua a modificare"
     },
     "draftHasAttachments": "Gli allegati non vengono salvati con le bozze. Dovranno essere ricollegati alla riapertura.",
+    "dropToAttach": "Rilascia i file per allegarli",
     "emptySubject": {
       "title": "Inviare senza oggetto?",
       "sendAnyway": "Invia comunque",
@@ -1899,6 +1900,14 @@
       "githubSponsors": "GitHub Sponsors",
       "businessLicense": "Licenza aziendale",
       "sponsorBlurb": "MailFlow è sviluppato e mantenuto da una sola persona. Le sponsorizzazioni finanziano il tempo dedicato a correzioni, revisioni e nuove release."
+    },
+    "businessNotice": {
+      "title": "Usi MailFlow in azienda?",
+      "body": "MailFlow è gratuito con licenza AGPL ed è sviluppato da una sola persona. Chiediamo alle aziende che lo usano di acquistare una licenza aziendale, 100 $ per istanza all'anno, tasse escluse. È facoltativa e MailFlow non la verifica.",
+      "learnMore": "Vedi la licenza aziendale",
+      "haveOne": "Ne abbiamo già una",
+      "notBusiness": "Non siamo un'azienda",
+      "later": "Ricordamelo più tardi"
     },
     "search": {
       "placeholder": "Cerca impostazioni…",

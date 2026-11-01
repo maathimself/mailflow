@@ -19,7 +19,7 @@ import { unsnooze, changeSnooze, refreshCounts } from '../utils/snoozeActions.js
 import { isDarkTheme, canShowDark, showDark } from '../utils/darkScheme.js';
 import { markMessageUnread } from '../utils/messageHotkeys.js';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
-import { openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFromMessage } from '../utils/composeFromMessage.js';
+import { openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFromMessage, rowOwnMessage } from '../utils/composeFromMessage.js';
 import { aiReplyAvailable } from '../utils/aiReply.js';
 import MessageBodyView from './MessageBodyView.jsx';
 import { copyToClipboard } from '../utils/clipboard.js';
@@ -127,8 +127,11 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   }, [selectedMessageId]);
 
   const allMessages = searchQuery.trim() ? searchResults : messages;
-  const message = allMessages.find(m => m.id === selectedMessageId)
+  const listedMessage = allMessages.find(m => m.id === selectedMessageId)
     ?? Object.values(threadMessages).flat().find(m => m.id === selectedMessageId);
+  // A conversation row carries its thread's first sender and subject; the pane shows the message
+  // itself, and blocking, allowing images or making a rule from it uses its own sender.
+  const message = useMemo(() => rowOwnMessage(listedMessage), [listedMessage]);
 
   useEffect(() => {
     setResolvedSubject(null);
@@ -591,7 +594,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handleReply = (replyAll = false, { aiReply = false } = {}) => {
     if (!message) return;
-    openReplyFromMessage(message, { accounts, openCompose, getMessageBody: loadedBody, replyAll, aiReply });
+    openReplyFromMessage(message, { accounts, folders: useStore.getState().folders, openCompose, getMessageBody: loadedBody, replyAll, aiReply });
   };
 
   const handleForward = () => {

@@ -130,6 +130,7 @@
       "keepEditing": "继续编辑"
     },
     "draftHasAttachments": "附件不会随草稿保存，重新打开时需要重新添加。",
+    "dropToAttach": "拖放文件以添加附件",
     "emptySubject": {
       "title": "没有主题，确定发送？",
       "sendAnyway": "仍然发送",
@@ -1899,6 +1900,14 @@
       "githubSponsors": "GitHub Sponsors",
       "businessLicense": "企业许可证",
       "sponsorBlurb": "MailFlow 由一人开发和维护。赞助用于支付修复问题、审查代码和发布新版本所需的时间。"
+    },
+    "businessNotice": {
+      "title": "在企业中使用 MailFlow？",
+      "body": "MailFlow 在 AGPL 下免费，由一人开发和维护。我们请依赖它的企业购买企业许可证，每个实例每年 100 美元，不含税。这是自愿的，MailFlow 不会进行任何检查。",
+      "learnMore": "查看企业许可证",
+      "haveOne": "我们已有许可证",
+      "notBusiness": "不是企业",
+      "later": "稍后提醒"
     },
     "search": {
       "placeholder": "搜索设置…",

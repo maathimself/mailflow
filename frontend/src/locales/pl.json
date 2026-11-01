@@ -130,6 +130,7 @@
       "keepEditing": "Kontynuuj edycję"
     },
     "draftHasAttachments": "Załączniki nie są zapisywane wraz z wersjami roboczymi. Po ponownym otwarciu tej wersji trzeba będzie dodać je ponownie.",
+    "dropToAttach": "Upuść pliki, aby je załączyć",
     "emptySubject": {
       "title": "Wysłać bez tematu?",
       "sendAnyway": "Wyślij mimo to",
@@ -1918,6 +1919,14 @@
       "githubSponsors": "GitHub Sponsors",
       "businessLicense": "Licencja biznesowa",
       "sponsorBlurb": "MailFlow jest tworzony i utrzymywany przez jedną osobę. Sponsoring pokrywa czas poświęcony na poprawki, przeglądy kodu i wydania."
+    },
+    "businessNotice": {
+      "title": "Używasz MailFlow w firmie?",
+      "body": "MailFlow jest darmowy na licencji AGPL i tworzy go jedna osoba. Firmy, które na nim polegają, prosimy o zakup licencji biznesowej: 100 $ za instancję rocznie, plus podatek. Jest dobrowolna, a MailFlow jej nie sprawdza.",
+      "learnMore": "Zobacz licencję biznesową",
+      "haveOne": "Już mamy",
+      "notBusiness": "To nie firma",
+      "later": "Przypomnij później"
     },
     "search": {
       "placeholder": "Wyszukaj ustawienie…",

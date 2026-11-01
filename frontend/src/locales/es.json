@@ -130,6 +130,7 @@
       "keepEditing": "Seguir editando"
     },
     "draftHasAttachments": "Los archivos adjuntos no se guardan con los borradores. Deberás volver a adjuntarlos al reabrir.",
+    "dropToAttach": "Suelta los archivos para adjuntarlos",
     "emptySubject": {
       "title": "¿Enviar sin asunto?",
       "sendAnyway": "Enviar de todas formas",
@@ -1899,6 +1900,14 @@
       "githubSponsors": "GitHub Sponsors",
       "businessLicense": "Licencia para empresas",
       "sponsorBlurb": "MailFlow lo desarrolla y mantiene una sola persona. Los patrocinios pagan el tiempo dedicado a correcciones, revisiones y nuevas versiones."
+    },
+    "businessNotice": {
+      "title": "¿Usas MailFlow en una empresa?",
+      "body": "MailFlow es gratuito bajo la AGPL y lo desarrolla una sola persona. Pedimos a las empresas que dependen de él que compren una licencia para empresas, 100 $ por instancia al año, impuestos no incluidos. Es voluntaria y MailFlow no la comprueba.",
+      "learnMore": "Ver la licencia para empresas",
+      "haveOne": "Ya tenemos una",
+      "notBusiness": "No es una empresa",
+      "later": "Recordármelo más tarde"
     },
     "search": {
       "placeholder": "Buscar ajustes…",

@@ -130,6 +130,7 @@
       "keepEditing": "Keep editing"
     },
     "draftHasAttachments": "Attachments are not saved with drafts. They will need to be re-attached when you reopen this draft.",
+    "dropToAttach": "Drop files to attach",
     "emptySubject": {
       "title": "Send without a subject?",
       "sendAnyway": "Send anyway",
@@ -1899,6 +1900,14 @@
       "githubSponsors": "GitHub Sponsors",
       "businessLicense": "Business license",
       "sponsorBlurb": "MailFlow is built and maintained by one person. Sponsorships pay for the time that goes into fixes, reviews and releases."
+    },
+    "businessNotice": {
+      "title": "Using MailFlow in a business?",
+      "body": "MailFlow is free under the AGPL and built by one person. Businesses that rely on it are asked to buy a business license, $100 per instance per year, plus tax. It's voluntary, and nothing in MailFlow checks for it.",
+      "learnMore": "See the business license",
+      "haveOne": "We have one",
+      "notBusiness": "Not a business",
+      "later": "Remind me later"
     },
     "search": {
       "placeholder": "Search settings…",

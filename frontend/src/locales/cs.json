@@ -640,6 +640,7 @@
       "keepEditing": "Pokračovat v úpravách"
     },
     "draftHasAttachments": "Přílohy se s koncepty neukládají. Po opětovném otevření tohoto konceptu je budete muset přiložit znovu.",
+    "dropToAttach": "Pusťte soubory sem a přiložte je",
     "emptySubject": {
       "title": "Odeslat bez předmětu?",
       "sendAnyway": "Přesto odeslat",
@@ -1304,6 +1305,14 @@
       "githubSponsors": "GitHub Sponsors",
       "businessLicense": "Firemní licence",
       "sponsorBlurb": "MailFlow vyvíjí a udržuje jediný člověk. Sponzorské příspěvky pokrývají čas věnovaný opravám, revizím kódu a vydávání nových verzí."
+    },
+    "businessNotice": {
+      "title": "Používáte MailFlow ve firmě?",
+      "body": "MailFlow je zdarma pod licencí AGPL a vyvíjí ho jediný člověk. Firmy, které na něm závisí, žádáme o koupi firemní licence za 100 $ za instanci a rok, bez daně. Je dobrovolná a MailFlow ji nijak nekontroluje.",
+      "learnMore": "Zobrazit firemní licenci",
+      "haveOne": "Už ji máme",
+      "notBusiness": "Nejsme firma",
+      "later": "Připomenout později"
     },
     "appearance": {
       "title": "Vzhled",

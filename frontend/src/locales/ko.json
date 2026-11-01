@@ -197,6 +197,7 @@
       "copyAll": "이 필드의 내용을 모두 복사하세요."
     },
     "draftHasAttachments": "첨부 파일은 초안과 함께 저장되지 않습니다. 이 초안을 다시 열면 다시 첨부해야 합니다.",
+    "dropToAttach": "파일을 놓으면 첨부됩니다",
     "undoSend": {
       "sending": "\"{{subject}}\" 보내는 중…",
       "undone": "전송이 취소되었습니다",
@@ -1896,6 +1897,14 @@
       "githubSponsors": "GitHub 후원자",
       "businessLicense": "비즈니스 라이선스",
       "sponsorBlurb": "MailFlow는 한 사람이 개발하고 유지 관리합니다. 후원금은 버그 수정, 코드 리뷰, 릴리스에 들어가는 시간을 충당합니다."
+    },
+    "businessNotice": {
+      "title": "회사에서 MailFlow를 사용하시나요?",
+      "body": "MailFlow는 AGPL에 따라 무료이며 한 사람이 개발합니다. MailFlow에 의존하는 기업에는 인스턴스당 연 100달러(세금 별도)의 비즈니스 라이선스 구매를 요청드립니다. 자발적인 것이며 MailFlow는 이를 확인하지 않습니다.",
+      "learnMore": "비즈니스 라이선스 보기",
+      "haveOne": "이미 있습니다",
+      "notBusiness": "기업이 아닙니다",
+      "later": "나중에 알림"
     },
     "ssoError": {
       "title": "SSO 오류"

@@ -1313,7 +1313,7 @@ function MailboxList() {
 
   const handleSwipeReply = useCallback((message, replyAll = false) => {
     const myAccount = accounts.find(a => a.id === message.account_id);
-    const { to: sender, allRecipients } = resolveReplyRecipients(message, myAccount);
+    const { to: sender, allRecipients } = resolveReplyRecipients(message, myAccount, useStore.getState().folders);
     const replyAliasId = pickMessageReplyAlias(message, myAccount);
 
     const referencesChain = [message.in_reply_to, message.message_id]
@@ -2093,7 +2093,7 @@ function MailboxList() {
       const state = getState();
       const message = selectedMessage(state);
       if (message) void openReplyFromMessage(message, {
-        accounts: state.accounts, openCompose: state.openCompose,
+        accounts: state.accounts, folders: state.folders, openCompose: state.openCompose,
         getMessageBody: api.getMessageBody, replyAll: true,
       });
     };
@@ -2217,6 +2217,7 @@ function MailboxList() {
       case 'replyAll':
         await openReplyFromMessage(message, {
           accounts,
+          folders: useStore.getState().folders,
           openCompose,
           getMessageBody: api.getMessageBody,
           replyAll: action === 'replyAll',

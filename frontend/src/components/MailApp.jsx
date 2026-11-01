@@ -21,6 +21,7 @@ import MessageList from './MessageList.jsx';
 import ReadingPane from './ReadingPane.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
+import BusinessNotice from './BusinessNotice.jsx';
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.jsx';
 import { takePendingDeepLink, watchPendingDeepLink } from '../utils/pendingDeepLink.js';
 import { scheduledFeed } from '../utils/scheduledFeed.js';
@@ -949,6 +950,7 @@ export default function MailApp() {
       {!isMobile && <Suspense fallback={null}><WindowLayer /></Suspense>}
       <Suspense fallback={null}>{hasNativeBridge && <ElectronNotificationBridge />}</Suspense>
       <NotificationToasts />
+      <BusinessNotice hidden={composing || showAdmin || (isMobile && mobileSidebarOpen)} />
       <PluginRuntime />
       <CommandPalette open={paletteOpen} labelPickerMessage={labelPickerMessage}
         onClose={() => { setPaletteOpen(false); setLabelPickerMessage(null); }} />

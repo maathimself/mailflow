@@ -130,6 +130,7 @@
       "keepEditing": "Continuer à éditer"
     },
     "draftHasAttachments": "Les pièces jointes ne sont pas sauvegardées avec les brouillons. Vous devrez les rattacher à la réouverture.",
+    "dropToAttach": "Déposez les fichiers pour les joindre",
     "emptySubject": {
       "title": "Envoyer sans objet ?",
       "sendAnyway": "Envoyer quand même",
@@ -1899,6 +1900,14 @@
       "githubSponsors": "GitHub Sponsors",
       "businessLicense": "Licence entreprise",
       "sponsorBlurb": "MailFlow est développé et maintenu par une seule personne. Les parrainages financent le temps consacré aux correctifs, aux revues de code et aux nouvelles versions."
+    },
+    "businessNotice": {
+      "title": "Vous utilisez MailFlow en entreprise ?",
+      "body": "MailFlow est gratuit sous licence AGPL et développé par une seule personne. Nous demandons aux entreprises qui en dépendent d'acheter une licence entreprise, à 100 $ par instance et par an, hors taxes. C'est facultatif, et MailFlow ne vérifie rien.",
+      "learnMore": "Voir la licence entreprise",
+      "haveOne": "Nous en avons une",
+      "notBusiness": "Pas une entreprise",
+      "later": "Me le rappeler plus tard"
     },
     "search": {
       "placeholder": "Rechercher dans les paramètres…",
