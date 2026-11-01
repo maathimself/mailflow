@@ -979,6 +979,42 @@ describe('the Bcc line', () => {
   });
 });
 
+// In the grouped list a conversation row is labeled with its first sender and subject, but it opens
+// its newest message, which the pane shows, and allows images from, as that message's own.
+describe('a conversation row in the grouped list', () => {
+  const realFetch = globalThis.fetch;
+  after(() => { globalThis.fetch = realFetch; });
+
+  test('shows and acts on the opened message\'s own sender and subject', async () => {
+    const posts = [];
+    globalThis.fetch = async (url, opts = {}) => {
+      if (String(url).includes('/messages/row-latest/body')) {
+        return { ok: true, status: 200, json: async () => ({ html: '<p>Latest message body</p>', text: 'Latest message body', attachments: [], hasBlockedRemoteImages: true }) };
+      }
+      if (opts.method === 'POST') posts.push({ url: String(url), body: JSON.parse(opts.body || '{}') });
+      return { ok: true, status: 200, json: async () => ({}), text: async () => '' };
+    };
+    const row = { ...MSG_A, id: 'row-latest', thread_id: 't1', message_count: 2,
+      subject: 'Question', from_name: 'Opener', from_email: 'opener@x.z',
+      reply_subject: 'Re: Question', reply_from_name: 'Latest Person', reply_from_email: 'latest@x.z' };
+    useStore.getState().setMessages([row]);
+    await React.act(async () => { useStore.getState().setSelectedMessage('row-latest'); });
+    await React.act(async () => { root.render(React.createElement(MessagePane)); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 30)); });
+    const text = document.getElementById('root').textContent;
+    assert.match(text, /Latest Person/);
+    assert.match(text, /latest@x\.z/);
+    assert.match(text, /Re: Question/);
+    assert.doesNotMatch(text, /Opener|opener@x\.z/);
+
+    const allow = [...document.querySelectorAll('button')].find(b => b.textContent === 'message.allowSender');
+    assert.ok(allow, 'the remote images notice offers to allow the sender');
+    await React.act(async () => { allow.click(); await new Promise(r => setTimeout(r, 10)); });
+    const added = posts.find(p => p.url.includes('/auth/preferences/whitelist-add'));
+    assert.deepEqual(added?.body, { type: 'address', value: 'latest@x.z' });
+  });
+});
+
 // #228: a body that can be shown dark gets a toggle in a dark theme; the setting picks the default.
 describe('dark email bodies', () => {
   const realFetch = globalThis.fetch;

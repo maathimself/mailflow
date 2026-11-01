@@ -207,6 +207,22 @@ describe('references chain', () => {
   });
 });
 
+describe('rowOwnMessage', () => {
+  it('gives a conversation row its own message\'s sender and subject', () => {
+    const row = { id: 'm2', thread_id: 't', message_count: 2, subject: 'Question', from_name: 'Oldest', from_email: 'old@example.com',
+      reply_subject: 'Re: Question', reply_from_name: 'Latest', reply_from_email: 'latest@example.com' };
+    assert.deepEqual(compose.rowOwnMessage(row), { ...row, subject: 'Re: Question', from_name: 'Latest', from_email: 'latest@example.com' });
+  });
+
+  it('leaves a plain message, or a row from before reply_subject, as it is', () => {
+    const plain = { id: 'm1', subject: 'S', from_email: 'f@example.com' };
+    assert.equal(compose.rowOwnMessage(plain), plain);
+    assert.equal(compose.rowOwnMessage(null), null);
+    const noSubject = { subject: 'S', from_email: 'old@example.com', reply_from_email: 'new@example.com', reply_from_name: null };
+    assert.deepEqual(compose.rowOwnMessage(noSubject), { ...noSubject, from_email: 'new@example.com', from_name: null });
+  });
+});
+
 describe('openForwardFromMessage', () => {
   it('includes To/Cc lines only when present', async () => {
     const h = harness({ text: 'BODY', html: null, attachments: [] });
@@ -234,12 +250,14 @@ describe('openForwardFromMessage', () => {
   it('credits the forwarded message, not the first sender of its thread row', async () => {
     const h = harness({ text: 'BODY', html: '<p>BODY</p>', attachments: [] });
     await openForwardFromMessage(
-      { id: 'm2', account_id: 'a', subject: 'S', from_name: 'First', from_email: 'first@example.com', reply_from_name: 'Latest', reply_from_email: 'latest@example.com' },
+      { id: 'm2', account_id: 'a', subject: 'S', reply_subject: 'Re: S', from_name: 'First', from_email: 'first@example.com', reply_from_name: 'Latest', reply_from_email: 'latest@example.com' },
       { openCompose: h.openCompose, getMessageBody: h.getMessageBody },
     );
     assert.match(h.payload().quotedBody, /\nFrom: Latest <latest@example\.com>\n/);
     assert.match(h.payload().quotedBodyHtml, /From: Latest &lt;latest@example\.com&gt;<br>/);
     assert.doesNotMatch(h.payload().quotedBody + h.payload().quotedBodyHtml, /first@example/);
+    assert.match(h.payload().quotedBody, /\nSubject: Re: S\n/);
+    assert.equal(h.payload().subject, 'Fwd: Re: S');
   });
 
   it('maps fetched attachments into forwardedAttachments', async () => {

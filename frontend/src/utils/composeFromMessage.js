@@ -43,6 +43,19 @@ function arrayField(raw) {
 
 const addressList = raw => arrayField(raw).filter(a => a && emailKey(a.email));
 
+// A conversation row in the grouped list is labeled with its thread's first sender and subject,
+// but stands for the thread's newest message: the list query adds that message's own sender and
+// subject as reply_from_* and reply_subject. Shown or acted on, the message is its own.
+export function rowOwnMessage(row) {
+  if (!row || !Object.hasOwn(row, 'reply_from_email')) return row;
+  return {
+    ...row,
+    from_email: row.reply_from_email,
+    from_name: row.reply_from_name,
+    ...(Object.hasOwn(row, 'reply_subject') ? { subject: row.reply_subject } : {}),
+  };
+}
+
 const replySender = message => Object.hasOwn(message, 'reply_from_email')
   ? { email: message.reply_from_email, name: message.reply_from_name || '' }
   : { email: message.from_email, name: message.from_name || '' };
@@ -144,19 +157,18 @@ export async function openReplyFromMessage(message, { accounts, folders, openCom
   });
 }
 
-export async function openForwardFromMessage(message, { openCompose, getMessageBody }) {
+export async function openForwardFromMessage(row, { openCompose, getMessageBody }) {
+  const message = rowOwnMessage(row);
   let fwdBody = await getMessageBody(message.id).catch(() => null);
   // Large inline images are fitted for reading; a recipient gets them as they were sent.
   if (fwdBody?.inlineImagesFitted) {
     fwdBody = await api.getMessageBody(message.id, Boolean(fwdBody.remoteImagesProxied), { original: true }).catch(() => fwdBody);
   }
   const fwdDate = message.date ? new Date(message.date).toLocaleString() : '';
-  // A threaded list row names the conversation's first sender; the forwarded message is the row's own.
-  const fwdAuthor = replySender(message);
-  const fwdSafeName = fwdAuthor.name.replace(/[\r\n]+/g, ' ');
+  const fwdSafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
   const fwdFromStr = fwdSafeName
-    ? `${fwdSafeName} <${fwdAuthor.email}>`
-    : fwdAuthor.email || '';
+    ? `${fwdSafeName} <${message.from_email}>`
+    : message.from_email || '';
   const safeSubject = (message.subject || '').replace(/[\r\n]+/g, ' ');
   const toStr = parseAddressField(message.to_addresses);
   const ccStr = parseAddressField(message.cc_addresses);

@@ -121,6 +121,8 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('threaded Inbox message
     expect(row.from_name).toBe('Oldest');
     expect(row.reply_from_email).toBe('sender@example.test');
     expect(row.reply_from_name).toBe('Latest');
+    expect(row.subject).toBe('Question');
+    expect(row.reply_subject).toBe('Re: Question');
     expect(row.message_id).toBe('<latest@example.test>');
     expect(row.reply_to).toEqual([{ email: 'reply@example.test' }]);
   });
