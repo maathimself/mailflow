@@ -678,6 +678,9 @@ export async function deliverAndRecord(
       // rather than orphaning at its own Message-ID (#378).
       inReplyTo: mailOptions.inReplyTo || null,
       references: mailOptions.references || null,
+      // The paperclip in the list. Images embedded in the body (a cid) don't count, as sync's
+      // detectAttachments doesn't count them either.
+      hasAttachments: (mailOptions.attachments || []).some(a => !a.cid),
     } : null;
 
     if (sentFolder) {
