@@ -12,6 +12,8 @@ globalThis.localStorage = {
   removeItem: k => mem.delete(k),
 };
 const { useStore } = await import('./index.js');
+const { api } = await import('../utils/api.js');
+const { SIGN_OUT_CLEARED_KEYS } = await import('../utils/signOut.js');
 globalThis.window = new EventTarget();
 
 const s = () => useStore.getState();
@@ -76,6 +78,20 @@ test('nor the message that was open when the screen was locked', () => {
   assert.equal(s().selectedMessageId, null);
 });
 
+test('nor the message open at the lock when the page reloads while Sign out waits for the server', () => {
+  s().setSelectedMessage('m1');
+  s().setLocked(true);
+  api.logout = () => new Promise(() => {});
+  s().signOut();
+  // The new page has no user yet, and /me comes back 401 because the sign-out did reach the
+  // server, so App.jsx clears the user and the lock.
+  useStore.setState({ user: null });
+  s().setUser(null);
+  s().setLocked(false);
+  s().setUser({ id: 'bob' });
+  assert.equal(s().selectedMessageId, null);
+});
+
 test('nor the settings held only in memory', () => {
   // loadPreferences replaces enabledPlugins and aiActions only once it resolves, and the rest
   // only when the new user has saved them.
@@ -116,4 +132,16 @@ test('a cold load keeps the reading preferences the store seeded from localStora
   s().setUser({ id: 'alice' });
   assert.equal(s().autoOpenReplyDrafts, true);
   assert.equal(s().afterRemove, 'previous');
+});
+
+test('Sign out clears what the shared sign-out clears, and the lock once the server confirmed it', async () => {
+  s().setLocked(true);
+  const keys = [...SIGN_OUT_CLEARED_KEYS, 'mailflow_locked_message', 'mailflow_locked'];
+  for (const k of keys) localStorage.setItem(k, '1');
+  window.location = { href: 'https://mail.example.invalid/' };
+  api.logout = async () => ({ ok: true, endSessionUrl: null });
+  await s().signOut();
+  assert.equal(window.location.href, '/login');
+  assert.equal(s().isLocked, false);
+  for (const k of keys) assert.equal(localStorage.getItem(k), null, k);
 });
