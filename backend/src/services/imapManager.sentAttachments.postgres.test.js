@@ -18,9 +18,9 @@ import { ImapManager } from './imapManager.js';
 
 const MIGRATION = new URL('../../migrations/0072_messages_has_attachments_heal.sql', import.meta.url);
 
-// A Sent row recorded right after sending kept has_attachments false for good: sync skips uids it
-// already holds and storing the body leaves the flag alone. Uses only connection-local temporary
-// tables in an explicitly supplied database.
+// A Sent row recorded right after sending kept has_attachments false and no reply links for good:
+// sync skips uids it already holds and storing the body leaves them alone. Uses only
+// connection-local temporary tables in an explicitly supplied database.
 describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('Sent row attachment flag', () => {
   let database;
   const account = { id: '22222222-2222-4222-8222-222222222222', email_address: 'me@example.com' };
@@ -56,6 +56,17 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('Sent row attachment fl
     await database.query('UPDATE messages SET has_attachments = true WHERE uid = 3');
     await upsert(3, {});
     expect(await flagOf(3)).toBe(true);
+  });
+
+  it('records the reply links, keeping ones sync already stored', async () => {
+    const links = async uid => (await database.query('SELECT in_reply_to, thread_references FROM messages WHERE uid = $1', [uid])).rows[0];
+    await upsert(4, { inReplyTo: '<parent@example.com>', references: '<root@example.com> <parent@example.com>' });
+    expect(await links(4)).toEqual({ in_reply_to: '<parent@example.com>', thread_references: '<root@example.com> <parent@example.com>' });
+    await upsert(5, {});
+    expect(await links(5)).toEqual({ in_reply_to: null, thread_references: null });
+    await database.query("UPDATE messages SET in_reply_to = '<synced@example.com>', thread_references = '<synced@example.com>' WHERE uid = 5");
+    await upsert(5, { inReplyTo: '<other@example.com>', references: '<other@example.com>' });
+    expect(await links(5)).toEqual({ in_reply_to: '<synced@example.com>', thread_references: '<synced@example.com>' });
   });
 
   it('the migration sets it for stored attachments sent as attachments, not for inline ones', async () => {
