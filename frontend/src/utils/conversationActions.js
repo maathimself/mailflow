@@ -17,14 +17,27 @@ export const conversationActionIds = messages => normalizeConversation(messages)
 // folder, so deleting one from the Inbox also took its copies already in Trash, and a delete in
 // Trash expunges for good: a message deleted earlier was gone, though the reader only meant the
 // newer ones. Moving it pulled them back out. Acting from Trash or Spam itself, as before, takes it all.
+//
+// isBinned cannot always place a Trash: an account's folder list is loaded only once something asks
+// for it, and a Trash under INBOX or a second one such as "Deleted" goes by none of its names. So the
+// thread route also marks in_trash each copy in a folder bulk-delete expunges from as Trash
+// (trashMessageSql in the backend's mailUtils.js), and those are left alone too. The mark only ever
+// leaves copies out: whether the action starts in Trash is still isBinned's call, a marked copy in
+// the folder acted from goes with it, and when marked copies are all that is left, as when the
+// message acted on has since left the thread, nothing is returned rather than the whole thread,
+// drafts included.
 export function keepDraftsApart(messages, anchorId) {
   const list = Array.isArray(messages) ? messages : [];
   const anchor = list.find(message => message?.id === anchorId);
   const anchorIsDraft = Boolean(anchor?.is_draft);
   const anchorBinned = Boolean(anchor) && isBinned(anchor);
-  const kept = list.filter(message => Boolean(message?.is_draft) === anchorIsDraft
-    && (anchorBinned || !isBinned(message)));
-  return kept.length ? kept : list;
+  const trashElsewhere = message => Boolean(message?.in_trash)
+    && !(anchor && message.account_id === anchor.account_id && message.folder === anchor.folder);
+  const keep = withMark => list.filter(message => Boolean(message?.is_draft) === anchorIsDraft
+    && (anchorBinned || !(isBinned(message) || (withMark && trashElsewhere(message)))));
+  const kept = keep(true);
+  if (kept.length) return kept;
+  return keep(false).length ? [] : list;
 }
 
 // Trash or Spam, as the account's folder list or folder mappings say, else by the usual names.
