@@ -263,6 +263,8 @@ export const api = {
     deleteUser: (id) => request('DELETE', `/admin/users/${id}`),
     disableUserTotp: (id) => request('POST', `/admin/users/${id}/totp/disable`),
     setUserPassword: (id, password) => request('POST', `/admin/users/${id}/password`, { password }),
+    getUserIdentities: (id) => request('GET', `/admin/users/${id}/identities`),
+    unlinkUserIdentity: (id, identityId) => request('DELETE', `/admin/users/${id}/identities/${identityId}`),
     getSettings: () => request('GET', '/admin/settings'),
     updateSettings: (data) => request('PATCH', '/admin/settings', data),
     getBusinessNotice: () => request('GET', '/admin/business-notice'),
@@ -348,6 +350,7 @@ export const api = {
   getAccounts: () => request('GET', '/accounts'),
   addAccount: (data) => request('POST', '/accounts', data),
   updateAccount: (id, data) => request('PUT', `/accounts/${id}`, data),
+  reorderAccounts: (ids) => request('PATCH', '/accounts/order', { ids }),
   deleteAccount: (id) => request('DELETE', `/accounts/${id}`),
   // { wait: true } answers with how the attempt went: { connection, code, error }.
   reconnectAccount: (id, { wait = false } = {}) => request('POST', `/accounts/${id}/reconnect${wait ? '?wait=1' : ''}`),

@@ -112,6 +112,19 @@ function expirePendingCounts() {
   }, Math.max(1, Math.min(...deadlines) - Date.now()));
 }
 
+// The list a message was taken out of, by id, until it is put back (#630). An Undo, or a failed
+// request, puts messages back into whatever list is showing; after the reader moved to another
+// folder or account, that put them into a list they don't belong to. They are put back only while
+// the list they left is still the one showing; otherwise that list loads them again when reopened.
+const removedFromView = new Map();
+const listViewOf = state => JSON.stringify([state.selectedAccountId ?? null, state.selectedFolder ?? null,
+  String(state.searchQuery || '').trim(), Boolean(state.searchAllFolders), state.activeGtdTab ?? null, Boolean(state.threadedView)]);
+function noteRemoved(state, ids) {
+  if (removedFromView.size > 5000) removedFromView.clear();
+  const view = listViewOf(state);
+  for (const id of ids) removedFromView.set(id, view);
+}
+
 export const useStore = create((set, get) => ({
   // Auth
   user: null,
@@ -341,7 +354,7 @@ export const useStore = create((set, get) => ({
     });
     return { messages, searchResults: state.searchResults.map(apply), threadMessages };
   }),
-  removeMessage: (id) => set(state => ({
+  removeMessage: (id) => set(state => (noteRemoved(state, new Set([id])), {
     messages: state.messages.filter(m => m.id !== id),
     searchResults: state.searchResults.filter(m => m.id !== id),
     selectedMessageId: state.selectedMessageId === id ? null : state.selectedMessageId,
@@ -353,6 +366,7 @@ export const useStore = create((set, get) => ({
   removeMessages: (ids) => set(state => {
     const idSet = ids instanceof Set ? ids : new Set(ids);
     if (idSet.size === 0) return {};
+    noteRemoved(state, idSet);
     return {
       messages: state.messages.filter(m => !idSet.has(m.id)),
       searchResults: state.searchResults.filter(m => !idSet.has(m.id)),
@@ -360,7 +374,13 @@ export const useStore = create((set, get) => ({
     };
   }),
   restoreMessages: (msgs) => set(state => {
-    const list = Array.isArray(msgs) ? msgs : [msgs];
+    const view = listViewOf(state);
+    const list = (Array.isArray(msgs) ? msgs : [msgs]).filter(m => {
+      const from = removedFromView.get(m?.id);
+      removedFromView.delete(m?.id);
+      return from === undefined || from === view;
+    });
+    if (!list.length) return {};
     const sort = arr => [...arr].sort((a, b) => new Date(b.date) - new Date(a.date));
     // Deduplicate against both the main list and searchResults by stable identity (Message-ID when
     // present, else id): if the message is already present — including re-added by a network

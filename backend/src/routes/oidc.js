@@ -3,7 +3,7 @@ import { request as httpsRequest } from 'https';
 import { request as httpRequest } from 'http';
 import { Router } from 'express';
 import { createRemoteJWKSet, jwtVerify, customFetch } from 'jose';
-import { query, pool } from '../services/db.js';
+import { query, pool, withTransaction } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { decrypt, isEncrypted } from '../services/encryption.js';
 import { imapManager } from '../index.js';
@@ -11,6 +11,8 @@ import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { logAuthEvent } from '../services/authEvents.js';
 import { aiEnabledForNewUser } from '../services/aiNewUsers.js';
+import { unlinkUserIdentity } from '../services/userIdentities.js';
+import { isUuid } from '../utils/uuid.js';
 
 // In-memory OIDC discovery cache keyed by issuerUrl
 const discoveryCache = new Map();
@@ -233,25 +235,17 @@ oidcApiRouter.get('/identities', requireAuth, async (req, res) => {
   }
 });
 
-// Unlink an identity from the current user
+// Unlink an identity from the current user, unless it is their last way to sign in: with no
+// identity left they need a password, and password sign-in turned on (#714).
 oidcApiRouter.delete('/identities/:id', requireAuth, async (req, res) => {
+  if (!isUuid(req.params.id)) return res.status(404).json({ error: 'Identity not found' });
   try {
-    // Prevent removing the last login method when no password is set
-    const userResult = await query('SELECT password_hash FROM users WHERE id = $1', [req.session.userId]);
-    const hasPassword = !!userResult.rows[0]?.password_hash;
-    if (!hasPassword) {
-      const countResult = await query(
-        'SELECT COUNT(*) AS count FROM user_identities WHERE user_id = $1',
-        [req.session.userId]
-      );
-      if (parseInt(countResult.rows[0].count) <= 1) {
-        return res.status(400).json({ error: 'Cannot unlink your only login method. Set a password first.' });
-      }
+    const result = await withTransaction(client => unlinkUserIdentity(client, req.session.userId, req.params.id));
+    if (result.notFound) return res.status(404).json({ error: 'Identity not found' });
+    if (result.lastSignIn) {
+      return res.status(400).json({ error: 'Cannot unlink your only login method. Set a password first.' });
     }
-    await query(
-      'DELETE FROM user_identities WHERE id = $1 AND user_id = $2',
-      [req.params.id, req.session.userId]
-    );
+    logAuthEvent('identity_unlinked', { userId: req.session.userId, username: req.session.username, ip: req.ip, success: true });
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: 'Failed to unlink identity' });
@@ -465,6 +459,8 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         }
         throw err;
       }
+      // Logged so a link shows in the admin's security log (#714).
+      logAuthEvent('identity_linked', { userId: pending.linkUserId, username: req.session.username, ip: req.ip, success: true });
       return res.redirect('/?oidc_success=linked');
     }
 
@@ -545,12 +541,16 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         user.is_admin = adminFromClaim;
       }
 
-      await client.query(
+      const { rows: [linkedRow] } = await client.query(
         `INSERT INTO user_identities (user_id, provider_id, issuer, subject, email, email_verified, last_used_at)
          VALUES ($1, $2, $3, $4, $5, $6, NOW())
-         ON CONFLICT (issuer, subject) DO UPDATE SET last_used_at = NOW()`,
+         ON CONFLICT (issuer, subject) DO UPDATE SET last_used_at = NOW()
+         RETURNING (xmax = 0) AS linked`,
         [user.id, provider.id, issuer, subject, email, emailVerified]
       );
+      if (linkedRow?.linked) {
+        logAuthEvent('identity_linked', { userId: user.id, username: user.username, ip: req.ip, success: true });
+      }
       await maybeBackfillDisplayName(client, user.id, payload);
       await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
       req.session.userId = user.id;
@@ -608,14 +608,18 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
             );
           }
         }
-        await client.query(
+        const { rows: [linkedRow] } = await client.query(
           `INSERT INTO user_identities (user_id, provider_id, issuer, subject, email, email_verified, last_used_at)
            VALUES ($1, $2, $3, $4, $5, $6, NOW())
-           ON CONFLICT (issuer, subject) DO UPDATE SET last_used_at = NOW()`,
+           ON CONFLICT (issuer, subject) DO UPDATE SET last_used_at = NOW()
+           RETURNING (xmax = 0) AS linked`,
           [user.id, provider.id, issuer, subject, email, emailVerified]
         );
         await maybeBackfillDisplayName(client, user.id, payload);
         await client.query('COMMIT');
+        if (linkedRow?.linked) {
+          logAuthEvent('identity_linked', { userId: user.id, username: user.username, ip: req.ip, success: true });
+        }
         await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
         req.session.userId = user.id;
         req.session.username = user.username;

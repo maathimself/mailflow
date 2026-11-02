@@ -693,16 +693,14 @@ export default function Sidebar() {
     if (idx === -1) return;
     const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
     if (targetIdx < 0 || targetIdx >= accounts.length) return;
-    const targetAccount = accounts[targetIdx];
     const newOrder = [...accounts];
     newOrder[idx] = accounts[targetIdx];
     newOrder[targetIdx] = accounts[idx];
     setAccounts(newOrder);
     try {
-      await Promise.all([
-        api.updateAccount(account.id, { sort_order: targetIdx }),
-        api.updateAccount(targetAccount.id, { sort_order: idx }),
-      ]);
+      // The whole order, not the two swapped: accounts can share a position, and then the others
+      // reshuffled on the next load (#695).
+      await api.reorderAccounts(newOrder.map(a => a.id));
     } catch (err) {
       setAccounts(accounts);
       addNotification({ title: t('sidebar.accountMenu.moveFailed'), body: err.message });

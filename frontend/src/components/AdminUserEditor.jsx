@@ -1,13 +1,43 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
 import PasswordInput from './PasswordInput.jsx';
+import { formatRelativeTime } from '../utils/relativeTime.js';
+import { htmlLang } from '../utils/browserLanguage.js';
 
 // Lets an admin change another user's sign-in name, recovery email and password: the way back
-// in for someone who forgot their password and never set a recovery email.
+// in for someone who forgot their password and never set a recovery email. It also lists the
+// single sign-on accounts linked to the user, so one the user didn't add can be unlinked (#714).
 export default function AdminUserEditor({ user, isSelf, onClose, onSaved, onChanged }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const [identities, setIdentities] = useState([]);
+  const [confirmUnlink, setConfirmUnlink] = useState(null);
+  const [unlinking, setUnlinking] = useState(false);
+  const [identityError, setIdentityError] = useState(null);
+
+  useEffect(() => {
+    let live = true;
+    api.admin.getUserIdentities(user.id)
+      .then(data => { if (live) setIdentities(data.identities || []); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [user.id]);
+
+  const unlink = async identity => {
+    if (confirmUnlink !== identity.id) { setConfirmUnlink(identity.id); return; }
+    setUnlinking(true);
+    setIdentityError(null);
+    try {
+      await api.admin.unlinkUserIdentity(user.id, identity.id);
+      setIdentities(list => list.filter(i => i.id !== identity.id));
+    } catch (err) {
+      setIdentityError(t('admin.users.identityUnlinkFailed', { message: err?.message || '' }));
+    } finally {
+      setUnlinking(false);
+      setConfirmUnlink(null);
+    }
+  };
   const [username, setUsername] = useState(user.username);
   const [recoveryEmail, setRecoveryEmail] = useState(user.recoveryEmail || '');
   const [password, setPassword] = useState('');
@@ -122,7 +152,42 @@ export default function AdminUserEditor({ user, isSelf, onClose, onSaved, onChan
             </div>
           )}
           <div style={hint}>{isSelf ? t('admin.users.newPasswordHintSelf') : t('admin.users.newPasswordHint')}</div>
+          {identities.length > 0 && <div style={hint}>{t('admin.users.newPasswordRemovesIdentities')}</div>}
         </div>
+
+        {identities.length > 0 && (
+          <div>
+            <div style={label}>{t('admin.users.identitiesTitle')}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {identities.map(identity => (
+                <div key={identity.id} data-identity={identity.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 8,
+                  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {identity.provider_name}{identity.email ? ` · ${identity.email}` : ''}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                      {identity.last_used_at
+                        ? t('admin.users.identityLastUsed', { when: formatRelativeTime(identity.last_used_at, htmlLang(i18n.language)) })
+                        : t('admin.users.identityNeverUsed')}
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => unlink(identity)} disabled={unlinking} style={{
+                    padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 500, flexShrink: 0,
+                    border: '1px solid var(--border)', background: 'transparent', cursor: unlinking ? 'wait' : 'pointer',
+                    color: confirmUnlink === identity.id ? 'var(--red)' : 'var(--text-secondary)',
+                  }}>
+                    {confirmUnlink === identity.id ? t('admin.users.unlinkIdentityConfirm') : t('admin.users.unlinkIdentity')}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div style={hint}>{t('admin.users.identitiesHint')}</div>
+            {identityError && <div role="alert" style={{ fontSize: 12, color: 'var(--red)', marginTop: 4 }}>{identityError}</div>}
+          </div>
+        )}
 
         {error && <div role="alert" style={{ fontSize: 12, color: 'var(--red)' }}>{error}</div>}
 

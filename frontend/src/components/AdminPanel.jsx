@@ -7727,6 +7727,8 @@ function SecurityTab() {
       admin_user_update:  t('admin.security.eventAdminUserUpdate'),
       admin_totp_disable: t('admin.security.eventAdminTotpDisable'),
       admin_user_delete:  t('admin.security.eventAdminUserDelete'),
+      identity_linked:    t('admin.security.eventIdentityLinked'),
+      identity_unlinked:  t('admin.security.eventIdentityUnlinked'),
     };
     return map[type] || type;
   };

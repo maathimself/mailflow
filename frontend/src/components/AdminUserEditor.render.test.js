@@ -63,6 +63,10 @@ let failWith = null;
 let passwordFailWith = null;
 api.admin.updateUser = async (id, data) => { calls.push(['updateUser', id, data]); if (failWith) throw new Error(failWith); return { ok: true }; };
 api.admin.setUserPassword = async (id, password) => { calls.push(['setUserPassword', id, password]); if (passwordFailWith) throw new Error(passwordFailWith); return { ok: true }; };
+let identities = [];
+let unlinkFailWith = null;
+api.admin.getUserIdentities = async (id) => { calls.push(['getUserIdentities', id]); return { identities }; };
+api.admin.unlinkUserIdentity = async (id, identityId) => { calls.push(['unlinkUserIdentity', id, identityId]); if (unlinkFailWith) throw new Error(unlinkFailWith); return { ok: true }; };
 
 let root, saved, closed, changed;
 // Renders the editor as the Users list does: onChanged hands the editor the updated user.
@@ -74,9 +78,13 @@ function render(user) {
 }
 async function mount(user = USER) {
   calls.length = 0; failWith = null; passwordFailWith = null; saved = null; closed = false; changed = null;
+  unlinkFailWith = null;
   root?.unmount?.();
   root = createRoot(document.getElementById('root'));
   await act(async () => { render(user); });
+  // The identities load when the editor opens; the other tests count only what saving sends.
+  await act(async () => { await new Promise(r => setTimeout(r, 0)); });
+  calls.length = 0;
 }
 const dialog = () => document.querySelector('[role="dialog"]');
 const setValue = async (el, value) => {
@@ -170,5 +178,47 @@ describe('admin user editor', () => {
     assert.equal(changed, null);
     assert.equal(saved, null);
     assert.match(dialog().textContent, /admin\.users\.saveFailed/);
+  });
+
+  // #714: an admin sees the single sign-on accounts linked to the user and can unlink one.
+  test('lists linked identities and unlinks one after a second click', async () => {
+    identities = [
+      { id: 'i1', provider_name: 'Pocket ID', email: 'maria@idp.example', last_used_at: null },
+      { id: 'i2', provider_name: 'Google', email: 'maria@gmail.example', last_used_at: null },
+    ];
+    await mount();
+    const rows = () => [...dialog().querySelectorAll('[data-identity]')].map(r => r.getAttribute('data-identity'));
+    assert.deepEqual(rows(), ['i1', 'i2']);
+    assert.match(dialog().textContent, /Pocket ID · maria@idp\.example/);
+    assert.match(dialog().textContent, /admin\.users\.newPasswordRemovesIdentities/);
+    const unlinkButton = () => dialog().querySelector('[data-identity="i1"] button');
+    await act(async () => { unlinkButton().click(); });
+    assert.deepEqual(calls, []);
+    assert.equal(unlinkButton().textContent, 'admin.users.unlinkIdentityConfirm');
+    await act(async () => { unlinkButton().click(); });
+    await act(async () => { await new Promise(r => setTimeout(r, 0)); });
+    assert.deepEqual(calls, [['unlinkUserIdentity', 'u2', 'i1']]);
+    assert.deepEqual(rows(), ['i2']);
+    identities = [];
+  });
+
+  test('keeps the identity and says why when unlinking fails', async () => {
+    identities = [{ id: 'i1', provider_name: 'Pocket ID', email: null, last_used_at: null }];
+    await mount();
+    unlinkFailWith = "This is the user's only way to sign in.";
+    const unlinkButton = () => dialog().querySelector('[data-identity="i1"] button');
+    await act(async () => { unlinkButton().click(); });
+    await act(async () => { unlinkButton().click(); });
+    await act(async () => { await new Promise(r => setTimeout(r, 0)); });
+    assert.ok(dialog().querySelector('[data-identity="i1"]'));
+    assert.match(dialog().querySelector('[role="alert"]').textContent, /admin\.users\.identityUnlinkFailed/);
+    identities = [];
+  });
+
+  test('shows no single sign-on section for a user without identities', async () => {
+    identities = [];
+    await mount();
+    assert.equal(dialog().querySelector('[data-identity]'), null);
+    assert.doesNotMatch(dialog().textContent, /admin\.users\.identitiesTitle|newPasswordRemovesIdentities/);
   });
 });

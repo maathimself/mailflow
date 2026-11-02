@@ -12,6 +12,7 @@ import { MAILFLOW_MS_CLIENT_ID } from '../services/microsoftBuiltinApp.js';
 import { getGoogleConfig } from '../services/oauthEnv.js';
 import { classifyRefreshFailure, clearRefreshFailure, isPersonalMicrosoftAccount, noteFreshToken, terminalRefreshError } from '../services/accountErrorCode.js';
 import { isUuid } from '../utils/uuid.js';
+import { NEXT_ACCOUNT_SORT_ORDER } from '../services/accountOrder.js';
 import { reportConnect } from '../services/connectReport.js';
 
 // Cache JWKS fetchers per tenant — createRemoteJWKSet handles caching internally.
@@ -268,13 +269,13 @@ async function processMicrosoftTokens(userId, tokens, { tenantId, clientId, publ
           smtp_host, smtp_port, smtp_tls,
           auth_user,
           oauth_provider, oauth_access_token, oauth_refresh_token, oauth_token_expiry,
-          oauth_public_client, oauth_client_id, oauth_tenant_id
+          oauth_public_client, oauth_client_id, oauth_tenant_id, sort_order
         ) VALUES ($1,$2,$3,$4,'imap',
           'outlook.office365.com', 993, true,
           'smtp.office365.com', 587, 'STARTTLS',
           $3,
           'microsoft', $5, $6, $7,
-          $8, $9, $10)
+          $8, $9, $10, ${NEXT_ACCOUNT_SORT_ORDER})
         RETURNING *
       `, [userId, displayName, email, color, encrypt(access_token), encrypt(refresh_token), expiry, publicClient, clientId, tenantId]);
       accountId = result.rows[0].id;
@@ -737,13 +738,13 @@ async function processGoogleTokens(userId, tokens, { clientId, repairAccountId =
           smtp_host, smtp_port, smtp_tls,
           auth_user,
           oauth_provider, oauth_access_token, oauth_refresh_token, oauth_token_expiry,
-          oauth_public_client
+          oauth_public_client, sort_order
         ) VALUES ($1,$2,$3,$4,'imap',
           'imap.gmail.com', 993, true,
           'smtp.gmail.com', 587, 'STARTTLS',
           $3,
           'google', $5, $6, $7,
-          false)
+          false, ${NEXT_ACCOUNT_SORT_ORDER})
         RETURNING *
       `, [userId, displayName, email, color, encrypt(access_token), encrypt(refresh_token), expiry]);
       accountId = result.rows[0].id;

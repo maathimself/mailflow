@@ -1,12 +1,82 @@
 [
   {
     "login": "phillip9933",
-    "avatarUrl": "https://avatars.githubusercontent.com/u/19641186?s=64&u=f5eed97c62db0fed8c5274adcf7fd750e42bcd93&v=4",
-    "url": "https://github.com/phillip9933"
+    "avatarUrl": "https://avatars.githubusercontent.com/u/19641186?s=192&u=f5eed97c62db0fed8c5274adcf7fd750e42bcd93&v=4",
+    "url": "https://github.com/phillip9933",
+    "name": null,
+    "websiteUrl": null,
+    "type": "User",
+    "active": true,
+    "business": false
+  },
+  {
+    "login": "Samuarcher",
+    "avatarUrl": "https://avatars.githubusercontent.com/u/3508826?s=192&u=b51d075a84fc497706806bb220253de08683bf1c&v=4",
+    "url": "https://github.com/Samuarcher",
+    "name": "Samuel",
+    "websiteUrl": null,
+    "type": "User",
+    "active": true,
+    "business": false
+  },
+  {
+    "login": "Rainson12",
+    "avatarUrl": "https://avatars.githubusercontent.com/u/13119203?s=192&u=d18af1210e56533c4b5808986de75dbb28227599&v=4",
+    "url": "https://github.com/Rainson12",
+    "name": "Rene Steen",
+    "websiteUrl": null,
+    "type": "User",
+    "active": false,
+    "business": false
+  },
+  {
+    "login": "rahhing",
+    "avatarUrl": "https://avatars.githubusercontent.com/u/192337730?s=192&u=ef3c773f0ccac769353d63545e0ff6a0c885294a&v=4",
+    "url": "https://github.com/rahhing",
+    "name": "rahh",
+    "websiteUrl": null,
+    "type": "User",
+    "active": false,
+    "business": false
+  },
+  {
+    "login": "MikeScanlan5",
+    "avatarUrl": "https://avatars.githubusercontent.com/u/44779151?s=192&u=e7dfabc231fa876f879e63b4cd1c897036751467&v=4",
+    "url": "https://github.com/MikeScanlan5",
+    "name": "Mike Scanlan",
+    "websiteUrl": "https://www.scanlan.ai/",
+    "type": "User",
+    "active": false,
+    "business": false
+  },
+  {
+    "login": "lindstrm",
+    "avatarUrl": "https://avatars.githubusercontent.com/u/321951?s=192&u=76e44fd34335455397911bf1e14e0d35a1053ec2&v=4",
+    "url": "https://github.com/lindstrm",
+    "name": "Joachim Lindström",
+    "websiteUrl": null,
+    "type": "User",
+    "active": false,
+    "business": false
+  },
+  {
+    "login": "shamoon",
+    "avatarUrl": "https://avatars.githubusercontent.com/u/4887959?s=192&v=4",
+    "url": "https://github.com/shamoon",
+    "name": null,
+    "websiteUrl": null,
+    "type": "User",
+    "active": false,
+    "business": false
   },
   {
     "login": "chip-well",
-    "avatarUrl": "https://avatars.githubusercontent.com/u/80933507?s=64&u=a1ab1fc07b1cf5a6822453c007abfe24a581a420&v=4",
-    "url": "https://github.com/chip-well"
+    "avatarUrl": "https://avatars.githubusercontent.com/u/80933507?s=192&u=a1ab1fc07b1cf5a6822453c007abfe24a581a420&v=4",
+    "url": "https://github.com/chip-well",
+    "name": "Christopher Hipwell",
+    "websiteUrl": null,
+    "type": "User",
+    "active": false,
+    "business": false
   }
 ]

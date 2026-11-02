@@ -196,3 +196,36 @@ describe('Sidebar: the hidden folders toggle (#694)', () => {
     assert.deepEqual(useStore.getState().hiddenFolders['acct-1'], ['Deleted at provider', 'Banking']);
   });
 });
+
+// #695: every account started at sort_order 0, and Move up / Move down saved only the two accounts
+// it swapped, so with three or more the others reshuffled on the next load. The move now saves the
+// whole order.
+describe('Sidebar: moving an account saves the whole order', () => {
+  const accounts = ['A', 'B', 'C', 'D'].map(name => ({ ...ACCOUNT, id: `acct-${name}`, name, email_address: `${name.toLowerCase()}@example.com` }));
+
+  test('Move up sends every account, in the new order', async () => {
+    const calls = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init = {}) => {
+      calls.push({ url: String(url), method: init.method, body: init.body ? JSON.parse(init.body) : null });
+      return realFetch(url, init);
+    };
+    try {
+      await mount({ state: { accounts, folders: {}, expandedAccounts: {} } });
+      const row = [...dom.window.document.querySelectorAll('*')].find(el => el.textContent === 'B' && !el.children.length);
+      assert.ok(row, 'expected the row of account B');
+      await React.act(async () => {
+        row.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }));
+      });
+      const moveUp = [...dom.window.document.querySelectorAll('div')].filter(el => el.textContent === 'sidebar.accountMenu.moveUp').pop();
+      assert.ok(moveUp, 'expected Move up in the account menu');
+      await React.act(async () => { moveUp.click(); });
+      const saved = calls.filter(c => c.url.includes('/accounts/'));
+      assert.deepEqual(saved.map(c => [c.method, c.url.replace(/^.*\/api/, '/api')]), [['PATCH', '/api/accounts/order']]);
+      assert.deepEqual(saved[0].body, { ids: ['acct-B', 'acct-A', 'acct-C', 'acct-D'] });
+      assert.deepEqual(useStore.getState().accounts.map(a => a.name), ['B', 'A', 'C', 'D']);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});
