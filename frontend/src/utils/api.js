@@ -348,6 +348,7 @@ export const api = {
   getAccounts: () => request('GET', '/accounts'),
   addAccount: (data) => request('POST', '/accounts', data),
   updateAccount: (id, data) => request('PUT', `/accounts/${id}`, data),
+  reorderAccounts: (ids) => request('PATCH', '/accounts/order', { ids }),
   deleteAccount: (id) => request('DELETE', `/accounts/${id}`),
   // { wait: true } answers with how the attempt went: { connection, code, error }.
   reconnectAccount: (id, { wait = false } = {}) => request('POST', `/accounts/${id}/reconnect${wait ? '?wait=1' : ''}`),

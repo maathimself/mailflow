@@ -10,10 +10,11 @@ import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { normalizeAuthservId } from '../services/spamParser.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createKeyedSerializer } from '../utils/keyedSerializer.js';
-import { uuidParam } from '../utils/uuid.js';
+import { isUuid, uuidParam } from '../utils/uuid.js';
 import { normalizeAddressList } from '../utils/addressList.js';
 import { reportConnect } from '../services/connectReport.js';
 import { findOwnedAccount, findOwnedAlias } from '../services/ownership.js';
+import { NEXT_ACCOUNT_SORT_ORDER, setAccountOrder } from '../services/accountOrder.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
 // gtd_enabled double-toggle) can't fire two overlapping disconnect→connect chains —
@@ -171,8 +172,8 @@ router.post('/', async (req, res) => {
         user_id, name, sender_name, email_address, color, protocol,
         imap_host, imap_port, imap_tls, imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
         auth_user, auth_pass, smtp_auth_user, smtp_auth_pass,
-        signature, signature_enabled, icon
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+        signature, signature_enabled, icon, sort_order
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,${NEXT_ACCOUNT_SORT_ORDER})
       RETURNING *
     `, [
       req.session.userId, name, sender_name || null, email_address, color, protocol,
@@ -204,6 +205,23 @@ export const OAUTH_OWNED_FIELDS = [
   'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls',
   'auth_pass', 'smtp_auth_user', 'smtp_auth_pass',
 ];
+
+// The sidebar order of all the user's accounts, first to last (#695).
+router.patch('/order', async (req, res) => {
+  const { ids } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length || ids.length > 500 || !ids.every(isUuid)) {
+    return res.status(400).json({ error: 'ids must list your accounts' });
+  }
+  try {
+    if (!(await setAccountOrder(req.session.userId, ids))) {
+      return res.status(409).json({ error: 'ids must list each of your accounts once' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('PATCH /accounts/order error:', err.message);
+    res.status(500).json({ error: 'Failed to reorder accounts' });
+  }
+});
 
 router.put('/:id', async (req, res) => {
   const { id } = req.params;
