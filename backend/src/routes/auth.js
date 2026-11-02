@@ -20,6 +20,7 @@ import { sanitizeRightSidebarPrefs } from '../utils/rightSidebarPrefs.js';
 import { redisClient } from '../services/redis.js';
 import { destroyUserSessions } from '../services/userSessions.js';
 import { touchLastSeen } from '../services/lastSeen.js';
+import { removeIdentitiesForPasswordReset } from '../services/userIdentities.js';
 import { aiEnabledForNewUser } from '../services/aiNewUsers.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 
@@ -1156,12 +1157,18 @@ router.post('/reset-password', authLimiter, async (req, res) => {
     const userId = tokenResult.rows[0].user_id;
 
     const hash = await bcrypt.hash(password, 12);
-    await query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, userId]);
-
-    // Revoke all existing sessions and trusted devices so a pre-existing (possibly
-    // attacker) session/device can't survive a compromise-driven password reset.
+    // Revoke all existing sessions, trusted devices and, while password sign-in is on, linked
+    // single sign-on identities, so a pre-existing (possibly attacker) session, device or linked
+    // account can't survive a compromise-driven password reset (#714).
+    const { username, removed } = await withTransaction(async client => {
+      const { rows: [user] } = await client.query('SELECT username FROM users WHERE id = $1 FOR UPDATE', [userId]);
+      await client.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, userId]);
+      await client.query('DELETE FROM trusted_devices WHERE user_id = $1', [userId]);
+      return { username: user?.username, removed: await removeIdentitiesForPasswordReset(client, userId) };
+    });
     await destroyUserSessions(userId);
-    await query('DELETE FROM trusted_devices WHERE user_id = $1', [userId]);
+    if (removed.length) console.log(`[auth] password reset for ${username} removed ${removed.length} linked identity(s): ${removed.map(i => i.provider_name).join(', ')}`);
+    removed.forEach(() => logAuthEvent('identity_unlinked', { userId, username, ip: req.ip, success: true }));
 
     res.locals.resetRateLimit?.();
     res.json({ ok: true });

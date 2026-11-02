@@ -14,11 +14,13 @@ import { stopCardavUser } from '../services/carddavSync.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { uuidParam } from '../utils/uuid.js';
 import { destroyUserSessions } from '../services/userSessions.js';
+import { listUserIdentities, removeIdentitiesForPasswordReset, unlinkUserIdentity } from '../services/userIdentities.js';
 
 const router = Router();
 router.use(requireAdmin);
 // Reject a malformed :id (user UUID) with a 400 before it reaches a uuid-typed query.
 router.param('id', uuidParam('id'));
+router.param('identityId', uuidParam('identityId'));
 
 // ── Users ──────────────────────────────────────────────────────────────────────
 
@@ -180,8 +182,9 @@ router.patch('/users/:id', updateUser);
 
 // Sets a user's password, for someone who has lost theirs and has no recovery email. It takes
 // away what a self-service reset does, and more: every session (an admin setting their own keeps
-// the session they are using), trusted devices, which skip the second factor, and any reset link
-// or login code already sent, which would otherwise still set a different password or sign in.
+// the session they are using), trusted devices, which skip the second factor, any reset link or
+// login code already sent, which would otherwise still set a different password or sign in, and,
+// while password sign-in is on, linked single sign-on identities (#714).
 export async function setUserPassword(req, res) {
   const { id } = req.params;
   const { password } = req.body ?? {};
@@ -196,18 +199,47 @@ export async function setUserPassword(req, res) {
   if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
 
   const hash = await bcrypt.hash(password, 12);
-  await withTransaction(async client => {
+  const removed = await withTransaction(async client => {
+    await client.query('SELECT 1 FROM users WHERE id = $1 FOR UPDATE', [id]);
     await client.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, id]);
     await client.query('DELETE FROM trusted_devices WHERE user_id = $1', [id]);
     await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [id]);
     await client.query('DELETE FROM email_otp_tokens WHERE user_id = $1', [id]);
+    return removeIdentitiesForPasswordReset(client, id);
   });
   await destroyUserSessions(id, { exceptSessionId: id === req.session.userId ? req.sessionID : undefined });
   console.log(`[admin] ${req.session.username} set a new password for user ${target.rows[0].username} (${id})`);
   await logAdminChange(req, 'admin_password_set', { id, username: target.rows[0].username });
+  if (removed.length) console.log(`[admin] the new password removed ${removed.length} linked identity(s) of ${target.rows[0].username}: ${removed.map(i => i.provider_name).join(', ')}`);
+  await Promise.all(removed.map(() => logAdminChange(req, 'identity_unlinked', { id, username: target.rows[0].username })));
   res.json({ ok: true });
 }
 router.post('/users/:id/password', setUserPassword);
+
+// A user's linked single sign-on identities, so an admin can see one the user didn't add (#714).
+export async function listIdentities(req, res) {
+  const target = await query('SELECT 1 FROM users WHERE id = $1', [req.params.id]);
+  if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
+  res.json({ identities: await listUserIdentities({ query }, req.params.id) });
+}
+router.get('/users/:id/identities', listIdentities);
+
+// Removes one of a user's identities, unless the user could then no longer sign in.
+export async function unlinkIdentity(req, res) {
+  const { id, identityId } = req.params;
+  const target = await query('SELECT username FROM users WHERE id = $1', [id]);
+  if (!target.rows.length) return res.status(404).json({ error: 'User not found' });
+  const result = await withTransaction(client => unlinkUserIdentity(client, id, identityId));
+  if (result.notFound) return res.status(404).json({ error: 'Identity not found' });
+  if (result.lastSignIn) {
+    return res.status(400).json({ error: 'This is the user\'s only way to sign in. Set a password for them first, with password sign-in turned on.' });
+  }
+  await destroyUserSessions(id, { exceptSessionId: id === req.session.userId ? req.sessionID : undefined });
+  console.log(`[admin] ${req.session.username} unlinked ${result.identity.provider_name} identity ${result.identity.id} from user ${target.rows[0].username} (${id})`);
+  await logAdminChange(req, 'identity_unlinked', { id, username: target.rows[0].username });
+  res.json({ ok: true });
+}
+router.delete('/users/:id/identities/:identityId', unlinkIdentity);
 
 export async function deleteUser(req, res) {
   const { id } = req.params;
