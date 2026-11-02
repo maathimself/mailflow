@@ -25,6 +25,7 @@ import { PasteWithoutPageColors } from '../utils/editorPaste.js';
 import { pasteWithoutPageColors } from '../utils/contentEditablePaste.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { resolveInitialFrom } from '../utils/defaultSender.js';
+import { aiSenderNote, signatureText } from '../utils/aiSenderNote.js';
 import { initialComposeFocus, isComposeSendShortcut, isSendLaterShortcut } from '../utils/composeFromMessage.js';
 import { unproxyImages } from '../utils/imageProxy.js';
 import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } from '../utils/autoRecipients.js';
@@ -956,8 +957,17 @@ export default function ComposeModal() {
       setAiPanel({ action, status: 'error', text: t('compose.toolbar.aiTooLong', { count: fmt.format(user.length), max: fmt.format(AI_MESSAGE_MAX_CHARS) }) });
       return;
     }
+    // The signature handleSend will add (none while the toggle is off, #555), and the sender's
+    // name, so the model neither adds a sign-off above the real signature nor invents a
+    // [Your Name]. See utils/aiSenderNote.js. The name skips the account's display name, which
+    // is a label such as "Work Gmail".
+    const senderNote = aiSenderNote({
+      name: fromAlias ? fromAlias.name : fromAccount?.sender_name,
+      signature: !signatureEnabled ? '' : plaintextEmail ? plainSig : signatureText(signatureContentRef.current),
+      rewriting: action !== 'draft',
+    });
     const messages = [
-      { role: 'system', content: system },
+      { role: 'system', content: `${system}\n\n${senderNote}` },
       { role: 'user', content: user },
     ];
 
