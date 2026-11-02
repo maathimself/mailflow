@@ -1830,6 +1830,15 @@
       "ssoUnlinkBody": "Pomocí tohoto poskytovatele se už nebudete moci přihlásit. Ujistěte se, že máte jiný způsob přihlášení.",
       "ssoUnlinkConfirm": "Odpojit",
       "ssoNoProviders": "Na tomto serveru nejsou nastaveni žádní poskytovatelé SSO.",
+      "ssoLinkConfirmPassword": "Zadejte své heslo pro propojení s {{provider}}.",
+      "ssoLinkConfirmTotp": "Zadejte kód z ověřovací aplikace pro propojení s {{provider}}.",
+      "ssoLinkConfirmOidc": "Přihlaste se znovu přes SSO, abyste potvrdili, že jste to vy, a poté odsud propojte {{provider}}.",
+      "ssoLinkConfirmOidcButton": "Potvrdit přes {{provider}}",
+      "ssoLinkConfirmNoProvider": "Váš účet nemá žádnou identitu SSO k potvrzení ani přihlášení heslem. Obraťte se na správce.",
+      "ssoLinkConfirmTotpSetup": "Tento server vyžaduje dvoufázové ověření. Před propojením si výše nastavte ověřovací aplikaci.",
+      "ssoLinkConfirmed": "Potvrzeno přes SSO do {{time}}. Nyní můžete propojit dalšího poskytovatele.",
+      "ssoLinkContinue": "Pokračovat",
+      "ssoLinkChecking": "Ověřuje se…",
       "loginProtectionTitle": "Ochrana přihlášení",
       "loginProtectionDesc": "Počet neúspěšných pokusů o přihlášení povolených z jedné IP adresy před jejím dočasným zablokováním.",
       "maxAttempts": "Maximální počet pokusů",
@@ -2054,6 +2063,10 @@
     "ssoLinked": {
       "title": "Identita SSO propojena",
       "body": "Váš účet je nyní propojen s poskytovatelem SSO."
+    },
+    "ssoReauth": {
+      "title": "Potvrzeno přes SSO",
+      "body": "Následujících 10 minut můžete propojit další účet SSO."
     },
     "integrations": {
       "title": "Integrace",

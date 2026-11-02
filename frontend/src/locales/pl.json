@@ -1490,6 +1490,15 @@
       "ssoUnlinkBody": "Nie będzie już można logować się za pomocą tego dostawcy. Upewnij się, że masz inną metodę logowania.",
       "ssoUnlinkConfirm": "Odłącz",
       "ssoNoProviders": "Brak skonfigurowanych dostawców SSO na serwerze.",
+      "ssoLinkConfirmPassword": "Wpisz swoje hasło, aby połączyć {{provider}}.",
+      "ssoLinkConfirmTotp": "Wpisz kod z aplikacji uwierzytelniającej, aby połączyć {{provider}}.",
+      "ssoLinkConfirmOidc": "Zaloguj się ponownie przez SSO, aby potwierdzić swoją tożsamość, a następnie połącz {{provider}} stąd.",
+      "ssoLinkConfirmOidcButton": "Potwierdź przez {{provider}}",
+      "ssoLinkConfirmNoProvider": "Twoje konto nie ma tożsamości SSO do potwierdzenia ani logowania hasłem. Skontaktuj się z administratorem.",
+      "ssoLinkConfirmTotpSetup": "Ten serwer wymaga uwierzytelniania dwuskładnikowego. Skonfiguruj aplikację uwierzytelniającą powyżej, zanim połączysz.",
+      "ssoLinkConfirmed": "Potwierdzono przez SSO do {{time}}. Możesz teraz połączyć kolejnego dostawcę.",
+      "ssoLinkContinue": "Dalej",
+      "ssoLinkChecking": "Sprawdzanie…",
       "loginProtectionTitle": "Ochrona logowania",
       "loginProtectionDesc": "Liczba nieudanych prób logowania dozwolonych z jednego adresu IP, zanim adres zostanie tymczasowo zablokowany.",
       "maxAttempts": "Maksymalna liczba prób",
@@ -1934,6 +1943,10 @@
     "ssoLinked": {
       "title": "Połączono tożsamość SSO",
       "body": "Twoje konto zostało połączone z dostawcą SSO."
+    },
+    "ssoReauth": {
+      "title": "Potwierdzono przez SSO",
+      "body": "Przez najbliższe 10 minut możesz połączyć kolejne konto SSO."
     },
     "ssoError": {
       "title": "Błąd SSO"

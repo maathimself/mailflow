@@ -1471,6 +1471,15 @@
       "ssoUnlinkBody": "You will no longer be able to sign in with this provider. Make sure you have another way to sign in.",
       "ssoUnlinkConfirm": "Unlink",
       "ssoNoProviders": "No SSO providers are configured on this server.",
+      "ssoLinkConfirmPassword": "Enter your password to link {{provider}}.",
+      "ssoLinkConfirmTotp": "Enter the code from your authenticator app to link {{provider}}.",
+      "ssoLinkConfirmOidc": "Sign in again through SSO to confirm it's you, then link {{provider}} from here.",
+      "ssoLinkConfirmOidcButton": "Confirm with {{provider}}",
+      "ssoLinkConfirmNoProvider": "Your account has no SSO identity to confirm with and no password sign-in. Ask an administrator.",
+      "ssoLinkConfirmTotpSetup": "This server requires two-factor authentication. Set up an authenticator app above before linking.",
+      "ssoLinkConfirmed": "Confirmed with SSO until {{time}}. You can link another provider now.",
+      "ssoLinkContinue": "Continue",
+      "ssoLinkChecking": "Checking…",
       "loginProtectionTitle": "Login Protection",
       "loginProtectionDesc": "Failed login attempts allowed from a single IP address before it is temporarily blocked.",
       "maxAttempts": "Max attempts",
@@ -1915,6 +1924,10 @@
     "ssoLinked": {
       "title": "SSO identity linked",
       "body": "Your account is now linked to the SSO provider."
+    },
+    "ssoReauth": {
+      "title": "Confirmed with SSO",
+      "body": "You can link another SSO account for the next 10 minutes."
     },
     "ssoError": {
       "title": "SSO error"

@@ -47,6 +47,7 @@ import { formatDateTime, formatDay, formatTime } from '../utils/formatDate.js';
 import { htmlLang } from '../utils/browserLanguage.js';
 import SpamSettings from './SpamSettings.jsx';
 import BackupSettings from './BackupSettings.jsx';
+import PasswordInput from './PasswordInput.jsx';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -8371,21 +8372,75 @@ function SecurityTab() {
   );
 }
 
-function LinkedIdentitiesSection() {
+const ssoProviderButtonStyle = {
+  padding: '7px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
+  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+  color: 'var(--text-secondary)', textDecoration: 'none', cursor: 'pointer',
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+};
+
+// The single sign-on identities linked to the account. Linking one more takes the confirmation
+// creating an API token does (#714): the server says which (GET /auth/oidc/identities answers
+// `reauth`) and POST /auth/oidc/link-confirm checks it before the browser goes to the provider.
+// `navigate` is how it goes there; a test passes its own, as jsdom cannot navigate.
+export function LinkedIdentitiesSection({ navigate = (url) => { window.location.href = url; } }) {
   const { t } = useTranslation();
   const [identities, setIdentities] = useState(null); // null = loading
   const [providers, setProviders] = useState([]);
+  const [reauth, setReauth] = useState(null); // 'password' | 'totp' | 'oidc' | 'totpSetup'
+  const [oidc, setOidc] = useState(null); // with 'oidc': { providers, confirmedUntil }
   const [confirmDialog, setConfirmDialog] = useState(null);
+  const [linking, setLinking] = useState(null); // the provider whose link waits for its confirmation
+  const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [linkError, setLinkError] = useState('');
 
-  useEffect(() => {
-    Promise.all([
-      api.oidc.getIdentities(),
-      api.oidc.getProviders(),
-    ]).then(([idData, provData]) => {
-      setIdentities(idData.identities);
-      setProviders(provData.providers || []);
-    }).catch(() => setIdentities([]));
-  }, []);
+  const load = useCallback(() => Promise.all([
+    api.oidc.getIdentities(),
+    api.oidc.getProviders(),
+  ]).then(([idData, provData]) => {
+    setIdentities(idData.identities);
+    setReauth(idData.reauth ?? null);
+    setOidc(idData.oidc ?? null);
+    setProviders(provData.providers || []);
+  }).catch(() => setIdentities(ids => ids ?? [])), []);
+  useEffect(() => { load(); }, [load]);
+
+  // An account without password sign-in confirms with a sign-in just made through a provider it
+  // has (the buttons in the form below); the server says until when the last one counts.
+  const oidcProviders = Array.isArray(oidc?.providers) ? oidc.providers : [];
+  const oidcConfirmed = reauth === 'oidc' && !!oidc?.confirmedUntil && new Date(oidc.confirmedUntil) > new Date();
+  const canContinue = !checking && (reauth === 'totp' ? code.length === 6 : reauth === 'password' ? !!password : false);
+
+  const openLinkForm = (provider) => { setLinking(provider); setPassword(''); setCode(''); setLinkError(''); };
+  const closeLinkForm = () => openLinkForm(null);
+
+  // The confirmation, then the provider: the link start spends what the server just recorded.
+  const confirmAndLink = async (provider, body) => {
+    setChecking(true);
+    setLinkError('');
+    try {
+      await api.oidc.confirmLink(body);
+      navigate(`/auth/oidc/${provider.slug}/start?action=link`);
+    } catch (err) {
+      setLinking(provider);
+      setLinkError(err.message);
+      // A code works once, and a refused password is typed again, as when turning 2FA off.
+      setPassword('');
+      setCode('');
+      setChecking(false);
+      // A refusal can mean what confirms a link changed: two-factor turned on, or the policy.
+      load();
+    }
+  };
+  // With a sign-in through single sign-on already made, there is nothing left to ask for.
+  const startLink = (provider) => (oidcConfirmed ? confirmAndLink(provider, {}) : openLinkForm(provider));
+  const submitLinkForm = (e) => {
+    e.preventDefault();
+    if (!canContinue) return;
+    confirmAndLink(linking, reauth === 'totp' ? { totpCode: code } : { password });
+  };
 
   const handleUnlink = (identity) => {
     setConfirmDialog({
@@ -8417,6 +8472,11 @@ function LinkedIdentitiesSection() {
         <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 16 }}>
           {t('admin.security.ssoDescription')}
         </div>
+        {oidcConfirmed && (
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16 }}>
+            {t('admin.security.ssoLinkConfirmed', { time: formatTime(oidc.confirmedUntil) })}
+          </div>
+        )}
 
         {/* Linked identities */}
         {identities.length > 0 && (
@@ -8450,26 +8510,114 @@ function LinkedIdentitiesSection() {
           </div>
         )}
 
-        {/* Link new provider */}
-        {unlinkableProviders.length > 0 && (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {unlinkableProviders.map(p => (
-              <a
-                key={p.id}
-                href={`/auth/oidc/${p.slug}/start?action=link`}
+        {/* Link new provider: first its confirmation (#714), then the provider */}
+        {linking ? (
+          <form onSubmit={submitLinkForm} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {reauth === 'password' && (
+              <>
+                <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>
+                  {t('admin.security.ssoLinkConfirmPassword', { provider: linking.name })}
+                </p>
+                <PasswordInput
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  autoFocus
+                  placeholder={t('admin.security.totpDisablePh')}
+                  style={{ ...inputStyle }}
+                  onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                  onBlur={e => e.target.style.borderColor = 'var(--border)'}
+                />
+              </>
+            )}
+            {reauth === 'totp' && (
+              <>
+                <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>
+                  {t('admin.security.ssoLinkConfirmTotp', { provider: linking.name })}
+                </p>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={code}
+                  onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  autoFocus
+                  placeholder={t('admin.security.totpVerifyPh')}
+                  style={{ ...inputStyle, letterSpacing: '0.3em', fontVariantNumeric: 'tabular-nums' }}
+                  onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                  onBlur={e => e.target.style.borderColor = 'var(--border)'}
+                />
+              </>
+            )}
+            {reauth === 'oidc' && (
+              <>
+                <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>
+                  {oidcProviders.length > 0
+                    ? t('admin.security.ssoLinkConfirmOidc', { provider: linking.name })
+                    : t('admin.security.ssoLinkConfirmNoProvider')}
+                </p>
+                {oidcProviders.length > 0 && (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {oidcProviders.map(p => (
+                      <a key={p.slug} href={`/auth/oidc/${p.slug}/start?action=reauth`} style={ssoProviderButtonStyle}>
+                        {t('admin.security.ssoLinkConfirmOidcButton', { provider: p.name })}
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+            {reauth === 'totpSetup' && (
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>
+                {t('admin.security.ssoLinkConfirmTotpSetup')}
+              </p>
+            )}
+            {linkError && (
+              <div role="alert" style={{
+                padding: '8px 10px', background: 'rgba(248,113,113,0.1)',
+                border: '1px solid rgba(248,113,113,0.3)', borderRadius: 7, color: 'var(--red)', fontSize: 12,
+              }}>
+                {linkError}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              {(reauth === 'password' || reauth === 'totp') && (
+                <button
+                  type="submit"
+                  disabled={!canContinue}
+                  style={{
+                    padding: '8px 16px', background: 'var(--accent)', border: 'none',
+                    borderRadius: 7, color: 'var(--accent-text)', fontSize: 13, fontWeight: 500,
+                    cursor: canContinue ? 'pointer' : 'not-allowed', opacity: canContinue ? 1 : 0.6,
+                  }}
+                >
+                  {checking ? t('admin.security.ssoLinkChecking') : t('admin.security.ssoLinkContinue')}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={closeLinkForm}
                 style={{
-                  padding: '7px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
-                  background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-                  color: 'var(--text-secondary)', textDecoration: 'none', cursor: 'pointer',
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '8px 16px', background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border)', borderRadius: 7,
+                  color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer',
                 }}
               >
+                {t('common.cancel')}
+              </button>
+            </div>
+          </form>
+        ) : unlinkableProviders.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {unlinkableProviders.map(p => (
+              <button key={p.id} type="button" onClick={() => startLink(p)} style={ssoProviderButtonStyle}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
                   <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
                 </svg>
                 {t('admin.security.ssoLink', { provider: p.name })}
-              </a>
+              </button>
             ))}
           </div>
         )}

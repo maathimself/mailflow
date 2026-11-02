@@ -330,7 +330,7 @@ describe('creating a token', () => {
 
     it('a single sign-on user: a sign-in through their provider in the last 10 minutes, and at most 30 days', async () => {
       const sso = { ...ok, expiresInDays: 30 };
-      const refused = { error: 'Confirm through single sign-on first; each confirmation makes one token and counts for 10 minutes', reauth: 'oidc' };
+      const refused = { error: 'Confirm through single sign-on first; each confirmation can be used once, within 10 minutes', reauth: 'oidc' };
       // None at all, one too long ago, one through a provider they have no identity at, and one
       // through a provider turned off since.
       for (const signIn of [() => {}, () => signedInThrough(CORP, 11), () => signedInThrough(OTHER_IDP, 1),
@@ -423,7 +423,7 @@ describe('creating a token', () => {
       const res = await create('u-pw', { ...ok, password: 'right' });
       expect(res.status).toBe(403);
       expect(await res.json()).toEqual({
-        error: 'This server requires two-factor authentication. Set up an authenticator app to create API tokens.', reauth: 'totpSetup',
+        error: 'This server requires two-factor authentication. Set up an authenticator app first.', reauth: 'totpSetup',
       });
       expect(compare).not.toHaveBeenCalled();
       expect(db.tokens).toEqual([]);
