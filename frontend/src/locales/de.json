@@ -572,7 +572,20 @@
     "snoozedUntil": "Zurückgestellt bis {{when}}",
     "snoozedEmpty": "Nichts zurückgestellt",
     "snoozedEmptyDesc": "Zurückgestellte E-Mails warten hier, bis sie wiederkommen.",
-    "menu": "Menü"
+    "menu": "Menü",
+    "sort": "Sortieren",
+    "sortBy": "Sortieren nach",
+    "sortDate": "Datum",
+    "sortSender": "Absender",
+    "sortSubject": "Betreff",
+    "sortNewestFirst": "Neueste zuerst",
+    "sortOldestFirst": "Älteste zuerst",
+    "sortAToZ": "A bis Z",
+    "sortZToA": "Z bis A",
+    "starredOnTop": "Markierte oben",
+    "sortReset": "Zurück zu Neueste zuerst",
+    "sortedBy": "Sortiert: {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}"
   },
   "lockScreen": {
     "subtitle": "Gib deine PIN zum Entsperren ein",

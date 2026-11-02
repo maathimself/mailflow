@@ -586,7 +586,20 @@
     "snoozedUntil": "Odłożone do {{when}}",
     "snoozedEmpty": "Nic nie jest odłożone",
     "snoozedEmptyDesc": "Odłożone wiadomości czekają tutaj, aż wrócą.",
-    "menu": "Menu"
+    "menu": "Menu",
+    "sort": "Sortuj",
+    "sortBy": "Sortuj według",
+    "sortDate": "Data",
+    "sortSender": "Nadawca",
+    "sortSubject": "Temat",
+    "sortNewestFirst": "Najnowsze na górze",
+    "sortOldestFirst": "Najstarsze na górze",
+    "sortAToZ": "Od A do Z",
+    "sortZToA": "Od Z do A",
+    "starredOnTop": "Oznaczone gwiazdką na górze",
+    "sortReset": "Wróć do najnowszych na górze",
+    "sortedBy": "Sortowanie: {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}"
   },
   "lockScreen": {
     "subtitle": "Wpisz swój PIN aby odblokować",

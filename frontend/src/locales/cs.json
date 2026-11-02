@@ -457,7 +457,20 @@
     "snoozedUntil": "Odloženo do {{when}}",
     "snoozedEmpty": "Nic není odloženo",
     "snoozedEmptyDesc": "Odložené zprávy tu čekají, dokud se nevrátí.",
-    "menu": "Nabídka"
+    "menu": "Nabídka",
+    "sort": "Řadit",
+    "sortBy": "Řadit podle",
+    "sortDate": "Datum",
+    "sortSender": "Odesílatel",
+    "sortSubject": "Předmět",
+    "sortNewestFirst": "Nejnovější nahoře",
+    "sortOldestFirst": "Nejstarší nahoře",
+    "sortAToZ": "Od A po Z",
+    "sortZToA": "Od Z po A",
+    "starredOnTop": "S hvězdičkou nahoře",
+    "sortReset": "Zpět na nejnovější nahoře",
+    "sortedBy": "Řazeno: {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}"
   },
   "message": {
     "find": {

@@ -572,7 +572,20 @@
     "snoozedUntil": "Отложено до {{when}}",
     "snoozedEmpty": "Нет отложенных писем",
     "snoozedEmptyDesc": "Отложенные письма ждут здесь, пока не вернутся.",
-    "menu": "Меню"
+    "menu": "Меню",
+    "sort": "Сортировка",
+    "sortBy": "Сортировать по",
+    "sortDate": "Дата",
+    "sortSender": "Отправитель",
+    "sortSubject": "Тема",
+    "sortNewestFirst": "Сначала новые",
+    "sortOldestFirst": "Сначала старые",
+    "sortAToZ": "От А до Я",
+    "sortZToA": "От Я до А",
+    "starredOnTop": "Отмеченные сверху",
+    "sortReset": "Вернуть: сначала новые",
+    "sortedBy": "Сортировка: {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}"
   },
   "lockScreen": {
     "subtitle": "Введите PIN-код для разблокировки",

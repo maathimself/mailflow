@@ -18,7 +18,7 @@ import { sanitizeDbText, storeFetchedBody } from '../services/messageBodyStore.j
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, parseMailboxList, buildHeadersFromMessage } from '../services/messageParser.js';
 import { draftMessageSql, resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings, readCopyTargets, pushSeen } from '../utils/mailUtils.js';
 import { pluginRegistry } from '../plugins/registry.js';
-import { listMessages } from '../services/messageService.js';
+import { listMessages, LIST_SORTS, LIST_SORT_DIRS } from '../services/messageService.js';
 import { recordSyncSignal } from '../services/diagnosticsRing.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
 import { validateHost } from '../services/hostValidation.js';
@@ -147,9 +147,11 @@ function notifyMailMutation(rows, userId) {
 
 // Get messages (unified or per-account/folder)
 router.get('/messages', async (req, res) => {
-  const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category } = req.query;
+  const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category, sort, dir, starredFirst } = req.query;
 
   if (!isValidFolderName(folder)) return res.status(400).json({ error: 'Invalid folder name' });
+  if (sort !== undefined && !LIST_SORTS.includes(sort)) return res.status(400).json({ error: 'Invalid sort' });
+  if (dir !== undefined && !LIST_SORT_DIRS.includes(dir)) return res.status(400).json({ error: 'Invalid sort direction' });
 
   // Validate category param — only allow known values to prevent SQL injection via the
   // WHERE clause in listMessages (even though it uses parameterised queries, belt-and-suspenders).
@@ -165,6 +167,9 @@ router.get('/messages', async (req, res) => {
     unreadOnly,
     threaded,
     category: safeCategory,
+    sort,
+    dir,
+    starredFirst,
   });
 
   if (resolvedAccountId && messages.length) {

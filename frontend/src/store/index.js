@@ -30,6 +30,7 @@ import {
 import { removeThreadCacheEntry } from '../utils/threadedArchive.js';
 import i18n, { initialLanguage } from '../i18n.js';
 import { createPrefSaveQueue } from '../utils/prefSaveQueue.js';
+import { compareListOrder, isDefaultListOrder, listOrderFor, listSortKey } from '../utils/listSort.js';
 
 // Accumulate rapid preference changes and flush at most once per second. The queue itself
 // lives in prefSaveQueue.js so its behaviour is testable without a network or a DOM.
@@ -118,7 +119,8 @@ function expirePendingCounts() {
 // the list they left is still the one showing; otherwise that list loads them again when reopened.
 const removedFromView = new Map();
 const listViewOf = state => JSON.stringify([state.selectedAccountId ?? null, state.selectedFolder ?? null,
-  String(state.searchQuery || '').trim(), Boolean(state.searchAllFolders), state.activeGtdTab ?? null, Boolean(state.threadedView)]);
+  String(state.searchQuery || '').trim(), Boolean(state.searchAllFolders), state.activeGtdTab ?? null, Boolean(state.threadedView),
+  listOrderFor(state.listSort, state.selectedAccountId, state.selectedFolder)]);
 function noteRemoved(state, ids) {
   if (removedFromView.size > 5000) removedFromView.clear();
   const view = listViewOf(state);
@@ -177,7 +179,7 @@ export const useStore = create((set, get) => ({
         autoOpenReplyDrafts: false, afterRemove: 'next', darkEmailBodies: true,
         // Folder shortcuts name the previous user's accounts and folders. Left in place, the
         // next user's first favorite saved them into that user's own preferences.
-        favoriteFolders: [], recentFolders: [], defaultSender: '',
+        favoriteFolders: [], recentFolders: [], defaultSender: '', listSort: {},
         collapsedFolders: [], expandedAccounts: {},
       } : {}),
     }));
@@ -381,7 +383,9 @@ export const useStore = create((set, get) => ({
       return from === undefined || from === view;
     });
     if (!list.length) return {};
+    // Back where the server would list it: the folder's order (#528), newest first for search.
     const sort = arr => [...arr].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const sortList = arr => [...arr].sort(compareListOrder(listOrderFor(state.listSort, state.selectedAccountId, state.selectedFolder)));
     // Deduplicate against both the main list and searchResults by stable identity (Message-ID when
     // present, else id): if the message is already present — including re-added by a network
     // refresh under a regenerated id (matched via Message-ID) — skip it. The local copy carries the
@@ -390,7 +394,7 @@ export const useStore = create((set, get) => ({
     if (missing.length === 0 && !state.searchQuery.trim()) return {};
     const missingFromSearch = missingByIdentity(state.searchResults, list);
     return {
-      messages: missing.length ? sort([...state.messages, ...missing]) : state.messages,
+      messages: missing.length ? sortList([...state.messages, ...missing]) : state.messages,
       searchResults: state.searchQuery.trim() && missingFromSearch.length
         ? sort([...state.searchResults, ...missingFromSearch])
         : state.searchResults,
@@ -1186,6 +1190,26 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ collapsedFolders: next });
   },
 
+  // Each folder's list order (#528, #196): { "<accountId or all>:<folder>": { sort, dir, starredFirst } }.
+  // A folder at the default order has no entry.
+  listSort: (() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('mailflow_list_sort') || '{}');
+      return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+    } catch { return {}; }
+  })(),
+  setListOrder: (accountId, folder, order) => {
+    const key = listSortKey(accountId, folder);
+    // eslint-disable-next-line no-unused-vars
+    const { [key]: _old, ...rest } = get().listSort;
+    const next = isDefaultListOrder(order)
+      ? rest
+      : { ...rest, [key]: { sort: order.sort, dir: order.dir, starredFirst: Boolean(order.starredFirst) } };
+    localStorage.setItem('mailflow_list_sort', JSON.stringify(next));
+    set({ listSort: next });
+    schedulePrefSave({ listSort: next });
+  },
+
   // Favorite folders — [{ accountId, path }, ...] ordered by insertion
   favoriteFolders: (() => {
     try { return JSON.parse(localStorage.getItem('mailflow_favorite_folders') || '[]'); }
@@ -1346,6 +1370,10 @@ export const useStore = create((set, get) => ({
       if (Array.isArray(prefs.collapsedFolders)) {
         localStorage.setItem('mailflow_collapsed_folders', JSON.stringify(prefs.collapsedFolders));
         set({ collapsedFolders: prefs.collapsedFolders });
+      }
+      if (prefs.listSort && typeof prefs.listSort === 'object' && !Array.isArray(prefs.listSort)) {
+        localStorage.setItem('mailflow_list_sort', JSON.stringify(prefs.listSort));
+        set({ listSort: prefs.listSort });
       }
       if (Array.isArray(prefs.favoriteFolders)) {
         localStorage.setItem('mailflow_favorite_folders', JSON.stringify(prefs.favoriteFolders));

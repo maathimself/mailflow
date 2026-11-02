@@ -572,7 +572,20 @@
     "snoozedUntil": "Posticipato fino a {{when}}",
     "snoozedEmpty": "Niente posticipato",
     "snoozedEmptyDesc": "Le email posticipate aspettano qui finché non tornano.",
-    "menu": "Menu"
+    "menu": "Menu",
+    "sort": "Ordina",
+    "sortBy": "Ordina per",
+    "sortDate": "Data",
+    "sortSender": "Mittente",
+    "sortSubject": "Oggetto",
+    "sortNewestFirst": "Più recenti prima",
+    "sortOldestFirst": "Meno recenti prima",
+    "sortAToZ": "Dalla A alla Z",
+    "sortZToA": "Dalla Z alla A",
+    "starredOnTop": "Con stella in alto",
+    "sortReset": "Torna a più recenti prima",
+    "sortedBy": "Ordinati: {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}"
   },
   "lockScreen": {
     "subtitle": "Inserisci il PIN per sbloccare",

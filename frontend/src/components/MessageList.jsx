@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useState } from 'react';
 import AccountMark from './AccountMark.jsx';
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid, selectSelectedMessageAccountId } from '../store/index.js';
@@ -19,6 +19,8 @@ import RowHoverActions from './RowHoverActions.jsx';
 import UndoBar from './UndoBar.jsx';
 import ScheduledList from './ScheduledList.jsx';
 import { SCHEDULED_VIEW } from '../utils/scheduledCompose.js';
+import { applyListOrder, isSortableList, listOrderFor } from '../utils/listSort.js';
+import ListSortMenu from './ListSortMenu.jsx';
 import GtdTabList from './GtdTabList.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import {
@@ -172,6 +174,10 @@ function MailboxList() {
   const isUnified = selectedAccountId === null;
   // The Snoozed view (#269): an account's Snoozed folder, or with no account every account's.
   const isSnoozedView = selectedFolder === SNOOZED_FOLDER;
+  // This folder's order (#528, #196). Kept as a string so the list reloads when it changes, not
+  // on every new object.
+  const listOrderKey = useStore(s => JSON.stringify(listOrderFor(s.listSort, selectedAccountId, selectedFolder)));
+  const listOrder = useMemo(() => JSON.parse(listOrderKey), [listOrderKey]);
   const isAllInboxes = isUnified && !isSnoozedView;
   // The Snoozed view lists single messages, each with when it comes back, and the server never
   // groups it; drawn as conversation rows it showed unread mail as read and repeated row keys.
@@ -282,6 +288,7 @@ function MailboxList() {
   // While a GTD tab is selected the list body shows that section instead of the
   // folder listing. Same visibility envelope as the tab strip (INBOX, no search).
   const showGtdTab = gtdActive && !!activeGtdTab && selectedFolder === 'INBOX' && !searchQuery.trim();
+  const sortable = isSortableList({ accountId: selectedAccountId, folder: selectedFolder, searchQuery, gtdTab: showGtdTab });
   // Unread badge per GTD tab, from the shared sections store (Waiting merged).
   const gtdTabUnread = (() => {
     const map = {};
@@ -429,6 +436,7 @@ function MailboxList() {
       try {
         const params = { limit: pageSize, offset: 0 };
         scopeListParams(params, selectedAccountId, selectedFolder);
+        applyListOrder(params, listOrder);
         if (unreadOnly) params.unreadOnly = 'true';
         if (threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
@@ -474,7 +482,7 @@ function MailboxList() {
     };
     run();
     return () => { cancelled = true; };
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, scrollMode, accountsReady, unifiedInboxAccountKey, messagesRefreshToken, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, scrollMode, accountsReady, unifiedInboxAccountKey, messagesRefreshToken, threadedView, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
 
   // Load next page (called by scroll or button)
   const loadMore = useCallback(async () => {
@@ -485,6 +493,7 @@ function MailboxList() {
       const currentOffset = useStore.getState().messagesOffset;
       const params = { limit: pageSize, offset: currentOffset };
       scopeListParams(params, selectedAccountId, selectedFolder);
+      applyListOrder(params, listOrder);
       if (unreadOnly) params.unreadOnly = 'true';
       if (useStore.getState().threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
@@ -497,7 +506,7 @@ function MailboxList() {
     } finally {
       setLoadingMessages(false);
     }
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset]);
 
   // Listen for background refresh events from WebSocket. If a message was just
   // opened, give its body request a brief head start before reloading the full list.
@@ -513,6 +522,7 @@ function MailboxList() {
           loadedCount: state.messagesOffset,
         });
         scopeListParams(params, selectedAccountId, selectedFolder);
+        applyListOrder(params, listOrder);
         if (unreadOnly) params.unreadOnly = 'true';
         if (state.threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
@@ -557,7 +567,7 @@ function MailboxList() {
       window.removeEventListener('mailflow:refresh', handler);
       clearTimeout(deferredRefreshTimerRef.current);
     };
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, searchQuery, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, searchQuery, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal]);
 
   // Run the refresh held back while a load was in flight, once that load (and any append it
   // made) has finished.
@@ -692,6 +702,7 @@ function MailboxList() {
     try {
       const params = { limit: pageSize, offset: (pageNum - 1) * pageSize };
       scopeListParams(params, selectedAccountId, selectedFolder);
+      applyListOrder(params, listOrder);
       if (unreadOnly) params.unreadOnly = 'true';
       if (threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
@@ -711,7 +722,7 @@ function MailboxList() {
     } finally {
       setLoadingMessages(false);
     }
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setExpandedThreadId, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, threadedView, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setExpandedThreadId, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
 
   const handleSync = async () => {
     if (syncing) return;
@@ -2782,6 +2793,8 @@ function MailboxList() {
             )}
           </div>
 
+          {sortable && <ListSortMenu accountId={selectedAccountId} folder={selectedFolder} compact />}
+
           {/* Unread filter */}
           <button
             onClick={() => setUnreadOnly(!unreadOnly)}
@@ -3019,6 +3032,7 @@ function MailboxList() {
             {/* In wide layouts, keep filter + page size inline */}
             {!isNarrow && (
               <>
+                {sortable && <ListSortMenu accountId={selectedAccountId} folder={selectedFolder} />}
                 {/* Filter unread */}
                 <button
                   onClick={() => setUnreadOnly(!unreadOnly)}
@@ -3078,6 +3092,7 @@ function MailboxList() {
         {/* Narrow layouts: filter + page size + layout picker on their own row */}
         {isNarrow && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+            {sortable && <ListSortMenu accountId={selectedAccountId} folder={selectedFolder} />}
             <button
               onClick={() => setUnreadOnly(!unreadOnly)}
               title={unreadOnly ? t('messageList.showAll') : t('messageList.unreadOnly')}

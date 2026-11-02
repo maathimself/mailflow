@@ -572,7 +572,20 @@
     "snoozedUntil": "暂停至 {{when}}",
     "snoozedEmpty": "没有暂停的邮件",
     "snoozedEmptyDesc": "暂停的邮件会在这里等待，直到恢复。",
-    "menu": "菜单"
+    "menu": "菜单",
+    "sort": "排序",
+    "sortBy": "排序方式",
+    "sortDate": "日期",
+    "sortSender": "发件人",
+    "sortSubject": "主题",
+    "sortNewestFirst": "最新的在前",
+    "sortOldestFirst": "最早的在前",
+    "sortAToZ": "A 到 Z",
+    "sortZToA": "Z 到 A",
+    "starredOnTop": "星标邮件置顶",
+    "sortReset": "恢复为最新的在前",
+    "sortedBy": "排序：{{order}}",
+    "sortSummary": "{{sort}}，{{dir}}"
   },
   "lockScreen": {
     "subtitle": "输入 PIN 码以解锁",

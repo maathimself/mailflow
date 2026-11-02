@@ -1172,3 +1172,74 @@ describe('MessageList — the badge after deleting the last unread message (#701
     assert.equal(useStore.getState().unreadCounts.byAccount['acct-1'], 0);
   });
 });
+
+describe('MessageList — sorting a folder (#528, #196)', () => {
+  const listParams = () => CALLS.filter(c => c.path.includes('/mail/messages?'))
+    .map(c => Object.fromEntries(new URL(c.path, 'https://mail.example.invalid').searchParams));
+  const sortButton = () => [...container.querySelectorAll('button[aria-haspopup="menu"]')]
+    .find(b => /^messageList\.sort/.test(b.getAttribute('aria-label') || ''));
+  const menuItem = (text) => [...container.querySelectorAll('[role="menu"] button')].find(b => b.textContent.trim() === text);
+  const click = async (el) => { await React.act(async () => { el.click(); await new Promise(r => setTimeout(r, 0)); }); };
+
+  // The test renders translation keys, not English.
+  test('picking Sender lists the folder A to Z, says so, and keeps it on refresh', async () => {
+    useStore.setState({ listSort: {} });
+    await mount({ rows: [MESSAGE], threadedView: false });
+    assert.equal(listParams().at(-1).sort, undefined, 'newest first sends no order');
+    assert.equal(sortButton().textContent.trim(), 'messageList.sort');
+
+    CALLS = [];
+    await click(sortButton());
+    assert.ok(container.querySelector('[role="menu"]'), 'the menu opens');
+    await click(menuItem('messageList.sortSender'));
+    assert.deepEqual(useStore.getState().listSort, { 'acct-1:INBOX': { sort: 'from', dir: 'asc', starredFirst: false } });
+    const loaded = listParams().at(-1);
+    assert.equal(loaded.sort, 'from');
+    assert.equal(loaded.dir, 'asc');
+    assert.equal(loaded.offset, '0', 'the list loads again from the top');
+    assert.equal(sortButton().textContent.trim(), 'messageList.sortSummary');
+    assert.equal(sortButton().getAttribute('aria-label'), 'messageList.sortedBy');
+
+    await click(menuItem('messageList.starredOnTop'));
+    assert.equal(listParams().at(-1).starredFirst, 'true');
+    assert.equal(sortButton().textContent.trim(), 'messageList.sortSummary · messageList.starredOnTop');
+
+    CALLS = [];
+    await React.act(async () => {
+      window.dispatchEvent(new dom.window.CustomEvent('mailflow:refresh'));
+      await new Promise(r => setTimeout(r, 20));
+    });
+    assert.equal(listParams().at(-1).sort, 'from', 'a refresh keeps the order');
+
+    await click(menuItem('messageList.sortReset'));
+    assert.deepEqual(useStore.getState().listSort, {});
+    assert.equal(listParams().at(-1).sort, undefined);
+    assert.equal(container.querySelector('[role="menu"]'), null, 'the menu closes after a reset');
+  });
+
+  test('each folder keeps its own order', async () => {
+    useStore.setState({ listSort: { 'acct-1:Archive': { sort: 'subject', dir: 'desc', starredFirst: false } } });
+    await mount({ rows: [MESSAGE], threadedView: false });
+    assert.equal(listParams().at(-1).sort, undefined);
+    CALLS = [];
+    await mount({ rows: [{ ...MESSAGE, folder: 'Archive' }], threadedView: false, folder: 'Archive' });
+    assert.equal(listParams().at(-1).sort, 'subject');
+    assert.equal(listParams().at(-1).dir, 'desc');
+    useStore.setState({ listSort: {} });
+  });
+
+  test('Escape closes the menu', async () => {
+    useStore.setState({ listSort: {} });
+    await mount({ rows: [MESSAGE], threadedView: false });
+    await click(sortButton());
+    await React.act(async () => {
+      dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    assert.equal(container.querySelector('[role="menu"]'), null);
+  });
+
+  test('no sort in the Snoozed view', async () => {
+    await mount({ rows: [], threadedView: false, folder: 'Snoozed', accountId: null });
+    assert.equal(sortButton(), undefined);
+  });
+});

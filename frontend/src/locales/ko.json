@@ -572,7 +572,20 @@
     "snoozedUntil": "{{when}}까지 다시 알림 대기",
     "snoozedEmpty": "다시 알림 대기 중인 메일 없음",
     "snoozedEmptyDesc": "다시 알림으로 미룬 메일은 돌아올 때까지 여기에서 기다립니다.",
-    "menu": "메뉴"
+    "menu": "메뉴",
+    "sort": "정렬",
+    "sortBy": "정렬 기준",
+    "sortDate": "날짜",
+    "sortSender": "보낸 사람",
+    "sortSubject": "제목",
+    "sortNewestFirst": "최신순",
+    "sortOldestFirst": "오래된순",
+    "sortAToZ": "A→Z",
+    "sortZToA": "Z→A",
+    "starredOnTop": "별표 메일 맨 위",
+    "sortReset": "최신순으로 되돌리기",
+    "sortedBy": "정렬: {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}"
   },
   "lockScreen": {
     "unlockButton": "잠금 해제",
