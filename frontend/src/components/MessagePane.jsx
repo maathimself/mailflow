@@ -1017,8 +1017,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       onUndo: () => {
         undone = true;
         clearTimeout(timer);
-        const state = useStore.getState();
-        state.setMessages([...state.messages, archived].sort((a, b) => new Date(b.date) - new Date(a.date)));
+        // Back into the list it left, not into one opened since (#630).
+        useStore.getState().restoreMessages([archived]);
         if (!archived.is_read) incrementUnread(archived.account_id);
       },
     });

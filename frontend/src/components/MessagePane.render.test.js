@@ -913,6 +913,28 @@ describe('the next message opens after the pane removes the open one', () => {
     assert.equal(useStore.getState().selectedMessageId, 'a1');
   });
 
+  // #630: the Undo put the message back into whatever list was showing by then.
+  test('Undo of Archive puts the message back into its list, not into one opened since', async () => {
+    const undoArchive = () => {
+      const toast = useStore.getState().notifications.findLast(n => n.title === 'message.archived.title');
+      toast.onUndo();
+      useStore.getState().removeNotification(toast.id);
+    };
+    useStore.setState({ selectedAccountId: 'acct', selectedFolder: 'INBOX' });
+    await show('b2');
+    await click(paneButton('message.archive'));
+    undoArchive();
+    assert.deepEqual(useStore.getState().messages.map(m => m.id).sort(), ['a1', 'b2', 'c3']);
+
+    await show('b2');
+    await click(paneButton('message.archive'));
+    useStore.setState({ selectedFolder: 'Sent' });
+    useStore.getState().setMessages([]);
+    undoArchive();
+    assert.deepEqual(useStore.getState().messages.map(m => m.id), []);
+    useStore.setState({ selectedFolder: 'INBOX' });
+  });
+
   test('"back to the list" leaves the pane empty, as before', async () => {
     await show('b2', 'list');
     await click(paneButton('message.delete'));
