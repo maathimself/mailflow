@@ -7,7 +7,7 @@ import { consume, release, reset } from './rateLimiter.js';
 import { authLimiterConfig } from './authLimiter.js';
 import { logAuthEvent } from './authEvents.js';
 import { EXPIRY_CHOICES, normalizeIp } from './apiTokens.js';
-import { freshOidcConfirmation } from './oidcConfirmation.js';
+import { clearOidcConfirmation, freshOidcConfirmation, OIDC_CONFIRMATION_MS } from './oidcConfirmation.js';
 
 // Confirming who is at the browser before an API token is created (#617). A token can do what its
 // scopes allow for as long as it lasts, past sign-out and past the session, so an unlocked browser
@@ -17,9 +17,11 @@ import { freshOidcConfirmation } from './oidcConfirmation.js';
 // - 'oidc' when the account cannot sign in with a password: password sign-in is off, or it has
 //   none. Only its single sign-on provider vouches for it, so creating a token needs a sign-in
 //   made through the provider in the last 10 minutes from the form's Confirm button, which makes
-//   the provider ask for credentials again (oidcConfirmation.js; routes/oidc.js, action=reauth).
-//   An ordinary sign-in does not count. Such a token lasts 30 days at most. That bounds how long it can
-//   outlive the provider deprovisioning the user, which MailFlow cannot see.
+//   the provider ask for credentials again (oidcConfirmation.js; routes/oidc.js, action=reauth),
+//   and each such sign-in makes one token. An ordinary sign-in does not count, and a provider
+//   that sends no auth_time (Entra ID without that optional claim) cannot confirm at all. Such a
+//   token lasts 30 days at most, which bounds how long it can outlive the provider deprovisioning
+//   the user, which MailFlow cannot see.
 // - 'totp' when the user has two-factor on: their current code, checked as the sign-in challenge
 //   checks it (routes/auth.js), with the same replay guard and totp:<uid> limit.
 // - 'totpSetup' when two-factor is required and the user has no authenticator: they sign in with an
@@ -64,15 +66,17 @@ const linkedProviders = async userId => (await query(
 export async function oidcConfirmationState(req, user) {
   const providers = await linkedProviders(user.id);
   const fresh = freshOidcConfirmation(req.session);
-  const counts = fresh && providers.some(p => p.id === fresh.providerId);
+  const counts = fresh && fresh.userId === user.id && providers.some(p => p.id === fresh.providerId);
   return {
     providers: providers.map(({ slug, name }) => ({ slug, name })),
     confirmedUntil: counts ? fresh.until.toISOString() : null,
   };
 }
 
-// { confirmedWith, oidcProviderId } once confirmed, or { refusal: { status, body, headers } } to
-// answer with. Never 401: the web client takes a 401 for an expired session and signs out.
+// { confirmedWith, oidcProvider } once confirmed, oidcProvider being the single sign-on provider
+// (id, issuerUrl, clientId as the confirmation saw them) when that confirmed it; or
+// { refusal: { status, body, headers } } to answer with. Never 401: the web client takes a 401 for
+// an expired session and signs out.
 export async function confirmReauth(req, user, reauth) {
   if (reauth === 'totp') return confirmTotp(req, user, req.body?.totpCode);
   if (reauth === 'password') return confirmPassword(req, user, req.body?.password);
@@ -123,13 +127,20 @@ async function confirmPassword(req, user, password) {
 }
 
 // The provider is checked again here: it may have been turned off, or the identity unlinked, since
-// the sign-in.
+// the sign-in (and again under locks when the token is stored, apiTokens.js). A confirmation makes
+// one token: the session forgets it here, and Redis keeps its nonce as spent for as long as it
+// could have counted, so two requests carrying the same one cannot both pass, as confirmTotp keeps
+// a two-factor code from being used twice.
 async function confirmOidc(req, user) {
   const fresh = freshOidcConfirmation(req.session);
-  if (fresh && (await linkedProviders(user.id)).some(p => p.id === fresh.providerId)) {
-    return { confirmedWith: 'oidc', oidcProviderId: fresh.providerId };
+  if (fresh && fresh.userId === user.id && (await linkedProviders(user.id)).some(p => p.id === fresh.providerId)) {
+    clearOidcConfirmation(req.session);
+    const firstUse = await redisClient.set(`oidc_confirmation_used:${fresh.nonce}`, '1', { NX: true, EX: Math.ceil(OIDC_CONFIRMATION_MS / 1000) });
+    if (firstUse) {
+      return { confirmedWith: 'oidc', oidcProvider: { id: fresh.providerId, issuerUrl: fresh.issuerUrl, clientId: fresh.clientId } };
+    }
   }
-  return { refusal: { status: 400, body: { error: 'Confirm through single sign-on first; a confirmation counts for 10 minutes', reauth: 'oidc' } } };
+  return { refusal: { status: 400, body: { error: 'Confirm through single sign-on first; each confirmation makes one token and counts for 10 minutes', reauth: 'oidc' } } };
 }
 
 const tooManyAttempts = (reauth, resetMs) => ({

@@ -24,11 +24,13 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('linked identities', ()
       CREATE TEMP TABLE oidc_providers (id uuid PRIMARY KEY, name text, slug text);
       CREATE TEMP TABLE system_settings (key text PRIMARY KEY, value text);
       CREATE TEMP TABLE user_identities (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, provider_id uuid,
-        issuer text, subject text, email text, created_at timestamptz DEFAULT now(), last_used_at timestamptz)`);
+        issuer text, subject text, email text, created_at timestamptz DEFAULT now(), last_used_at timestamptz);
+      CREATE TEMP TABLE api_tokens (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, oidc_provider_id uuid,
+        confirmed_with text NOT NULL, name text)`);
   });
   afterAll(async () => { await db?.end(); });
   beforeEach(async () => {
-    await db.query('TRUNCATE users, oidc_providers, system_settings, user_identities');
+    await db.query('TRUNCATE users, oidc_providers, system_settings, user_identities, api_tokens');
     await db.query("INSERT INTO oidc_providers VALUES ($1, 'Pocket ID', 'pocket')", [P]);
     await db.query("INSERT INTO system_settings VALUES ('internal_auth_disabled', 'false')");
     await db.query("INSERT INTO users VALUES ($1, 'hash'), ($2, NULL)", [U1, U2]);
@@ -67,6 +69,24 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('linked identities', ()
     expect(await unlinkUserIdentity(db, U1, a)).toEqual({ lastSignIn: true });
     expect(await subjects(U1)).toEqual(['a']);
     expect(await subjects(U2)).toEqual(['c']);
+  });
+
+  it('takes the API tokens confirmed through the provider with the user\'s last identity there (#617)', async () => {
+    const Q = '44444444-4444-4444-8444-444444444444';
+    await db.query("INSERT INTO oidc_providers VALUES ($1, 'Google', 'google')", [Q]);
+    const a = await link(U1, 'a'); const b = await link(U1, 'b'); await link(U2, 'c');
+    const token = (user, provider, confirmedWith, name) => db.query(
+      'INSERT INTO api_tokens (user_id, oidc_provider_id, confirmed_with, name) VALUES ($1, $2, $3, $4)', [user, provider, confirmedWith, name]);
+    await token(U1, P, 'oidc', 'mine through P');
+    await token(U1, Q, 'oidc', 'mine through Q');
+    await token(U1, null, 'password', 'mine by password');
+    await token(U2, P, 'oidc', 'hers through P');
+    const tokenNames = async () => (await db.query('SELECT name FROM api_tokens ORDER BY name')).rows.map(r => r.name);
+    // Another identity at P remains, so P still vouches for the user.
+    expect((await unlinkUserIdentity(db, U1, a)).revokedTokens).toBe(0);
+    expect(await tokenNames()).toEqual(['hers through P', 'mine by password', 'mine through P', 'mine through Q']);
+    expect((await unlinkUserIdentity(db, U1, b)).revokedTokens).toBe(1);
+    expect(await tokenNames()).toEqual(['hers through P', 'mine by password', 'mine through Q']);
   });
 
   it('finds no identity of another user', async () => {

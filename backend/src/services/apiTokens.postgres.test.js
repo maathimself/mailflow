@@ -33,8 +33,10 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('API tokens PostgreSQL'
     await database.connect();
     // What the migration refers to, as temporary tables, made first so that it reaches nothing else.
     await database.query(`
-      CREATE TEMP TABLE users (id uuid PRIMARY KEY, username text NOT NULL);
-      CREATE TEMP TABLE oidc_providers (id uuid PRIMARY KEY);
+      CREATE TEMP TABLE users (id uuid PRIMARY KEY, username text NOT NULL, password_hash text, totp_enabled boolean NOT NULL DEFAULT false, totp_secret text);
+      CREATE TEMP TABLE oidc_providers (id uuid PRIMARY KEY, enabled boolean NOT NULL DEFAULT true,
+        issuer_url text NOT NULL DEFAULT 'https://idp.example.com', client_id text NOT NULL DEFAULT 'mailflow');
+      CREATE TEMP TABLE user_identities (user_id uuid NOT NULL, provider_id uuid NOT NULL);
       CREATE TEMP TABLE system_settings (key varchar(100) PRIMARY KEY, value text, updated_at timestamptz DEFAULT NOW())`);
     const tableAndSwitch = /^(CREATE TABLE IF NOT EXISTS api_tokens |CREATE (UNIQUE )?INDEX IF NOT EXISTS \w+ ON api_tokens\(|INSERT INTO system_settings )/;
     for (const statement of statementsOf('0074_api_tokens.sql', tableAndSwitch)) {
@@ -58,9 +60,10 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('API tokens PostgreSQL'
     await database?.end();
   });
   beforeEach(async () => {
-    await database.query('TRUNCATE api_tokens, users, oidc_providers');
-    await database.query("INSERT INTO users VALUES ($1, 'maria'), ($2, 'olga')", [OWNER, OTHER]);
-    await database.query('INSERT INTO oidc_providers VALUES ($1), ($2)', [CORP, OTHER_IDP]);
+    await database.query('TRUNCATE api_tokens, users, oidc_providers, user_identities');
+    await database.query("INSERT INTO users (id, username, password_hash) VALUES ($1, 'maria', 'hash-maria'), ($2, 'olga', NULL)", [OWNER, OTHER]);
+    await database.query('INSERT INTO oidc_providers (id) VALUES ($1), ($2)', [CORP, OTHER_IDP]);
+    await database.query('INSERT INTO user_identities VALUES ($1, $3), ($2, $3)', [OWNER, OTHER, CORP]);
     await database.query("UPDATE system_settings SET value = 'true' WHERE key = 'api_tokens_enabled'");
     // The sign-in policy rows, as migrations 0004 and 0020 seed them.
     await database.query(`INSERT INTO system_settings (key, value) VALUES ('mfa_enforcement', 'off'), ('internal_auth_disabled', 'false')
@@ -79,6 +82,10 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('API tokens PostgreSQL'
     return { secret, id: row.id };
   };
   const names = async () => (await database.query('SELECT name FROM api_tokens ORDER BY name')).rows.map(r => r.name);
+  // The users row as routes/apiTokens.js loads it for the confirmation.
+  const userRow = async id => (await database.query('SELECT id, password_hash, totp_enabled, totp_secret FROM users WHERE id = $1', [id])).rows[0];
+  const AT_CORP = { id: CORP, issuerUrl: 'https://idp.example.com', clientId: 'mailflow' };
+  const inADay = () => new Date(Date.now() + 86_400_000);
   const PAST = "NOW() - interval '1 minute'";
   const FUTURE = "NOW() + interval '1 day'";
 
@@ -129,8 +136,8 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('API tokens PostgreSQL'
   });
 
   it('creates a token storing only its hash, and stops at the limit', async () => {
-    const created = await createToken(OWNER, {
-      name: 'Claude', scopes: ['read', 'draft'], expiresAt: new Date(Date.now() + 86_400_000), confirmedWith: 'oidc', oidcProviderId: CORP,
+    const created = await createToken(await userRow(OWNER), {
+      name: 'Claude', scopes: ['read', 'draft'], expiresAt: inADay(), confirmedWith: 'oidc', oidcProvider: AT_CORP,
     });
     expect(created.apiToken).toMatchObject({ name: 'Claude', scopes: ['read', 'draft'], lastUsedAt: null, expired: false });
     const { rows: [stored] } = await database.query(
@@ -139,16 +146,16 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('API tokens PostgreSQL'
     expect(stored).toEqual({ token_hash: hashToken(created.token), scopes: ['read', 'draft'], confirmed_with: 'oidc', oidc_provider_id: CORP });
 
     for (let i = 1; i < MAX_TOKENS_PER_USER; i++) await insertToken(OWNER, PAST, `t${i}`);
-    expect(await createToken(OWNER, { name: 'one too many', scopes: ['read'], expiresAt: new Date(), confirmedWith: 'password' })).toBe(null);
+    expect(await createToken(await userRow(OWNER), { name: 'one too many', scopes: ['read'], expiresAt: new Date(), confirmedWith: 'password' })).toBe(null);
     const { rows: [{ count }] } = await database.query('SELECT COUNT(*)::int AS count FROM api_tokens WHERE user_id = $1', [OWNER]);
     expect(count).toBe(MAX_TOKENS_PER_USER);
     // Another user's limit is their own.
-    expect(await createToken(OTHER, { name: 'hers', scopes: ['read'], expiresAt: new Date(), confirmedWith: 'password' })).not.toBe(null);
+    expect(await createToken(await userRow(OTHER), { name: 'hers', scopes: ['read'], expiresAt: new Date(), confirmedWith: 'password' })).not.toBe(null);
   });
 
   it('refuses, inside its transaction, a token the sign-in policy no longer allows', async () => {
-    const create = (confirmedWith, providerId = null) => createToken(OWNER, {
-      name: confirmedWith, scopes: ['read'], expiresAt: new Date(Date.now() + 86_400_000), confirmedWith, oidcProviderId: providerId,
+    const create = async (confirmedWith, providerId = null) => createToken(await userRow(OWNER), {
+      name: confirmedWith, scopes: ['read'], expiresAt: inADay(), confirmedWith, oidcProvider: providerId ? { ...AT_CORP, id: providerId } : null,
     });
     await database.query("UPDATE system_settings SET value = 'required' WHERE key = 'mfa_enforcement'");
     expect(await create('password')).toEqual({ policyChanged: true });
@@ -158,6 +165,43 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('API tokens PostgreSQL'
     expect(await create('totp')).toEqual({ policyChanged: true });
     expect(await create('oidc', CORP)).toMatchObject({ apiToken: { name: 'oidc' } });
     expect(await names()).toEqual(['oidc', 'totp']);
+  });
+
+  it('refuses a token once what confirmed it no longer holds, and stores nothing', async () => {
+    // The row the confirmation was checked against, then what a revocation that committed before
+    // the insert leaves: a password reset or set, two-factor turned off, an authenticator set up anew.
+    const confirmed = await userRow(OWNER);
+    const attempt = () => createToken(confirmed, { name: 'late', scopes: ['read'], expiresAt: inADay(), confirmedWith: 'password' });
+    await database.query("UPDATE users SET password_hash = 'reset' WHERE id = $1", [OWNER]);
+    expect(await attempt()).toEqual({ signInChanged: true });
+    // The flag alone, then the secret alone.
+    await database.query("UPDATE users SET password_hash = 'hash-maria', totp_enabled = true WHERE id = $1", [OWNER]);
+    expect(await attempt()).toEqual({ signInChanged: true });
+    await database.query("UPDATE users SET totp_enabled = false, totp_secret = 'enc' WHERE id = $1", [OWNER]);
+    expect(await attempt()).toEqual({ signInChanged: true });
+    expect(await names()).toEqual([]);
+    await database.query('UPDATE users SET totp_secret = NULL WHERE id = $1', [OWNER]);
+    expect(await attempt()).toMatchObject({ apiToken: { name: 'late' } });
+    expect(await names()).toEqual(['late']);
+  });
+
+  it('refuses a single sign-on token once its provider is off or points elsewhere, or the identity is gone', async () => {
+    const confirmed = await userRow(OWNER);
+    const attempt = () => createToken(confirmed, { name: 'sso', scopes: ['read'], expiresAt: inADay(), confirmedWith: 'oidc', oidcProvider: AT_CORP });
+    await database.query('UPDATE oidc_providers SET enabled = false WHERE id = $1', [CORP]);
+    expect(await attempt()).toEqual({ signInChanged: true });
+    await database.query("UPDATE oidc_providers SET enabled = true, client_id = 'other-app' WHERE id = $1", [CORP]);
+    expect(await attempt()).toEqual({ signInChanged: true });
+    await database.query("UPDATE oidc_providers SET client_id = 'mailflow', issuer_url = 'https://other.example.com' WHERE id = $1", [CORP]);
+    expect(await attempt()).toEqual({ signInChanged: true });
+    await database.query("UPDATE oidc_providers SET issuer_url = 'https://idp.example.com' WHERE id = $1", [CORP]);
+    await database.query('DELETE FROM user_identities WHERE user_id = $1 AND provider_id = $2', [OWNER, CORP]);
+    expect(await attempt()).toEqual({ signInChanged: true });
+    expect(await names()).toEqual([]);
+    // Another user's identity at the provider is not this user's.
+    expect((await database.query('SELECT COUNT(*)::int AS count FROM user_identities WHERE provider_id = $1', [CORP])).rows[0].count).toBe(1);
+    await database.query('INSERT INTO user_identities VALUES ($1, $2)', [OWNER, CORP]);
+    expect(await attempt()).toMatchObject({ apiToken: { name: 'sso' } });
   });
 
   it('revokes only the user\'s own token, and a deleted user takes theirs along', async () => {

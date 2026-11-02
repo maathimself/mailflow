@@ -236,44 +236,84 @@ describe('looking tokens up', () => {
 });
 
 describe('creating a token', () => {
+  // The users row as the route loaded it for the confirmation, and as the lock re-reads it.
+  const USER = { id: 'u1', password_hash: 'h1', totp_enabled: true, totp_secret: 's1' };
+  const AT_IDP = { id: 'p1', issuerUrl: 'https://idp.example.com', clientId: 'mailflow' };
+  const LOCK_USER = 'SELECT password_hash, totp_enabled, totp_secret FROM users WHERE id = $1 FOR UPDATE';
+  const LOCK_PROVIDER = 'SELECT enabled, issuer_url, client_id FROM oidc_providers WHERE id = $1 FOR SHARE';
+  const LOCK_IDENTITIES = 'SELECT 1 FROM user_identities WHERE user_id = $1 AND provider_id = $2 FOR KEY SHARE';
+  const LOCK_POLICY = "SELECT key, value FROM system_settings WHERE key IN ('mfa_enforcement', 'internal_auth_disabled') FOR SHARE";
+  // A database in which nothing has changed since the confirmation, unless `state` says so.
+  const unchanged = (state = {}) => async (sql, params) => {
+    if (sql === LOCK_USER) return { rows: state.user === null ? [] : [{ ...USER, ...state.user }] };
+    if (/COUNT/.test(sql)) return { rows: [{ count: state.count ?? 0 }] };
+    if (sql === LOCK_PROVIDER) return { rows: state.provider === null ? [] : [{ enabled: true, issuer_url: AT_IDP.issuerUrl, client_id: AT_IDP.clientId, ...state.provider }] };
+    if (sql === LOCK_IDENTITIES) return { rows: state.identities ?? [{}] };
+    if (sql === LOCK_POLICY) return { rows: state.policy ?? [{ key: 'mfa_enforcement', value: 'off' }, { key: 'internal_auth_disabled', value: 'false' }] };
+    if (/INSERT INTO api_tokens/.test(sql)) return { rows: [{ id: 't9', name: params[1], scopes: JSON.parse(params[3]), created_at: new Date(), expires_at: params[4], last_used_at: null, last_used_ip: null, expired: false }] };
+    throw new Error(`unexpected statement: ${sql}`);
+  };
+  const create = (confirmedWith, overrides = {}) => createToken(USER, {
+    name: 'x', scopes: ['read'], expiresAt: new Date(), confirmedWith, oidcProvider: confirmedWith === 'oidc' ? AT_IDP : null, ...overrides,
+  });
+  const sqls = () => query.mock.calls.map(([sql]) => sql);
+
   it('stores only the SHA-256 of the secret it returns once', async () => {
-    query.mockImplementation(async sql => {
-      if (/COUNT/.test(sql)) return { rows: [{ count: 3 }] };
-      if (/INSERT INTO api_tokens/.test(sql)) {
-        return { rows: [{ id: 't9', name: 'Claude', scopes: ['read', 'draft'], created_at: new Date(), expires_at: expires, last_used_at: null, last_used_ip: null, expired: false }] };
-      }
-      return { rows: [] };
-    });
+    query.mockImplementation(unchanged({ count: 3 }));
     const expires = new Date(Date.now() + 86_400_000);
-    const created = await createToken('u1', { name: 'Claude', scopes: ['read', 'draft'], expiresAt: expires, confirmedWith: 'totp' });
+    const created = await create('totp', { name: 'Claude', scopes: ['read', 'draft'], expiresAt: expires });
     expect(isTokenFormat(created.token)).toBe(true);
     expect(created.apiToken).toMatchObject({ id: 't9', scopes: ['read', 'draft'], lastUsedAt: null, expired: false });
     const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO api_tokens'));
     expect(insert[1]).toEqual(['u1', 'Claude', hashToken(created.token), '["read","draft"]', expires, 'totp', null]);
     expect(JSON.stringify(query.mock.calls)).not.toContain(created.token);
-    // The sign-in policy is read inside the transaction and held shared until it commits, so an
-    // admin's change to it waits for this insert or is seen by it.
-    const sqls = query.mock.calls.map(([sql]) => sql);
-    const policy = sqls.findIndex(sql => sql === "SELECT key, value FROM system_settings WHERE key IN ('mfa_enforcement', 'internal_auth_disabled') FOR SHARE");
-    expect(policy).toBeGreaterThan(sqls.indexOf('SELECT 1 FROM users WHERE id = $1 FOR UPDATE'));
-    expect(policy).toBeLessThan(sqls.findIndex(sql => sql.includes('INSERT INTO api_tokens')));
+  });
+
+  it('takes its locks in the order the revocations take theirs, and holds them until the insert', async () => {
+    query.mockImplementation(unchanged());
+    await create('oidc');
+    // The users row first, as a password reset, two-factor off and an unlink lock it first; then the
+    // provider and the identities there; then the policy rows, which an admin's change updates.
+    expect(sqls()).toEqual([LOCK_USER, 'SELECT COUNT(*)::int AS count FROM api_tokens WHERE user_id = $1', LOCK_PROVIDER, LOCK_IDENTITIES, LOCK_POLICY, expect.stringContaining('INSERT INTO api_tokens')]);
+    query.mockClear();
+    await create('password');
+    expect(sqls()).toEqual([LOCK_USER, expect.stringContaining('COUNT'), LOCK_POLICY, expect.stringContaining('INSERT INTO api_tokens')]);
   });
 
   it('refuses, inside its transaction, a token the sign-in policy no longer allows, and stores nothing', async () => {
-    let settings = [{ key: 'mfa_enforcement', value: 'required' }, { key: 'internal_auth_disabled', value: 'false' }];
-    query.mockImplementation(async sql => {
-      if (/COUNT/.test(sql)) return { rows: [{ count: 0 }] };
-      if (/FOR SHARE/.test(sql)) return { rows: settings };
-      if (/INSERT INTO api_tokens/.test(sql)) return { rows: [{ id: 't9', scopes: ['read'] }] };
-      return { rows: [] };
-    });
-    const create = confirmedWith => createToken('u1', { name: 'x', scopes: ['read'], expiresAt: new Date(), confirmedWith, oidcProviderId: confirmedWith === 'oidc' ? 'p1' : null });
+    const required = [{ key: 'mfa_enforcement', value: 'required' }, { key: 'internal_auth_disabled', value: 'false' }];
+    query.mockImplementation(unchanged({ policy: required }));
     expect(await create('password')).toEqual({ policyChanged: true });
-    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT'))).toBe(false);
+    expect(sqls().some(sql => sql.includes('INSERT'))).toBe(false);
     expect(await create('totp')).toMatchObject({ apiToken: { id: 't9' } });
-    settings = [{ key: 'mfa_enforcement', value: 'off' }, { key: 'internal_auth_disabled', value: 'true' }];
+    query.mockImplementation(unchanged({ policy: [{ key: 'mfa_enforcement', value: 'off' }, { key: 'internal_auth_disabled', value: 'true' }] }));
     expect(await create('totp')).toEqual({ policyChanged: true });
     expect(await create('oidc')).toMatchObject({ apiToken: { id: 't9' } });
+  });
+
+  it('refuses, inside its transaction, a token whose confirmation no longer holds, and stores nothing', async () => {
+    // Each is what a revocation that committed first leaves in the users row: a password reset or
+    // set, two-factor turned off by the user or an admin, an authenticator set up anew.
+    for (const user of [{ password_hash: 'h2' }, { password_hash: null }, { totp_enabled: false, totp_secret: null }, { totp_enabled: false }, { totp_secret: 's2' }, null]) {
+      query.mockImplementation(unchanged({ user }));
+      expect(await create('password'), JSON.stringify(user)).toEqual({ signInChanged: true });
+      expect(await create('oidc'), JSON.stringify(user)).toEqual({ signInChanged: true });
+      expect(sqls().some(sql => sql.includes('INSERT')), JSON.stringify(user)).toBe(false);
+      // Refused before the count and the policy, which it does not reach.
+      expect(sqls()).toEqual([LOCK_USER, LOCK_USER]);
+      query.mockClear();
+    }
+  });
+
+  it('refuses a single sign-on token whose provider is off or points elsewhere since, or whose identity is gone', async () => {
+    for (const state of [{ provider: { enabled: false } }, { provider: { issuer_url: 'https://other.example.com' } }, { provider: { client_id: 'other-app' } }, { provider: null }, { identities: [] }]) {
+      query.mockImplementation(unchanged(state));
+      expect(await create('oidc'), JSON.stringify(state)).toEqual({ signInChanged: true });
+      expect(sqls().some(sql => sql.includes('INSERT')), JSON.stringify(state)).toBe(false);
+      // A password confirmation has no provider to check.
+      expect(await create('password'), JSON.stringify(state)).toMatchObject({ apiToken: { id: 't9' } });
+      query.mockClear();
+    }
   });
 
   it('allows a confirmation by the same rule that revokes tokens after a policy change', () => {
@@ -286,18 +326,17 @@ describe('creating a token', () => {
   });
 
   it('records the provider when single sign-on confirmed it', async () => {
-    query.mockImplementation(async sql => (/COUNT/.test(sql) ? { rows: [{ count: 0 }] } : { rows: [{ id: 't9', scopes: ['read'] }] }));
-    await createToken('u1', { name: 'x', scopes: ['read'], expiresAt: new Date(), confirmedWith: 'oidc', oidcProviderId: 'p1' });
+    query.mockImplementation(unchanged());
+    await create('oidc');
     const insert = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO api_tokens'));
     expect(insert[1].slice(-2)).toEqual(['oidc', 'p1']);
   });
 
   it('holds the user row while it counts, and stores nothing at the limit', async () => {
-    query.mockImplementation(async sql => (/COUNT/.test(sql) ? { rows: [{ count: MAX_TOKENS_PER_USER }] } : { rows: [] }));
-    expect(await createToken('u1', { name: 'x', scopes: ['read'], expiresAt: new Date(), confirmedWith: 'password' })).toBe(null);
-    const sqls = query.mock.calls.map(([sql]) => sql);
-    expect(sqls[0]).toBe('SELECT 1 FROM users WHERE id = $1 FOR UPDATE');
-    expect(sqls.some(sql => sql.includes('INSERT'))).toBe(false);
+    query.mockImplementation(unchanged({ count: MAX_TOKENS_PER_USER }));
+    expect(await create('password')).toBe(null);
+    expect(sqls()[0]).toBe(LOCK_USER);
+    expect(sqls().some(sql => sql.includes('INSERT'))).toBe(false);
   });
 });
 

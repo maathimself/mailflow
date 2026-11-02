@@ -67,18 +67,22 @@ router.post('/', async (req, res) => {
   // Checked again when the token is stored; this answers before a two-factor code is spent.
   if (await countTokens(user.id) >= MAX_TOKENS_PER_USER) return res.status(400).json(limitReached);
 
-  const { refusal, confirmedWith, oidcProviderId } = await confirmReauth(req, user, reauth);
+  const { refusal, confirmedWith, oidcProvider } = await confirmReauth(req, user, reauth);
   if (refusal) return res.status(refusal.status).set(refusal.headers ?? {}).json(refusal.body);
 
-  const created = await createToken(user.id, {
-    name, scopes, expiresAt: expiryDate(expiresInDays), confirmedWith, oidcProviderId,
+  const created = await createToken(user, {
+    name, scopes, expiresAt: expiryDate(expiresInDays), confirmedWith, oidcProvider,
   });
   if (!created) return res.status(400).json(limitReached);
-  // The sign-in policy changed between the confirmation and the insert (apiTokens.js holds it
-  // shared), so what confirmed this token no longer qualifies. Not 401: the client signs out on
+  // Between the confirmation and the insert, the sign-in policy changed, or what confirmed this
+  // token stopped holding (a password reset, two-factor turned off, an identity unlinked or a
+  // provider changed: apiTokens.js checks both under its locks). Not 401: the client signs out on
   // one. The card reloads and shows what confirms a token now.
   if (created.policyChanged) {
     return res.status(409).json({ error: "The server's sign-in policy changed while this token was being created. Confirm again." });
+  }
+  if (created.signInChanged) {
+    return res.status(409).json({ error: 'Your password, two-factor or single sign-on setup changed while this token was being created. Confirm again.' });
   }
   const { apiToken } = created;
   logAuthEvent('api_token_created', { userId: user.id, username: user.username, ip: normalizeIp(req.ip), success: true });

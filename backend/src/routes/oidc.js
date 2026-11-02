@@ -509,7 +509,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         'UPDATE user_identities SET last_used_at = NOW() WHERE issuer = $1 AND subject = $2',
         [issuer, subject]
       );
-      recordOidcConfirmation(req.session, provider.id);
+      recordOidcConfirmation(req.session, pending.reauthUserId, provider);
       await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
       return res.redirect('/?oidc_success=reauth');
     }

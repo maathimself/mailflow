@@ -180,21 +180,56 @@ export async function countTokens(userId) {
 }
 
 const POLICY_CHANGED = Object.freeze({ policyChanged: true });
+const SIGN_IN_CHANGED = Object.freeze({ signInChanged: true });
+
+// Whether the users row still says what it did when the confirmation was checked against it. A
+// password reset or set changes the hash; two-factor turned off changes the flag and the secret,
+// and set up anew the secret; each of those deletes the user's tokens, or the ones it confirmed.
+const sameSignIn = (current, confirmed) => current.password_hash === confirmed.password_hash
+  && current.totp_enabled === confirmed.totp_enabled && current.totp_secret === confirmed.totp_secret;
 
 // Returns { token, apiToken } with the secret, which is never available again; null when the user
-// already has MAX_TOKENS_PER_USER tokens; or { policyChanged: true } when the server's sign-in
-// policy no longer allows a token confirmed this way. confirmedWith is what creating it was
-// confirmed with, and oidcProviderId the provider when that was single sign-on (apiTokenReauth.js).
-export async function createToken(userId, { name, scopes, expiresAt, confirmedWith, oidcProviderId = null }) {
+// already has MAX_TOKENS_PER_USER tokens; { policyChanged: true } when the server's sign-in policy
+// no longer allows a token confirmed this way; or { signInChanged: true } when what confirmed it no
+// longer holds. `user` is the users row the confirmation was checked against (id, password_hash,
+// totp_enabled, totp_secret); confirmedWith is what it was confirmed with, and oidcProvider the
+// provider when that was single sign-on, with the issuer and client it had (apiTokenReauth.js).
+export async function createToken(user, { name, scopes, expiresAt, confirmedWith, oidcProvider = null }) {
   const token = generateToken();
   const result = await withTransaction(async client => {
-    // One creation at a time per user, so two at once cannot both pass the limit.
-    await client.query('SELECT 1 FROM users WHERE id = $1 FOR UPDATE', [userId]);
+    // One creation at a time per user, so two at once cannot both pass the limit. It is also the
+    // lock every change to how the user signs in takes first (a password reset or set, two-factor
+    // turned off, an identity unlinked, each deleting tokens in its own transaction): one that
+    // committed before this shows in the row and refuses the token; one still to come waits here,
+    // then sees the token and deletes it with the rest.
+    const { rows: [current] } = await client.query(
+      'SELECT password_hash, totp_enabled, totp_secret FROM users WHERE id = $1 FOR UPDATE', [user.id]
+    );
+    if (!current || !sameSignIn(current, user)) return SIGN_IN_CHANGED;
     const { rows: [{ count }] } = await client.query(
       'SELECT COUNT(*)::int AS count FROM api_tokens WHERE user_id = $1',
-      [userId]
+      [user.id]
     );
     if (count >= MAX_TOKENS_PER_USER) return null;
+    if (confirmedWith === 'oidc') {
+      // The provider, held shared: an admin turning it off or pointing it at another issuer or
+      // client (routes/admin.js, which deletes its tokens in the same transaction) either
+      // committed first and shows here, or waits for this commit and then takes this token too.
+      // Deleting the provider waits the same way, then cascades to it.
+      const { rows: [provider] } = await client.query(
+        'SELECT enabled, issuer_url, client_id FROM oidc_providers WHERE id = $1 FOR SHARE', [oidcProvider.id]
+      );
+      if (!provider?.enabled || provider.issuer_url !== oidcProvider.issuerUrl || provider.client_id !== oidcProvider.clientId) {
+        return SIGN_IN_CHANGED;
+      }
+      // The user's identities there, held against deletion: FOR KEY SHARE stops an unlink, which
+      // takes the users lock above anyway, and not a sign-in updating last_used_at. None left means
+      // an unlink committed first.
+      const { rows: identities } = await client.query(
+        'SELECT 1 FROM user_identities WHERE user_id = $1 AND provider_id = $2 FOR KEY SHARE', [user.id, oidcProvider.id]
+      );
+      if (!identities.length) return SIGN_IN_CHANGED;
+    }
     // The sign-in policy, checked again here and held shared until the commit. routes/apiTokens.js
     // checked it before the confirmation, but an admin may have required two-factor or turned
     // password sign-in off since; their change (routes/admin.js, which updates these rows and
@@ -208,12 +243,12 @@ export async function createToken(userId, { name, scopes, expiresAt, confirmedWi
       `INSERT INTO api_tokens (user_id, name, token_hash, scopes, expires_at, confirmed_with, oidc_provider_id)
        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
        RETURNING ${TOKEN_COLUMNS}`,
-      [userId, name, hashToken(token), JSON.stringify(scopes), expiresAt, confirmedWith, oidcProviderId]
+      [user.id, name, hashToken(token), JSON.stringify(scopes), expiresAt, confirmedWith, oidcProvider?.id ?? null]
     );
     return inserted;
   });
   if (!result) return null;
-  if (result === POLICY_CHANGED) return result;
+  if (result === POLICY_CHANGED || result === SIGN_IN_CHANGED) return result;
   return { token, apiToken: publicToken(result) };
 }
 

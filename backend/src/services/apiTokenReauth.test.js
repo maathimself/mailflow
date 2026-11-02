@@ -173,23 +173,39 @@ describe('confirming with the password', () => {
 });
 
 describe('confirming with a sign-in through single sign-on', () => {
-  const refused = { refusal: { status: 400, body: { error: 'Confirm through single sign-on first; a confirmation counts for 10 minutes', reauth: 'oidc' } } };
+  const refused = { refusal: { status: 400, body: { error: 'Confirm through single sign-on first; each confirmation makes one token and counts for 10 minutes', reauth: 'oidc' } } };
   const signedIn = (msAgo, providerId = CORP.id) => {
     const session = {};
-    recordOidcConfirmation(session, providerId, Date.now() - msAgo);
+    recordOidcConfirmation(session, SSO_USER.id, { id: providerId, issuer_url: 'https://corp.example.com', client_id: 'mailflow' }, Date.now() - msAgo);
     return session;
   };
+  const confirmed = { confirmedWith: 'oidc', oidcProvider: { id: CORP.id, issuerUrl: 'https://corp.example.com', clientId: 'mailflow' } };
 
-  it('takes one in the last 10 minutes, through a provider the user has an identity at, and names it', async () => {
+  it('takes one in the last 10 minutes, through a provider the user has an identity at, and names it with the issuer and client it had', async () => {
     const session = signedIn(OIDC_CONFIRMATION_MS - 1000);
-    expect(await confirmReauth(request({}, undefined, session), SSO_USER, 'oidc')).toEqual({ confirmedWith: 'oidc', oidcProviderId: CORP.id });
+    expect(await confirmReauth(request({}, undefined, session), SSO_USER, 'oidc')).toEqual(confirmed);
   });
 
-  it('refuses none, one too old or from the future, one through another provider, or one turned off since', async () => {
+  it('is spent by the token it confirms: the session forgets it, and a copy carrying the same nonce is refused', async () => {
+    const session = signedIn(1000);
+    const copy = { oidcConfirmation: { ...session.oidcConfirmation } };
+    expect(await confirmReauth(request({}, undefined, session), SSO_USER, 'oidc')).toEqual(confirmed);
+    expect(session.oidcConfirmation).toBeUndefined();
+    expect(rs.store.has(`oidc_confirmation_used:${copy.oidcConfirmation.nonce}`)).toBe(true);
+    expect(await confirmReauth(request({}, undefined, session), SSO_USER, 'oidc')).toEqual(refused);
+    expect(await confirmReauth(request({}, undefined, copy), SSO_USER, 'oidc')).toEqual(refused);
+    // The next sign-in is a confirmation of its own.
+    expect(await confirmReauth(request({}, undefined, signedIn(500)), SSO_USER, 'oidc')).toEqual(confirmed);
+  });
+
+  it('refuses none, one too old or from the future, one for another user or through another provider, or one turned off since', async () => {
     const compare = vi.spyOn(bcrypt, 'compare');
     for (const session of [
       {}, signedIn(OIDC_CONFIRMATION_MS + 1000), signedIn(-60_000), signedIn(1000, 'c0c0c0c0-0000-4000-8000-000000000002'),
-      { oidcConfirmedAt: String(Date.now()), oidcConfirmedProviderId: CORP.id }, { oidcConfirmedAt: Date.now() },
+      { oidcConfirmation: { ...signedIn(1000).oidcConfirmation, userId: PASSWORD_USER.id } },
+      { oidcConfirmation: { ...signedIn(1000).oidcConfirmation, at: String(Date.now()) } },
+      { oidcConfirmation: { ...signedIn(1000).oidcConfirmation, nonce: undefined } },
+      { oidcConfirmation: { at: Date.now(), providerId: CORP.id } },
     ]) {
       expect(await confirmReauth(request({ password: 'right' }, undefined, session), SSO_USER, 'oidc'), JSON.stringify(session)).toEqual(refused);
     }
@@ -202,7 +218,7 @@ describe('confirming with a sign-in through single sign-on', () => {
   it('tells the form which providers to confirm with, and until when the last sign-in counts', async () => {
     const session = signedIn(60_000);
     expect(await oidcConfirmationState({ session }, SSO_USER)).toEqual({
-      providers: [{ slug: 'corp', name: 'Corp SSO' }], confirmedUntil: new Date(session.oidcConfirmedAt + OIDC_CONFIRMATION_MS).toISOString(),
+      providers: [{ slug: 'corp', name: 'Corp SSO' }], confirmedUntil: new Date(session.oidcConfirmation.at + OIDC_CONFIRMATION_MS).toISOString(),
     });
     expect(await oidcConfirmationState({ session: signedIn(OIDC_CONFIRMATION_MS + 1) }, SSO_USER)).toEqual({ providers: [{ slug: 'corp', name: 'Corp SSO' }], confirmedUntil: null });
     expect(await oidcConfirmationState({ session: {} }, PASSWORD_USER)).toEqual({ providers: [], confirmedUntil: null });

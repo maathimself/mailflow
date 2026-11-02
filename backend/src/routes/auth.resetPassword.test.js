@@ -2,9 +2,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 // The tables the reset touches. query() changes them at once, as autocommit does; withTransaction
 // changes a copy and keeps it only once its function has returned, so a throw leaves nothing behind.
-const { db } = vi.hoisted(() => ({ db: { tables: null, failOn: null } }));
+const { db } = vi.hoisted(() => ({ db: { tables: null, failOn: null, statements: [] } }));
 vi.mock('../services/db.js', () => {
   const run = (tables, sql, params) => {
+    db.statements.push(sql);
     if (db.failOn && sql.startsWith(db.failOn)) throw new Error('timeout exceeded when trying to connect');
     if (sql.includes('DELETE FROM password_reset_tokens')) {
       const userId = tables.links[params[0]];
@@ -77,6 +78,7 @@ beforeEach(() => {
   destroyUserSessions.mockReset();
   db.tables = before();
   db.failOn = null;
+  db.statements = [];
 });
 
 const reset = token => fetch(`${base}/api/auth/reset-password`, {
@@ -91,6 +93,13 @@ describe('POST /api/auth/reset-password', () => {
     expect(db.tables.passwords['user-1']).not.toBe('old-hash');
     expect(db.tables.trusted_devices).toEqual(['user-2']);
     expect(db.tables.api_tokens).toEqual(['user-2']);
+    // Behind the users row lock, and after the linked identities, whose removal reads the sign-in
+    // policy row shared: an admin's policy change takes that row first and then deletes tokens, so
+    // the same order here means neither waits on the other.
+    expect(db.statements.indexOf('DELETE FROM api_tokens WHERE user_id = $1'))
+      .toBeGreaterThan(db.statements.findIndex(sql => sql.includes("key = 'internal_auth_disabled' FOR SHARE")));
+    expect(db.statements.findIndex(sql => sql.includes("key = 'internal_auth_disabled' FOR SHARE")))
+      .toBeGreaterThan(db.statements.indexOf('SELECT username FROM users WHERE id = $1 FOR UPDATE'));
     // The link works once.
     expect((await reset(RESET)).status).toBe(400);
   });

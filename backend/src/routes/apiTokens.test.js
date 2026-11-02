@@ -19,7 +19,19 @@ vi.mock('../services/db.js', () => {
     if (sql.startsWith('SELECT id FROM users WHERE id = $1')) return { rows: db.users[params[0]] ? [{ id: params[0] }] : [] };
     if (sql.startsWith('SELECT id, username, password_hash, totp_enabled, totp_secret FROM users')) return { rows: db.users[params[0]] ? [db.users[params[0]]] : [] };
     if (sql.startsWith('SELECT username FROM users WHERE id = $1')) return { rows: db.users[params[0]] ? [db.users[params[0]]] : [] };
-    if (sql.startsWith('SELECT 1 FROM users WHERE id = $1 FOR UPDATE')) return { rows: [{}] };
+    // The rows createToken re-reads under its locks: a test can make each differ from what the
+    // confirmation was checked against, as a revocation committed in between would.
+    if (sql.startsWith('SELECT password_hash, totp_enabled, totp_secret FROM users WHERE id = $1 FOR UPDATE')) {
+      const row = (db.usersAtInsert ?? db.users)[params[0]];
+      return { rows: row ? [row] : [] };
+    }
+    if (sql.startsWith('SELECT enabled, issuer_url, client_id FROM oidc_providers WHERE id = $1 FOR SHARE')) {
+      const row = (db.providersAtInsert ?? db.providers)[params[0]];
+      return { rows: row ? [row] : [] };
+    }
+    if (sql.startsWith('SELECT 1 FROM user_identities WHERE user_id = $1 AND provider_id = $2 FOR KEY SHARE')) {
+      return { rows: (db.identitiesAtInsert ?? db.identities).filter(i => i.user_id === params[0] && i.provider_id === params[1]).map(() => ({})) };
+    }
     if (sql.includes("key = 'api_tokens_enabled'")) return { rows: [{ value: String(db.enabled) }] };
     // The policy as createToken re-reads it inside its transaction: a test can make it differ from
     // what reauthFor saw, as an admin's change in between would.
@@ -66,6 +78,7 @@ import bcrypt from 'bcryptjs';
 import { authenticator } from 'otplib';
 import apiTokenRoutes from './apiTokens.js';
 import { hashToken, invalidateApiTokenSettingsCache, isTokenFormat } from '../services/apiTokens.js';
+import { recordOidcConfirmation } from '../services/oidcConfirmation.js';
 
 const SECRET = authenticator.generateSecret();
 const PASSWORD_HASH = bcrypt.hashSync('right', 4);
@@ -77,15 +90,17 @@ const users = () => ({
 const CORP = 'c0c0c0c0-0000-4000-8000-000000000001';
 const OTHER_IDP = 'c0c0c0c0-0000-4000-8000-000000000002';
 const providers = () => ({
-  [CORP]: { slug: 'corp', name: 'Corp SSO', enabled: true },
-  [OTHER_IDP]: { slug: 'other', name: 'Other', enabled: true },
+  [CORP]: { id: CORP, slug: 'corp', name: 'Corp SSO', enabled: true, issuer_url: 'https://corp.example.com', client_id: 'mailflow' },
+  [OTHER_IDP]: { id: OTHER_IDP, slug: 'other', name: 'Other', enabled: true, issuer_url: 'https://other.example.com', client_id: 'mailflow' },
 });
 // Sam signs in through Corp only; Paul has linked Corp too.
 const identities = () => [{ user_id: 'u-sso', provider_id: CORP }, { user_id: 'u-pw', provider_id: CORP }];
-// What the browser session holds beyond the user, for a request with x-test-user.
+// What the browser session holds beyond the user, for a request with x-test-user. Each request
+// gets a copy, as a session store would give it one.
 const session = { extra: {} };
-const signedInThrough = (providerId, minutesAgo = 1) => {
-  session.extra = { oidcConfirmedAt: Date.now() - minutesAgo * 60_000, oidcConfirmedProviderId: providerId };
+const signedInThrough = (providerId, minutesAgo = 1, userId = 'u-sso') => {
+  session.extra = {};
+  recordOidcConfirmation(session.extra, userId, db.providers[providerId], Date.now() - minutesAgo * 60_000);
 };
 
 let server;
@@ -119,6 +134,7 @@ beforeEach(() => {
   rs.store.clear();
   Object.assign(db, {
     enabled: true, internalAuthDisabled: false, mfaEnforcement: 'off', mfaEnforcementAtInsert: undefined, internalAuthDisabledAtInsert: undefined,
+    usersAtInsert: undefined, providersAtInsert: undefined, identitiesAtInsert: undefined,
     users: users(), providers: providers(), identities: identities(), tokens: [], events: [], log: [],
   });
   session.extra = {};
@@ -191,13 +207,16 @@ describe('listing tokens', () => {
 
   it('says until when a sign-in through single sign-on counts, and only through a provider still linked and on', async () => {
     signedInThrough(CORP, 1);
-    const at = session.extra.oidcConfirmedAt;
+    const at = session.extra.oidcConfirmation.at;
     expect((await (await list('u-sso')).json()).oidc).toEqual({
       providers: [{ slug: 'corp', name: 'Corp SSO' }], confirmedUntil: new Date(at + 10 * 60_000).toISOString(),
     });
     signedInThrough(CORP, 11);
     expect((await (await list('u-sso')).json()).oidc.confirmedUntil).toBe(null);
     signedInThrough(OTHER_IDP, 1);
+    expect((await (await list('u-sso')).json()).oidc.confirmedUntil).toBe(null);
+    // Another user's confirmation, through the right provider, is not this user's.
+    signedInThrough(CORP, 1, 'u-pw');
     expect((await (await list('u-sso')).json()).oidc.confirmedUntil).toBe(null);
     signedInThrough(CORP, 1);
     db.providers[CORP].enabled = false;
@@ -311,7 +330,7 @@ describe('creating a token', () => {
 
     it('a single sign-on user: a sign-in through their provider in the last 10 minutes, and at most 30 days', async () => {
       const sso = { ...ok, expiresInDays: 30 };
-      const refused = { error: 'Confirm through single sign-on first; a confirmation counts for 10 minutes', reauth: 'oidc' };
+      const refused = { error: 'Confirm through single sign-on first; each confirmation makes one token and counts for 10 minutes', reauth: 'oidc' };
       // None at all, one too long ago, one through a provider they have no identity at, and one
       // through a provider turned off since.
       for (const signIn of [() => {}, () => signedInThrough(CORP, 11), () => signedInThrough(OTHER_IDP, 1),
@@ -334,11 +353,51 @@ describe('creating a token', () => {
       }
     });
 
+    it('a single sign-on confirmation makes one token: the next needs a sign-in of its own, two at once included', async () => {
+      const sso = { ...ok, expiresInDays: 30 };
+      signedInThrough(CORP);
+      expect((await create('u-sso', sso)).status).toBe(201);
+      // The session's copy of the confirmation is still there, as a request racing the first would
+      // see it: the nonce has been spent.
+      const again = await create('u-sso', sso);
+      expect(again.status).toBe(400);
+      expect(await again.json()).toMatchObject({ reauth: 'oidc' });
+      signedInThrough(CORP);
+      const statuses = (await Promise.all([create('u-sso', sso), create('u-sso', sso), create('u-sso', sso)])).map(r => r.status).sort();
+      expect(statuses).toEqual([201, 400, 400]);
+      expect(db.tokens).toHaveLength(2);
+    });
+
+    it('what confirmed the token no longer holding at the insert: refused with 409, nothing stored', async () => {
+      const changed = { error: 'Your password, two-factor or single sign-on setup changed while this token was being created. Confirm again.' };
+      // A password reset committed between the confirmation and the insert.
+      db.usersAtInsert = { ...db.users, 'u-pw': { ...db.users['u-pw'], password_hash: 'reset' } };
+      let res = await create('u-pw', { ...ok, password: 'right' });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual(changed);
+      db.usersAtInsert = undefined;
+      // The provider pointed at another client, then the identity unlinked.
+      signedInThrough(CORP);
+      db.providersAtInsert = { ...db.providers, [CORP]: { ...db.providers[CORP], client_id: 'other-app' } };
+      res = await create('u-sso', { ...ok, expiresInDays: 30 });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual(changed);
+      db.providersAtInsert = undefined;
+      signedInThrough(CORP);
+      db.identitiesAtInsert = [];
+      expect((await create('u-sso', { ...ok, expiresInDays: 30 })).status).toBe(409);
+      expect(db.tokens).toEqual([]);
+      expect(events('api_token_created')).toEqual([]);
+    });
+
     it('a password user when password sign-in is off: single sign-on, and no password checked', async () => {
       db.internalAuthDisabled = true;
       const compare = vi.spyOn(bcrypt, 'compare');
       expect((await create('u-pw', { ...ok, expiresInDays: 30, password: 'right' })).status).toBe(400);
-      signedInThrough(CORP);
+      // Sam's confirmation is not Paul's.
+      signedInThrough(CORP, 1, 'u-sso');
+      expect((await create('u-pw', { ...ok, expiresInDays: 30, password: 'wrong' })).status).toBe(400);
+      signedInThrough(CORP, 1, 'u-pw');
       expect((await create('u-pw', { ...ok, expiresInDays: 30, password: 'wrong' })).status).toBe(201);
       expect(compare).not.toHaveBeenCalled();
       expect(db.tokens.map(t => t.confirmed_with)).toEqual(['oidc']);

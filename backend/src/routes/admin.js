@@ -211,10 +211,13 @@ export async function setUserPassword(req, res) {
     await client.query('SELECT 1 FROM users WHERE id = $1 FOR UPDATE', [id]);
     await client.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, id]);
     await client.query('DELETE FROM trusted_devices WHERE user_id = $1', [id]);
-    await client.query('DELETE FROM api_tokens WHERE user_id = $1', [id]);
     await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [id]);
     await client.query('DELETE FROM email_otp_tokens WHERE user_id = $1', [id]);
-    return removeIdentitiesForPasswordReset(client, id);
+    // Identities before tokens: removing them reads the sign-in policy row shared, and an admin's
+    // policy change updates that row before it deletes tokens, so the two cannot wait on each other.
+    const removed = await removeIdentitiesForPasswordReset(client, id);
+    await client.query('DELETE FROM api_tokens WHERE user_id = $1', [id]);
+    return removed;
   });
   await destroyUserSessions(id, { exceptSessionId: id === req.session.userId ? req.sessionID : undefined });
   console.log(`[admin] ${req.session.username} set a new password for user ${target.rows[0].username} (${id})`);
@@ -866,6 +869,9 @@ router.patch('/oidc/:id', async (req, res) => {
     loginMatchClaimParam = c;
   }
 
+  if (enabled !== undefined && typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be true or false' });
+  }
   // Block disabling the last usable auth method.
   if (enabled === false) {
     const lockout = await wouldLockOut(id);

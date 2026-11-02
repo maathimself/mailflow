@@ -1190,8 +1190,11 @@ router.post('/reset-password', authLimiter, async (req, res) => {
       // identities here, and every session below, so a pre-existing (possibly attacker) session,
       // device, token or linked account can't survive a compromise-driven password reset (#714).
       await client.query('DELETE FROM trusted_devices WHERE user_id = $1', [id]);
+      // Identities before tokens: removing them reads the sign-in policy row shared, and an admin's
+      // policy change updates that row before it deletes tokens, so the two cannot wait on each other.
+      const removed = await removeIdentitiesForPasswordReset(client, id);
       await client.query('DELETE FROM api_tokens WHERE user_id = $1', [id]);
-      return { id, username: user?.username, removed: await removeIdentitiesForPasswordReset(client, id) };
+      return { id, username: user?.username, removed };
     });
     if (!reset) {
       return res.status(400).json({ error: 'Invalid or expired reset link' });

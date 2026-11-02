@@ -17,7 +17,7 @@ vi.mock('../plugins/registry.js', () => ({ pluginRegistry: {} }));
 vi.mock('../services/userSessions.js', () => ({ destroyUserSessions: vi.fn() }));
 
 import express from 'express';
-import adminRoutes, { disableUserTotp, setUserPassword } from './admin.js';
+import adminRoutes, { disableUserTotp, setUserPassword, unlinkIdentity } from './admin.js';
 import { query } from '../services/db.js';
 import { invalidateApiTokenSettingsCache } from '../services/apiTokens.js';
 
@@ -70,6 +70,37 @@ describe('the admin switch for API tokens', () => {
   });
 });
 
+describe('an admin unlinking a user\'s identity', () => {
+  const USER = 'b2b2b2b2-0000-4000-8000-000000000002';
+  const IDENTITY = 'd4d4d4d4-4444-4444-8444-d4d4d4d4d4d4';
+  const PROVIDER = 'c0c0c0c0-0000-4000-8000-000000000001';
+
+  it('deletes the tokens confirmed through its provider with the user\'s last identity there, in the same transaction', async () => {
+    // The real services/userIdentities.js over a scripted transaction: the rule the user's own
+    // unlink (routes/oidc.js) shares.
+    const inTransaction = [];
+    tx.query = vi.fn(async (sql, params) => {
+      inTransaction.push([sql, params]);
+      if (sql.startsWith('SELECT password_hash IS NOT NULL AS has_password')) return { rows: [{ has_password: true }] };
+      if (sql.trimStart().startsWith('SELECT ui.id')) return { rows: [{ id: IDENTITY, provider_name: 'Pocket ID', provider_slug: 'pocket' }] };
+      if (sql.startsWith("SELECT value FROM system_settings WHERE key = 'internal_auth_disabled'")) return { rows: [{ value: 'false' }] };
+      if (sql.startsWith('DELETE FROM user_identities')) return { rows: [{ provider_id: PROVIDER }] };
+      if (sql.startsWith('SELECT 1 FROM user_identities')) return { rows: [] };
+      if (sql.startsWith('DELETE FROM api_tokens')) return { rows: [], rowCount: 3 };
+      throw new Error(`unexpected statement: ${sql}`);
+    });
+    query.mockResolvedValue({ rows: [{ username: 'maria' }] });
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await unlinkIdentity({ params: { id: USER, identityId: IDENTITY }, session: { userId: 'admin-1', username: 'admin' }, sessionID: 's', ip: '203.0.113.7' }, res);
+    expect(inTransaction.map(([sql]) => sql.trim().split(/\s+/).slice(0, 3).join(' '))).toEqual([
+      'SELECT password_hash IS', 'SELECT ui.id, ui.issuer,', 'SELECT value FROM', 'DELETE FROM user_identities', 'SELECT 1 FROM', 'DELETE FROM api_tokens',
+    ]);
+    expect(inTransaction.at(-1)).toEqual(['DELETE FROM api_tokens WHERE user_id = $1 AND oidc_provider_id = $2', [USER, PROVIDER]]);
+    expect(console.log).toHaveBeenCalledWith(`[admin] admin unlinked Pocket ID identity ${IDENTITY} from user maria (${USER}), and deleted 3 API tokens`);
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
+});
+
 describe('an admin setting a password', () => {
   it('deletes the user\'s API tokens in the same transaction as the new password', async () => {
     const inTransaction = [];
@@ -82,6 +113,11 @@ describe('an admin setting a password', () => {
     expect(inTransaction[0]).toBe('SELECT 1 FROM users WHERE id = $1 FOR UPDATE');
     expect(inTransaction[1]).toMatch(/^UPDATE users SET password_hash/);
     expect(inTransaction).toContain('DELETE FROM api_tokens WHERE user_id = $1');
+    // The tokens go after the linked identities, whose removal reads the sign-in policy row shared:
+    // an admin's policy change takes that row first and then deletes tokens, so the same order here
+    // means neither waits on the other.
+    expect(inTransaction.indexOf('DELETE FROM api_tokens WHERE user_id = $1'))
+      .toBeGreaterThan(inTransaction.findIndex(sql => sql.includes("key = 'internal_auth_disabled' FOR SHARE")));
     expect(query.mock.calls.some(([sql]) => sql.includes('api_tokens'))).toBe(false);
     expect(res.json).toHaveBeenCalledWith({ ok: true });
   });
@@ -179,6 +215,13 @@ describe('sign-in policy changes and API tokens', () => {
       expect((await update({ name: 'Corp', issuer_url: 'https://idp.example.com', client_id: 'mailflow' })).status).toBe(200);
       expect((await update({ issuer_url: ' https://idp.example.com ', client_id: '' })).status).toBe(200);
       expect(firstWords()).toEqual(['UPDATE oidc_providers SET', 'UPDATE oidc_providers SET', 'UPDATE oidc_providers SET']);
+    });
+
+    it('takes enabled only as a boolean: the column would read the string "false" as off, past the revocation', async () => {
+      const res = await update({ enabled: 'false' });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: 'enabled must be true or false' });
+      expect(firstWords()).toEqual([]);
     });
 
     it('deletes nothing for a provider that is not there', async () => {

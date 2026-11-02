@@ -50,8 +50,7 @@ beforeAll(async () => {
   app.get('/session', (req, res) => res.json({
     id: req.sessionID,
     userId: req.session.userId ?? null,
-    oidcConfirmedAt: req.session.oidcConfirmedAt ?? null,
-    oidcConfirmedProviderId: req.session.oidcConfirmedProviderId ?? null,
+    oidcConfirmation: req.session.oidcConfirmation ?? null,
     oidcPending: req.session.oidcPending ?? null,
   }));
   app.use('/auth/oidc', oidcBrowserRouter);
@@ -122,9 +121,12 @@ describe('confirming the signed-in user through single sign-on', () => {
 
     expect(done.headers.get('location')).toBe('/?oidc_success=reauth');
     const after = await sessionOf(cookie);
-    expect(after).toMatchObject({ id: before.id, userId: 'u1', oidcConfirmedProviderId: 'p1', oidcPending: null });
-    expect(after.oidcConfirmedAt).toBeGreaterThanOrEqual(startedAt);
-    expect(after.oidcConfirmedAt).toBeLessThanOrEqual(Date.now());
+    // The record names the provider as it was checked, so creating the token can tell if an admin
+    // has pointed it elsewhere since, and carries the nonce that marks it spent.
+    expect(after).toMatchObject({ id: before.id, userId: 'u1', oidcPending: null, oidcConfirmation: { userId: 'u1', providerId: 'p1', issuerUrl: issuer, clientId: 'mailflow' } });
+    expect(after.oidcConfirmation.nonce).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(after.oidcConfirmation.at).toBeGreaterThanOrEqual(startedAt);
+    expect(after.oidcConfirmation.at).toBeLessThanOrEqual(Date.now());
     expect(clientQueries.some(q => q.sql.startsWith('UPDATE user_identities SET last_used_at = NOW()'))).toBe(true);
     // Nothing is linked or provisioned on the way.
     expect(clientQueries.some(q => q.sql.includes('INSERT'))).toBe(false);
@@ -141,7 +143,7 @@ describe('confirming the signed-in user through single sign-on', () => {
 
     expect(done.headers.get('location')).toMatch(/^\/\?oidc_error=/);
     expect(errorIn(done.headers.get('location'))).toBe('That sign-in is not linked to your account');
-    expect(await sessionOf(cookie)).toMatchObject({ userId: 'u1', oidcConfirmedAt: null, oidcConfirmedProviderId: null });
+    expect(await sessionOf(cookie)).toMatchObject({ userId: 'u1', oidcConfirmation: null });
   });
 
   it('refuses when the session is no longer the user who started it', async () => {
@@ -154,7 +156,7 @@ describe('confirming the signed-in user through single sign-on', () => {
     const done = await get(`/auth/oidc/idp/callback?code=c1&state=${oidcPending.state}`, cookie);
 
     expect(errorIn(done.headers.get('location'))).toBe('That sign-in is not linked to your account');
-    expect(await sessionOf(cookie)).toMatchObject({ userId: 'u2', oidcConfirmedAt: null });
+    expect(await sessionOf(cookie)).toMatchObject({ userId: 'u2', oidcConfirmation: null });
   });
 
   it.each([
@@ -166,7 +168,7 @@ describe('confirming the signed-in user through single sign-on', () => {
     const done = await confirmThroughProvider(cookie, { authTime: typeof authTime === 'function' ? authTime() : authTime });
 
     expect(errorIn(done.headers.get('location'))).toBe('Sign in again at your provider to confirm');
-    expect(await sessionOf(cookie)).toMatchObject({ userId: 'u1', oidcConfirmedAt: null, oidcConfirmedProviderId: null, oidcPending: null });
+    expect(await sessionOf(cookie)).toMatchObject({ userId: 'u1', oidcConfirmation: null, oidcPending: null });
     expect(clientQueries.some(q => q.sql.startsWith('UPDATE user_identities'))).toBe(false);
   });
 
@@ -174,7 +176,7 @@ describe('confirming the signed-in user through single sign-on', () => {
     const cookie = await sessionWith({ userId: 'u1' });
     const done = await confirmThroughProvider(cookie, { authTime: Math.floor(Date.now() / 1000) - 30 });
     expect(done.headers.get('location')).toBe('/?oidc_success=reauth');
-    expect((await sessionOf(cookie)).oidcConfirmedProviderId).toBe('p1');
+    expect((await sessionOf(cookie)).oidcConfirmation.providerId).toBe('p1');
   });
 
   it('refuses a reauth flow that recorded no start, as one begun before this check did', async () => {
@@ -186,39 +188,7 @@ describe('confirming the signed-in user through single sign-on', () => {
     const done = await get('/auth/oidc/idp/callback?code=c1&state=s1', cookie);
 
     expect(errorIn(done.headers.get('location'))).toBe('Sign in again at your provider to confirm');
-    expect((await sessionOf(cookie)).oidcConfirmedAt).toBe(null);
-  });
-
-  it.each([
-    ['without auth_time', null],
-    ['from before the flow began', () => Math.floor(Date.now() / 1000) - 120],
-  ])('refuses an id_token %s: the provider did not ask for credentials again', async (_label, authTime) => {
-    const cookie = await sessionWith({ userId: 'u1' });
-
-    const done = await confirmThroughProvider(cookie, { authTime: typeof authTime === 'function' ? authTime() : authTime });
-
-    expect(errorIn(done.headers.get('location'))).toBe('Sign in again at your provider to confirm');
-    expect(await sessionOf(cookie)).toMatchObject({ userId: 'u1', oidcConfirmedAt: null, oidcConfirmedProviderId: null, oidcPending: null });
-    expect(clientQueries.some(q => q.sql.startsWith('UPDATE user_identities'))).toBe(false);
-  });
-
-  it('allows a minute of clock skew on auth_time', async () => {
-    const cookie = await sessionWith({ userId: 'u1' });
-    const done = await confirmThroughProvider(cookie, { authTime: Math.floor(Date.now() / 1000) - 30 });
-    expect(done.headers.get('location')).toBe('/?oidc_success=reauth');
-    expect((await sessionOf(cookie)).oidcConfirmedProviderId).toBe('p1');
-  });
-
-  it('refuses a reauth flow that recorded no start, as one begun before this check did', async () => {
-    const cookie = await sessionWith({ userId: 'u1', oidcPending: {
-      state: 's1', nonce: 'n1', verifier: 'v1', providerId: 'p1', action: 'reauth', reauthUserId: 'u1', expiresAt: Date.now() + 60_000,
-    } });
-    jwtVerify.mockResolvedValue(verifiedIdToken('n1'));
-
-    const done = await get('/auth/oidc/idp/callback?code=c1&state=s1', cookie);
-
-    expect(errorIn(done.headers.get('location'))).toBe('Sign in again at your provider to confirm');
-    expect((await sessionOf(cookie)).oidcConfirmedAt).toBe(null);
+    expect((await sessionOf(cookie)).oidcConfirmation).toBe(null);
   });
 
   it('needs a signed-in, unlocked session, and reports a refusal inside the app', async () => {
@@ -248,7 +218,7 @@ describe('signing in through single sign-on', () => {
 
     expect(done.headers.get('location')).toBe('/?oidc_success=login');
     const signedIn = done.headers.get('set-cookie').split(';')[0];
-    expect(await sessionOf(signedIn)).toMatchObject({ userId: 'u1', oidcConfirmedAt: null, oidcConfirmedProviderId: null });
+    expect(await sessionOf(signedIn)).toMatchObject({ userId: 'u1', oidcConfirmation: null });
   });
 
   it('nor does linking an identity', async () => {
@@ -261,6 +231,6 @@ describe('signing in through single sign-on', () => {
     const done = await get(`/auth/oidc/idp/callback?code=c1&state=${oidcPending.state}`, cookie);
 
     expect(done.headers.get('location')).toBe('/?oidc_success=linked');
-    expect(await sessionOf(cookie)).toMatchObject({ userId: 'u1', oidcConfirmedAt: null, oidcConfirmedProviderId: null });
+    expect(await sessionOf(cookie)).toMatchObject({ userId: 'u1', oidcConfirmation: null });
   });
 });
