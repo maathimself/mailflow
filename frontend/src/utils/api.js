@@ -256,6 +256,14 @@ export const api = {
     enrollmentEnable: (code) => request('POST', '/auth/2fa/enrollment/enable', { code }),
   },
 
+  // Personal API tokens (#617), managed from the browser session. create's response is the only
+  // place the new token's secret ever appears.
+  apiTokens: {
+    list: () => request('GET', '/api-tokens'),
+    create: (data) => request('POST', '/api-tokens', data),
+    revoke: (id) => request('DELETE', `/api-tokens/${encodeURIComponent(id)}`),
+  },
+
   // Admin
   admin: {
     getUsers: (params) => request('GET', '/admin/users' + (params ? '?' + new URLSearchParams(params) : '')),
