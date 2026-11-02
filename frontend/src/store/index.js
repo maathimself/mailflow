@@ -120,7 +120,7 @@ function expirePendingCounts() {
 const removedFromView = new Map();
 const listViewOf = state => JSON.stringify([state.selectedAccountId ?? null, state.selectedFolder ?? null,
   String(state.searchQuery || '').trim(), Boolean(state.searchAllFolders), state.activeGtdTab ?? null, Boolean(state.threadedView),
-  listOrderFor(state.listSort, state.selectedAccountId, state.selectedFolder)]);
+  listOrderFor(state.listSort, state.selectedAccountId, state.selectedFolder), state.listFilter ?? null]);
 function noteRemoved(state, ids) {
   if (removedFromView.size > 5000) removedFromView.clear();
   const view = listViewOf(state);
@@ -1204,9 +1204,13 @@ export const useStore = create((set, get) => ({
     const key = listSortKey(accountId, folder);
     // eslint-disable-next-line no-unused-vars
     const { [key]: _old, ...rest } = get().listSort;
-    const next = isDefaultListOrder(order)
+    let next = isDefaultListOrder(order)
       ? rest
       : { ...rest, [key]: { sort: order.sort, dir: order.dir, starredFirst: Boolean(order.starredFirst) } };
+    // The server refuses more than 500 (and with them every preference saved alongside), so the
+    // folders sorted longest ago give way first.
+    const keys = Object.keys(next);
+    if (keys.length > 400) next = Object.fromEntries(keys.slice(keys.length - 400).map(k => [k, next[k]]));
     localStorage.setItem('mailflow_list_sort', JSON.stringify(next));
     set({ listSort: next });
     schedulePrefSave({ listSort: next });
