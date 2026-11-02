@@ -453,6 +453,10 @@
       "vertical": {
         "label": "Svislé rozdělení",
         "description": "Seznam zpráv nad čtecím podoknem"
+      },
+      "list": {
+        "label": "Nejdřív seznam",
+        "description": "Seznam přes celou šířku; zpráva se otevře samostatně"
       }
     },
     "snoozedUntil": "Odloženo do {{when}}",

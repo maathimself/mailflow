@@ -567,6 +567,10 @@
       "vertical": {
         "label": "Vertical Split",
         "description": "Message list stacked above the reading pane"
+      },
+      "list": {
+        "label": "List first",
+        "description": "Full-width list; a message opens on its own"
       }
     },
     "snoozedUntil": "Snoozed until {{when}}",

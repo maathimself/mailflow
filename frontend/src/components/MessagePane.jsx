@@ -7,6 +7,7 @@ import { formatMessageDateTime } from '../utils/formatDate.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { canHandlePaneShortcut } from '../utils/shortcutApplicability.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { useListFirst } from '../hooks/useListFirst.js';
 import { useSwipeBack } from '../hooks/useSwipeBack.js';
 import SwipePager from './SwipePager.jsx';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
@@ -97,6 +98,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   }, [windowMode, onWindowClose]);
 
   const isMobile = useMobile();
+  // List first (#596): the message has the content area to itself, with a Back bar as on a phone.
+  const listFirst = useListFirst();
   // A tooltip with the action's keyboard shortcut, on a desktop.
   const withShortcut = useShortcutTitle();
   const defaultReplyAll = replyDefault === 'replyAll';
@@ -718,8 +721,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       },
       incrementUnread, decrementUnread, adjustCategoryCount,
       patch: api.bulkRead,
-    }) && isMobile) setSelectedMessage(null);
-  }, [message, updateMessage, incrementUnread, decrementUnread, adjustCategoryCount, isMobile, setSelectedMessage]);
+    }) && (isMobile || (listFirst && !windowMode))) setSelectedMessage(null);
+  }, [message, updateMessage, incrementUnread, decrementUnread, adjustCategoryCount, isMobile, listFirst, windowMode, setSelectedMessage]);
 
   // The toolbar's read toggle. It used to render only for a read message, so it vanished the
   // moment "Mark as unread" worked and the message could not be marked read again from here
@@ -1335,8 +1338,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     >
       {isMobile && <style>{`@keyframes mobileSlideIn { from { transform: translateX(100%) } to { transform: translateX(0) } }`}</style>}
 
-      {/* Mobile back bar */}
-      {isMobile && (
+      {/* Back bar: on a phone, and in List first (#596) */}
+      {(isMobile || listFirst) && !windowMode && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,
           paddingTop: 'calc(var(--sat) + 10px)',

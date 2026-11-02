@@ -567,6 +567,10 @@
       "vertical": {
         "label": "上下分栏",
         "description": "邮件列表位于阅读窗格上方"
+      },
+      "list": {
+        "label": "列表优先",
+        "description": "全宽列表；邮件单独打开"
       }
     },
     "snoozedUntil": "暂停至 {{when}}",

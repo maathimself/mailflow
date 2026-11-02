@@ -21,6 +21,7 @@ import ScheduledList from './ScheduledList.jsx';
 import { SCHEDULED_VIEW } from '../utils/scheduledCompose.js';
 import { applyListOrder, isSortableList, listOrderFor } from '../utils/listSort.js';
 import ListSortMenu from './ListSortMenu.jsx';
+import { useListFirst } from '../hooks/useListFirst.js';
 import GtdTabList from './GtdTabList.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import {
@@ -196,6 +197,7 @@ function MailboxList() {
 
   const currentLayout = LAYOUTS[layout] || LAYOUTS.comfortable;
   const isColumn = currentLayout.direction === 'column';
+  const listFirst = useListFirst();
   const isNarrow = !isColumn && currentLayout.listWidth <= 260;
 
   // Apply the optimistic delete and read guards to a batch of messages from the server
@@ -2726,7 +2728,7 @@ function MailboxList() {
 
   return (
     <div style={{
-      width: isMobile ? '100%' : (isColumn ? '100%' : 'var(--list-width)'),
+      width: isMobile || isColumn || listFirst ? '100%' : 'var(--list-width)',
       minWidth: isMobile ? undefined : (isColumn ? undefined : 180),
       flex: isMobile ? 1 : (isColumn ? '0 0 42%' : undefined),
       minHeight: isColumn && !isMobile ? 0 : undefined,

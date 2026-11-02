@@ -567,6 +567,10 @@
       "vertical": {
         "label": "Divisão vertical",
         "description": "Lista de mensagens acima do painel de leitura"
+      },
+      "list": {
+        "label": "Lista primeiro",
+        "description": "Lista em largura total; a mensagem abre sozinha"
       }
     },
     "snoozedUntil": "Adiado até {{when}}",

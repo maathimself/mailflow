@@ -564,6 +564,10 @@
       "vertical": {
         "description": "본문 읽기 창 상단에 메시지 목록을 배치합니다",
         "label": "수직 분할"
+      },
+      "list": {
+        "label": "목록 우선",
+        "description": "전체 너비 목록, 메시지는 따로 열림"
       }
     },
     "noAccountsDesc": "시작하려면 이메일 계정을 추가하세요",

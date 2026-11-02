@@ -51,6 +51,20 @@ export const LAYOUTS = {
     rowPx: 16,
   },
 
+  // #596: the list takes the whole width and a message opens in its place, with Back to return,
+  // as on a phone. No reading pane beside the list.
+  list: {
+    labelKey: 'messageList.layouts.list.label',
+    label: 'List first',
+    descriptionKey: 'messageList.layouts.list.description',
+    description: 'Full-width list; a message opens on its own',
+    direction: 'row',
+    listWidth: null,
+    listFirst: true,
+    rowPy: 13,
+    rowPx: 20,
+  },
+
   vertical: {
     labelKey: 'messageList.layouts.vertical.label',
     label: 'Vertical Split',

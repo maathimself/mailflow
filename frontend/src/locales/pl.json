@@ -581,6 +581,10 @@
       "vertical": {
         "label": "Podział pionowy",
         "description": "Lista wiadomości nad panelem czytania"
+      },
+      "list": {
+        "label": "Najpierw lista",
+        "description": "Lista na całą szerokość; wiadomość otwiera się osobno"
       }
     },
     "snoozedUntil": "Odłożone do {{when}}",

@@ -567,6 +567,10 @@
       "vertical": {
         "label": "Divisione verticale",
         "description": "Elenco messaggi sopra il riquadro di lettura"
+      },
+      "list": {
+        "label": "Prima l'elenco",
+        "description": "Elenco a tutta larghezza; un messaggio si apre da solo"
       }
     },
     "snoozedUntil": "Posticipato fino a {{when}}",

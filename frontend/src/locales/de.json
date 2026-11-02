@@ -567,6 +567,10 @@
       "vertical": {
         "label": "Vertikale Teilung",
         "description": "Nachrichtenliste über dem Lesebereich"
+      },
+      "list": {
+        "label": "Liste zuerst",
+        "description": "Liste in voller Breite; eine Nachricht öffnet sich für sich"
       }
     },
     "snoozedUntil": "Zurückgestellt bis {{when}}",

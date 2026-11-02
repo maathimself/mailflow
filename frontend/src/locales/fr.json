@@ -567,6 +567,10 @@
       "vertical": {
         "label": "Division verticale",
         "description": "Liste des messages au-dessus du volet de lecture"
+      },
+      "list": {
+        "label": "Liste d'abord",
+        "description": "Liste en pleine largeur ; un message s'ouvre seul"
       }
     },
     "snoozedUntil": "En attente jusqu'à {{when}}",
