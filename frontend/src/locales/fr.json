@@ -585,7 +585,11 @@
     "starredOnTop": "Suivis en haut",
     "sortReset": "Revenir aux plus récents d'abord",
     "sortedBy": "Tri : {{order}}",
-    "sortSummary": "{{sort}}, {{dir}}"
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Messages : {{total}} · Non lus : {{unread}}",
+    "emptyCategory": "Rien dans {{category}}",
+    "emptyCategoryOthers": "Les autres catégories contiennent encore des messages.",
+    "emptyCategoryNone": "La boîte de réception est vide."
   },
   "lockScreen": {
     "subtitle": "Saisissez votre PIN pour déverrouiller",
@@ -651,7 +655,8 @@
     "scheduledPending": "En attente d'envoi : {{n}}",
     "scheduledAttention": "À vérifier : {{n}}",
     "favorites": "Favoris",
-    "reorderFolder": "Faites glisser pour réorganiser le dossier"
+    "reorderFolder": "Faites glisser pour réorganiser le dossier",
+    "draftsTotal": "Brouillons : {{n}}"
   },
   "scheduled": {
     "refresh": "Actualiser",

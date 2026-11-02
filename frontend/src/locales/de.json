@@ -585,7 +585,11 @@
     "starredOnTop": "Markierte oben",
     "sortReset": "Zurück zu Neueste zuerst",
     "sortedBy": "Sortiert: {{order}}",
-    "sortSummary": "{{sort}}, {{dir}}"
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Nachrichten: {{total}} · Ungelesen: {{unread}}",
+    "emptyCategory": "Nichts in {{category}}",
+    "emptyCategoryOthers": "Andere Kategorien enthalten noch Nachrichten.",
+    "emptyCategoryNone": "Der Posteingang ist leer."
   },
   "lockScreen": {
     "subtitle": "Gib deine PIN zum Entsperren ein",
@@ -651,7 +655,8 @@
     "scheduledPending": "Warten auf den Versand: {{n}}",
     "scheduledAttention": "Brauchen Aufmerksamkeit: {{n}}",
     "favorites": "Favoriten",
-    "reorderFolder": "Ziehen, um den Ordner zu verschieben"
+    "reorderFolder": "Ziehen, um den Ordner zu verschieben",
+    "draftsTotal": "Entwürfe: {{n}}"
   },
   "scheduled": {
     "refresh": "Aktualisieren",

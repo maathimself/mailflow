@@ -585,7 +585,11 @@
     "starredOnTop": "星标邮件置顶",
     "sortReset": "恢复为最新的在前",
     "sortedBy": "排序：{{order}}",
-    "sortSummary": "{{sort}}，{{dir}}"
+    "sortSummary": "{{sort}}，{{dir}}",
+    "categoryCountTitle": "邮件：{{total}} · 未读：{{unread}}",
+    "emptyCategory": "{{category}}中没有邮件",
+    "emptyCategoryOthers": "其他类别中仍有邮件。",
+    "emptyCategoryNone": "收件箱为空。"
   },
   "lockScreen": {
     "subtitle": "输入 PIN 码以解锁",
@@ -651,7 +655,8 @@
     "scheduledPending": "等待发送：{{n}}",
     "scheduledAttention": "需要处理：{{n}}",
     "favorites": "收藏夹",
-    "reorderFolder": "拖动以调整文件夹顺序"
+    "reorderFolder": "拖动以调整文件夹顺序",
+    "draftsTotal": "草稿：{{n}}"
   },
   "scheduled": {
     "refresh": "刷新",

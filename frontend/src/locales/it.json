@@ -585,7 +585,11 @@
     "starredOnTop": "Con stella in alto",
     "sortReset": "Torna a più recenti prima",
     "sortedBy": "Ordinati: {{order}}",
-    "sortSummary": "{{sort}}, {{dir}}"
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Messaggi: {{total}} · Da leggere: {{unread}}",
+    "emptyCategory": "Niente in {{category}}",
+    "emptyCategoryOthers": "Le altre categorie contengono ancora messaggi.",
+    "emptyCategoryNone": "La posta in arrivo è vuota."
   },
   "lockScreen": {
     "subtitle": "Inserisci il PIN per sbloccare",
@@ -651,7 +655,8 @@
     "scheduledPending": "In attesa di invio: {{n}}",
     "scheduledAttention": "Richiedono attenzione: {{n}}",
     "favorites": "Preferiti",
-    "reorderFolder": "Trascina per riordinare la cartella"
+    "reorderFolder": "Trascina per riordinare la cartella",
+    "draftsTotal": "Bozze: {{n}}"
   },
   "scheduled": {
     "refresh": "Aggiorna",

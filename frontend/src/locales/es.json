@@ -585,7 +585,11 @@
     "starredOnTop": "Destacados arriba",
     "sortReset": "Volver a más recientes primero",
     "sortedBy": "Orden: {{order}}",
-    "sortSummary": "{{sort}}, {{dir}}"
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Mensajes: {{total}} · Sin leer: {{unread}}",
+    "emptyCategory": "No hay nada en {{category}}",
+    "emptyCategoryOthers": "Las otras categorías todavía tienen correo.",
+    "emptyCategoryNone": "La bandeja de entrada está vacía."
   },
   "lockScreen": {
     "subtitle": "Introduce tu PIN para desbloquear",
@@ -651,7 +655,8 @@
     "scheduledPending": "Pendientes de envío: {{n}}",
     "scheduledAttention": "Requieren atención: {{n}}",
     "favorites": "Favoritos",
-    "reorderFolder": "Arrastra para reordenar la carpeta"
+    "reorderFolder": "Arrastra para reordenar la carpeta",
+    "draftsTotal": "Borradores: {{n}}"
   },
   "scheduled": {
     "refresh": "Actualizar",

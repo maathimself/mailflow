@@ -22,6 +22,15 @@
  * @param max        clamp above which the text becomes `${max}+`
  * @returns {{text: string, stale: boolean, title: string} | null} null means render nothing
  */
+// How many messages a folder holds, for Drafts (#643): MailFlow saves drafts as read, so the
+// unread badge never showed whether any were waiting. Same known/stale rules as unreadBadge; the
+// caller names it, since it is not an unread count.
+export function totalBadge({ count, known = true, stale = false } = {}) {
+  if (!known) return null;
+  if (!Number.isFinite(count) || count <= 0) return null;
+  return { text: stale ? `~${count}` : String(count), stale: !!stale, total: true };
+}
+
 export function unreadBadge({ count, known = true, stale = false, observedAt = null, max = null } = {}) {
   if (!known) return null;
   if (!Number.isFinite(count) || count <= 0) return null;

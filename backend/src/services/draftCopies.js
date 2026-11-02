@@ -10,8 +10,10 @@ import { resolveAllDraftsPaths } from '../utils/mailUtils.js';
 // Tells the user's tabs that a Drafts folder changed, so the Inbox re-checks its reply-draft
 // markers. The composer refreshes its own tab; this reaches the user's other tabs and devices.
 // Best-effort: the draft is already saved or deleted, and a failed notice only delays a marker.
-export function noteDraftsChanged(userId, accountId) {
+// The folder's counts are checked soon after too, so the Drafts total in the sidebar follows (#643).
+export function noteDraftsChanged(userId, accountId, folder) {
   try {
+    if (folder) imapManager.scheduleCountRefresh?.(accountId, [folder]);
     imapManager.broadcast({ type: 'drafts_changed', accountId }, userId);
   } catch (err) {
     console.warn('Drafts change notice failed:', err.message);
@@ -90,7 +92,7 @@ export async function deleteSentDraft(userId, account, { uid, folder, accountId 
       return false;
     }
     await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [target.account.id, target.uid, target.folder]);
-    noteDraftsChanged(userId, target.account.id);
+    noteDraftsChanged(userId, target.account.id, target.folder);
     return true;
   } catch (err) {
     console.error(`Draft: failed to delete sent draft uid=${JSON.stringify(uid)}: ${err.message}`);

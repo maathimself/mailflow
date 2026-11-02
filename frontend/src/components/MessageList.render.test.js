@@ -1243,3 +1243,58 @@ describe('MessageList — sorting a folder (#528, #196)', () => {
     assert.equal(sortButton(), undefined);
   });
 });
+
+// #597: category tabs say how many messages each holds, with unread apart; an empty tab says
+// that category is empty, not the Inbox; the counts follow list changes.
+describe('MessageList — category totals (#597)', () => {
+  const COUNTS = '/mail/category-counts?accountId=acct-1';
+  const tab = (cat) => [...container.querySelectorAll('button')]
+    .find(b => b.textContent.startsWith(`messageList.categories.${cat}`));
+  const mountCategories = async ({ rows = [MESSAGE], category = 'primary', counts }) => {
+    ROUTES = { [COUNTS]: [200, counts] };
+    useStore.setState({ categorizationEnabled: true, activeGtdTab: null });
+    await mount({ rows, threadedView: false });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 0)); });
+    // The selected category is the list's own state: pick it as a reader does.
+    if (category !== 'primary') {
+      await React.act(async () => { tab(category).click(); await new Promise(r => setTimeout(r, 0)); });
+    }
+  };
+
+  test('a tab shows its total and, apart, its unread', async () => {
+    await mountCategories({ counts: { counts: { primary: 1, automated: 0 }, totals: { primary: 3, automated: 2 } } });
+    assert.equal(tab('primary').textContent, 'messageList.categories.primary31');
+    assert.equal(tab('automated').textContent, 'messageList.categories.automated2', 'all read: total, no unread badge');
+    assert.equal(tab('social').textContent, 'messageList.categories.social0');
+    assert.equal(tab('automated').getAttribute('title'), 'messageList.categoryCountTitle');
+  });
+
+  test('an empty tab names its category, and says whether others have mail', async () => {
+    await mountCategories({ rows: [], category: 'social', counts: { counts: { primary: 1 }, totals: { primary: 3 } } });
+    assert.match(container.textContent, /messageList\.emptyCategory(?!Others|None)/);
+    assert.match(container.textContent, /messageList\.emptyCategoryOthers/);
+    assert.doesNotMatch(container.textContent, /Inbox is empty/);
+    await mountCategories({ rows: [], category: 'social', counts: { counts: {}, totals: {} } });
+    assert.match(container.textContent, /messageList\.emptyCategoryNone/);
+  });
+
+  test('the counts load again after the list changes', async () => {
+    await mountCategories({ counts: { counts: { primary: 1 }, totals: { primary: 3 } } });
+    ROUTES = { [COUNTS]: [200, { counts: { primary: 0 }, totals: { primary: 2 } }] };
+    await React.act(async () => {
+      window.dispatchEvent(new dom.window.CustomEvent('mailflow:refresh'));
+      await new Promise(r => setTimeout(r, 500));
+    });
+    assert.equal(tab('primary').textContent, 'messageList.categories.primary2');
+  });
+
+  test('the header count is the filtered count when only this account categorizes', async () => {
+    ROUTES = { [COUNTS]: [200, { counts: {}, totals: { primary: 1 } }] };
+    useStore.setState({ categorizationEnabled: false, activeGtdTab: null });
+    await mount({ rows: [MESSAGE], threadedView: false, accounts: [{ ...ACCOUNT, categorization_enabled: true }] });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 0)); });
+    assert.ok([...container.querySelectorAll('span[title="Cached results matching this filter"]')].length > 0);
+    useStore.setState({ categorizationEnabled: false });
+    ROUTES = {};
+  });
+});

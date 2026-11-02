@@ -1145,7 +1145,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           await api.setMessageCategory(message.id, newCategory);
           updateMessage(message.id, { category: newCategory });
           const params = message.account_id ? { accountId: message.account_id } : {};
-          api.getCategoryCounts(params).then(d => setCategoryCounts(d.counts || {})).catch(() => {});
+          api.getCategoryCounts(params).then(d => setCategoryCounts(d.counts || {}, d.totals)).catch(() => {});
         } catch (err) {
           console.error('setCategory failed:', err?.message);
         }
@@ -1160,7 +1160,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         if (saved) {
           updateMessage(message.id, { category });
           const params = message.account_id ? { accountId: message.account_id } : {};
-          api.getCategoryCounts(params).then(d => setCategoryCounts(d.counts || {})).catch(() => {});
+          api.getCategoryCounts(params).then(d => setCategoryCounts(d.counts || {}, d.totals)).catch(() => {});
         }
         break;
       }
@@ -1233,7 +1233,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         const acct = accounts.find(a => a.id === message.account_id);
         if (acct) {
           const params = message.account_id ? { accountId: message.account_id } : {};
-          api.getCategoryCounts(params).then(d => setCategoryCounts(d.counts || {})).catch(() => {});
+          api.getCategoryCounts(params).then(d => setCategoryCounts(d.counts || {}, d.totals)).catch(() => {});
         }
         addNotification({ title: t('message.aiClassify.done', { category: t(`messageList.categories.${result.category}`) }) });
       }

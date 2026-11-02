@@ -168,7 +168,7 @@ export const useStore = create((set, get) => ({
         threadMessages: {}, expandedThreadId: null,
         accounts: [], accountsReady: false, folders: {},
         notifications: [], backfillProgress: {},
-        gtdSections: null, categoryCounts: {}, activeGtdTab: null,
+        gtdSections: null, categoryCounts: {}, categoryTotals: {}, activeGtdTab: null,
         // Reply-draft lookups and handoffs still in flight stop on the user id, so the
         // revision need not move.
         replyDrafts: {},
@@ -231,7 +231,7 @@ export const useStore = create((set, get) => ({
         ...SCHEDULED_RESET,
         notifications: [], threadMessages: {}, expandedThreadId: null,
         backfillProgress: {},
-        gtdSections: null, categoryCounts: {}, activeGtdTab: null,
+        gtdSections: null, categoryCounts: {}, categoryTotals: {}, activeGtdTab: null,
       });
     } else {
       const restoredMessageId = localStorage.getItem('mailflow_locked_message') || null;
@@ -932,9 +932,11 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ categorizationEnabled: val });
   },
 
-  // Unread counts per category for the tab bar badges { primary: N, newsletter: N, ... }
+  // Per category of the Inbox, for the tab bar: unread { primary: N, newsletter: N, ... } and how
+  // many messages each holds (#597). A caller with only unread counts leaves the totals as they are.
   categoryCounts: {},
-  setCategoryCounts: (counts) => set({ categoryCounts: counts }),
+  categoryTotals: {},
+  setCategoryCounts: (counts, totals) => set(totals ? { categoryCounts: counts, categoryTotals: totals } : { categoryCounts: counts }),
   adjustCategoryCount: (category, delta) => set(state => {
     const key = category || 'primary';
     const current = state.categoryCounts[key] || 0;

@@ -19,6 +19,10 @@ const snoozedElsewhereSql = (accounts) =>
 // sort on what the row shows: the sender's name, or the address when there is none, and the
 // subject without its Re:/Fwd: prefixes (normalized_subject, a generated column). A conversation
 // row shows its opener's sender and subject, so the threaded list sorts by the opener's.
+// #407: a UID-only placeholder row whose envelope has not been fetched yet (see listMessages).
+// Lists and the counts beside them leave it out.
+export const NOT_PLACEHOLDER_SQL = "NOT (m.message_id IS NULL AND (m.subject IS NULL OR m.subject = '(no subject)') AND COALESCE(m.snippet, '') = '')";
+
 export const LIST_SORTS = ['date', 'from', 'subject'];
 export const LIST_SORT_DIRS = ['asc', 'desc'];
 // A row with no sender or subject sorts last either way (NULLS LAST), as the client orders it.
@@ -99,7 +103,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   // Message-ID, a real subject, or a snippet, so this predicate only ever hides the hollow
   // placeholder, never a real message. Applies to both the flat and threaded queries (shared
   // `where`), so pagination and the threaded count stay consistent.
-  whereConditions.push(`NOT (m.message_id IS NULL AND (m.subject IS NULL OR m.subject = '(no subject)') AND COALESCE(m.snippet, '') = '')`);
+  whereConditions.push(NOT_PLACEHOLDER_SQL);
 
   const where = whereConditions.join(' AND ');
 

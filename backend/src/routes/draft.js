@@ -411,7 +411,7 @@ router.post('/draft', async (req, res) => {
       if (scheduledRemoved) imapManager.broadcast({ type: 'scheduled_changed', id: fromScheduled.id, status: 'deleted' }, req.session.userId);
     }
 
-    noteDraftsChanged(req.session.userId, account.id);
+    noteDraftsChanged(req.session.userId, account.id, draftsFolder);
     res.json({
       uid, folder: draftsFolder,
       ...(req.body.includeIdentity === true ? { messageId: meta.messageId } : {}),
@@ -450,14 +450,14 @@ router.delete('/draft/:uid', async (req, res) => {
       await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
       imapManager.syncFolderOnDemand(account, folder)
         .catch(err => console.warn('post-delete folder sync failed:', err.message));
-      noteDraftsChanged(req.session.userId, account.id);
+      noteDraftsChanged(req.session.userId, account.id, folder);
       return res.status(409).json({ error: 'This draft changed on the server and was not deleted. Refresh and try again.' });
     }
     await query(
       'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
       [account.id, uid, folder]
     );
-    noteDraftsChanged(req.session.userId, account.id);
+    noteDraftsChanged(req.session.userId, account.id, folder);
     res.json({ ok: true });
   } catch (err) {
     console.error('Delete draft failed:', err.message);

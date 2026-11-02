@@ -169,7 +169,8 @@
     "scheduledPending": "Čeká na odeslání: {{n}}",
     "scheduledAttention": "Vyžaduje pozornost: {{n}}",
     "favorites": "Oblíbené",
-    "reorderFolder": "Přetažením změníte pořadí složky"
+    "reorderFolder": "Přetažením změníte pořadí složky",
+    "draftsTotal": "Koncepty: {{n}}"
   },
   "scheduled": {
     "refresh": "Obnovit",
@@ -470,7 +471,11 @@
     "starredOnTop": "S hvězdičkou nahoře",
     "sortReset": "Zpět na nejnovější nahoře",
     "sortedBy": "Řazeno: {{order}}",
-    "sortSummary": "{{sort}}, {{dir}}"
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Zprávy: {{total}} · Nepřečtené: {{unread}}",
+    "emptyCategory": "V kategorii {{category}} nic není",
+    "emptyCategoryOthers": "V ostatních kategoriích pošta je.",
+    "emptyCategoryNone": "Doručená pošta je prázdná."
   },
   "message": {
     "find": {

@@ -585,7 +585,11 @@
     "starredOnTop": "Отмеченные сверху",
     "sortReset": "Вернуть: сначала новые",
     "sortedBy": "Сортировка: {{order}}",
-    "sortSummary": "{{sort}}, {{dir}}"
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Сообщения: {{total}} · Непрочитанные: {{unread}}",
+    "emptyCategory": "В категории «{{category}}» пусто",
+    "emptyCategoryOthers": "В других категориях ещё есть письма.",
+    "emptyCategoryNone": "Входящие пусты."
   },
   "lockScreen": {
     "subtitle": "Введите PIN-код для разблокировки",
@@ -651,7 +655,8 @@
     "scheduledPending": "Ожидают отправки: {{n}}",
     "scheduledAttention": "Требуют внимания: {{n}}",
     "favorites": "Избранное",
-    "reorderFolder": "Перетащите, чтобы изменить порядок папки"
+    "reorderFolder": "Перетащите, чтобы изменить порядок папки",
+    "draftsTotal": "Черновики: {{n}}"
   },
   "scheduled": {
     "refresh": "Обновить",

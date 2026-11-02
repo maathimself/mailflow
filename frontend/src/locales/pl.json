@@ -599,7 +599,11 @@
     "starredOnTop": "Oznaczone gwiazdką na górze",
     "sortReset": "Wróć do najnowszych na górze",
     "sortedBy": "Sortowanie: {{order}}",
-    "sortSummary": "{{sort}}, {{dir}}"
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Wiadomości: {{total}} · Nieprzeczytane: {{unread}}",
+    "emptyCategory": "Brak wiadomości w kategorii {{category}}",
+    "emptyCategoryOthers": "W innych kategoriach są jeszcze wiadomości.",
+    "emptyCategoryNone": "Skrzynka odbiorcza jest pusta."
   },
   "lockScreen": {
     "subtitle": "Wpisz swój PIN aby odblokować",
@@ -667,7 +671,8 @@
     "scheduledPending": "Czeka na wysłanie: {{n}}",
     "scheduledAttention": "Wymaga uwagi: {{n}}",
     "favorites": "Ulubione",
-    "reorderFolder": "Przeciągnij, aby zmienić kolejność folderu"
+    "reorderFolder": "Przeciągnij, aby zmienić kolejność folderu",
+    "draftsTotal": "Szkice: {{n}}"
   },
   "scheduled": {
     "refresh": "Odśwież",
