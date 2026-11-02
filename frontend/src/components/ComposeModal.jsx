@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, forwardRef } from 'react';
+import { flushSync } from 'react-dom';
 import { createComposeSwitch } from '../utils/composeSwitch.js';
 import { shouldAutosave, isAutosaveDue } from '../utils/draftAutosave.js';
 import { useTranslation } from 'react-i18next';
@@ -326,6 +327,13 @@ export default function ComposeModal() {
   const unsavedRestoreRef = useRef(!!composeData?.restored);
   const [showCc, setShowCc] = useState(autoInit.cc.length > 0);
   const [showBcc, setShowBcc] = useState(autoInit.bcc.length > 0);
+  const ccInputRef = useRef(null);
+  const bccInputRef = useRef(null);
+  // A row opened from its button takes the cursor; one that opens by itself (an automatic Cc or
+  // Bcc, Reply All) leaves it where it is. flushSync mounts the row within the click, because iOS
+  // raises the keyboard only for focus given while it is handling the tap.
+  const openCc = () => { flushSync(() => setShowCc(true)); ccInputRef.current?.focus(); };
+  const openBcc = () => { flushSync(() => setShowBcc(true)); bccInputRef.current?.focus(); };
 
   // Re-apply on mount — guards against Zustand state not being ready during first render
   useEffect(() => {
@@ -2495,6 +2503,7 @@ export default function ComposeModal() {
                 chips={ccChips} onChipsChange={setCcChips}
                 value={ccInput} onChange={setCcInput}
                 placeholder={t('compose.ccPh')}
+                inputRef={ccInputRef}
                 inputStyle={mobileInputStyle}
                 getSuggestions={getSuggestions}
                 containerStyle={{ padding: 0 }}
@@ -2510,6 +2519,7 @@ export default function ComposeModal() {
                 chips={bccChips} onChipsChange={setBccChips}
                 value={bccInput} onChange={setBccInput}
                 placeholder={t('compose.bccPh')}
+                inputRef={bccInputRef}
                 inputStyle={mobileInputStyle}
                 getSuggestions={getSuggestions}
                 containerStyle={{ padding: 0 }}
@@ -2682,7 +2692,7 @@ export default function ComposeModal() {
           }}>
             {!showCc && (
               <button
-                onClick={() => { setShowCc(true); setShowCcBccMenu(false); setCcBccMenuPos(null); }}
+                onClick={() => { setShowCcBccMenu(false); setCcBccMenuPos(null); openCc(); }}
                 style={{ width: '100%', padding: '13px 18px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', borderBottom: !showBcc ? '1px solid var(--border-subtle)' : 'none', WebkitTapHighlightColor: 'transparent' }}
               >
                 {t('compose.cc')}
@@ -2690,7 +2700,7 @@ export default function ComposeModal() {
             )}
             {!showBcc && (
               <button
-                onClick={() => { setShowBcc(true); setShowCcBccMenu(false); setCcBccMenuPos(null); }}
+                onClick={() => { setShowCcBccMenu(false); setCcBccMenuPos(null); openBcc(); }}
                 style={{ width: '100%', padding: '13px 18px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 15, cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
               >
                 {t('compose.bcc')}
@@ -3115,12 +3125,12 @@ export default function ComposeModal() {
           {(!showCc || !showBcc) && (
             <div className="compose-ccbcc-quickadd" style={{ display: 'flex', flexShrink: 0 }}>
               {!showCc && (
-                <button onClick={() => setShowCc(true)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '9px 0 4px 6px' }}>
+                <button onClick={openCc} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '9px 0 4px 6px' }}>
                   {t('compose.cc')}
                 </button>
               )}
               {!showBcc && (
-                <button onClick={() => setShowBcc(true)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '9px 0 4px 6px' }}>
+                <button onClick={openBcc} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '9px 0 4px 6px' }}>
                   {t('compose.bcc')}
                 </button>
               )}
@@ -3136,6 +3146,7 @@ export default function ComposeModal() {
               chips={ccChips} onChipsChange={setCcChips}
               value={ccInput} onChange={setCcInput}
               placeholder={t('compose.ccPh')}
+              inputRef={ccInputRef}
               inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
               getSuggestions={getSuggestions}
             />
@@ -3150,6 +3161,7 @@ export default function ComposeModal() {
               chips={bccChips} onChipsChange={setBccChips}
               value={bccInput} onChange={setBccInput}
               placeholder={t('compose.bccPh')}
+              inputRef={bccInputRef}
               inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
               getSuggestions={getSuggestions}
             />
@@ -4458,14 +4470,15 @@ function AttachmentChips({ attachments, onRemove, mobile }) {
   );
 }
 
-function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus, inputStyle, getSuggestions, containerStyle }) {
+function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus, inputRef: givenInputRef, inputStyle, getSuggestions, containerStyle }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const [suggestions, setSuggestions] = useState([]);
   const [suggIdx, setSuggIdx] = useState(-1);
   const debounceRef = useRef(null);
   const wrapperRef = useRef(null);
-  const inputRef = useRef(null);
+  const ownInputRef = useRef(null);
+  const inputRef = givenInputRef ?? ownInputRef;
   const [dropStyle, setDropStyle] = useState(null);
   const [menu, setMenu] = useState(null); // { x, y, index } | null — recipient chip context menu
   const longPressRef = useRef(null);
