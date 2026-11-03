@@ -333,7 +333,7 @@ describe('drafts with a token', () => {
   it('refuses attachments in any form, and lets a null through', async () => {
     const file = { filename: 'a.txt', contentBase64: 'aGk=' };
     for (const attachments of [[file], [], {}, '', 'a.txt', 0, false]) {
-      expect(await draft({ attachments }), JSON.stringify(attachments)).toMatchObject({ status: 400, body: { error: 'API token drafts cannot carry attachments' } });
+      expect(await draft({ attachments }), JSON.stringify(attachments)).toMatchObject({ status: 400, body: { error: PLAIN_TEXT_ERROR } });
     }
     for (const attachments of [undefined, null]) {
       expect((await draft({ attachments })).passed, String(attachments)).toBe(true);
