@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { totalBadge, unreadBadge } from '../utils/unreadBadge.js';
 import { api } from '../utils/api.js';
-import { signOut } from '../utils/signOut.js';
 import { resolveThreadMessages } from '../utils/threadActions.js';
 import { keepDraftsApart } from '../utils/conversationActions.js';
 import { folderDisplayName, folderDisplayNameForPath, folderRole } from '../utils/folderDisplay.js';
@@ -288,7 +287,7 @@ export default function Sidebar() {
   const {
     accounts, unreadCounts, selectedAccountId, selectedFolder,
     setSelectedAccount, setShowAdmin, setAdminTab, setAccountsIntent, openCompose,
-    folders, setFolders, setAccounts, user, setUser, lockScreen, sidebarCollapsed: sidebarCollapsedPref, toggleSidebar,
+    folders, setFolders, setAccounts, user, signOut, lockScreen, sidebarCollapsed: sidebarCollapsedPref, toggleSidebar,
     blockRemoteImages, setBlockRemoteImages, setMobileSidebarOpen, addNotification,
     searchAllFolders, setSearchAllFolders,
     hiddenFolders, setHiddenFolders,
@@ -549,9 +548,6 @@ export default function Sidebar() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
-
-  // Clears this user's mailbox state and follows the SSO end-session URL when there is one (#310).
-  const handleLogout = () => signOut({ setUser });
 
   const isUnified = selectedAccountId === null;
   const snoozedCount = useStore(s => s.snoozedCount);
@@ -1887,7 +1883,7 @@ export default function Sidebar() {
 
           {/* Sign out */}
           <div
-            onClick={handleLogout}
+            onClick={() => signOut()}
             style={{
               display: 'flex', alignItems: 'center', gap: 10,
               paddingTop: 8, paddingLeft: 14, paddingRight: 14,
@@ -2089,7 +2085,7 @@ export default function Sidebar() {
             />
           )}
           <CtxMenuItem icon={ICONS.logout} label={t('sidebar.signOut')} danger
-            onClick={() => { setUserMenuOpen(false); handleLogout(); }} />
+            onClick={() => { setUserMenuOpen(false); signOut(); }} />
         </div>
       )}
 
