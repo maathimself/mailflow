@@ -330,6 +330,16 @@ describe('drafts with a token', () => {
     }
   });
 
+  it('refuses attachments in any form, and lets a null through', async () => {
+    const file = { filename: 'a.txt', contentBase64: 'aGk=' };
+    for (const attachments of [[file], [], {}, '', 'a.txt', 0, false]) {
+      expect(await draft({ attachments }), JSON.stringify(attachments)).toMatchObject({ status: 400, body: { error: 'API token drafts cannot carry attachments' } });
+    }
+    for (const attachments of [undefined, null]) {
+      expect((await draft({ attachments })).passed, String(attachments)).toBe(true);
+    }
+  });
+
   it('refuses ids that would reach a uuid comparison malformed', async () => {
     for (const accountId of [undefined, null, '', 'abc', 7, [GENERIC]]) {
       expect(await draft({ accountId }), String(accountId)).toMatchObject({ status: 400, body: { error: 'Invalid accountId' } });
