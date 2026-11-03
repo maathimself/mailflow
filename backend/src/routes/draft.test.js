@@ -607,3 +607,54 @@ describe('deleteSentDraft — the draft of a message that has been delivered', (
     expect(await deleteSentDraft('user-1', ACCOUNT_ROW, { uid: 4, folder: 'Drafts' })).toBe(false);
   });
 });
+
+describe('POST /api/mail/draft — attachments', () => {
+  let server, base;
+  beforeAll(async () => { await new Promise(r => { server = buildApp().listen(0, r); }); base = `http://127.0.0.1:${server.address().port}`; });
+  afterAll(async () => { await new Promise(r => server.close(r)); });
+  beforeEach(() => {
+    query.mockReset();
+    imapManager.appendToFolder.mockReset();
+    imapManager.upsertDraftMessageRecord.mockReset();
+    query.mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID }] });
+    query.mockResolvedValueOnce({ rows: [ACCOUNT_ROW] });
+    query.mockResolvedValueOnce({ rows: [{ path: 'Drafts' }] });
+    imapManager.appendToFolder.mockResolvedValue({ uid: 9, folder: 'Drafts' });
+    imapManager.upsertDraftMessageRecord.mockResolvedValue(undefined);
+  });
+
+  it('appends a base64 attachment to the raw MIME', async () => {
+    const content = Buffer.from('%PDF-1.4\n% test\n');
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        accountId: ACCOUNT_ID, to: ['repam@repam.fr'], subject: 'Avec PJ', body: 'Bonjour',
+        attachments: [{ filename: 'decompte.pdf', contentType: 'application/pdf', contentBase64: content.toString('base64') }],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const raw = imapManager.appendToFolder.mock.calls[0][2];
+    expect(Buffer.isBuffer(raw)).toBe(true);
+    const text = raw.toString('latin1');
+    expect(text).toContain('decompte.pdf');
+    expect(text).toContain('application/pdf');
+    // The payload is base64-encoded in the MIME, and the row is flagged for the paperclip.
+    expect(text.replace(/\r?\n/g, '')).toContain(content.toString('base64'));
+    expect(imapManager.upsertDraftMessageRecord.mock.calls[0][3].hasAttachments).toBe(true);
+    expect(imapManager.upsertDraftMessageRecord.mock.calls[0][3].hasAttachments).toBe(true);
+  });
+
+  it('rejects path-like filenames and more than five attachments', async () => {
+    for (const attachments of [
+      [{ filename: '../evil.pdf', contentBase64: Buffer.from('x').toString('base64') }],
+      new Array(6).fill({ filename: 'a.pdf', contentBase64: Buffer.from('x').toString('base64') }),
+    ]) {
+      const res = await fetch(`${base}/api/mail/draft`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ accountId: ACCOUNT_ID, to: ['repam@repam.fr'], subject: 'S', body: 'B', attachments }),
+      });
+      expect(res.status).toBe(400);
+    }
+    expect(imapManager.appendToFolder).not.toHaveBeenCalled();
+  });
+});
