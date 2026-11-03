@@ -128,6 +128,11 @@ describe('table classification', () => {
     expect(new Set(classified).size).toBe(classified.length);
     expect([...live].sort()).toEqual([...classified].sort());
   });
+
+  it('never backs up or restores API tokens, so a restore cannot bring back a revoked one', () => {
+    expect(TRANSIENT_TABLES).toContain('api_tokens');
+    expect([...SETUP_TABLES, ...MAIL_CACHE_TABLES]).not.toContain('api_tokens');
+  });
 });
 
 describe('orderByForeignKeys', () => {

@@ -198,6 +198,39 @@ describe('MessageList — selected-row shortcuts', () => {
   });
 });
 
+// Deleting a conversation row sends what the thread route returns to bulk-delete, which expunges a
+// copy already in Trash. The route marks that copy in_trash; this account's folder list has not
+// loaded and INBOX.Trash goes by no name the client knows, so only the mark leaves it alone. The ids
+// are this test's own: the delete guards are module state and would hide THREAD from later tests.
+describe('MessageList — deleting a conversation leaves its copy in Trash', () => {
+  test('the bulk-delete request leaves out the copy the thread route marks in_trash', async () => {
+    const row = { ...THREAD, id: 'tr-new', message_id: '<tr-new@example.com>', thread_id: 'thr-tr' };
+    ROUTES['/mail/thread?id=thr-tr&folder=INBOX'] = [200, { messages: [
+      { ...MESSAGE, id: 'tr-old', folder: 'INBOX.Trash', message_id: '<tr-old@example.com>', thread_id: 'thr-tr', in_trash: true },
+      { ...MESSAGE, id: 'tr-new', message_id: '<tr-new@example.com>', thread_id: 'thr-tr', in_trash: false },
+      { ...MESSAGE, id: 'tr-reply', folder: 'Sent', message_id: '<tr-reply@example.com>', thread_id: 'thr-tr', in_trash: false },
+    ] }];
+    await mount({ rows: [row], threadedView: true });
+    await React.act(async () => {
+      useStore.setState({ folders: {}, notifications: [] });
+      useStore.getState().setSelectedMessage(row.id);
+    });
+    CALLS = [];
+    await React.act(async () => { shortcutBus.emit('delete'); await new Promise(r => setTimeout(r, 30)); });
+    // Unmounting sends the pending delete at once instead of after the undo window. Its undo toast
+    // would otherwise be the first thing the Ctrl+Z test below undoes.
+    await React.act(async () => root.unmount());
+    root = null;
+    await React.act(async () => {
+      useStore.setState({ selectedMessageId: null, notifications: [] });
+      await new Promise(r => setTimeout(r, 30));
+    });
+    const request = CALLS.find(c => c.path.endsWith('/mail/messages/bulk-delete'));
+    assert.ok(request, 'expected a bulk-delete request');
+    assert.deepEqual(request.body.ids.sort(), ['tr-new', 'tr-reply']);
+  });
+});
+
 describe('MessageList — modifier-click enters multi-select (#220)', () => {
   // Before this, modifiers only worked once ALREADY in selection mode; entering it took the
   // avatar or the toolbar button. A Ctrl/Cmd- or Shift-click on a row must now enter it in

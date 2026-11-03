@@ -21,6 +21,7 @@ vi.mock('../index.js', () => ({ imapManager: {} }));
 import express from 'express';
 import mailRoutes from './mail.js';
 import { query } from '../services/db.js';
+import { trashMessageSql } from '../utils/mailUtils.js';
 
 function buildApp() {
   const app = express();
@@ -109,5 +110,27 @@ describe('GET /api/mail/thread?id=', () => {
     expect((await fetch(`${base}/api/mail/thread`)).status).toBe(400);
     expect((await fetch(`${base}/api/mail/thread?id=a&id=b`)).status).toBe(400);
     expect(query).not.toHaveBeenCalled();
+  });
+});
+
+// Deleting a conversation from the Inbox took its copies already in Trash, where bulk-delete
+// expunges. The route marks them, so the client can leave them alone (utils/conversationActions.js).
+// The rule itself runs against PostgreSQL in mail.threadTrash.postgres.test.js.
+describe('GET /api/mail/thread marks the copies already in Trash', () => {
+  let server;
+  let base;
+  beforeAll(async () => {
+    await new Promise(resolve => { server = buildApp().listen(0, resolve); });
+    base = `http://127.0.0.1:${server.address().port}`;
+  });
+  afterAll(async () => { await new Promise(resolve => server.close(resolve)); });
+  beforeEach(() => { query.mockReset(); });
+
+  it('selects in_trash by the Trash rule bulk-delete expunges by', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'acct-1', include_in_unified_inbox: true }] });
+    query.mockResolvedValueOnce({ rows: [] });
+    const response = await fetch(`${base}/api/mail/thread?id=${encodeURIComponent('<m1@example.com>')}`);
+    expect(response.status).toBe(200);
+    expect(query.mock.calls[1][0]).toContain(`${trashMessageSql('m')} AS in_trash`);
   });
 });
