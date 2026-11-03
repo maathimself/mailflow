@@ -585,7 +585,7 @@ describe('upsertDraftMessageRecord', () => {
   it('stores the Gmail provider identity when one is available', async () => {
     await save({ providerMsgid: '9007199254740993' }, { id: 'acct-1', imap_host: 'imap.gmail.com' });
     expect(insertedValue('provider_msgid')).toBe('9007199254740993');
-    expect(findCall('INSERT INTO messages')[0]).toMatch(/provider_msgid = EXCLUDED\.provider_msgid/);
+    expect(findCall('INSERT INTO messages')[0]).toMatch(/provider_msgid = COALESCE\(EXCLUDED\.provider_msgid, messages\.provider_msgid\)/);
   });
 });
 
@@ -600,7 +600,7 @@ describe('upsertSentMessageRecord provider identity', () => {
       { id: 'acct-1', email_address: 'me@example.test', imap_host: 'imap.gmail.com' }, 'Sent', 5,
       { messageId: '<sent@example.test>', providerMsgid: '9007199254740993' });
     const [sql, params] = findCall('INSERT INTO messages');
-    expect(sql).toMatch(/provider_msgid = EXCLUDED\.provider_msgid/);
+    expect(sql).toMatch(/provider_msgid = COALESCE\(EXCLUDED\.provider_msgid, messages\.provider_msgid\)/);
     expect(params.at(-1)).toBe('9007199254740993');
   });
 });

@@ -6297,7 +6297,7 @@ export class ImapManager {
         in_reply_to, thread_references, provider_msgid
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,true,false,$14,'[]',$12,$13::jsonb,$15,$16,$17)
       ON CONFLICT (account_id, uid, folder) DO UPDATE SET
-        provider_msgid = EXCLUDED.provider_msgid,
+        provider_msgid = COALESCE(EXCLUDED.provider_msgid, messages.provider_msgid),
         message_id = COALESCE(EXCLUDED.message_id, messages.message_id),
         subject = CASE
           WHEN EXCLUDED.subject IS NOT NULL AND EXCLUDED.subject <> '' AND EXCLUDED.subject <> '(no subject)'
@@ -6378,7 +6378,7 @@ export class ImapManager {
         flags, body_html, body_text, thread_id, bcc_addresses, thread_references, provider_msgid
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,$19,$13::jsonb,$14,$15,$16,$17::jsonb,$18,$20)
       ON CONFLICT (account_id, uid, folder) DO UPDATE SET
-        provider_msgid = EXCLUDED.provider_msgid,
+        provider_msgid = COALESCE(EXCLUDED.provider_msgid, messages.provider_msgid),
         message_id = COALESCE(EXCLUDED.message_id, messages.message_id),
         subject = CASE
           WHEN EXCLUDED.subject IS NOT NULL AND EXCLUDED.subject <> '' AND EXCLUDED.subject <> '(no subject)'
