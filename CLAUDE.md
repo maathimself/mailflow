@@ -59,21 +59,80 @@ and the directory layout. When it is ambiguous, ask rather than guess.
 | Plugins | `backend/src/plugins/<name>/`, `frontend/src/plugins/<name>/` |
 | Desktop and mobile shells | `frontend/packages/` |
 
+## How it fits together
+
+- **One process owns every IMAP connection.** `index.js` creates a single `ImapManager`,
+  gives it to routes as `app.get('imapManager')` and to the plugin platform through
+  `setMailEngine`; plugin hooks only ever see `mailEngineFacade.js`. Each account holds a
+  persistent IDLE connection plus a small pool (`acquirePooledClient`, `withFreshClient`) for
+  commands. Accounts beyond `IMAP_MAX_PERSISTENT_PER_HOST` run poll-only instead: open, sync,
+  close on each tick.
+- **Postgres is the read model.** Sync writes headers and flags into `messages` and
+  `folders`, and message lists, threads and search are served from those rows. A body is
+  fetched from IMAP when first needed, sanitized by `emailSanitizer.js` before it is stored
+  (`messageBodyStore.js`), and served from the row after that. Flag changes, moves and
+  deletes go back to IMAP through the engine; sending goes out over SMTP from `routes/send.js`.
+- **The WebSocket only pushes.** `websocket.js` authenticates the upgrade with the same
+  Redis-backed session as the REST API. The engine broadcasts per-user events
+  (`sync_complete`, `flags_synced`, `folders_synced`, …), and the client sends nothing but
+  pings. A socket connecting also reconnects that user's accounts, which is how they come
+  back after a restart.
+- **The frontend is one Zustand store.** `frontend/src/store/index.js` holds the state,
+  `utils/api.js` is the REST client, and `hooks/useWebSocket.js` applies pushed events to the
+  store.
+- **Every `/api` request passes one middleware chain**, `middleware/apiChain.js`, which
+  `index.js` mounts ahead of the routers: API token auth, body parsers, session, the CSRF
+  check, the screen lock, then the token guards. A mutating request from the browser needs an
+  `X-Requested-With` header, which `api.js` adds; one authenticated by an API token does not.
+  A token can call only the routes listed in `services/apiTokenAllowlist.js`, so a new route
+  stays closed to tokens until it is added there on purpose.
+- **Migrations** are numbered `NNNN_name.sql` files that `services/migrations.js` applies at
+  startup, in order, under an advisory lock, each in its own transaction. One marked
+  `-- no-transaction` runs statement by statement outside a transaction and must be
+  idempotent, because a crash before it is recorded runs it again.
+- **Tests sit next to the code** as `<module>.test.js` or `<module>.<topic>.test.js`. Most
+  backend tests mock `db.js` with `vi.mock`. Frontend tests are plain `node:test`; the
+  `*.render.test.js` files transform JSX with `sucrase` in a `node:module` `registerHooks`
+  loader, stub modules such as `react-i18next` there, and render into `jsdom`. `sucrase` is
+  not a direct dependency: it is installed only because `tailwindcss` depends on it.
+
 ## Commands
+
+Node 22 (`.nvmrc`).
 
 ```bash
 cd backend
 npm test              # vitest
 npm run lint          # eslint, zero warnings allowed
 npm run lint:plugins  # plugin import boundary, must be 0 violations
+npx vitest run src/services/folderStatus.test.js   # one file
+npx vitest run -t "part of a test name"            # one test by name
 
 cd frontend
 npm test              # node --test
-npm run lint
+npm run lint          # eslint, zero warnings allowed
 npm run build
+node --test src/utils/listSort.test.js             # one file
 ```
 
-Both suites and both lints must pass. CI runs them on every PR.
+Both suites and both lints must pass. CI runs them on every PR, together with
+`node --check src/index.js` and `npm audit --omit=dev --audit-level=high` on both sides, so a
+dependency with a high-severity advisory fails the build.
+
+Suites that need a real database (`*.postgres.test.js` and a few others) are skipped unless
+`MAILFLOW_TEST_DATABASE_URL` points at a disposable PostgreSQL, so a green local `npm test`
+may not have run them. CI runs them against `postgres:16`:
+
+```bash
+MAILFLOW_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/mailflow_test npm test
+```
+
+`npm run dev` in `backend/` is `node --watch`. Startup exits unless `SESSION_SECRET` (at
+least 32 characters), `DB_PASSWORD` and a 64-hex-character `ENCRYPTION_KEY` are set, and it
+applies pending migrations before it listens. Postgres and Redis default to the compose
+hostnames (`DB_HOST`, `REDIS_URL` override them). The Vite dev server on port 5173 proxies
+`/api` and `/ws` to `http://backend:3000`, which is hard-coded, so outside compose `backend`
+has to resolve.
 
 ## Working on this codebase
 
@@ -106,14 +165,15 @@ places where a mistake is expensive, invisible until much later, or both:
 
 ## Sharp edges
 
-Things that will bite you if you do not know them. `RELIABILITY_REVIEW.md` and
-`COUNT_INTEGRITY_DESIGN.md` carry the detail behind the first two.
+Things that will bite you if you do not know them.
 
-- **Counts cannot currently detect that the cache is wrong.** MailFlow never asks IMAP
-  `STATUS` how many messages a folder holds; every count is derived from its own rows. So
-  "the row count matches the folder count" is a tautology, not evidence of a healthy sync,
-  and it has already been misread as reassurance while mail was missing. This is a known
-  open design problem, not something to solve casually in passing.
+- **Matching counts are not proof of a healthy sync.** `folderStatus.js` asks IMAP `STATUS`
+  about once a minute, and the API serves those server numbers with `counts_known` and
+  `counts_stale`. A disagreement with the cached rows queues a resync, but equal counts
+  cannot prove equal UID sets, so `folderNeedsSync()` also re-checks membership every 15
+  minutes. Counts derived from MailFlow's own rows are a cache, and reading them as
+  reassurance has already hidden missing mail. `backend/scripts/verify-count-integrity.mjs`
+  exercises this against a disposable database. Change it deliberately, not in passing.
 - **Defensive code around connections and errors is not redundant.** An unhandled
   EventEmitter error on the PostgreSQL pool or the WebSocket server takes the process down,
   so those listeners matter even though they look inert. LOGOUT is just another queued IMAP
@@ -130,9 +190,12 @@ Things that will bite you if you do not know them. `RELIABILITY_REVIEW.md` and
 - **There are two email renderers.** The default renders the sanitized body in an iframe; an
   experimental div-based renderer sits behind `VITE_EMAIL_DIV_RENDER`, default false, and
   compiles away when it is off. Anything touching body rendering has to hold for both.
-- **The two attachment extension lists disagree.** `backend/src/services/spamRules.js` and
-  `frontend/src/utils/attachmentRisk.js` classify overlapping sets differently. Check both
-  before changing either.
+- **The attachment extension list exists twice.** `backend/src/services/attachmentExtensions.js`
+  is canonical and feeds antispam. The frontend image cannot import from `backend/`, so
+  `frontend/src/utils/attachmentExtensions.js` keeps a copy for the download warning, and
+  `attachmentExtensions.test.js` fails CI when the two differ. Change both together. Keep the
+  frontend copy free of imports, because the backend CI job loads it without
+  `frontend/node_modules`.
 - **A host with no provider profile is not a host without quirks.** `providerProfile()` in
-  `imapManager.js` has entries for google, yahoo, apple, microsoft and purelymail. Everything
-  else, Zoho included, falls through to `generic`.
+  `imapManager.js` has entries for google, yahoo, apple, microsoft, purelymail and strato.
+  Everything else, Zoho included, falls through to `generic`.
