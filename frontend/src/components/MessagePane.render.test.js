@@ -1445,7 +1445,7 @@ describe('List first back bar', () => {
     // The pane calls the global history, as the phone's Back does; this environment has none.
     const realHistory = globalThis.history;
     let backs = 0;
-    globalThis.history = { back: () => { backs += 1; } };
+    globalThis.history = { state: { mailflow: 'message' }, back: () => { backs += 1; } };
     try {
       await React.act(async () => { useStore.setState({ layout: 'list', messages: [MSG_A, MSG_B] }); useStore.getState().setSelectedMessage('a1'); });
       await React.act(async () => { root.render(React.createElement(MessagePane)); });
@@ -1456,7 +1456,23 @@ describe('List first back bar', () => {
       globalThis.history = realHistory;
     }
   });
+  test('without the opened message\'s history entry, Back closes it instead of leaving MailFlow', async () => {
+    // Opened before switching to List first, or restored after unlocking: no entry was pushed.
+    const realHistory = globalThis.history;
+    let backs = 0;
+    globalThis.history = { state: null, back: () => { backs += 1; } };
+    try {
+      await React.act(async () => { useStore.setState({ layout: 'list', messages: [MSG_A, MSG_B] }); useStore.getState().setSelectedMessage('a1'); });
+      await React.act(async () => { root.render(React.createElement(MessagePane)); });
+      await React.act(async () => { backButton().click(); });
+      assert.equal(backs, 0);
+      assert.equal(useStore.getState().selectedMessageId, null);
+    } finally {
+      globalThis.history = realHistory;
+    }
+  });
   test('not in a layout with a reading pane', async () => {
+    await React.act(async () => { useStore.getState().setSelectedMessage('a1'); });
     await React.act(async () => { useStore.setState({ layout: 'comfortable' }); });
     assert.equal(backButton(), undefined);
   });

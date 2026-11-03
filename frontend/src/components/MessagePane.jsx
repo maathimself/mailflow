@@ -8,6 +8,7 @@ import { shortcutBus } from '../utils/shortcutBus.js';
 import { canHandlePaneShortcut } from '../utils/shortcutApplicability.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useListFirst } from '../hooks/useListFirst.js';
+import { closeOpenMessage } from '../utils/closeMessage.js';
 import { useSwipeBack } from '../hooks/useSwipeBack.js';
 import SwipePager from './SwipePager.jsx';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.js';
@@ -587,7 +588,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     enabled: isMobile && !windowMode,
     rootRef: paneRef,
     navKey: selectedMessageId,
-    onBack: () => history.back(),
+    onBack: closeOpenMessage,
   });
 
   // Both drafts are built by the shared util, so replying from the list, from the
@@ -1350,7 +1351,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           transition: 'box-shadow 0.2s ease',
         }}>
           <button
-            onClick={() => history.back()}
+            onClick={closeOpenMessage}
             style={{
               background: 'none', border: 'none', color: 'var(--accent)',
               cursor: 'pointer', display: 'flex', alignItems: 'center',

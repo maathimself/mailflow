@@ -95,3 +95,24 @@ test('a folder set back to newest first has no entry', () => {
   useStore.getState().setListOrder('a', 'Archive', { sort: 'date', dir: 'desc', starredFirst: false });
   assert.equal('a:Archive' in useStore.getState().listSort, false);
 });
+
+test('not restored into another category tab or filter of the same folder', () => {
+  const row = { id: 'c1', account_id: 'a', folder: 'INBOX', date: '2026-10-05T10:00:00Z' };
+  open('a', 'INBOX', [row]);
+  useStore.setState({ listFilter: 'newsletter|all' });
+  useStore.getState().removeMessages(['c1']);
+  useStore.setState({ listFilter: 'primary|all', messages: [] });
+  useStore.getState().restoreMessages([row]);
+  assert.deepEqual(ids(), []);
+  useStore.setState({ listFilter: null });
+});
+
+test('the saved sort orders stay under the server\'s limit, oldest dropped first', () => {
+  useStore.setState({ listSort: {} });
+  for (let i = 0; i < 405; i++) useStore.getState().setListOrder('a', `F${i}`, { sort: 'from', dir: 'asc', starredFirst: false });
+  const keys = Object.keys(useStore.getState().listSort);
+  assert.equal(keys.length, 400);
+  assert.equal(keys[0], 'a:F5');
+  assert.equal(keys.at(-1), 'a:F404');
+  useStore.setState({ listSort: {} });
+});
