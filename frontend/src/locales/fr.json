@@ -567,12 +567,33 @@
       "vertical": {
         "label": "Division verticale",
         "description": "Liste des messages au-dessus du volet de lecture"
+      },
+      "list": {
+        "label": "Liste d'abord",
+        "description": "Liste en pleine largeur ; un message s'ouvre seul"
       }
     },
     "snoozedUntil": "En attente jusqu'à {{when}}",
     "snoozedEmpty": "Rien en attente",
     "snoozedEmptyDesc": "Les messages mis en attente patientent ici jusqu'à leur retour.",
-    "menu": "Menu"
+    "menu": "Menu",
+    "sort": "Trier",
+    "sortBy": "Trier par",
+    "sortDate": "Date",
+    "sortSender": "Expéditeur",
+    "sortSubject": "Objet",
+    "sortNewestFirst": "Plus récents d'abord",
+    "sortOldestFirst": "Plus anciens d'abord",
+    "sortAToZ": "De A à Z",
+    "sortZToA": "De Z à A",
+    "starredOnTop": "Suivis en haut",
+    "sortReset": "Revenir aux plus récents d'abord",
+    "sortedBy": "Tri : {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Messages : {{total}} · Non lus : {{unread}}",
+    "emptyCategory": "Rien dans {{category}}",
+    "emptyCategoryOthers": "Les autres catégories contiennent encore des messages.",
+    "emptyCategoryNone": "La boîte de réception est vide."
   },
   "lockScreen": {
     "subtitle": "Saisissez votre PIN pour déverrouiller",
@@ -638,7 +659,8 @@
     "scheduledPending": "En attente d'envoi : {{n}}",
     "scheduledAttention": "À vérifier : {{n}}",
     "favorites": "Favoris",
-    "reorderFolder": "Faites glisser pour réorganiser le dossier"
+    "reorderFolder": "Faites glisser pour réorganiser le dossier",
+    "draftsTotal": "Brouillons : {{n}}"
   },
   "scheduled": {
     "refresh": "Actualiser",

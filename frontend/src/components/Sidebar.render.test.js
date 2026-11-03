@@ -229,3 +229,41 @@ describe('Sidebar: moving an account saves the whole order', () => {
     }
   });
 });
+
+// #643: Drafts shows how many drafts it holds (MailFlow saves them read, so an unread badge never
+// showed), outlined so it doesn't read as unread mail. Other folders keep their unread count.
+describe('Sidebar: the Drafts total', () => {
+  const withDrafts = (drafts) => ({ folders: { 'acct-1': [...FOLDERS, { path: 'Drafts', name: 'Drafts', special_use: '\\Drafts', ...drafts }] } });
+  const draftsBadge = () => {
+    // The row is labeled with the role name or the folder's own name, whichever the sidebar shows.
+    const label = [...dom.window.document.querySelectorAll('span')]
+      .find(s => ['folders.drafts', 'Drafts', 'Entwürfe'].includes(s.textContent));
+    assert.ok(label, 'expected the Drafts row');
+    const badge = label.nextElementSibling;
+    return badge && badge.tagName === 'SPAN' ? badge : null;
+  };
+
+  test('shows the server total, not unread, and says what it is', async () => {
+    await mount({ state: withDrafts({ total_count: 3, unread_count: 0 }) });
+    const badge = draftsBadge();
+    assert.equal(badge?.textContent, '3');
+    assert.equal(badge.getAttribute('title'), 'sidebar.draftsTotal');
+    assert.match(badge.getAttribute('style'), /border: 1px solid/);
+    assert.equal(badgeOf('Banking'), '1', 'other folders still show unread');
+  });
+
+  test('no badge for an empty Drafts folder, or before its count is known', async () => {
+    await mount({ state: withDrafts({ total_count: 0, unread_count: 0 }) });
+    assert.equal(draftsBadge(), null);
+    await mount({ state: withDrafts({ total_count: null, unread_count: null, counts_known: false }) });
+    assert.equal(draftsBadge(), null);
+  });
+
+  test('a Drafts folder found by the account\'s mapping counts the same way', async () => {
+    await mount({ state: {
+      accounts: [{ ...ACCOUNT, folder_mappings: { drafts: 'Entwürfe' } }],
+      folders: { 'acct-1': [...FOLDERS, { path: 'Entwürfe', name: 'Entwürfe', total_count: 2, unread_count: 1 }] },
+    } });
+    assert.equal(draftsBadge()?.textContent, '2');
+  });
+});

@@ -67,3 +67,52 @@ test('a message restored without being removed here is added as before', () => {
   useStore.getState().restoreMessages([{ id: 'n1', account_id: 'a', folder: 'Archive', date: '2026-10-03T00:00:00Z' }]);
   assert.deepEqual(ids(), ['n1']);
 });
+
+// #528: an Undo puts the row back where the folder's order lists it, and not into a list whose
+// order changed meanwhile (that list loads it again).
+test('restored in the folder\'s order', () => {
+  const rows = [
+    { id: 's1', account_id: 'a', folder: 'INBOX', from_name: 'Ann', date: '2026-10-01T10:00:00Z' },
+    { id: 's2', account_id: 'a', folder: 'INBOX', from_name: 'Bob', date: '2026-10-03T10:00:00Z' },
+    { id: 's3', account_id: 'a', folder: 'INBOX', from_name: 'Cy', date: '2026-10-02T10:00:00Z' },
+  ];
+  useStore.getState().setListOrder('a', 'INBOX', { sort: 'from', dir: 'asc', starredFirst: false });
+  open('a', 'INBOX', rows);
+  useStore.getState().removeMessages(['s2']);
+  useStore.getState().restoreMessages([rows[1]]);
+  assert.deepEqual(ids(), ['s1', 's2', 's3']);
+
+  useStore.getState().removeMessages(['s2']);
+  useStore.getState().setListOrder('a', 'INBOX', { sort: 'from', dir: 'desc', starredFirst: false });
+  useStore.getState().restoreMessages([rows[1]]);
+  assert.deepEqual(ids(), ['s1', 's3']);
+  useStore.getState().setListOrder('a', 'INBOX', { sort: 'date', dir: 'desc', starredFirst: false });
+});
+
+test('a folder set back to newest first has no entry', () => {
+  useStore.getState().setListOrder('a', 'Archive', { sort: 'subject', dir: 'asc', starredFirst: false });
+  assert.deepEqual(useStore.getState().listSort['a:Archive'], { sort: 'subject', dir: 'asc', starredFirst: false });
+  useStore.getState().setListOrder('a', 'Archive', { sort: 'date', dir: 'desc', starredFirst: false });
+  assert.equal('a:Archive' in useStore.getState().listSort, false);
+});
+
+test('not restored into another category tab or filter of the same folder', () => {
+  const row = { id: 'c1', account_id: 'a', folder: 'INBOX', date: '2026-10-05T10:00:00Z' };
+  open('a', 'INBOX', [row]);
+  useStore.setState({ listFilter: 'newsletter|all' });
+  useStore.getState().removeMessages(['c1']);
+  useStore.setState({ listFilter: 'primary|all', messages: [] });
+  useStore.getState().restoreMessages([row]);
+  assert.deepEqual(ids(), []);
+  useStore.setState({ listFilter: null });
+});
+
+test('the saved sort orders stay under the server\'s limit, oldest dropped first', () => {
+  useStore.setState({ listSort: {} });
+  for (let i = 0; i < 405; i++) useStore.getState().setListOrder('a', `F${i}`, { sort: 'from', dir: 'asc', starredFirst: false });
+  const keys = Object.keys(useStore.getState().listSort);
+  assert.equal(keys.length, 400);
+  assert.equal(keys[0], 'a:F5');
+  assert.equal(keys.at(-1), 'a:F404');
+  useStore.setState({ listSort: {} });
+});

@@ -567,12 +567,33 @@
       "vertical": {
         "label": "Divisione verticale",
         "description": "Elenco messaggi sopra il riquadro di lettura"
+      },
+      "list": {
+        "label": "Prima l'elenco",
+        "description": "Elenco a tutta larghezza; un messaggio si apre da solo"
       }
     },
     "snoozedUntil": "Posticipato fino a {{when}}",
     "snoozedEmpty": "Niente posticipato",
     "snoozedEmptyDesc": "Le email posticipate aspettano qui finché non tornano.",
-    "menu": "Menu"
+    "menu": "Menu",
+    "sort": "Ordina",
+    "sortBy": "Ordina per",
+    "sortDate": "Data",
+    "sortSender": "Mittente",
+    "sortSubject": "Oggetto",
+    "sortNewestFirst": "Più recenti prima",
+    "sortOldestFirst": "Meno recenti prima",
+    "sortAToZ": "Dalla A alla Z",
+    "sortZToA": "Dalla Z alla A",
+    "starredOnTop": "Con stella in alto",
+    "sortReset": "Torna a più recenti prima",
+    "sortedBy": "Ordinati: {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Messaggi: {{total}} · Da leggere: {{unread}}",
+    "emptyCategory": "Niente in {{category}}",
+    "emptyCategoryOthers": "Le altre categorie contengono ancora messaggi.",
+    "emptyCategoryNone": "La posta in arrivo è vuota."
   },
   "lockScreen": {
     "subtitle": "Inserisci il PIN per sbloccare",
@@ -638,7 +659,8 @@
     "scheduledPending": "In attesa di invio: {{n}}",
     "scheduledAttention": "Richiedono attenzione: {{n}}",
     "favorites": "Preferiti",
-    "reorderFolder": "Trascina per riordinare la cartella"
+    "reorderFolder": "Trascina per riordinare la cartella",
+    "draftsTotal": "Bozze: {{n}}"
   },
   "scheduled": {
     "refresh": "Aggiorna",

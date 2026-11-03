@@ -567,12 +567,33 @@
       "vertical": {
         "label": "Vertical Split",
         "description": "Message list stacked above the reading pane"
+      },
+      "list": {
+        "label": "List first",
+        "description": "Full-width list; a message opens on its own"
       }
     },
     "snoozedUntil": "Snoozed until {{when}}",
     "snoozedEmpty": "Nothing snoozed",
     "snoozedEmptyDesc": "Snoozed mail waits here until it comes back.",
-    "menu": "Menu"
+    "menu": "Menu",
+    "sort": "Sort",
+    "sortBy": "Sort by",
+    "sortDate": "Date",
+    "sortSender": "Sender",
+    "sortSubject": "Subject",
+    "sortNewestFirst": "Newest first",
+    "sortOldestFirst": "Oldest first",
+    "sortAToZ": "A to Z",
+    "sortZToA": "Z to A",
+    "starredOnTop": "Starred on top",
+    "sortReset": "Back to newest first",
+    "sortedBy": "Sorted: {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Messages: {{total}} · Unread: {{unread}}",
+    "emptyCategory": "Nothing in {{category}}",
+    "emptyCategoryOthers": "Other categories still have mail.",
+    "emptyCategoryNone": "The Inbox is empty."
   },
   "lockScreen": {
     "subtitle": "Enter your PIN to unlock",
@@ -638,7 +659,8 @@
     "scheduledPending": "Waiting to be sent: {{n}}",
     "scheduledAttention": "Need attention: {{n}}",
     "favorites": "Favorites",
-    "reorderFolder": "Drag to reorder folder"
+    "reorderFolder": "Drag to reorder folder",
+    "draftsTotal": "Drafts: {{n}}"
   },
   "scheduled": {
     "refresh": "Refresh",

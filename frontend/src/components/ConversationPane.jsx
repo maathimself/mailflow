@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { useListFirst } from '../hooks/useListFirst.js';
+import { closeOpenMessage } from '../utils/closeMessage.js';
 import { useStore } from '../store/index.js';
 import {
   normalizeConversation,
@@ -53,6 +55,7 @@ const NOTHING_TO_TAKE_DRAFT = {
 export default function ConversationPane({ threadId, folder, unified = false, accountId = null, selectedMessageId = null, openedFromRow = false }) {
   const { t } = useTranslation();
   const isMobile = useMobile();
+  const listFirst = useListFirst();
   const withShortcut = useShortcutTitle();
   const addNotification = useStore(s => s.addNotification);
   const accounts = useStore(s => s.accounts);
@@ -137,7 +140,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   // and left and right for the next and previous row of the list, which may be a conversation or a
   // single message (the SwipePager around the stack below).
   const paneRef = useRef(null);
-  useSwipeBack({ enabled: isMobile, rootRef: paneRef, navKey: threadId, onBack: () => history.back() });
+  useSwipeBack({ enabled: isMobile, rootRef: paneRef, navKey: threadId, onBack: closeOpenMessage });
   // Read so a new row in the list (or a search) refreshes the peeks either side.
   useStore(s => s.messages);
   useStore(s => s.searchResults);
@@ -238,14 +241,14 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   // status bar — a standalone PWA draws its content behind it — and the conversation
   // could not be left at all, since a standalone PWA has no swipe-back either. Same bar
   // the message pane shows, safe-area padding included.
-  const mobileBackBar = isMobile && (
+  const mobileBackBar = (isMobile || listFirst) && (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 8,
       paddingTop: 'calc(var(--sat) + 10px)', paddingBottom: 'calc(10px - var(--sat-trim))', paddingLeft: 14, paddingRight: 14,
       borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', flexShrink: 0,
     }}>
       <button
-        onClick={() => history.back()}
+        onClick={closeOpenMessage}
         style={{
           background: 'none', border: 'none', color: 'var(--accent)',
           cursor: 'pointer', display: 'flex', alignItems: 'center',

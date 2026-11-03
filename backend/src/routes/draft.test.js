@@ -10,6 +10,7 @@ const imapManager = vi.hoisted(() => ({
   permanentDeleteMessage: vi.fn(),
   syncFolderOnDemand: vi.fn(),
   broadcast: vi.fn(),
+  scheduleCountRefresh: vi.fn(),
 }));
 // What the user's other tabs are told: the Inbox re-checks its reply-draft markers on it.
 const draftsChanged = () => imapManager.broadcast.mock.calls.filter(([event]) => event.type === 'drafts_changed')
@@ -90,6 +91,7 @@ describe('POST /api/mail/draft — local row persistence', () => {
     });
     expect(res.status).toBe(200);
     expect(draftsChanged()).toEqual([[ACCOUNT_ID, 'user-1']]);
+    expect(imapManager.scheduleCountRefresh).toHaveBeenCalledWith(ACCOUNT_ID, ['Drafts']); // #643: the Drafts total follows
   });
 
   it('still returns the saved draft when that notice fails', async () => {
@@ -462,6 +464,7 @@ describe('DELETE /api/mail/draft/:uid — Drafts folders only', () => {
     // The composer has the uid from its own save, so one with no row is deleted unchecked.
     expect(imapManager.permanentDeleteMessage).toHaveBeenCalledWith(expect.objectContaining({ id: ACCOUNT_ID }), 9, 'Drafts', {});
     expect(draftsChanged()).toEqual([[ACCOUNT_ID, 'user-1']]);
+    expect(imapManager.scheduleCountRefresh).toHaveBeenCalledWith(ACCOUNT_ID, ['Drafts']); // #643: the Drafts total follows
   });
 
   it('checks the server copy against the draft\'s row', async () => {
@@ -571,6 +574,7 @@ describe('deleteSentDraft — the draft of a message that has been delivered', (
     expect(imapManager.permanentDeleteMessage).toHaveBeenCalledWith(ACCOUNT_ROW, 4, 'Drafts', { expectMessageId: MESSAGE_ID });
     expect(deletedRows()).toEqual([[ACCOUNT_ID, 4, 'Drafts']]);
     expect(draftsChanged()).toEqual([[ACCOUNT_ID, 'user-1']]);
+    expect(imapManager.scheduleCountRefresh).toHaveBeenCalledWith(ACCOUNT_ID, ['Drafts']); // #643: the Drafts total follows
   });
 
   it('touches nothing outside a Drafts folder', async () => {

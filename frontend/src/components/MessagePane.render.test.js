@@ -1437,3 +1437,43 @@ describe('a read in flight and the toolbar read toggle', () => {
     await settle(() => reads[0].resolve({}));
   });
 });
+
+// #596: in List first the open message has a Back bar, as on a phone, and Back returns to the list.
+describe('List first back bar', () => {
+  const backButton = () => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'common.back');
+  test('shown in List first, and Back goes back in history', async () => {
+    // The pane calls the global history, as the phone's Back does; this environment has none.
+    const realHistory = globalThis.history;
+    let backs = 0;
+    globalThis.history = { state: { mailflow: 'message' }, back: () => { backs += 1; } };
+    try {
+      await React.act(async () => { useStore.setState({ layout: 'list', messages: [MSG_A, MSG_B] }); useStore.getState().setSelectedMessage('a1'); });
+      await React.act(async () => { root.render(React.createElement(MessagePane)); });
+      assert.ok(backButton(), 'a Back button');
+      await React.act(async () => { backButton().click(); });
+      assert.equal(backs, 1);
+    } finally {
+      globalThis.history = realHistory;
+    }
+  });
+  test('without the opened message\'s history entry, Back closes it instead of leaving MailFlow', async () => {
+    // Opened before switching to List first, or restored after unlocking: no entry was pushed.
+    const realHistory = globalThis.history;
+    let backs = 0;
+    globalThis.history = { state: null, back: () => { backs += 1; } };
+    try {
+      await React.act(async () => { useStore.setState({ layout: 'list', messages: [MSG_A, MSG_B] }); useStore.getState().setSelectedMessage('a1'); });
+      await React.act(async () => { root.render(React.createElement(MessagePane)); });
+      await React.act(async () => { backButton().click(); });
+      assert.equal(backs, 0);
+      assert.equal(useStore.getState().selectedMessageId, null);
+    } finally {
+      globalThis.history = realHistory;
+    }
+  });
+  test('not in a layout with a reading pane', async () => {
+    await React.act(async () => { useStore.getState().setSelectedMessage('a1'); });
+    await React.act(async () => { useStore.setState({ layout: 'comfortable' }); });
+    assert.equal(backButton(), undefined);
+  });
+});

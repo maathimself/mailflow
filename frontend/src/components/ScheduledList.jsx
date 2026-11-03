@@ -64,6 +64,7 @@ export default function ScheduledList() {
   const layout = useStore(s => s.layout);
   const currentLayout = LAYOUTS[layout] || LAYOUTS.comfortable;
   const isColumn = currentLayout.direction === 'column';
+  const listFirst = Boolean(currentLayout.listFirst) && !isMobile;
 
   // The labels say "Today" and "Tomorrow": they follow the clock.
   const [now, setNow] = useState(() => new Date());
@@ -415,7 +416,7 @@ export default function ScheduledList() {
 
   return (
     <div data-scheduled-view="" style={{
-      width: isMobile ? '100%' : (isColumn ? '100%' : 'var(--list-width)'),
+      width: isMobile || isColumn || listFirst ? '100%' : 'var(--list-width)',
       minWidth: isMobile ? undefined : (isColumn ? undefined : 180),
       flex: isMobile ? 1 : (isColumn ? '0 0 42%' : undefined),
       minHeight: isColumn && !isMobile ? 0 : undefined,

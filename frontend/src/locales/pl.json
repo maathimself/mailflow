@@ -581,12 +581,33 @@
       "vertical": {
         "label": "Podział pionowy",
         "description": "Lista wiadomości nad panelem czytania"
+      },
+      "list": {
+        "label": "Najpierw lista",
+        "description": "Lista na całą szerokość; wiadomość otwiera się osobno"
       }
     },
     "snoozedUntil": "Odłożone do {{when}}",
     "snoozedEmpty": "Nic nie jest odłożone",
     "snoozedEmptyDesc": "Odłożone wiadomości czekają tutaj, aż wrócą.",
-    "menu": "Menu"
+    "menu": "Menu",
+    "sort": "Sortuj",
+    "sortBy": "Sortuj według",
+    "sortDate": "Data",
+    "sortSender": "Nadawca",
+    "sortSubject": "Temat",
+    "sortNewestFirst": "Najnowsze na górze",
+    "sortOldestFirst": "Najstarsze na górze",
+    "sortAToZ": "Od A do Z",
+    "sortZToA": "Od Z do A",
+    "starredOnTop": "Oznaczone gwiazdką na górze",
+    "sortReset": "Wróć do najnowszych na górze",
+    "sortedBy": "Sortowanie: {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Wiadomości: {{total}} · Nieprzeczytane: {{unread}}",
+    "emptyCategory": "Brak wiadomości w kategorii {{category}}",
+    "emptyCategoryOthers": "W innych kategoriach są jeszcze wiadomości.",
+    "emptyCategoryNone": "Skrzynka odbiorcza jest pusta."
   },
   "lockScreen": {
     "subtitle": "Wpisz swój PIN aby odblokować",
@@ -654,7 +675,8 @@
     "scheduledPending": "Czeka na wysłanie: {{n}}",
     "scheduledAttention": "Wymaga uwagi: {{n}}",
     "favorites": "Ulubione",
-    "reorderFolder": "Przeciągnij, aby zmienić kolejność folderu"
+    "reorderFolder": "Przeciągnij, aby zmienić kolejność folderu",
+    "draftsTotal": "Szkice: {{n}}"
   },
   "scheduled": {
     "refresh": "Odśwież",

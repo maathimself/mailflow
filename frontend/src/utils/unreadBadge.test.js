@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { unreadBadge } from './unreadBadge.js';
+import { totalBadge, unreadBadge } from './unreadBadge.js';
 
 describe('unreadBadge: the ghost badge it exists to prevent', () => {
   test('a stale count of zero renders nothing', () => {
@@ -61,5 +61,17 @@ describe('unreadBadge: degenerate input', () => {
     // Rows served before the count work, or from a cache, carry no counts_known. Callers pass
     // `counts_known !== false`, so an absent field must not suppress a genuine count.
     assert.equal(unreadBadge({ count: 2, known: undefined }).text, '2');
+  });
+});
+
+describe('totalBadge: how many a folder holds (#643)', () => {
+  test('shows a positive known count, marked as a total', () => {
+    assert.deepEqual(totalBadge({ count: 4 }), { text: '4', stale: false, total: true });
+    assert.equal(totalBadge({ count: 4, stale: true }).text, '~4');
+  });
+  test('nothing for zero, an unknown count, or no number', () => {
+    assert.equal(totalBadge({ count: 0 }), null);
+    assert.equal(totalBadge({ count: 4, known: false }), null);
+    assert.equal(totalBadge({ count: null }), null);
   });
 });

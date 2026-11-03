@@ -10,7 +10,8 @@ import { recordSyncSignal } from '../services/diagnosticsRing.js';
 // import, trash moves fail, etc. — issue #386). When the mapped path is missing or
 // non-selectable, return null so the caller falls back to special-use / name detection.
 // This self-heals affected accounts on the next resolve, once folder sync (syncFolders) has
-// flagged the offending folder as no_select.
+// flagged the offending folder as no_select. trashMessageSql below repeats this test in SQL for
+// the thread route, so a change here belongs there too.
 export async function mappedFolderUsable(accountId, path) {
   if (!path) return null;
   const result = await query(
@@ -44,6 +45,21 @@ export const draftMessageSql = (m = 'm') => `(COALESCE(${m}.flags ? '\\Draft', f
       AND (${DRAFTS_FOLDER_SQL}
            OR df.path = (SELECT ea.folder_mappings->>'drafts' FROM email_accounts ea WHERE ea.id = ${m}.account_id))
   ))`;
+
+// True for a message, in a query over messages aliased `m`, held in a folder resolveAllTrashPaths
+// counts as Trash, where bulk-delete expunges rather than moves: the account's trash mapping alone
+// when it names a selectable folder (mappedFolderUsable), else every folder the Trash rules above
+// match (without such a mapping the comparison is NULL, so COALESCE falls through to them). The
+// thread route marks these, so deleting a conversation from another folder can leave its copies in
+// Trash alone.
+export const trashMessageSql = (m = 'm') => `EXISTS (
+    SELECT 1 FROM folders tf
+    WHERE tf.account_id = ${m}.account_id AND tf.path = ${m}.folder
+      AND COALESCE(tf.path = (
+        SELECT uf.path FROM folders uf JOIN email_accounts ea ON ea.id = uf.account_id
+        WHERE uf.account_id = ${m}.account_id AND uf.path = ea.folder_mappings->>'trash' AND uf.no_select = false
+      ), ${TRASH_FOLDER_SQL})
+  )`;
 
 // Resolve the canonical trash folder path for an account (used as move destination).
 // folder_mappings.trash (user-configured) takes priority over special_use and name heuristics,

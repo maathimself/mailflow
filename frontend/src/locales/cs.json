@@ -169,7 +169,8 @@
     "scheduledPending": "Čeká na odeslání: {{n}}",
     "scheduledAttention": "Vyžaduje pozornost: {{n}}",
     "favorites": "Oblíbené",
-    "reorderFolder": "Přetažením změníte pořadí složky"
+    "reorderFolder": "Přetažením změníte pořadí složky",
+    "draftsTotal": "Koncepty: {{n}}"
   },
   "scheduled": {
     "refresh": "Obnovit",
@@ -452,12 +453,33 @@
       "vertical": {
         "label": "Svislé rozdělení",
         "description": "Seznam zpráv nad čtecím podoknem"
+      },
+      "list": {
+        "label": "Nejdřív seznam",
+        "description": "Seznam přes celou šířku; zpráva se otevře samostatně"
       }
     },
     "snoozedUntil": "Odloženo do {{when}}",
     "snoozedEmpty": "Nic není odloženo",
     "snoozedEmptyDesc": "Odložené zprávy tu čekají, dokud se nevrátí.",
-    "menu": "Nabídka"
+    "menu": "Nabídka",
+    "sort": "Řadit",
+    "sortBy": "Řadit podle",
+    "sortDate": "Datum",
+    "sortSender": "Odesílatel",
+    "sortSubject": "Předmět",
+    "sortNewestFirst": "Nejnovější nahoře",
+    "sortOldestFirst": "Nejstarší nahoře",
+    "sortAToZ": "Od A po Z",
+    "sortZToA": "Od Z po A",
+    "starredOnTop": "S hvězdičkou nahoře",
+    "sortReset": "Zpět na nejnovější nahoře",
+    "sortedBy": "Řazeno: {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Zprávy: {{total}} · Nepřečtené: {{unread}}",
+    "emptyCategory": "V kategorii {{category}} nic není",
+    "emptyCategoryOthers": "V ostatních kategoriích pošta je.",
+    "emptyCategoryNone": "Doručená pošta je prázdná."
   },
   "message": {
     "find": {

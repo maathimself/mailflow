@@ -567,12 +567,33 @@
       "vertical": {
         "label": "Вертикальное разделение",
         "description": "Список писем над областью чтения"
+      },
+      "list": {
+        "label": "Сначала список",
+        "description": "Список во всю ширину; письмо открывается отдельно"
       }
     },
     "snoozedUntil": "Отложено до {{when}}",
     "snoozedEmpty": "Нет отложенных писем",
     "snoozedEmptyDesc": "Отложенные письма ждут здесь, пока не вернутся.",
-    "menu": "Меню"
+    "menu": "Меню",
+    "sort": "Сортировка",
+    "sortBy": "Сортировать по",
+    "sortDate": "Дата",
+    "sortSender": "Отправитель",
+    "sortSubject": "Тема",
+    "sortNewestFirst": "Сначала новые",
+    "sortOldestFirst": "Сначала старые",
+    "sortAToZ": "От А до Я",
+    "sortZToA": "От Я до А",
+    "starredOnTop": "Отмеченные сверху",
+    "sortReset": "Вернуть: сначала новые",
+    "sortedBy": "Сортировка: {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Сообщения: {{total}} · Непрочитанные: {{unread}}",
+    "emptyCategory": "В категории «{{category}}» пусто",
+    "emptyCategoryOthers": "В других категориях ещё есть письма.",
+    "emptyCategoryNone": "Входящие пусты."
   },
   "lockScreen": {
     "subtitle": "Введите PIN-код для разблокировки",
@@ -638,7 +659,8 @@
     "scheduledPending": "Ожидают отправки: {{n}}",
     "scheduledAttention": "Требуют внимания: {{n}}",
     "favorites": "Избранное",
-    "reorderFolder": "Перетащите, чтобы изменить порядок папки"
+    "reorderFolder": "Перетащите, чтобы изменить порядок папки",
+    "draftsTotal": "Черновики: {{n}}"
   },
   "scheduled": {
     "refresh": "Обновить",

@@ -198,6 +198,39 @@ describe('MessageList — selected-row shortcuts', () => {
   });
 });
 
+// Deleting a conversation row sends what the thread route returns to bulk-delete, which expunges a
+// copy already in Trash. The route marks that copy in_trash; this account's folder list has not
+// loaded and INBOX.Trash goes by no name the client knows, so only the mark leaves it alone. The ids
+// are this test's own: the delete guards are module state and would hide THREAD from later tests.
+describe('MessageList — deleting a conversation leaves its copy in Trash', () => {
+  test('the bulk-delete request leaves out the copy the thread route marks in_trash', async () => {
+    const row = { ...THREAD, id: 'tr-new', message_id: '<tr-new@example.com>', thread_id: 'thr-tr' };
+    ROUTES['/mail/thread?id=thr-tr&folder=INBOX'] = [200, { messages: [
+      { ...MESSAGE, id: 'tr-old', folder: 'INBOX.Trash', message_id: '<tr-old@example.com>', thread_id: 'thr-tr', in_trash: true },
+      { ...MESSAGE, id: 'tr-new', message_id: '<tr-new@example.com>', thread_id: 'thr-tr', in_trash: false },
+      { ...MESSAGE, id: 'tr-reply', folder: 'Sent', message_id: '<tr-reply@example.com>', thread_id: 'thr-tr', in_trash: false },
+    ] }];
+    await mount({ rows: [row], threadedView: true });
+    await React.act(async () => {
+      useStore.setState({ folders: {}, notifications: [] });
+      useStore.getState().setSelectedMessage(row.id);
+    });
+    CALLS = [];
+    await React.act(async () => { shortcutBus.emit('delete'); await new Promise(r => setTimeout(r, 30)); });
+    // Unmounting sends the pending delete at once instead of after the undo window. Its undo toast
+    // would otherwise be the first thing the Ctrl+Z test below undoes.
+    await React.act(async () => root.unmount());
+    root = null;
+    await React.act(async () => {
+      useStore.setState({ selectedMessageId: null, notifications: [] });
+      await new Promise(r => setTimeout(r, 30));
+    });
+    const request = CALLS.find(c => c.path.endsWith('/mail/messages/bulk-delete'));
+    assert.ok(request, 'expected a bulk-delete request');
+    assert.deepEqual(request.body.ids.sort(), ['tr-new', 'tr-reply']);
+  });
+});
+
 describe('MessageList — modifier-click enters multi-select (#220)', () => {
   // Before this, modifiers only worked once ALREADY in selection mode; entering it took the
   // avatar or the toolbar button. A Ctrl/Cmd- or Shift-click on a row must now enter it in
@@ -1170,5 +1203,131 @@ describe('MessageList — the badge after deleting the last unread message (#701
     t.mock.timers.tick(8000);
     useStore.getState().setUnreadCounts(counts(1, '7011'));
     assert.equal(useStore.getState().unreadCounts.byAccount['acct-1'], 0);
+  });
+});
+
+describe('MessageList — sorting a folder (#528, #196)', () => {
+  const listParams = () => CALLS.filter(c => c.path.includes('/mail/messages?'))
+    .map(c => Object.fromEntries(new URL(c.path, 'https://mail.example.invalid').searchParams));
+  const sortButton = () => [...container.querySelectorAll('button[aria-haspopup="menu"]')]
+    .find(b => /^messageList\.sort/.test(b.getAttribute('aria-label') || ''));
+  const menuItem = (text) => [...container.querySelectorAll('[role="menu"] button')].find(b => b.textContent.trim() === text);
+  const click = async (el) => { await React.act(async () => { el.click(); await new Promise(r => setTimeout(r, 0)); }); };
+
+  // The test renders translation keys, not English.
+  test('picking Sender lists the folder A to Z, says so, and keeps it on refresh', async () => {
+    useStore.setState({ listSort: {} });
+    await mount({ rows: [MESSAGE], threadedView: false });
+    assert.equal(listParams().at(-1).sort, undefined, 'newest first sends no order');
+    assert.equal(sortButton().textContent.trim(), 'messageList.sort');
+
+    CALLS = [];
+    await click(sortButton());
+    assert.ok(container.querySelector('[role="menu"]'), 'the menu opens');
+    await click(menuItem('messageList.sortSender'));
+    assert.deepEqual(useStore.getState().listSort, { 'acct-1:INBOX': { sort: 'from', dir: 'asc', starredFirst: false } });
+    const loaded = listParams().at(-1);
+    assert.equal(loaded.sort, 'from');
+    assert.equal(loaded.dir, 'asc');
+    assert.equal(loaded.offset, '0', 'the list loads again from the top');
+    assert.equal(sortButton().textContent.trim(), 'messageList.sortSummary');
+    assert.equal(sortButton().getAttribute('aria-label'), 'messageList.sortedBy');
+
+    await click(menuItem('messageList.starredOnTop'));
+    assert.equal(listParams().at(-1).starredFirst, 'true');
+    assert.equal(sortButton().textContent.trim(), 'messageList.sortSummary · messageList.starredOnTop');
+
+    CALLS = [];
+    await React.act(async () => {
+      window.dispatchEvent(new dom.window.CustomEvent('mailflow:refresh'));
+      await new Promise(r => setTimeout(r, 20));
+    });
+    assert.equal(listParams().at(-1).sort, 'from', 'a refresh keeps the order');
+
+    await click(menuItem('messageList.sortReset'));
+    assert.deepEqual(useStore.getState().listSort, {});
+    assert.equal(listParams().at(-1).sort, undefined);
+    assert.equal(container.querySelector('[role="menu"]'), null, 'the menu closes after a reset');
+  });
+
+  test('each folder keeps its own order', async () => {
+    useStore.setState({ listSort: { 'acct-1:Archive': { sort: 'subject', dir: 'desc', starredFirst: false } } });
+    await mount({ rows: [MESSAGE], threadedView: false });
+    assert.equal(listParams().at(-1).sort, undefined);
+    CALLS = [];
+    await mount({ rows: [{ ...MESSAGE, folder: 'Archive' }], threadedView: false, folder: 'Archive' });
+    assert.equal(listParams().at(-1).sort, 'subject');
+    assert.equal(listParams().at(-1).dir, 'desc');
+    useStore.setState({ listSort: {} });
+  });
+
+  test('Escape closes the menu', async () => {
+    useStore.setState({ listSort: {} });
+    await mount({ rows: [MESSAGE], threadedView: false });
+    await click(sortButton());
+    await React.act(async () => {
+      dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    assert.equal(container.querySelector('[role="menu"]'), null);
+  });
+
+  test('no sort in the Snoozed view', async () => {
+    await mount({ rows: [], threadedView: false, folder: 'Snoozed', accountId: null });
+    assert.equal(sortButton(), undefined);
+  });
+});
+
+// #597: category tabs say how many messages each holds, with unread apart; an empty tab says
+// that category is empty, not the Inbox; the counts follow list changes.
+describe('MessageList — category totals (#597)', () => {
+  const COUNTS = '/mail/category-counts?accountId=acct-1';
+  const tab = (cat) => [...container.querySelectorAll('button')]
+    .find(b => b.textContent.startsWith(`messageList.categories.${cat}`));
+  const mountCategories = async ({ rows = [MESSAGE], category = 'primary', counts }) => {
+    ROUTES = { [COUNTS]: [200, counts] };
+    useStore.setState({ categorizationEnabled: true, activeGtdTab: null });
+    await mount({ rows, threadedView: false });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 0)); });
+    // The selected category is the list's own state: pick it as a reader does.
+    if (category !== 'primary') {
+      await React.act(async () => { tab(category).click(); await new Promise(r => setTimeout(r, 0)); });
+    }
+  };
+
+  test('a tab shows its total and, apart, its unread', async () => {
+    await mountCategories({ counts: { counts: { primary: 1, automated: 0 }, totals: { primary: 3, automated: 2 } } });
+    assert.equal(tab('primary').textContent, 'messageList.categories.primary31');
+    assert.equal(tab('automated').textContent, 'messageList.categories.automated2', 'all read: total, no unread badge');
+    assert.equal(tab('social').textContent, 'messageList.categories.social0');
+    assert.equal(tab('automated').getAttribute('title'), 'messageList.categoryCountTitle');
+  });
+
+  test('an empty tab names its category, and says whether others have mail', async () => {
+    await mountCategories({ rows: [], category: 'social', counts: { counts: { primary: 1 }, totals: { primary: 3 } } });
+    assert.match(container.textContent, /messageList\.emptyCategory(?!Others|None)/);
+    assert.match(container.textContent, /messageList\.emptyCategoryOthers/);
+    assert.doesNotMatch(container.textContent, /Inbox is empty/);
+    await mountCategories({ rows: [], category: 'social', counts: { counts: {}, totals: {} } });
+    assert.match(container.textContent, /messageList\.emptyCategoryNone/);
+  });
+
+  test('the counts load again after the list changes', async () => {
+    await mountCategories({ counts: { counts: { primary: 1 }, totals: { primary: 3 } } });
+    ROUTES = { [COUNTS]: [200, { counts: { primary: 0 }, totals: { primary: 2 } }] };
+    await React.act(async () => {
+      window.dispatchEvent(new dom.window.CustomEvent('mailflow:refresh'));
+      await new Promise(r => setTimeout(r, 500));
+    });
+    assert.equal(tab('primary').textContent, 'messageList.categories.primary2');
+  });
+
+  test('the header count is the filtered count when only this account categorizes', async () => {
+    ROUTES = { [COUNTS]: [200, { counts: {}, totals: { primary: 1 } }] };
+    useStore.setState({ categorizationEnabled: false, activeGtdTab: null });
+    await mount({ rows: [MESSAGE], threadedView: false, accounts: [{ ...ACCOUNT, categorization_enabled: true }] });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 0)); });
+    assert.ok([...container.querySelectorAll('span[title="Cached results matching this filter"]')].length > 0);
+    useStore.setState({ categorizationEnabled: false });
+    ROUTES = {};
   });
 });

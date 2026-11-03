@@ -216,3 +216,44 @@ describe('PATCH /auth/preferences darkEmailBodies (#228)', () => {
     expect(query).not.toHaveBeenCalled();
   });
 });
+
+describe('PATCH /auth/preferences listSort', () => {
+  const res = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+  const account = '22222222-2222-4222-8222-222222222222';
+
+  it('stores each folder\'s order and leaves out folders at the default', async () => {
+    const listSort = {
+      [`${account}:Archive`]: { sort: 'from', dir: 'asc', starredFirst: false },
+      'all:INBOX': { sort: 'date', dir: 'desc', starredFirst: true },
+      [`${account}:INBOX`]: { sort: 'date', dir: 'desc', starredFirst: false },
+    };
+    await patchPreferences({ session: { userId: 'user-1' }, body: { listSort } }, res());
+
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toContain("jsonb_build_object('listSort', $48::jsonb)");
+    expect(JSON.parse(params[47])).toEqual({
+      [`${account}:Archive`]: { sort: 'from', dir: 'asc', starredFirst: false },
+      'all:INBOX': { sort: 'date', dir: 'desc', starredFirst: true },
+    });
+  });
+
+  it('leaves listSort alone when it is not sent', async () => {
+    await patchPreferences({ session: { userId: 'user-1' }, body: { pageSize: '50' } }, res());
+    expect(query.mock.calls[0][1][47]).toBeNull();
+  });
+
+  for (const [name, listSort] of [
+    ['an array', []],
+    ['an unknown order', { 'all:INBOX': { sort: 'size' } }],
+    ['an unknown direction', { 'all:INBOX': { sort: 'from', dir: 'up' } }],
+    ['a key without an account', { INBOX: { sort: 'from' } }],
+    ['a non-boolean starredFirst', { 'all:INBOX': { starredFirst: 'yes' } }],
+  ]) {
+    it(`refuses ${name}`, async () => {
+      const r = res();
+      await patchPreferences({ session: { userId: 'user-1' }, body: { listSort } }, r);
+      expect(r.status).toHaveBeenCalledWith(400);
+      expect(query).not.toHaveBeenCalled();
+    });
+  }
+});

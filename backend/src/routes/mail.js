@@ -16,9 +16,9 @@ import { fitInlineImages } from '../services/inlineImageFit.js';
 import { needsCidRefetch, needsImageRefetch, settleCids, settledEarlier, withoutCidMarker } from '../utils/cidRefs.js';
 import { sanitizeDbText, storeFetchedBody } from '../services/messageBodyStore.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, parseMailboxList, buildHeadersFromMessage } from '../services/messageParser.js';
-import { draftMessageSql, resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings, readCopyTargets, pushSeen } from '../utils/mailUtils.js';
+import { draftMessageSql, trashMessageSql, resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings, readCopyTargets, pushSeen } from '../utils/mailUtils.js';
 import { pluginRegistry } from '../plugins/registry.js';
-import { listMessages } from '../services/messageService.js';
+import { listMessages, LIST_SORTS, LIST_SORT_DIRS, NOT_PLACEHOLDER_SQL } from '../services/messageService.js';
 import { recordSyncSignal } from '../services/diagnosticsRing.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
 import { validateHost } from '../services/hostValidation.js';
@@ -147,9 +147,11 @@ function notifyMailMutation(rows, userId) {
 
 // Get messages (unified or per-account/folder)
 router.get('/messages', async (req, res) => {
-  const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category } = req.query;
+  const { accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category, sort, dir, starredFirst } = req.query;
 
   if (!isValidFolderName(folder)) return res.status(400).json({ error: 'Invalid folder name' });
+  if (sort !== undefined && !LIST_SORTS.includes(sort)) return res.status(400).json({ error: 'Invalid sort' });
+  if (dir !== undefined && !LIST_SORT_DIRS.includes(dir)) return res.status(400).json({ error: 'Invalid sort direction' });
 
   // Validate category param — only allow known values to prevent SQL injection via the
   // WHERE clause in listMessages (even though it uses parameterised queries, belt-and-suspenders).
@@ -165,6 +167,9 @@ router.get('/messages', async (req, res) => {
     unreadOnly,
     threaded,
     category: safeCategory,
+    sort,
+    dir,
+    starredFirst,
   });
 
   if (resolvedAccountId && messages.length) {
@@ -320,8 +325,10 @@ async function getThread(req, res, threadId) {
                m.has_attachments, m.account_id, m.category,
                m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses,
                a.name AS account_name, a.email_address AS account_email, a.color AS account_color,
-               -- Deleting or moving the conversation leaves its drafts alone (utils/conversationActions.js).
-               ${draftMessageSql('m')} AS is_draft
+               -- Deleting or moving the conversation leaves its drafts alone, and its copies already
+               -- in Trash, where a delete expunges (utils/conversationActions.js).
+               ${draftMessageSql('m')} AS is_draft,
+               ${trashMessageSql('m')} AS in_trash
         FROM messages m
         JOIN email_accounts a ON m.account_id = a.id
         WHERE m.is_deleted = false
@@ -2746,9 +2753,10 @@ router.post('/messages/:id/spam', async (req, res) => {
 });
 
 // GET /api/mail/category-counts
-// Returns unread message counts per category for the INBOX. Used by the
-// category tab bar to show unread badges. Scoped to the user; optionally
-// filtered to a single account via ?accountId=.
+// Per category of the Inbox: `counts`, how many are unread, and `totals`, how many there are
+// (#597), so a tab whose mail is all read still says it holds some. Counted from the cached rows
+// the category lists show. Scoped to the user's enabled accounts as the Inbox is (All Inboxes
+// opt-in included); optionally one account via ?accountId=.
 router.get('/category-counts', async (req, res) => {
   const { accountId } = req.query;
   if (accountId && !UUID_RE.test(accountId)) {
@@ -2764,20 +2772,24 @@ router.get('/category-counts', async (req, res) => {
 
   const result = await query(`
     SELECT COALESCE(m.category, 'primary') AS category,
-           COUNT(*) FILTER (WHERE m.is_read = false)::int AS unread_count
+           COUNT(*) FILTER (WHERE m.is_read = false)::int AS unread_count,
+           COUNT(*)::int AS total_count
     FROM messages m
     WHERE m.account_id = ANY($1)
       AND m.folder = 'INBOX'
       AND m.is_deleted = false
+      AND ${NOT_PLACEHOLDER_SQL}
     GROUP BY COALESCE(m.category, 'primary')
   `, [scopedIds]);
 
   const counts = {};
+  const totals = {};
   for (const row of result.rows) {
     counts[row.category] = row.unread_count;
+    totals[row.category] = row.total_count;
   }
   res.set('Cache-Control', 'no-store');
-  res.json({ counts });
+  res.json({ counts, totals });
 });
 
 // PATCH /api/mail/messages/:id/category
