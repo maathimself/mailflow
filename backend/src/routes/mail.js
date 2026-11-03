@@ -87,7 +87,7 @@ async function runInBatches(items, concurrency, fn) {
 // then forwarded_from_name/forwarded_from_email/forwarded_via (0059). mail.relocate.test.js now
 // reads every migration and fails on any messages column that is neither here nor excluded.
 const RELOCATE_COPY_COLS = [
-  'message_id', 'subject', 'from_name', 'from_email', 'to_addresses', 'cc_addresses',
+  'message_id', 'provider_msgid', 'subject', 'from_name', 'from_email', 'to_addresses', 'cc_addresses',
   'reply_to', 'in_reply_to', 'date', 'snippet', 'is_read', 'is_starred', 'has_attachments',
   'flags', 'body_html', 'body_text', 'attachments', 'thread_references', 'thread_id', 'is_bulk',
   'read_changed_at', 'star_changed_at', 'spam_score_sa', 'spam_score_ml', 'spam_verdict',
