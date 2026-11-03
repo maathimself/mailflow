@@ -913,6 +913,28 @@ describe('the next message opens after the pane removes the open one', () => {
     assert.equal(useStore.getState().selectedMessageId, 'a1');
   });
 
+  // #630: the Undo put the message back into whatever list was showing by then.
+  test('Undo of Archive puts the message back into its list, not into one opened since', async () => {
+    const undoArchive = () => {
+      const toast = useStore.getState().notifications.findLast(n => n.title === 'message.archived.title');
+      toast.onUndo();
+      useStore.getState().removeNotification(toast.id);
+    };
+    useStore.setState({ selectedAccountId: 'acct', selectedFolder: 'INBOX' });
+    await show('b2');
+    await click(paneButton('message.archive'));
+    undoArchive();
+    assert.deepEqual(useStore.getState().messages.map(m => m.id).sort(), ['a1', 'b2', 'c3']);
+
+    await show('b2');
+    await click(paneButton('message.archive'));
+    useStore.setState({ selectedFolder: 'Sent' });
+    useStore.getState().setMessages([]);
+    undoArchive();
+    assert.deepEqual(useStore.getState().messages.map(m => m.id), []);
+    useStore.setState({ selectedFolder: 'INBOX' });
+  });
+
   test('"back to the list" leaves the pane empty, as before', async () => {
     await show('b2', 'list');
     await click(paneButton('message.delete'));
@@ -976,6 +998,42 @@ describe('the Bcc line', () => {
   test('shows no Bcc line when there is none', async () => {
     const text = await open('sent-nobcc', []);
     assert.doesNotMatch(text, /Bcc/);
+  });
+});
+
+// In the grouped list a conversation row is labeled with its first sender and subject, but it opens
+// its newest message, which the pane shows, and allows images from, as that message's own.
+describe('a conversation row in the grouped list', () => {
+  const realFetch = globalThis.fetch;
+  after(() => { globalThis.fetch = realFetch; });
+
+  test('shows and acts on the opened message\'s own sender and subject', async () => {
+    const posts = [];
+    globalThis.fetch = async (url, opts = {}) => {
+      if (String(url).includes('/messages/row-latest/body')) {
+        return { ok: true, status: 200, json: async () => ({ html: '<p>Latest message body</p>', text: 'Latest message body', attachments: [], hasBlockedRemoteImages: true }) };
+      }
+      if (opts.method === 'POST') posts.push({ url: String(url), body: JSON.parse(opts.body || '{}') });
+      return { ok: true, status: 200, json: async () => ({}), text: async () => '' };
+    };
+    const row = { ...MSG_A, id: 'row-latest', thread_id: 't1', message_count: 2,
+      subject: 'Question', from_name: 'Opener', from_email: 'opener@x.z',
+      reply_subject: 'Re: Question', reply_from_name: 'Latest Person', reply_from_email: 'latest@x.z' };
+    useStore.getState().setMessages([row]);
+    await React.act(async () => { useStore.getState().setSelectedMessage('row-latest'); });
+    await React.act(async () => { root.render(React.createElement(MessagePane)); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 30)); });
+    const text = document.getElementById('root').textContent;
+    assert.match(text, /Latest Person/);
+    assert.match(text, /latest@x\.z/);
+    assert.match(text, /Re: Question/);
+    assert.doesNotMatch(text, /Opener|opener@x\.z/);
+
+    const allow = [...document.querySelectorAll('button')].find(b => b.textContent === 'message.allowSender');
+    assert.ok(allow, 'the remote images notice offers to allow the sender');
+    await React.act(async () => { allow.click(); await new Promise(r => setTimeout(r, 10)); });
+    const added = posts.find(p => p.url.includes('/auth/preferences/whitelist-add'));
+    assert.deepEqual(added?.body, { type: 'address', value: 'latest@x.z' });
   });
 });
 
@@ -1377,5 +1435,45 @@ describe('a read in flight and the toolbar read toggle', () => {
     assert.ok(labels.includes('contextMenu.markUnread'), `menu offers Mark as unread, got ${labels}`);
     assert.ok(toolbarButton('contextMenu.markUnread'));
     await settle(() => reads[0].resolve({}));
+  });
+});
+
+// #596: in List first the open message has a Back bar, as on a phone, and Back returns to the list.
+describe('List first back bar', () => {
+  const backButton = () => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'common.back');
+  test('shown in List first, and Back goes back in history', async () => {
+    // The pane calls the global history, as the phone's Back does; this environment has none.
+    const realHistory = globalThis.history;
+    let backs = 0;
+    globalThis.history = { state: { mailflow: 'message' }, back: () => { backs += 1; } };
+    try {
+      await React.act(async () => { useStore.setState({ layout: 'list', messages: [MSG_A, MSG_B] }); useStore.getState().setSelectedMessage('a1'); });
+      await React.act(async () => { root.render(React.createElement(MessagePane)); });
+      assert.ok(backButton(), 'a Back button');
+      await React.act(async () => { backButton().click(); });
+      assert.equal(backs, 1);
+    } finally {
+      globalThis.history = realHistory;
+    }
+  });
+  test('without the opened message\'s history entry, Back closes it instead of leaving MailFlow', async () => {
+    // Opened before switching to List first, or restored after unlocking: no entry was pushed.
+    const realHistory = globalThis.history;
+    let backs = 0;
+    globalThis.history = { state: null, back: () => { backs += 1; } };
+    try {
+      await React.act(async () => { useStore.setState({ layout: 'list', messages: [MSG_A, MSG_B] }); useStore.getState().setSelectedMessage('a1'); });
+      await React.act(async () => { root.render(React.createElement(MessagePane)); });
+      await React.act(async () => { backButton().click(); });
+      assert.equal(backs, 0);
+      assert.equal(useStore.getState().selectedMessageId, null);
+    } finally {
+      globalThis.history = realHistory;
+    }
+  });
+  test('not in a layout with a reading pane', async () => {
+    await React.act(async () => { useStore.getState().setSelectedMessage('a1'); });
+    await React.act(async () => { useStore.setState({ layout: 'comfortable' }); });
+    assert.equal(backButton(), undefined);
   });
 });

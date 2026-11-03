@@ -1848,6 +1848,28 @@ function LayoutDiagram({ layoutConfig, active }) {
   const lw = isColumn ? 50 : Math.round(10 + (layoutConfig.listWidth / 460) * 32);
   const rw = 72 - lw; // reading pane width
 
+  if (layoutConfig.listFirst) {
+    // List first (#596): sidebar left, the list across the rest, no reading pane.
+    return (
+      <svg width="80" height="52" viewBox="0 0 80 52" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0.5" y="0.5" width="79" height="51" rx="4" fill="var(--bg-secondary)" stroke={accent} strokeWidth={active ? 1.5 : 1}/>
+        <rect x="1" y="1" width={sw} height="50" rx="3" fill={bg1}/>
+        <rect x={sw + 2} y="1" width={63} height="50" fill={bg2}/>
+        <line x1={sw + 1} y1="1" x2={sw + 1} y2="51" stroke={accent} strokeWidth="0.8"/>
+        <rect x="3" y="8" width={sw - 4} height="1.5" rx="0.75" fill={accent} opacity="0.5"/>
+        <rect x="3" y="13" width={sw - 6} height="1.5" rx="0.75" fill={accent} opacity="0.3"/>
+        <rect x="3" y="18" width={sw - 5} height="1.5" rx="0.75" fill={accent} opacity="0.3"/>
+        {[5, 15, 25, 35].map((y, i) => (
+          <g key={y}>
+            <rect x={sw + 4} y={y} width={40 - i * 4} height="1.5" rx="0.75" fill={accent} opacity={0.6 - i * 0.1}/>
+            <rect x={sw + 4} y={y + 4} width={55 - i * 3} height="1" rx="0.5" fill={accent} opacity="0.25"/>
+            <line x1={sw + 2} y1={y + 8} x2="79" y2={y + 8} stroke={accent} strokeWidth="0.5" opacity="0.3"/>
+          </g>
+        ))}
+      </svg>
+    );
+  }
+
   if (isColumn) {
     // Vertical split: sidebar left, right side has list on top + reading pane below
     return (
@@ -7727,6 +7749,8 @@ function SecurityTab() {
       admin_user_update:  t('admin.security.eventAdminUserUpdate'),
       admin_totp_disable: t('admin.security.eventAdminTotpDisable'),
       admin_user_delete:  t('admin.security.eventAdminUserDelete'),
+      identity_linked:    t('admin.security.eventIdentityLinked'),
+      identity_unlinked:  t('admin.security.eventIdentityUnlinked'),
     };
     return map[type] || type;
   };

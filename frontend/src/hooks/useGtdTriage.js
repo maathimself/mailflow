@@ -276,6 +276,7 @@ export function useGtdTriage() {
           } else {
             await openReplyFromMessage(message, {
               accounts,
+              folders: useStore.getState().folders,
               openCompose,
               getMessageBody: api.getMessageBody,
               replyAll: action === 'replyAll',

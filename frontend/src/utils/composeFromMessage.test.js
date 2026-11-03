@@ -207,6 +207,22 @@ describe('references chain', () => {
   });
 });
 
+describe('rowOwnMessage', () => {
+  it('gives a conversation row its own message\'s sender and subject', () => {
+    const row = { id: 'm2', thread_id: 't', message_count: 2, subject: 'Question', from_name: 'Oldest', from_email: 'old@example.com',
+      reply_subject: 'Re: Question', reply_from_name: 'Latest', reply_from_email: 'latest@example.com' };
+    assert.deepEqual(compose.rowOwnMessage(row), { ...row, subject: 'Re: Question', from_name: 'Latest', from_email: 'latest@example.com' });
+  });
+
+  it('leaves a plain message, or a row from before reply_subject, as it is', () => {
+    const plain = { id: 'm1', subject: 'S', from_email: 'f@example.com' };
+    assert.equal(compose.rowOwnMessage(plain), plain);
+    assert.equal(compose.rowOwnMessage(null), null);
+    const noSubject = { subject: 'S', from_email: 'old@example.com', reply_from_email: 'new@example.com', reply_from_name: null };
+    assert.deepEqual(compose.rowOwnMessage(noSubject), { ...noSubject, from_email: 'new@example.com', from_name: null });
+  });
+});
+
 describe('openForwardFromMessage', () => {
   it('includes To/Cc lines only when present', async () => {
     const h = harness({ text: 'BODY', html: null, attachments: [] });
@@ -229,6 +245,19 @@ describe('openForwardFromMessage', () => {
     );
     assert.doesNotMatch(h.payload().quotedBody, /\nTo:/);
     assert.doesNotMatch(h.payload().quotedBody, /\nCc:/);
+  });
+
+  it('credits the forwarded message, not the first sender of its thread row', async () => {
+    const h = harness({ text: 'BODY', html: '<p>BODY</p>', attachments: [] });
+    await openForwardFromMessage(
+      { id: 'm2', account_id: 'a', subject: 'S', reply_subject: 'Re: S', from_name: 'First', from_email: 'first@example.com', reply_from_name: 'Latest', reply_from_email: 'latest@example.com' },
+      { openCompose: h.openCompose, getMessageBody: h.getMessageBody },
+    );
+    assert.match(h.payload().quotedBody, /\nFrom: Latest <latest@example\.com>\n/);
+    assert.match(h.payload().quotedBodyHtml, /From: Latest &lt;latest@example\.com&gt;<br>/);
+    assert.doesNotMatch(h.payload().quotedBody + h.payload().quotedBodyHtml, /first@example/);
+    assert.match(h.payload().quotedBody, /\nSubject: Re: S\n/);
+    assert.equal(h.payload().subject, 'Fwd: Re: S');
   });
 
   it('maps fetched attachments into forwardedAttachments', async () => {
@@ -596,5 +625,44 @@ describe('sent reply recipients', () => {
       cc_addresses: [...cc, { email: 'SECOND@example.test' }, { email: 'EXTRA@example.test' }],
     }, account);
     assert.deepEqual(result, { to, originalFrom: to, cc, allRecipients: cc });
+  });
+
+  describe('a Sent copy from a "Send as" or delegated address', () => {
+    const sendAs = { name: 'Shared', email: 'shared@example.test' };
+    const sent = { ...message, folder: 'Sent', from_name: sendAs.name, from_email: sendAs.email };
+    it('replies to its recipients wherever the account keeps Sent', async () => {
+      const cases = [
+        [{ a: [{ path: 'Sent' }] }, 'Sent', account],
+        [{ a: [{ path: 'Gesendet', special_use: '\\Sent' }] }, 'Gesendet', account],
+        [{}, 'Outbox copies', { ...account, folder_mappings: { sent: 'Outbox copies' } }],
+        [{}, '[Gmail]/Sent Mail', account],
+        [{}, 'Sent Items', account],
+      ];
+      for (const [folders, folder, acct] of cases) {
+        for (const replyAll of [false, true]) {
+          const h = harness();
+          await openReplyFromMessage({ ...sent, folder, reply_to: [sendAs] }, {
+            accounts: [acct], folders, openCompose: h.openCompose, getMessageBody: h.getMessageBody, replyAll,
+          });
+          assert.deepEqual(h.payload().to, to, folder);
+          assert.deepEqual(h.payload().cc, replyAll ? cc : [], folder);
+        }
+      }
+    });
+
+    it('still answers its sender outside Sent, or when the folder list says another role', () => {
+      const resolve = compose.resolveReplyRecipients;
+      assert.deepEqual(resolve({ ...sent, folder: 'INBOX' }, account).to, [sendAs]);
+      assert.deepEqual(resolve({ ...sent, folder: undefined }, account).to, [sendAs]);
+      assert.deepEqual(resolve(sent, account, { a: [{ path: 'Sent', special_use: '\\Archive' }] }).to, [sendAs]);
+    });
+
+    it('answers a contact form kept in Sent through its Reply-To, and a self-note to self', () => {
+      const resolve = compose.resolveReplyRecipients;
+      const visitor = [{ email: 'visitor@example.test' }];
+      const self = [{ email: account.email_address }];
+      assert.deepEqual(resolve({ ...sent, to_addresses: self, cc_addresses: [], reply_to: visitor }, account).to, visitor);
+      assert.deepEqual(resolve({ ...sent, to_addresses: self, cc_addresses: [] }, account).to, self);
+    });
   });
 });

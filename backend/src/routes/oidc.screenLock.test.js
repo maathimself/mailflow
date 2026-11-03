@@ -18,6 +18,7 @@ import express from 'express';
 import session from 'express-session';
 import { jwtVerify } from 'jose';
 import { query, pool } from '../services/db.js';
+import { logAuthEvent } from '../services/authEvents.js';
 import { buildSessionOptions } from '../utils/sessionConfig.js';
 import { oidcBrowserRouter } from './oidc.js';
 
@@ -144,5 +145,29 @@ describe('SSO browser routes honour the screen lock (#235)', () => {
     expect(done.headers.get('location')).toBe('/?oidc_success=linked');
     const insert = clientQueries.find(q => q.sql.includes('INSERT INTO user_identities'));
     expect(insert.params.slice(0, 4)).toEqual(['u1', 'p1', issuer, 'idp-user']);
+  });
+});
+
+// #714: linking showed nowhere; it now goes to the security log, and a sign-in does not.
+describe('SSO identity links in the security log', () => {
+  it('logs a link', async () => {
+    const cookie = await sessionWith({ userId: 'u1', username: 'owner@example.com' });
+    await get('/auth/oidc/idp/start?action=link', cookie);
+    const { oidcPending } = await sessionOf(cookie);
+    jwtVerify.mockResolvedValue(verifiedIdToken(oidcPending.nonce));
+    logAuthEvent.mockClear();
+    const done = await get(`/auth/oidc/idp/callback?code=c1&state=${oidcPending.state}`, cookie);
+    expect(done.headers.get('location')).toBe('/?oidc_success=linked');
+    expect(logAuthEvent).toHaveBeenCalledWith('identity_linked', expect.objectContaining({ userId: 'u1', username: 'owner@example.com', success: true }));
+  });
+
+  it('does not log one for a sign-in through an identity already linked', async () => {
+    const cookie = await sessionWith({ seeded: true });
+    await get('/auth/oidc/idp/start', cookie);
+    const { oidcPending } = await sessionOf(cookie);
+    jwtVerify.mockResolvedValue(verifiedIdToken(oidcPending.nonce));
+    logAuthEvent.mockClear();
+    await get(`/auth/oidc/idp/callback?code=c1&state=${oidcPending.state}`, cookie);
+    expect(logAuthEvent.mock.calls.map(([type]) => type)).toEqual(['sso_login']);
   });
 });

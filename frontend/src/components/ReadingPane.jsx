@@ -60,6 +60,8 @@ export default function ReadingPane() {
       // thread does not change threadId, so without this the pane had no way to know a
       // click had happened and nothing opened.
       selectedMessageId={selectedMessageId}
+      // A row of the list opens the conversation as a whole, on its newest message (#707).
+      openedFromRow={listed}
     />
   );
   return <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%', minHeight: 0 }}>

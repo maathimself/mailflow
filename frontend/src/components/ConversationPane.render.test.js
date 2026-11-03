@@ -209,6 +209,30 @@ describe('conversation pane', () => {
     assert.ok(opened().includes('m2'), 'the message the reader picked is now open');
   });
 
+  test('a list row opens its conversation on the newest message, not on the row\'s own (#707)', async () => {
+    // The row's message is the newest in the listed folder; a newer reply can sit in Sent.
+    const opened = () => [...openCards()].map(c => c.closest('[data-message-id]')?.dataset.messageId);
+    await React.act(async () => {
+      root.render(React.createElement(ConversationPane, {
+        key: 'row-707', threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm1', openedFromRow: true,
+      }));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    assert.deepEqual(opened(), ['m3'], 'only the newest message opens');
+    const outlined = [...document.querySelectorAll('[data-message-id]')]
+      .filter(card => /var\(--accent\)/.test(card.getAttribute('style') || ''))
+      .map(card => card.dataset.messageId);
+    assert.deepEqual(outlined, ['m3'], 'and it is the selected card, which the shortcuts act on');
+
+    await React.act(async () => {
+      root.render(React.createElement(ConversationPane, {
+        key: 'pick-707', threadId: '<1@x>', folder: 'INBOX', selectedMessageId: 'm1',
+      }));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    assert.deepEqual(opened().sort(), ['m1', 'm3'], 'a message picked on its own still opens beside the newest');
+  });
+
   test('collapsing and reopening does not refetch', async () => {
     const before = bodyRequests.length;
     const open = document.querySelector(`${CARD_TOGGLE.slice(0, -1)}="true"]`);

@@ -169,7 +169,8 @@
     "scheduledPending": "Čeká na odeslání: {{n}}",
     "scheduledAttention": "Vyžaduje pozornost: {{n}}",
     "favorites": "Oblíbené",
-    "reorderFolder": "Přetažením změníte pořadí složky"
+    "reorderFolder": "Přetažením změníte pořadí složky",
+    "draftsTotal": "Koncepty: {{n}}"
   },
   "scheduled": {
     "refresh": "Obnovit",
@@ -452,12 +453,33 @@
       "vertical": {
         "label": "Svislé rozdělení",
         "description": "Seznam zpráv nad čtecím podoknem"
+      },
+      "list": {
+        "label": "Nejdřív seznam",
+        "description": "Seznam přes celou šířku; zpráva se otevře samostatně"
       }
     },
     "snoozedUntil": "Odloženo do {{when}}",
     "snoozedEmpty": "Nic není odloženo",
     "snoozedEmptyDesc": "Odložené zprávy tu čekají, dokud se nevrátí.",
-    "menu": "Nabídka"
+    "menu": "Nabídka",
+    "sort": "Řadit",
+    "sortBy": "Řadit podle",
+    "sortDate": "Datum",
+    "sortSender": "Odesílatel",
+    "sortSubject": "Předmět",
+    "sortNewestFirst": "Nejnovější nahoře",
+    "sortOldestFirst": "Nejstarší nahoře",
+    "sortAToZ": "Od A po Z",
+    "sortZToA": "Od Z po A",
+    "starredOnTop": "S hvězdičkou nahoře",
+    "sortReset": "Zpět na nejnovější nahoře",
+    "sortedBy": "Řazeno: {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Zprávy: {{total}} · Nepřečtené: {{unread}}",
+    "emptyCategory": "V kategorii {{category}} nic není",
+    "emptyCategoryOthers": "V ostatních kategoriích pošta je.",
+    "emptyCategoryNone": "Doručená pošta je prázdná."
   },
   "message": {
     "find": {
@@ -640,6 +662,7 @@
       "keepEditing": "Pokračovat v úpravách"
     },
     "draftHasAttachments": "Přílohy se s koncepty neukládají. Po opětovném otevření tohoto konceptu je budete muset přiložit znovu.",
+    "dropToAttach": "Pusťte soubory sem a přiložte je",
     "emptySubject": {
       "title": "Odeslat bez předmětu?",
       "sendAnyway": "Přesto odeslat",
@@ -1305,6 +1328,14 @@
       "businessLicense": "Firemní licence",
       "sponsorBlurb": "MailFlow vyvíjí a udržuje jediný člověk. Sponzorské příspěvky pokrývají čas věnovaný opravám, revizím kódu a vydávání nových verzí."
     },
+    "businessNotice": {
+      "title": "Používáte MailFlow ve firmě?",
+      "body": "MailFlow je zdarma pod licencí AGPL a vyvíjí ho jediný člověk. Firmy, které na něm závisí, žádáme o koupi firemní licence za 100 $ za instanci a rok, bez daně. Je dobrovolná a MailFlow ji nijak nekontroluje.",
+      "learnMore": "Zobrazit firemní licenci",
+      "haveOne": "Už ji máme",
+      "notBusiness": "Nejsme firma",
+      "later": "Připomenout později"
+    },
     "appearance": {
       "title": "Vzhled",
       "description": "Vyberte barevný motiv rozhraní",
@@ -1827,6 +1858,8 @@
       "eventAdminUserUpdate": "Účet upraven",
       "eventAdminTotpDisable": "2FA vypnuto",
       "eventAdminUserDelete": "Účet smazán",
+      "eventIdentityLinked": "Účet SSO propojen",
+      "eventIdentityUnlinked": "Účet SSO odpojen",
       "byActor": "uživatelem {{actor}}",
       "qrCodeAlt": "QR kód",
       "mailPolicyTitle": "Zásady připojení k poštovním serverům",
@@ -1927,6 +1960,14 @@
       "newPassword": "Nové heslo",
       "newPasswordHint": "Nechte prázdné pro zachování současného. Uložením nového se uživatel odhlásí na všech zařízeních.",
       "newPasswordHintSelf": "Nechte prázdné pro zachování současného. Vaše ostatní zařízení budou odhlášena; toto zůstane přihlášené.",
+      "newPasswordRemovesIdentities": "Dokud je zapnuté přihlášení heslem, nové heslo také odpojí jeho účty jednotného přihlášení níže.",
+      "identitiesTitle": "Jednotné přihlášení (SSO)",
+      "identitiesHint": "Účty u poskytovatele přihlášení, kterými se tento uživatel může přihlásit. Odpojte ten, který nezná; zároveň se všude odhlásí.",
+      "identityLastUsed": "Naposledy použito {{when}}",
+      "identityNeverUsed": "Zatím nepoužito k přihlášení",
+      "unlinkIdentity": "Odpojit",
+      "unlinkIdentityConfirm": "Potvrdit",
+      "identityUnlinkFailed": "Odpojení se nezdařilo: {{message}}",
       "confirmPassword": "Potvrďte nové heslo",
       "passwordTooShort": "Heslo musí mít alespoň 8 znaků.",
       "passwordMismatch": "Hesla se neshodují.",

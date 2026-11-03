@@ -30,6 +30,7 @@ import {
 import { removeThreadCacheEntry } from '../utils/threadedArchive.js';
 import i18n, { initialLanguage } from '../i18n.js';
 import { createPrefSaveQueue } from '../utils/prefSaveQueue.js';
+import { compareListOrder, isDefaultListOrder, listOrderFor, listSortKey } from '../utils/listSort.js';
 
 // Accumulate rapid preference changes and flush at most once per second. The queue itself
 // lives in prefSaveQueue.js so its behaviour is testable without a network or a DOM.
@@ -112,6 +113,20 @@ function expirePendingCounts() {
   }, Math.max(1, Math.min(...deadlines) - Date.now()));
 }
 
+// The list a message was taken out of, by id, until it is put back (#630). An Undo, or a failed
+// request, puts messages back into whatever list is showing; after the reader moved to another
+// folder or account, that put them into a list they don't belong to. They are put back only while
+// the list they left is still the one showing; otherwise that list loads them again when reopened.
+const removedFromView = new Map();
+const listViewOf = state => JSON.stringify([state.selectedAccountId ?? null, state.selectedFolder ?? null,
+  String(state.searchQuery || '').trim(), Boolean(state.searchAllFolders), state.activeGtdTab ?? null, Boolean(state.threadedView),
+  listOrderFor(state.listSort, state.selectedAccountId, state.selectedFolder), state.listFilter ?? null]);
+function noteRemoved(state, ids) {
+  if (removedFromView.size > 5000) removedFromView.clear();
+  const view = listViewOf(state);
+  for (const id of ids) removedFromView.set(id, view);
+}
+
 export const useStore = create((set, get) => ({
   // Auth
   user: null,
@@ -153,7 +168,7 @@ export const useStore = create((set, get) => ({
         threadMessages: {}, expandedThreadId: null,
         accounts: [], accountsReady: false, folders: {},
         notifications: [], backfillProgress: {},
-        gtdSections: null, categoryCounts: {}, activeGtdTab: null,
+        gtdSections: null, categoryCounts: {}, categoryTotals: {}, activeGtdTab: null,
         // Reply-draft lookups and handoffs still in flight stop on the user id, so the
         // revision need not move.
         replyDrafts: {},
@@ -164,7 +179,7 @@ export const useStore = create((set, get) => ({
         autoOpenReplyDrafts: false, afterRemove: 'next', darkEmailBodies: true,
         // Folder shortcuts name the previous user's accounts and folders. Left in place, the
         // next user's first favorite saved them into that user's own preferences.
-        favoriteFolders: [], recentFolders: [], defaultSender: '',
+        favoriteFolders: [], recentFolders: [], defaultSender: '', listSort: {},
         collapsedFolders: [], expandedAccounts: {},
       } : {}),
     }));
@@ -216,7 +231,7 @@ export const useStore = create((set, get) => ({
         ...SCHEDULED_RESET,
         notifications: [], threadMessages: {}, expandedThreadId: null,
         backfillProgress: {},
-        gtdSections: null, categoryCounts: {}, activeGtdTab: null,
+        gtdSections: null, categoryCounts: {}, categoryTotals: {}, activeGtdTab: null,
       });
     } else {
       const restoredMessageId = localStorage.getItem('mailflow_locked_message') || null;
@@ -341,7 +356,7 @@ export const useStore = create((set, get) => ({
     });
     return { messages, searchResults: state.searchResults.map(apply), threadMessages };
   }),
-  removeMessage: (id) => set(state => ({
+  removeMessage: (id) => set(state => (noteRemoved(state, new Set([id])), {
     messages: state.messages.filter(m => m.id !== id),
     searchResults: state.searchResults.filter(m => m.id !== id),
     selectedMessageId: state.selectedMessageId === id ? null : state.selectedMessageId,
@@ -353,6 +368,7 @@ export const useStore = create((set, get) => ({
   removeMessages: (ids) => set(state => {
     const idSet = ids instanceof Set ? ids : new Set(ids);
     if (idSet.size === 0) return {};
+    noteRemoved(state, idSet);
     return {
       messages: state.messages.filter(m => !idSet.has(m.id)),
       searchResults: state.searchResults.filter(m => !idSet.has(m.id)),
@@ -360,8 +376,16 @@ export const useStore = create((set, get) => ({
     };
   }),
   restoreMessages: (msgs) => set(state => {
-    const list = Array.isArray(msgs) ? msgs : [msgs];
+    const view = listViewOf(state);
+    const list = (Array.isArray(msgs) ? msgs : [msgs]).filter(m => {
+      const from = removedFromView.get(m?.id);
+      removedFromView.delete(m?.id);
+      return from === undefined || from === view;
+    });
+    if (!list.length) return {};
+    // Back where the server would list it: the folder's order (#528), newest first for search.
     const sort = arr => [...arr].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const sortList = arr => [...arr].sort(compareListOrder(listOrderFor(state.listSort, state.selectedAccountId, state.selectedFolder)));
     // Deduplicate against both the main list and searchResults by stable identity (Message-ID when
     // present, else id): if the message is already present — including re-added by a network
     // refresh under a regenerated id (matched via Message-ID) — skip it. The local copy carries the
@@ -370,7 +394,7 @@ export const useStore = create((set, get) => ({
     if (missing.length === 0 && !state.searchQuery.trim()) return {};
     const missingFromSearch = missingByIdentity(state.searchResults, list);
     return {
-      messages: missing.length ? sort([...state.messages, ...missing]) : state.messages,
+      messages: missing.length ? sortList([...state.messages, ...missing]) : state.messages,
       searchResults: state.searchQuery.trim() && missingFromSearch.length
         ? sort([...state.searchResults, ...missingFromSearch])
         : state.searchResults,
@@ -908,9 +932,11 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ categorizationEnabled: val });
   },
 
-  // Unread counts per category for the tab bar badges { primary: N, newsletter: N, ... }
+  // Per category of the Inbox, for the tab bar: unread { primary: N, newsletter: N, ... } and how
+  // many messages each holds (#597). A caller with only unread counts leaves the totals as they are.
   categoryCounts: {},
-  setCategoryCounts: (counts) => set({ categoryCounts: counts }),
+  categoryTotals: {},
+  setCategoryCounts: (counts, totals) => set(totals ? { categoryCounts: counts, categoryTotals: totals } : { categoryCounts: counts }),
   adjustCategoryCount: (category, delta) => set(state => {
     const key = category || 'primary';
     const current = state.categoryCounts[key] || 0;
@@ -1166,6 +1192,30 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ collapsedFolders: next });
   },
 
+  // Each folder's list order (#528, #196): { "<accountId or all>:<folder>": { sort, dir, starredFirst } }.
+  // A folder at the default order has no entry.
+  listSort: (() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('mailflow_list_sort') || '{}');
+      return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+    } catch { return {}; }
+  })(),
+  setListOrder: (accountId, folder, order) => {
+    const key = listSortKey(accountId, folder);
+    // eslint-disable-next-line no-unused-vars
+    const { [key]: _old, ...rest } = get().listSort;
+    let next = isDefaultListOrder(order)
+      ? rest
+      : { ...rest, [key]: { sort: order.sort, dir: order.dir, starredFirst: Boolean(order.starredFirst) } };
+    // The server refuses more than 500 (and with them every preference saved alongside), so the
+    // folders sorted longest ago give way first.
+    const keys = Object.keys(next);
+    if (keys.length > 400) next = Object.fromEntries(keys.slice(keys.length - 400).map(k => [k, next[k]]));
+    localStorage.setItem('mailflow_list_sort', JSON.stringify(next));
+    set({ listSort: next });
+    schedulePrefSave({ listSort: next });
+  },
+
   // Favorite folders — [{ accountId, path }, ...] ordered by insertion
   favoriteFolders: (() => {
     try { return JSON.parse(localStorage.getItem('mailflow_favorite_folders') || '[]'); }
@@ -1326,6 +1376,10 @@ export const useStore = create((set, get) => ({
       if (Array.isArray(prefs.collapsedFolders)) {
         localStorage.setItem('mailflow_collapsed_folders', JSON.stringify(prefs.collapsedFolders));
         set({ collapsedFolders: prefs.collapsedFolders });
+      }
+      if (prefs.listSort && typeof prefs.listSort === 'object' && !Array.isArray(prefs.listSort)) {
+        localStorage.setItem('mailflow_list_sort', JSON.stringify(prefs.listSort));
+        set({ listSort: prefs.listSort });
       }
       if (Array.isArray(prefs.favoriteFolders)) {
         localStorage.setItem('mailflow_favorite_folders', JSON.stringify(prefs.favoriteFolders));

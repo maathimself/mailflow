@@ -53,7 +53,7 @@ describe('POST /api/mail/mark-all-read', () => {
     expect(imapManager.broadcast).toHaveBeenCalledWith({ type: 'sync_complete', accountId: ACCOUNT_ID }, 'user-1');
     expect(imapManager.scheduleCountRefresh).not.toHaveBeenCalled();
     finishWrite();
-    await vi.waitFor(() => expect(imapManager.scheduleCountRefresh).toHaveBeenCalledWith(ACCOUNT_ID));
+    await vi.waitFor(() => expect(imapManager.scheduleCountRefresh).toHaveBeenCalledWith(ACCOUNT_ID, ['INBOX']));
   });
 
   it('still refreshes counts when the IMAP write fails', async () => {
@@ -61,7 +61,7 @@ describe('POST /api/mail/mark-all-read', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       expect((await markAllRead()).status).toBe(200);
-      await vi.waitFor(() => expect(imapManager.scheduleCountRefresh).toHaveBeenCalledWith(ACCOUNT_ID));
+      await vi.waitFor(() => expect(imapManager.scheduleCountRefresh).toHaveBeenCalledWith(ACCOUNT_ID, ['INBOX']));
       expect(warn).toHaveBeenCalledWith('markAllReadImap failed:', 'NO [THROTTLED]');
     } finally {
       warn.mockRestore();

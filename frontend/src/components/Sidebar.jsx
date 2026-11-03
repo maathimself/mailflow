@@ -2,12 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import AccountMark from './AccountMark.jsx';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
-import { unreadBadge } from '../utils/unreadBadge.js';
+import { totalBadge, unreadBadge } from '../utils/unreadBadge.js';
 import { api } from '../utils/api.js';
 import { signOut } from '../utils/signOut.js';
 import { resolveThreadMessages } from '../utils/threadActions.js';
 import { keepDraftsApart } from '../utils/conversationActions.js';
-import { folderDisplayName, folderDisplayNameForPath } from '../utils/folderDisplay.js';
+import { folderDisplayName, folderDisplayNameForPath, folderRole } from '../utils/folderDisplay.js';
 import {
   activateOnKey,
   buildFolderTree,
@@ -264,6 +264,24 @@ function CtxMenuItem({ icon, label, onClick, danger, disabled }) {
 }
 
 // ─── Main Sidebar ─────────────────────────────────────────────────────────────
+// A folder row's badge: its unread count, or for Drafts how many drafts it holds (#643), outlined
+// rather than filled so it doesn't read as unread mail.
+function folderBadge(folder, folderMappings, t) {
+  if (!folder) return null;
+  const counts = { known: folder.counts_known !== false, stale: folder.counts_stale };
+  if (folderRole(folder, folderMappings) === 'drafts') {
+    const b = totalBadge({ count: folder.total_count, ...counts });
+    return b && { ...b, title: t('sidebar.draftsTotal', { n: folder.total_count }) };
+  }
+  return unreadBadge({ count: folder.unread_count, ...counts, observedAt: folder.server_counts_at });
+}
+
+function badgeStyle(badge) {
+  return badge.total
+    ? { fontSize: 10, color: 'var(--text-tertiary)', border: '1px solid var(--border)', padding: '0 4px', borderRadius: 8 }
+    : { fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 8 };
+}
+
 export default function Sidebar() {
   const { t } = useTranslation();
   const uiScale = useUiScale();
@@ -693,16 +711,14 @@ export default function Sidebar() {
     if (idx === -1) return;
     const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
     if (targetIdx < 0 || targetIdx >= accounts.length) return;
-    const targetAccount = accounts[targetIdx];
     const newOrder = [...accounts];
     newOrder[idx] = accounts[targetIdx];
     newOrder[targetIdx] = accounts[idx];
     setAccounts(newOrder);
     try {
-      await Promise.all([
-        api.updateAccount(account.id, { sort_order: targetIdx }),
-        api.updateAccount(targetAccount.id, { sort_order: idx }),
-      ]);
+      // The whole order, not the two swapped: accounts can share a position, and then the others
+      // reshuffled on the next load (#695).
+      await api.reorderAccounts(newOrder.map(a => a.id));
     } catch (err) {
       setAccounts(accounts);
       addNotification({ title: t('sidebar.accountMenu.moveFailed'), body: err.message });
@@ -1013,8 +1029,7 @@ export default function Sidebar() {
                 const accountFolders = folders[accountId] || [];
                 const folderObj = accountFolders.find(f => f.path === path);
                 const isActive = selectedAccountId === accountId && selectedFolder === path;
-                const favBadge = unreadBadge({ count: folderObj?.unread_count, known: folderObj?.counts_known !== false,
-                  stale: folderObj?.counts_stale, observedAt: folderObj?.server_counts_at });
+                const favBadge = folderBadge(folderObj, account.folder_mappings, t);
                 const isRenamingThis = renamingFav?.accountId === accountId && renamingFav?.path === path;
                 const isDragging = favDragIdx === idx;
                 const isDropTarget = favDropIdx === idx && favDragIdx !== null && favDragIdx !== idx;
@@ -1172,7 +1187,7 @@ export default function Sidebar() {
                     )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
                       {favBadge && (
-                        <span title={favBadge.title} style={{ fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 8 }}>
+                        <span title={favBadge.title} style={badgeStyle(favBadge)}>
                           {favBadge.text}
                         </span>
                       )}
@@ -1589,10 +1604,9 @@ export default function Sidebar() {
                             if (folder.no_select && !rolledUp) return null;
                             const b = rolledUp
                               ? unreadBadge(subtreeUnread(node, path => accountHiddenPaths.includes(path)))
-                              : unreadBadge({ count: folder.unread_count, known: folder.counts_known !== false,
-                                stale: folder.counts_stale, observedAt: folder.server_counts_at });
+                              : folderBadge(folder, account.folder_mappings, t);
                             return b && (
-                              <span title={rolledUp ? `${b.title}, including subfolders` : b.title} style={{ fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-elevated)', padding: '1px 5px', borderRadius: 8, flexShrink: 0 }}>
+                              <span title={rolledUp ? `${b.title}, including subfolders` : b.title} style={{ ...badgeStyle(b), flexShrink: 0 }}>
                                 {b.text}
                               </span>
                             );

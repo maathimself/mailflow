@@ -27,3 +27,12 @@ describe('normalizeLayout', () => {
     assert.ok(LAYOUTS[DEFAULT_LAYOUT], 'DEFAULT_LAYOUT must exist in LAYOUTS');
   });
 });
+
+// #596: List first is a full-width list with no reading pane beside it.
+describe('List first', () => {
+  it('is a preset of its own, the only one marked list first', () => {
+    assert.equal(normalizeLayout('list'), 'list');
+    assert.deepEqual(Object.keys(LAYOUTS).filter(k => LAYOUTS[k].listFirst), ['list']);
+    assert.equal(LAYOUTS.list.listWidth, null, 'no fixed list width: the list takes the content area');
+  });
+});

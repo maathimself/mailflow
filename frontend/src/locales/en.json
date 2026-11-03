@@ -130,6 +130,7 @@
       "keepEditing": "Keep editing"
     },
     "draftHasAttachments": "Attachments are not saved with drafts. They will need to be re-attached when you reopen this draft.",
+    "dropToAttach": "Drop files to attach",
     "emptySubject": {
       "title": "Send without a subject?",
       "sendAnyway": "Send anyway",
@@ -566,12 +567,33 @@
       "vertical": {
         "label": "Vertical Split",
         "description": "Message list stacked above the reading pane"
+      },
+      "list": {
+        "label": "List first",
+        "description": "Full-width list; a message opens on its own"
       }
     },
     "snoozedUntil": "Snoozed until {{when}}",
     "snoozedEmpty": "Nothing snoozed",
     "snoozedEmptyDesc": "Snoozed mail waits here until it comes back.",
-    "menu": "Menu"
+    "menu": "Menu",
+    "sort": "Sort",
+    "sortBy": "Sort by",
+    "sortDate": "Date",
+    "sortSender": "Sender",
+    "sortSubject": "Subject",
+    "sortNewestFirst": "Newest first",
+    "sortOldestFirst": "Oldest first",
+    "sortAToZ": "A to Z",
+    "sortZToA": "Z to A",
+    "starredOnTop": "Starred on top",
+    "sortReset": "Back to newest first",
+    "sortedBy": "Sorted: {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Messages: {{total}} · Unread: {{unread}}",
+    "emptyCategory": "Nothing in {{category}}",
+    "emptyCategoryOthers": "Other categories still have mail.",
+    "emptyCategoryNone": "The Inbox is empty."
   },
   "lockScreen": {
     "subtitle": "Enter your PIN to unlock",
@@ -637,7 +659,8 @@
     "scheduledPending": "Waiting to be sent: {{n}}",
     "scheduledAttention": "Need attention: {{n}}",
     "favorites": "Favorites",
-    "reorderFolder": "Drag to reorder folder"
+    "reorderFolder": "Drag to reorder folder",
+    "draftsTotal": "Drafts: {{n}}"
   },
   "scheduled": {
     "refresh": "Refresh",
@@ -1476,6 +1499,8 @@
       "eventAdminUserUpdate": "Account edited",
       "eventAdminTotpDisable": "2FA turned off",
       "eventAdminUserDelete": "Account deleted",
+      "eventIdentityLinked": "SSO account linked",
+      "eventIdentityUnlinked": "SSO account unlinked",
       "byActor": "by {{actor}}",
       "qrCodeAlt": "QR code",
       "mailPolicyTitle": "Mail Server Connection Policy",
@@ -1580,6 +1605,14 @@
       "newPassword": "New password",
       "newPasswordHint": "Leave empty to keep the current one. Saving a new one signs the user out on every device.",
       "newPasswordHintSelf": "Leave empty to keep the current one. Your other devices are signed out; this one stays signed in.",
+      "newPasswordRemovesIdentities": "While password sign-in is on, a new password also unlinks their single sign-on accounts below.",
+      "identitiesTitle": "Single sign-on",
+      "identitiesHint": "Accounts at a sign-in provider this user can sign in with. Unlink one they don't recognize; it also signs them out everywhere.",
+      "identityLastUsed": "Last used {{when}}",
+      "identityNeverUsed": "Not used to sign in yet",
+      "unlinkIdentity": "Unlink",
+      "unlinkIdentityConfirm": "Confirm unlink",
+      "identityUnlinkFailed": "Could not unlink: {{message}}",
       "confirmPassword": "Confirm new password",
       "passwordTooShort": "The password must be at least 8 characters.",
       "passwordMismatch": "The passwords do not match.",
@@ -1899,6 +1932,14 @@
       "githubSponsors": "GitHub Sponsors",
       "businessLicense": "Business license",
       "sponsorBlurb": "MailFlow is built and maintained by one person. Sponsorships pay for the time that goes into fixes, reviews and releases."
+    },
+    "businessNotice": {
+      "title": "Using MailFlow in a business?",
+      "body": "MailFlow is free under the AGPL and built by one person. Businesses that rely on it are asked to buy a business license, $100 per instance per year, plus tax. It's voluntary, and nothing in MailFlow checks for it.",
+      "learnMore": "See the business license",
+      "haveOne": "We have one",
+      "notBusiness": "Not a business",
+      "later": "Remind me later"
     },
     "search": {
       "placeholder": "Search settings…",

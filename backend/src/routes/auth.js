@@ -20,6 +20,7 @@ import { sanitizeRightSidebarPrefs } from '../utils/rightSidebarPrefs.js';
 import { redisClient } from '../services/redis.js';
 import { destroyUserSessions } from '../services/userSessions.js';
 import { touchLastSeen } from '../services/lastSeen.js';
+import { removeIdentitiesForPasswordReset } from '../services/userIdentities.js';
 import { aiEnabledForNewUser } from '../services/aiNewUsers.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 
@@ -760,6 +761,26 @@ router.get('/preferences', async (req, res) => {
   res.json(prefs);
 });
 
+// Each folder's list order (#528, #196): { "<accountId or all>:<folder>": { sort, dir, starredFirst } }.
+// The client sends the whole map, as it does favorite folders. A folder at the default order (date,
+// newest first, starred not on top) is left out. Returns the JSON to store, or undefined to refuse.
+const LIST_SORT_KEY = /^(all|[0-9a-fA-F-]{36}):.{1,500}$/s;
+export function sanitizeListSort(listSort) {
+  if (typeof listSort !== 'object' || Array.isArray(listSort)) return undefined;
+  const entries = Object.entries(listSort);
+  if (entries.length > 500) return undefined;
+  const clean = {};
+  for (const [key, value] of entries) {
+    if (!LIST_SORT_KEY.test(key) || typeof value !== 'object' || value === null) return undefined;
+    const { sort = 'date', dir = 'desc', starredFirst = false } = value;
+    if (!['date', 'from', 'subject'].includes(sort) || !['asc', 'desc'].includes(dir)
+      || typeof starredFirst !== 'boolean') return undefined;
+    if (sort === 'date' && dir === 'desc' && !starredFirst) continue;
+    clean[key] = { sort, dir, starredFirst };
+  }
+  return JSON.stringify(clean);
+}
+
 export async function patchPreferences(req, res) {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   const { theme, font, layout, notificationSound, pageSize, scrollMode, syncInterval,
@@ -770,7 +791,7 @@ export async function patchPreferences(req, res) {
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
           folderOrder, senderFavicons, showMessagePreviews, defaultSender,
-          conversationMode, hoverActionSet, autoOpenReplyDrafts, afterRemove, darkEmailBodies } = req.body;
+          conversationMode, hoverActionSet, autoOpenReplyDrafts, afterRemove, darkEmailBodies, listSort } = req.body;
   if (autoOpenReplyDrafts !== undefined && typeof autoOpenReplyDrafts !== 'boolean') {
     return res.status(400).json({ error: 'autoOpenReplyDrafts must be a boolean' });
   }
@@ -843,6 +864,10 @@ export async function patchPreferences(req, res) {
   const hoverActionSetJson = Array.isArray(hoverActionSet)
     ? JSON.stringify(HOVER_ACTION_KEYS.filter(k => hoverActionSet.includes(k)))
     : null;
+  const listSortJson = listSort != null ? sanitizeListSort(listSort) : null;
+  if (listSortJson === undefined) {
+    return res.status(400).json({ error: 'listSort must map "<accountId|all>:<folder>" to { sort, dir, starredFirst }' });
+  }
 
   await query(`
     UPDATE users
@@ -893,6 +918,7 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $45::boolean IS NOT NULL THEN jsonb_build_object('autoOpenReplyDrafts', $45::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $46::text IS NOT NULL THEN jsonb_build_object('afterRemove', $46::text) ELSE '{}'::jsonb END
       || CASE WHEN $47::boolean IS NOT NULL THEN jsonb_build_object('darkEmailBodies', $47::boolean) ELSE '{}'::jsonb END
+      || CASE WHEN $48::jsonb IS NOT NULL THEN jsonb_build_object('listSort', $48::jsonb) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -904,7 +930,7 @@ export async function patchPreferences(req, res) {
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
       showMessagePreviews ?? null, defaultSenderVal, conversationModeVal, hoverActionSetJson, autoOpenReplyDrafts ?? null,
-      afterRemoveVal, darkEmailBodies ?? null]);
+      afterRemoveVal, darkEmailBodies ?? null, listSortJson]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;
@@ -1142,26 +1168,42 @@ router.post('/reset-password', authLimiter, async (req, res) => {
 
   const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
   try {
-    // Atomically consume the token — DELETE RETURNING prevents two concurrent resets
-    // from both reading a valid token, both updating the password, and only then deleting.
-    const tokenResult = await query(
-      `DELETE FROM password_reset_tokens
-       WHERE token_hash = $1 AND expires_at > NOW()
-       RETURNING user_id`,
-      [tokenHash]
-    );
-    if (!tokenResult.rows.length) {
+    // The link is spent, the password set, and trusted devices, API tokens and linked identities
+    // revoked together or not at all: a failure part-way must not leave a new password, a spent
+    // link and tokens that survived, with nothing left to retry with.
+    const reset = await withTransaction(async (client) => {
+      // Atomically consume the token — DELETE RETURNING prevents two concurrent resets
+      // from both reading a valid token, both updating the password, and only then deleting.
+      const tokenResult = await client.query(
+        `DELETE FROM password_reset_tokens
+         WHERE token_hash = $1 AND expires_at > NOW()
+         RETURNING user_id`,
+        [tokenHash]
+      );
+      if (!tokenResult.rows.length) return null;
+      const id = tokenResult.rows[0].user_id;
+
+      const hash = await bcrypt.hash(password, 12);
+      const { rows: [user] } = await client.query('SELECT username FROM users WHERE id = $1 FOR UPDATE', [id]);
+      await client.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, id]);
+      // Revoke trusted devices, API tokens and, while password sign-in is on, linked single sign-on
+      // identities here, and every session below, so a pre-existing (possibly attacker) session,
+      // device, token or linked account can't survive a compromise-driven password reset (#714).
+      await client.query('DELETE FROM trusted_devices WHERE user_id = $1', [id]);
+      // Identities before tokens: removing them reads the sign-in policy row shared, and an admin's
+      // policy change updates that row before it deletes tokens, so the two cannot wait on each other.
+      const removed = await removeIdentitiesForPasswordReset(client, id);
+      await client.query('DELETE FROM api_tokens WHERE user_id = $1', [id]);
+      return { id, username: user?.username, removed };
+    });
+    if (!reset) {
       return res.status(400).json({ error: 'Invalid or expired reset link' });
     }
-    const userId = tokenResult.rows[0].user_id;
-
-    const hash = await bcrypt.hash(password, 12);
-    await query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, userId]);
-
-    // Revoke all existing sessions and trusted devices so a pre-existing (possibly
-    // attacker) session/device can't survive a compromise-driven password reset.
+    const { id: userId, username, removed } = reset;
+    // Sessions are in Redis, outside the transaction, so they end once it has committed.
     await destroyUserSessions(userId);
-    await query('DELETE FROM trusted_devices WHERE user_id = $1', [userId]);
+    if (removed.length) console.log(`[auth] password reset for ${username} removed ${removed.length} linked identity(s): ${removed.map(i => i.provider_name).join(', ')}`);
+    removed.forEach(() => logAuthEvent('identity_unlinked', { userId, username, ip: req.ip, success: true }));
 
     res.locals.resetRateLimit?.();
     res.json({ ok: true });

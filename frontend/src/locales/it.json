@@ -130,6 +130,7 @@
       "keepEditing": "Continua a modificare"
     },
     "draftHasAttachments": "Gli allegati non vengono salvati con le bozze. Dovranno essere ricollegati alla riapertura.",
+    "dropToAttach": "Rilascia i file per allegarli",
     "emptySubject": {
       "title": "Inviare senza oggetto?",
       "sendAnyway": "Invia comunque",
@@ -566,12 +567,33 @@
       "vertical": {
         "label": "Divisione verticale",
         "description": "Elenco messaggi sopra il riquadro di lettura"
+      },
+      "list": {
+        "label": "Prima l'elenco",
+        "description": "Elenco a tutta larghezza; un messaggio si apre da solo"
       }
     },
     "snoozedUntil": "Posticipato fino a {{when}}",
     "snoozedEmpty": "Niente posticipato",
     "snoozedEmptyDesc": "Le email posticipate aspettano qui finché non tornano.",
-    "menu": "Menu"
+    "menu": "Menu",
+    "sort": "Ordina",
+    "sortBy": "Ordina per",
+    "sortDate": "Data",
+    "sortSender": "Mittente",
+    "sortSubject": "Oggetto",
+    "sortNewestFirst": "Più recenti prima",
+    "sortOldestFirst": "Meno recenti prima",
+    "sortAToZ": "Dalla A alla Z",
+    "sortZToA": "Dalla Z alla A",
+    "starredOnTop": "Con stella in alto",
+    "sortReset": "Torna a più recenti prima",
+    "sortedBy": "Ordinati: {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Messaggi: {{total}} · Da leggere: {{unread}}",
+    "emptyCategory": "Niente in {{category}}",
+    "emptyCategoryOthers": "Le altre categorie contengono ancora messaggi.",
+    "emptyCategoryNone": "La posta in arrivo è vuota."
   },
   "lockScreen": {
     "subtitle": "Inserisci il PIN per sbloccare",
@@ -637,7 +659,8 @@
     "scheduledPending": "In attesa di invio: {{n}}",
     "scheduledAttention": "Richiedono attenzione: {{n}}",
     "favorites": "Preferiti",
-    "reorderFolder": "Trascina per riordinare la cartella"
+    "reorderFolder": "Trascina per riordinare la cartella",
+    "draftsTotal": "Bozze: {{n}}"
   },
   "scheduled": {
     "refresh": "Aggiorna",
@@ -1474,6 +1497,8 @@
       "eventAdminUserUpdate": "Account modificato",
       "eventAdminTotpDisable": "2FA disattivato",
       "eventAdminUserDelete": "Account eliminato",
+      "eventIdentityLinked": "Account SSO collegato",
+      "eventIdentityUnlinked": "Account SSO scollegato",
       "byActor": "da {{actor}}",
       "activityTitle": "Attività di accesso",
       "loginProtectionTitle": "Protezione accesso",
@@ -1580,6 +1605,14 @@
       "newPassword": "Nuova password",
       "newPasswordHint": "Lascia vuoto per mantenere quella attuale. Salvandone una nuova, l’utente viene disconnesso da tutti i dispositivi.",
       "newPasswordHintSelf": "Lascia vuoto per mantenere quella attuale. Gli altri tuoi dispositivi vengono disconnessi; questo resta connesso.",
+      "newPasswordRemovesIdentities": "Finché l’accesso con password è attivo, una nuova password scollega anche i suoi account di accesso singolo qui sotto.",
+      "identitiesTitle": "Accesso singolo (SSO)",
+      "identitiesHint": "Account presso un provider di accesso con cui questo utente può entrare. Scollega quello che non riconosce; viene anche disconnesso ovunque.",
+      "identityLastUsed": "Ultimo uso {{when}}",
+      "identityNeverUsed": "Non ancora usato per accedere",
+      "unlinkIdentity": "Scollega",
+      "unlinkIdentityConfirm": "Conferma",
+      "identityUnlinkFailed": "Impossibile scollegare: {{message}}",
       "confirmPassword": "Conferma nuova password",
       "passwordTooShort": "La password deve contenere almeno 8 caratteri.",
       "passwordMismatch": "Le password non coincidono.",
@@ -1899,6 +1932,14 @@
       "githubSponsors": "GitHub Sponsors",
       "businessLicense": "Licenza aziendale",
       "sponsorBlurb": "MailFlow è sviluppato e mantenuto da una sola persona. Le sponsorizzazioni finanziano il tempo dedicato a correzioni, revisioni e nuove release."
+    },
+    "businessNotice": {
+      "title": "Usi MailFlow in azienda?",
+      "body": "MailFlow è gratuito con licenza AGPL ed è sviluppato da una sola persona. Chiediamo alle aziende che lo usano di acquistare una licenza aziendale, 100 $ per istanza all'anno, tasse escluse. È facoltativa e MailFlow non la verifica.",
+      "learnMore": "Vedi la licenza aziendale",
+      "haveOne": "Ne abbiamo già una",
+      "notBusiness": "Non siamo un'azienda",
+      "later": "Ricordamelo più tardi"
     },
     "search": {
       "placeholder": "Cerca impostazioni…",

@@ -10,10 +10,11 @@ import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { normalizeAuthservId } from '../services/spamParser.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { createKeyedSerializer } from '../utils/keyedSerializer.js';
-import { uuidParam } from '../utils/uuid.js';
+import { isUuid, uuidParam } from '../utils/uuid.js';
 import { normalizeAddressList } from '../utils/addressList.js';
 import { reportConnect } from '../services/connectReport.js';
 import { findOwnedAccount, findOwnedAlias } from '../services/ownership.js';
+import { NEXT_ACCOUNT_SORT_ORDER, setAccountOrder } from '../services/accountOrder.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
 // gtd_enabled double-toggle) can't fire two overlapping disconnect→connect chains —
@@ -83,6 +84,28 @@ export const SAFE_FIELDS = [
 // Columns PUT /:id may write. The settings form sends back what GET returned, so every
 // non-secret one must be in SAFE_FIELDS or saving an unrelated edit would write it as empty.
 export const ACCOUNT_UPDATE_FIELDS = ['name', 'sender_name', 'color', 'icon', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'signature_enabled', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id', 'auto_cc_addresses', 'auto_bcc_addresses'];
+// What an API token sees of an account (#617): enough to name it, pick a From and draft as the
+// composer does (signature on or off, the automatic Cc and Bcc), and nothing of its settings:
+// no hosts, ports, TLS or login names, signatures, folder mappings or plugin configuration.
+function tokenAccount(row, aliases) {
+  return {
+    id: row.id,
+    name: row.name,
+    sender_name: row.sender_name,
+    email_address: row.email_address,
+    color: row.color,
+    icon: row.icon,
+    enabled: row.enabled,
+    include_in_unified_inbox: row.include_in_unified_inbox,
+    last_sync: row.last_sync,
+    sync_error: row.sync_error,
+    signature_enabled: row.signature_enabled,
+    auto_cc_addresses: row.auto_cc_addresses,
+    auto_bcc_addresses: row.auto_bcc_addresses,
+    aliases: aliases.map(({ id, name, email, reply_to }) => ({ id, name, email, reply_to })),
+  };
+}
+
 function safeAccount(row) {
   const obj = Object.fromEntries(SAFE_FIELDS.map(k => [k, row[k]]));
   // Sanitize on read so legacy values stored before the write-time sanitizer are safe
@@ -111,6 +134,8 @@ router.get('/', async (req, res) => {
       aliasMap[alias.account_id].push(alias);
     }
   }
+
+  if (req.apiToken) return res.json(result.rows.map(a => tokenAccount(a, aliasMap[a.id] || [])));
 
   // Let plugins re-attach their own account-scoped fields (GTD: gtd_enabled/gtd_folders, no longer
   // columns) so the client sees them as before. Each enrichAccount handler returns a field patch.
@@ -171,8 +196,8 @@ router.post('/', async (req, res) => {
         user_id, name, sender_name, email_address, color, protocol,
         imap_host, imap_port, imap_tls, imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
         auth_user, auth_pass, smtp_auth_user, smtp_auth_pass,
-        signature, signature_enabled, icon
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+        signature, signature_enabled, icon, sort_order
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,${NEXT_ACCOUNT_SORT_ORDER})
       RETURNING *
     `, [
       req.session.userId, name, sender_name || null, email_address, color, protocol,
@@ -204,6 +229,23 @@ export const OAUTH_OWNED_FIELDS = [
   'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls',
   'auth_pass', 'smtp_auth_user', 'smtp_auth_pass',
 ];
+
+// The sidebar order of all the user's accounts, first to last (#695).
+router.patch('/order', async (req, res) => {
+  const { ids } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length || ids.length > 500 || !ids.every(isUuid)) {
+    return res.status(400).json({ error: 'ids must list your accounts' });
+  }
+  try {
+    if (!(await setAccountOrder(req.session.userId, ids))) {
+      return res.status(409).json({ error: 'ids must list each of your accounts once' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('PATCH /accounts/order error:', err.message);
+    res.status(500).json({ error: 'Failed to reorder accounts' });
+  }
+});
 
 router.put('/:id', async (req, res) => {
   const { id } = req.params;

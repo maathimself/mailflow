@@ -196,3 +196,74 @@ describe('Sidebar: the hidden folders toggle (#694)', () => {
     assert.deepEqual(useStore.getState().hiddenFolders['acct-1'], ['Deleted at provider', 'Banking']);
   });
 });
+
+// #695: every account started at sort_order 0, and Move up / Move down saved only the two accounts
+// it swapped, so with three or more the others reshuffled on the next load. The move now saves the
+// whole order.
+describe('Sidebar: moving an account saves the whole order', () => {
+  const accounts = ['A', 'B', 'C', 'D'].map(name => ({ ...ACCOUNT, id: `acct-${name}`, name, email_address: `${name.toLowerCase()}@example.com` }));
+
+  test('Move up sends every account, in the new order', async () => {
+    const calls = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init = {}) => {
+      calls.push({ url: String(url), method: init.method, body: init.body ? JSON.parse(init.body) : null });
+      return realFetch(url, init);
+    };
+    try {
+      await mount({ state: { accounts, folders: {}, expandedAccounts: {} } });
+      const row = [...dom.window.document.querySelectorAll('*')].find(el => el.textContent === 'B' && !el.children.length);
+      assert.ok(row, 'expected the row of account B');
+      await React.act(async () => {
+        row.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }));
+      });
+      const moveUp = [...dom.window.document.querySelectorAll('div')].filter(el => el.textContent === 'sidebar.accountMenu.moveUp').pop();
+      assert.ok(moveUp, 'expected Move up in the account menu');
+      await React.act(async () => { moveUp.click(); });
+      const saved = calls.filter(c => c.url.includes('/accounts/'));
+      assert.deepEqual(saved.map(c => [c.method, c.url.replace(/^.*\/api/, '/api')]), [['PATCH', '/api/accounts/order']]);
+      assert.deepEqual(saved[0].body, { ids: ['acct-B', 'acct-A', 'acct-C', 'acct-D'] });
+      assert.deepEqual(useStore.getState().accounts.map(a => a.name), ['B', 'A', 'C', 'D']);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});
+
+// #643: Drafts shows how many drafts it holds (MailFlow saves them read, so an unread badge never
+// showed), outlined so it doesn't read as unread mail. Other folders keep their unread count.
+describe('Sidebar: the Drafts total', () => {
+  const withDrafts = (drafts) => ({ folders: { 'acct-1': [...FOLDERS, { path: 'Drafts', name: 'Drafts', special_use: '\\Drafts', ...drafts }] } });
+  const draftsBadge = () => {
+    // The row is labeled with the role name or the folder's own name, whichever the sidebar shows.
+    const label = [...dom.window.document.querySelectorAll('span')]
+      .find(s => ['folders.drafts', 'Drafts', 'Entwürfe'].includes(s.textContent));
+    assert.ok(label, 'expected the Drafts row');
+    const badge = label.nextElementSibling;
+    return badge && badge.tagName === 'SPAN' ? badge : null;
+  };
+
+  test('shows the server total, not unread, and says what it is', async () => {
+    await mount({ state: withDrafts({ total_count: 3, unread_count: 0 }) });
+    const badge = draftsBadge();
+    assert.equal(badge?.textContent, '3');
+    assert.equal(badge.getAttribute('title'), 'sidebar.draftsTotal');
+    assert.match(badge.getAttribute('style'), /border: 1px solid/);
+    assert.equal(badgeOf('Banking'), '1', 'other folders still show unread');
+  });
+
+  test('no badge for an empty Drafts folder, or before its count is known', async () => {
+    await mount({ state: withDrafts({ total_count: 0, unread_count: 0 }) });
+    assert.equal(draftsBadge(), null);
+    await mount({ state: withDrafts({ total_count: null, unread_count: null, counts_known: false }) });
+    assert.equal(draftsBadge(), null);
+  });
+
+  test('a Drafts folder found by the account\'s mapping counts the same way', async () => {
+    await mount({ state: {
+      accounts: [{ ...ACCOUNT, folder_mappings: { drafts: 'Entwürfe' } }],
+      folders: { 'acct-1': [...FOLDERS, { path: 'Entwürfe', name: 'Entwürfe', total_count: 2, unread_count: 1 }] },
+    } });
+    assert.equal(draftsBadge()?.textContent, '2');
+  });
+});

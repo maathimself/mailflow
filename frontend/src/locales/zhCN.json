@@ -130,6 +130,7 @@
       "keepEditing": "继续编辑"
     },
     "draftHasAttachments": "附件不会随草稿保存，重新打开时需要重新添加。",
+    "dropToAttach": "拖放文件以添加附件",
     "emptySubject": {
       "title": "没有主题，确定发送？",
       "sendAnyway": "仍然发送",
@@ -566,12 +567,33 @@
       "vertical": {
         "label": "上下分栏",
         "description": "邮件列表位于阅读窗格上方"
+      },
+      "list": {
+        "label": "列表优先",
+        "description": "全宽列表；邮件单独打开"
       }
     },
     "snoozedUntil": "暂停至 {{when}}",
     "snoozedEmpty": "没有暂停的邮件",
     "snoozedEmptyDesc": "暂停的邮件会在这里等待，直到恢复。",
-    "menu": "菜单"
+    "menu": "菜单",
+    "sort": "排序",
+    "sortBy": "排序方式",
+    "sortDate": "日期",
+    "sortSender": "发件人",
+    "sortSubject": "主题",
+    "sortNewestFirst": "最新的在前",
+    "sortOldestFirst": "最早的在前",
+    "sortAToZ": "A 到 Z",
+    "sortZToA": "Z 到 A",
+    "starredOnTop": "星标邮件置顶",
+    "sortReset": "恢复为最新的在前",
+    "sortedBy": "排序：{{order}}",
+    "sortSummary": "{{sort}}，{{dir}}",
+    "categoryCountTitle": "邮件：{{total}} · 未读：{{unread}}",
+    "emptyCategory": "{{category}}中没有邮件",
+    "emptyCategoryOthers": "其他类别中仍有邮件。",
+    "emptyCategoryNone": "收件箱为空。"
   },
   "lockScreen": {
     "subtitle": "输入 PIN 码以解锁",
@@ -637,7 +659,8 @@
     "scheduledPending": "等待发送：{{n}}",
     "scheduledAttention": "需要处理：{{n}}",
     "favorites": "收藏夹",
-    "reorderFolder": "拖动以调整文件夹顺序"
+    "reorderFolder": "拖动以调整文件夹顺序",
+    "draftsTotal": "草稿：{{n}}"
   },
   "scheduled": {
     "refresh": "刷新",
@@ -1474,6 +1497,8 @@
       "eventAdminUserUpdate": "已编辑账户",
       "eventAdminTotpDisable": "已关闭双重认证",
       "eventAdminUserDelete": "已删除账户",
+      "eventIdentityLinked": "已关联 SSO 账户",
+      "eventIdentityUnlinked": "已解除关联 SSO 账户",
       "byActor": "（由 {{actor}} 操作）",
       "activityTitle": "登录活动",
       "loginProtectionTitle": "登录保护",
@@ -1580,6 +1605,14 @@
       "newPassword": "新密码",
       "newPasswordHint": "留空则保留当前密码。保存新密码后，该用户将在所有设备上退出登录。",
       "newPasswordHintSelf": "留空则保留当前密码。你的其他设备将退出登录；此设备保持登录。",
+      "newPasswordRemovesIdentities": "在密码登录开启期间，设置新密码也会解除下方的单点登录账户关联。",
+      "identitiesTitle": "单点登录 (SSO)",
+      "identitiesHint": "此用户可用于登录的登录提供方账户。解除其不认识的账户关联；同时会在所有设备上退出登录。",
+      "identityLastUsed": "上次使用 {{when}}",
+      "identityNeverUsed": "尚未用于登录",
+      "unlinkIdentity": "解除关联",
+      "unlinkIdentityConfirm": "确认解除",
+      "identityUnlinkFailed": "无法解除关联：{{message}}",
       "confirmPassword": "确认新密码",
       "passwordTooShort": "密码至少需要 8 个字符。",
       "passwordMismatch": "两次输入的密码不一致。",
@@ -1899,6 +1932,14 @@
       "githubSponsors": "GitHub Sponsors",
       "businessLicense": "企业许可证",
       "sponsorBlurb": "MailFlow 由一人开发和维护。赞助用于支付修复问题、审查代码和发布新版本所需的时间。"
+    },
+    "businessNotice": {
+      "title": "在企业中使用 MailFlow？",
+      "body": "MailFlow 在 AGPL 下免费，由一人开发和维护。我们请依赖它的企业购买企业许可证，每个实例每年 100 美元，不含税。这是自愿的，MailFlow 不会进行任何检查。",
+      "learnMore": "查看企业许可证",
+      "haveOne": "我们已有许可证",
+      "notBusiness": "不是企业",
+      "later": "稍后提醒"
     },
     "search": {
       "placeholder": "搜索设置…",

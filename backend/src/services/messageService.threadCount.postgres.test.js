@@ -26,7 +26,8 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('threaded Inbox message
         include_in_unified_inbox boolean, name text, email_address text, color text,
         folder_mappings jsonb);
       CREATE TEMP TABLE folders (account_id uuid, path text, name text, delimiter text,
-        special_use text, total_count integer DEFAULT 0, unread_count integer DEFAULT 0);
+        special_use text, no_select boolean NOT NULL DEFAULT false,
+        total_count integer DEFAULT 0, unread_count integer DEFAULT 0);
       CREATE TEMP TABLE messages (id uuid PRIMARY KEY, account_id uuid, folder text,
         uid bigint, message_id text, in_reply_to text, thread_references text,
         thread_id text, thread_key text, date timestamptz, is_deleted boolean DEFAULT false,
@@ -121,6 +122,8 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('threaded Inbox message
     expect(row.from_name).toBe('Oldest');
     expect(row.reply_from_email).toBe('sender@example.test');
     expect(row.reply_from_name).toBe('Latest');
+    expect(row.subject).toBe('Question');
+    expect(row.reply_subject).toBe('Re: Question');
     expect(row.message_id).toBe('<latest@example.test>');
     expect(row.reply_to).toEqual([{ email: 'reply@example.test' }]);
   });

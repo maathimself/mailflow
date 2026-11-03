@@ -75,7 +75,7 @@ describe('bounded background monitor', () => {
     expect(events).toEqual(['open', 'close', 'sync']);
     expect(query.mock.calls[0][0]).toContain('NOT f.no_select');
     expect(query.mock.calls[0][0]).toContain('LIMIT $2');
-    expect(query.mock.calls[0][1]).toEqual(['a', STATUS_FOLDER_BATCH]);
+    expect(query.mock.calls[0][1]).toEqual(['a', STATUS_FOLDER_BATCH, []]);
   });
   it('does not let repeated Inbox ingestion failures starve unattempted folders', async () => {
     query.mockImplementation(async sql => sql.includes('SELECT f.*')
@@ -163,6 +163,32 @@ describe('bounded background monitor', () => {
     await monitor.refresh(a, { force: true });
     await vi.advanceTimersByTimeAsync(10000);
     expect(withClient).toHaveBeenCalledTimes(1);
+  });
+  it('checks the folders a change touched in the next cycle, on top of the rotation (#708)', async () => {
+    vi.useFakeTimers();
+    const { monitor } = countingMonitor();
+    const a = { id: 'a' };
+    monitor.noteChangedFolders('a', ['Projects', undefined, '', 'Trash', 'Projects']);
+    await monitor.refresh(a);
+    const selects = () => query.mock.calls.filter(([sql]) => sql.includes('SELECT f.*'));
+    expect(selects()[0][0]).toContain("(f.path='INBOX') DESC, (f.path = ANY($3::text[])) DESC");
+    expect(selects()[0][1]).toEqual(['a', STATUS_FOLDER_BATCH + 2, ['Projects', 'Trash']]);
+    await vi.advanceTimersByTimeAsync(60000);
+    await monitor.refresh(a);
+    expect(selects()[1][1]).toEqual(['a', STATUS_FOLDER_BATCH, []]);
+  });
+  it('still owes a changed folder its check when the cycle that took it fails', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { withClient, monitor } = countingMonitor();
+    withClient.mockRejectedValueOnce(new Error('offline'));
+    const a = { id: 'a' };
+    monitor.noteChangedFolders('a', ['Projects']);
+    await monitor.refresh(a);
+    await vi.advanceTimersByTimeAsync(60000);
+    await monitor.refresh(a);
+    const selects = query.mock.calls.filter(([sql]) => sql.includes('SELECT f.*'));
+    expect(selects.map(c => c[1][2])).toEqual([['Projects'], ['Projects']]);
   });
   it('backs off login failures and does not enqueue work', async () => {
     vi.useFakeTimers();

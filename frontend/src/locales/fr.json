@@ -130,6 +130,7 @@
       "keepEditing": "Continuer à éditer"
     },
     "draftHasAttachments": "Les pièces jointes ne sont pas sauvegardées avec les brouillons. Vous devrez les rattacher à la réouverture.",
+    "dropToAttach": "Déposez les fichiers pour les joindre",
     "emptySubject": {
       "title": "Envoyer sans objet ?",
       "sendAnyway": "Envoyer quand même",
@@ -566,12 +567,33 @@
       "vertical": {
         "label": "Division verticale",
         "description": "Liste des messages au-dessus du volet de lecture"
+      },
+      "list": {
+        "label": "Liste d'abord",
+        "description": "Liste en pleine largeur ; un message s'ouvre seul"
       }
     },
     "snoozedUntil": "En attente jusqu'à {{when}}",
     "snoozedEmpty": "Rien en attente",
     "snoozedEmptyDesc": "Les messages mis en attente patientent ici jusqu'à leur retour.",
-    "menu": "Menu"
+    "menu": "Menu",
+    "sort": "Trier",
+    "sortBy": "Trier par",
+    "sortDate": "Date",
+    "sortSender": "Expéditeur",
+    "sortSubject": "Objet",
+    "sortNewestFirst": "Plus récents d'abord",
+    "sortOldestFirst": "Plus anciens d'abord",
+    "sortAToZ": "De A à Z",
+    "sortZToA": "De Z à A",
+    "starredOnTop": "Suivis en haut",
+    "sortReset": "Revenir aux plus récents d'abord",
+    "sortedBy": "Tri : {{order}}",
+    "sortSummary": "{{sort}}, {{dir}}",
+    "categoryCountTitle": "Messages : {{total}} · Non lus : {{unread}}",
+    "emptyCategory": "Rien dans {{category}}",
+    "emptyCategoryOthers": "Les autres catégories contiennent encore des messages.",
+    "emptyCategoryNone": "La boîte de réception est vide."
   },
   "lockScreen": {
     "subtitle": "Saisissez votre PIN pour déverrouiller",
@@ -637,7 +659,8 @@
     "scheduledPending": "En attente d'envoi : {{n}}",
     "scheduledAttention": "À vérifier : {{n}}",
     "favorites": "Favoris",
-    "reorderFolder": "Faites glisser pour réorganiser le dossier"
+    "reorderFolder": "Faites glisser pour réorganiser le dossier",
+    "draftsTotal": "Brouillons : {{n}}"
   },
   "scheduled": {
     "refresh": "Actualiser",
@@ -1474,6 +1497,8 @@
       "eventAdminUserUpdate": "Compte modifié",
       "eventAdminTotpDisable": "2FA désactivé",
       "eventAdminUserDelete": "Compte supprimé",
+      "eventIdentityLinked": "Compte SSO associé",
+      "eventIdentityUnlinked": "Compte SSO dissocié",
       "byActor": "par {{actor}}",
       "activityTitle": "Activité de connexion",
       "loginProtectionTitle": "Protection de connexion",
@@ -1580,6 +1605,14 @@
       "newPassword": "Nouveau mot de passe",
       "newPasswordHint": "Laissez vide pour garder l’actuel. En enregistrer un nouveau déconnecte l’utilisateur sur tous ses appareils.",
       "newPasswordHintSelf": "Laissez vide pour garder l’actuel. Vos autres appareils sont déconnectés ; celui-ci reste connecté.",
+      "newPasswordRemovesIdentities": "Tant que la connexion par mot de passe est activée, un nouveau mot de passe dissocie aussi ses comptes d’authentification unique ci-dessous.",
+      "identitiesTitle": "Authentification unique",
+      "identitiesHint": "Comptes chez un fournisseur de connexion avec lesquels cet utilisateur peut se connecter. Dissociez celui qu’il ne reconnaît pas ; il est aussi déconnecté partout.",
+      "identityLastUsed": "Dernière utilisation {{when}}",
+      "identityNeverUsed": "Pas encore utilisé pour se connecter",
+      "unlinkIdentity": "Dissocier",
+      "unlinkIdentityConfirm": "Confirmer",
+      "identityUnlinkFailed": "Impossible de dissocier : {{message}}",
       "confirmPassword": "Confirmer le nouveau mot de passe",
       "passwordTooShort": "Le mot de passe doit contenir au moins 8 caractères.",
       "passwordMismatch": "Les mots de passe ne correspondent pas.",
@@ -1899,6 +1932,14 @@
       "githubSponsors": "GitHub Sponsors",
       "businessLicense": "Licence entreprise",
       "sponsorBlurb": "MailFlow est développé et maintenu par une seule personne. Les parrainages financent le temps consacré aux correctifs, aux revues de code et aux nouvelles versions."
+    },
+    "businessNotice": {
+      "title": "Vous utilisez MailFlow en entreprise ?",
+      "body": "MailFlow est gratuit sous licence AGPL et développé par une seule personne. Nous demandons aux entreprises qui en dépendent d'acheter une licence entreprise, à 100 $ par instance et par an, hors taxes. C'est facultatif, et MailFlow ne vérifie rien.",
+      "learnMore": "Voir la licence entreprise",
+      "haveOne": "Nous en avons une",
+      "notBusiness": "Pas une entreprise",
+      "later": "Me le rappeler plus tard"
     },
     "search": {
       "placeholder": "Rechercher dans les paramètres…",

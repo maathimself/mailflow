@@ -7,6 +7,7 @@ import { api } from '../utils/api.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { LAYOUTS } from '../layouts.js';
+import { closeOpenMessage } from '../utils/closeMessage.js';
 import { updateFaviconBadge } from '../themes.js';
 import { installResumeRefresh } from '../utils/resumeRefresh.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
@@ -21,6 +22,7 @@ import MessageList from './MessageList.jsx';
 import ReadingPane from './ReadingPane.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
 import CommandPalette from './CommandPalette.jsx';
+import BusinessNotice from './BusinessNotice.jsx';
 import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.jsx';
 import { takePendingDeepLink, watchPendingDeepLink } from '../utils/pendingDeepLink.js';
 import { scheduledFeed } from '../utils/scheduledFeed.js';
@@ -158,6 +160,10 @@ export default function MailApp() {
   }, []);
 
   const currentLayout = LAYOUTS[layout] || LAYOUTS.comfortable;
+  // List first (#596): on a desktop the list or the open message fills the content area and Back
+  // returns to the list, as on a phone.
+  const listFirst = !isMobile && Boolean(currentLayout.listFirst);
+  const singleView = isMobile || listFirst;
 
   // Shortcut hint (e.g. "⌘/") for the collapse/expand tooltips, derived from the
   // live shortcut map via the existing helpers — no new plumbing. '' when unbound.
@@ -239,16 +245,16 @@ export default function MailApp() {
   useEffect(() => { selectedMessageIdRef.current = selectedMessageId; }, [selectedMessageId]);
 
   useEffect(() => {
-    if (!isMobile) return;
     const prev = prevMessageIdRef.current;
     prevMessageIdRef.current = selectedMessageId;
+    if (!singleView) return;
     if (selectedMessageId && !prev) {
       history.pushState({ mailflow: 'message' }, '', '/');
     }
-  }, [isMobile, selectedMessageId]);
+  }, [singleView, selectedMessageId]);
 
   useEffect(() => {
-    if (!isMobile) return;
+    if (!singleView) return;
     // In standalone PWA mode (iOS home-screen install), push a guard entry on
     // startup so there is always at least one history entry above the baseline.
     // The handler re-pushes it after every popstate so back swipes always land
@@ -267,7 +273,23 @@ export default function MailApp() {
     };
     window.addEventListener('popstate', handler);
     return () => window.removeEventListener('popstate', handler);
-  }, [isMobile, setSelectedMessage]);
+  }, [singleView, setSelectedMessage]);
+
+  // List first: Escape in an open message goes back to the list, unless a menu or dialog is open
+  // (its own Escape closes it).
+  useEffect(() => {
+    if (!listFirst) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || !selectedMessageIdRef.current) return;
+      if (composingRef.current || showAdminRef.current || paletteOpenRef.current) return;
+      if (document.querySelector('[role="menu"], [role="dialog"], [role="listbox"]')) return;
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+      closeOpenMessage();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [listFirst]);
 
   const wsRef = useWebSocket();
 
@@ -865,6 +887,18 @@ export default function MailApp() {
               <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
             </div>
             <div style={{ display: showContacts ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
+              {listFirst ? (
+                <>
+                  {/* Both stay mounted, as on a phone, so the list keeps its place behind a message. */}
+                  <div style={{ display: selectedMessageId ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+                    <MessageList />
+                  </div>
+                  <div style={{ display: selectedMessageId ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+                    <ReadingPane />
+                  </div>
+                </>
+              ) : (
+              <>
               <MessageList />
               {currentLayout.direction === 'row' && (
                 <div
@@ -879,6 +913,8 @@ export default function MailApp() {
                 />
               )}
               <ReadingPane />
+              </>
+              )}
               {/* Generic right-sidebar column, populated from the content seam above. */}
               {currentLayout.direction === 'row' && rightSidebarContent != null && (
                 <>
@@ -949,6 +985,7 @@ export default function MailApp() {
       {!isMobile && <Suspense fallback={null}><WindowLayer /></Suspense>}
       <Suspense fallback={null}>{hasNativeBridge && <ElectronNotificationBridge />}</Suspense>
       <NotificationToasts />
+      <BusinessNotice hidden={composing || showAdmin || (isMobile && mobileSidebarOpen)} />
       <PluginRuntime />
       <CommandPalette open={paletteOpen} labelPickerMessage={labelPickerMessage}
         onClose={() => { setPaletteOpen(false); setLabelPickerMessage(null); }} />
