@@ -647,6 +647,7 @@ describe('POST /api/mail/draft — attachments', () => {
   it('rejects path-like filenames and more than five attachments', async () => {
     for (const attachments of [
       [{ filename: '../evil.pdf', contentBase64: Buffer.from('x').toString('base64') }],
+      [{ filename: 'bad\u0000name.pdf', contentBase64: Buffer.from('x').toString('base64') }],
       new Array(6).fill({ filename: 'a.pdf', contentBase64: Buffer.from('x').toString('base64') }),
     ]) {
       const res = await fetch(`${base}/api/mail/draft`, {

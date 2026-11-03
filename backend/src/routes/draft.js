@@ -25,6 +25,9 @@ const MAX_DRAFT_ATTACHMENTS = 5;
 const MAX_DRAFT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 const BASE64_RE = /^[A-Za-z0-9+/=]+$/;
 
+const hasUnsafeFilenameChars = (name) => name.includes('/') || name.includes('\\')
+  || [...name].some((ch) => ch.charCodeAt(0) < 0x20);
+
 function normalizeDraftAttachments(input) {
   if (input == null) return [];
   if (!Array.isArray(input)) throw Object.assign(new Error('attachments must be an array'), { status: 400 });
@@ -33,7 +36,7 @@ function normalizeDraftAttachments(input) {
   return input.map((a) => {
     if (!a || typeof a !== 'object' || Array.isArray(a)) throw Object.assign(new Error('Invalid attachment'), { status: 400 });
     const filename = typeof a.filename === 'string' ? a.filename.trim() : '';
-    if (!filename || filename.length > 200 || /[\\/\u0000-\u001f]/.test(filename)) throw Object.assign(new Error('Invalid attachment filename'), { status: 400 });
+    if (!filename || filename.length > 200 || hasUnsafeFilenameChars(filename)) throw Object.assign(new Error('Invalid attachment filename'), { status: 400 });
     const b64 = typeof a.contentBase64 === 'string' ? a.contentBase64.replace(/\s+/g, '') : '';
     if (!b64 || !BASE64_RE.test(b64)) throw Object.assign(new Error('Invalid attachment content'), { status: 400 });
     const content = Buffer.from(b64, 'base64');
