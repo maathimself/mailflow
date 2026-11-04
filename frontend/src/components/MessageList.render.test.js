@@ -372,11 +372,11 @@ describe('MessageList — reopening a saved draft keeps its Bcc', () => {
     to_addresses: [{ name: '', email: 'alice@example.com' }], cc_addresses: [],
     in_reply_to: '<parent@example.com>', thread_references: '<root@example.com> <parent@example.com>' };
 
-  const openDraft = async ({ bcc }) => {
-    ROUTES = { '/mail/messages/draft-1/body': [200, { html: '<p>hello</p>', text: 'hello' }], '/mail/messages/draft-1/bcc': bcc };
+  const openDraft = async ({ bcc, body = { html: '<p>hello</p>', text: 'hello' }, draft = DRAFT }) => {
+    ROUTES = { '/mail/messages/draft-1/body?remoteImages=1': [200, body], '/mail/messages/draft-1/bcc': bcc };
     const opened = [];
     await React.act(async () => { useStore.setState({ openCompose: d => opened.push(d), notifications: [], selectedMessageId: null }); });
-    await mount({ rows: [DRAFT], threadedView: false, folder: 'Drafts' });
+    await mount({ rows: [draft], threadedView: false, folder: 'Drafts' });
     const row = container.querySelector('[data-msgid="draft-1"]');
     assert.ok(row, 'expected a row for the draft');
     await React.act(async () => {
@@ -395,6 +395,30 @@ describe('MessageList — reopening a saved draft keeps its Bcc', () => {
     assert.deepEqual(opened[0].bcc, bcc);
     assert.equal(opened[0].inReplyTo, DRAFT.in_reply_to);
     assert.equal(opened[0].references, DRAFT.thread_references);
+  });
+
+  // Saving replaces the draft and compose saves no attachments, so compose has to know about them:
+  // it then sends them from the draft's own parts and refuses to save over it.
+  test('a draft with attachments hands compose its parts', async () => {
+    const opened = await openDraft({ bcc: [200, { bcc: [] }], draft: { ...DRAFT, has_attachments: true },
+      body: { html: '<p>hello</p>', attachments: [{ part: '2', filename: 'report.pdf', size: 1200 }] } });
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0].externalAttachments.length, 1);
+    assert.deepEqual(opened[0].forwardedAttachments, [{ messageId: 'draft-1', part: '2', filename: 'report.pdf', size: 1200 }]);
+    assert.equal(opened[0].unresolvedExternalAttachments, false);
+  });
+
+  test('a draft flagged with attachments that are not listed cannot be saved over', async () => {
+    const opened = await openDraft({ bcc: [200, { bcc: [] }], draft: { ...DRAFT, has_attachments: true },
+      body: { html: '<p>hello</p>', attachments: [] } });
+    assert.equal(opened[0].unresolvedExternalAttachments, true);
+  });
+
+  test('a draft without attachments stays an ordinary draft', async () => {
+    const opened = await openDraft({ bcc: [200, { bcc: [] }] });
+    assert.deepEqual(opened[0].externalAttachments, []);
+    assert.deepEqual(opened[0].forwardedAttachments, []);
+    assert.equal(opened[0].unresolvedExternalAttachments, false);
   });
 
   test('a draft whose Bcc cannot be read opens read-only, with an error, never in compose', async () => {

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { resolveConversationMode, groupsMessageList, conversationModeTransition, isConversationMode } from '../utils/conversationMode.js';
 import { applyMessageUpdate } from '../utils/readState.js';
 import { api } from '../utils/api.js';
+import { signOut as signOutAndLeave } from '../utils/signOut.js';
 import { mergeCountSnapshots, adjustCountPending, expireCountPending, settleCountPending, displayCountSnapshot, mergeFolderSnapshots } from '../utils/countSnapshots.js';
 import { resolveSelectedAccount, pruneFolders } from '../utils/accountScope.js';
 import { UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
@@ -185,6 +186,24 @@ export const useStore = create((set, get) => ({
     }));
   },
   updateUser: (updates) => set(state => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
+  // The sidebar and the lock screen sign out here, through the shared helper (#523, #310).
+  signOut: async () => {
+    // Before the request, not after it: if the page reloads while the request is out and the
+    // server did sign out, the next load clears the lock with no user signed in, which reopens
+    // this message for whoever signs in next.
+    localStorage.removeItem('mailflow_locked_message');
+    let loggedOut = false;
+    await signOutAndLeave({
+      setUser: get().setUser,
+      logout: async () => { const res = await api.logout(); loggedOut = true; return res; },
+      navigate: (url) => {
+        // If the sign-out failed, the session may still be alive, and unlocked if the lock
+        // request failed too. Keep the lock then, so the next load sends it again.
+        if (loggedOut) get().setLocked(false);
+        window.location.href = url;
+      },
+    });
+  },
 
   // Plugin activation — the per-user set of activated plugin ids (users.preferences.enabledPlugins).
   // Hydrated in loadPreferences and mutated only via setPluginActivated (the Plugins settings

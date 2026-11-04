@@ -267,3 +267,39 @@ describe('Sidebar: the Drafts total', () => {
     assert.equal(draftsBadge()?.textContent, '2');
   });
 });
+
+// Both ways out of the sidebar run the store's signOut, as the lock screen does, so the rule that
+// clears the lock only once the server confirmed the sign-out lives in one place.
+describe('Sidebar: Sign out', () => {
+  // The deepest element showing exactly this text.
+  const byText = (text) => [...dom.window.document.querySelectorAll('*')].filter(el => el.textContent === text).pop();
+
+  async function signOutCalls() {
+    const signOut = useStore.getState().signOut;
+    let calls = 0;
+    try {
+      await mount({ state: { user: { id: 'u1', username: 'alice' }, signOut: async () => { calls++; } } });
+      await React.act(async () => { byText('alice').click(); });
+      const item = byText('sidebar.signOut');
+      assert.ok(item, 'expected Sign out');
+      await React.act(async () => { item.click(); });
+      return calls;
+    } finally {
+      await React.act(async () => { useStore.setState({ signOut }); });
+    }
+  }
+
+  test('from the user menu', async () => {
+    assert.equal(await signOutCalls(), 1);
+  });
+
+  test('from the account section on a phone', async () => {
+    const width = dom.window.innerWidth;
+    dom.window.innerWidth = 500;
+    try {
+      assert.equal(await signOutCalls(), 1);
+    } finally {
+      dom.window.innerWidth = width;
+    }
+  });
+});

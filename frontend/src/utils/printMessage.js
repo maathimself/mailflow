@@ -81,8 +81,13 @@ ${bodyHtml(body)}
 }
 
 // Opened from the click itself, before any await: browsers block a window opened later.
+let printWindowId = 0;
 export function openPrintWindow(placeholder = '') {
-  const win = window.open('', '_blank');
+  // The desktop shell permits only these blank print windows. A unique name keeps a new
+  // print from replacing a document that is still open in another print dialog.
+  const win = window.open('', `mailflow-print-${++printWindowId}`);
+  // The parent can still populate the document, but the email cannot reach its native bridge.
+  if (win) win.opener = null;
   if (win && placeholder) {
     win.document.write(`${HEAD(placeholder)}</head><body><p style="font-family:sans-serif">${esc(placeholder)}</p></body></html>`);
   }

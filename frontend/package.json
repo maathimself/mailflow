@@ -33,6 +33,7 @@
     "test": "node --test",
     "lint": "eslint src --max-warnings 0",
     "electron:dev": "electron .",
+    "test:electron:print-isolation": "electron packages/electron/fixtures/printWindowIsolation.cjs",
     "preelectron:dist": "node packages/scripts/prepare-electron-icons.cjs && node packages/scripts/prepare-linux-metainfo.cjs",
     "electron:dist": "electron-builder --publish never",
     "app:version": "node packages/scripts/set-app-version.cjs",
