@@ -21,7 +21,7 @@ import { adjustFolderCounts, resolveSpamFolder } from '../utils/mailUtils.js';
 import { getAccountAddresses } from './mailAccess.js';
 import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
-import { applyInboxRules, applyBlockList, newMailAlerts } from './inboxRules.js';
+import { applyInboxRules, applyBlockList, newMailAlerts, newMailPushPayload } from './inboxRules.js';
 import { carryUpdate, hasCarries, rememberDroppedRows, takeCarry } from './movedRowCarry.js';
 import { classifyAndTagMessage } from './spamPipeline.js';
 import { generateVCard } from '../utils/vcard.js';
@@ -5297,19 +5297,7 @@ export class ImapManager {
           // for them or for mark_read-silenced messages would be misleading.
           // Fire-and-forget: push errors are non-fatal.
           if (folder === 'INBOX' && alertMessages.length > 0) {
-            const latest = alertMessages[alertMessages.length - 1];
-            const basePayload = {
-              title: latest.fromName || latest.fromEmail || 'New mail',
-              body: alertCount === 1
-                ? (latest.subject || '(no subject)')
-                : `${alertCount} new messages`,
-              icon: '/icon-512.png',
-              badge: '/badge-96.png',
-              // Deep-link the notification to the latest message (the notification's
-              // tag collapses arrivals into one card representing `latest`). Guarded:
-              // fall back to the inbox if the id is somehow absent.
-              url: latest.id ? `/?m=${latest.id}` : '/',
-            };
+            const basePayload = newMailPushPayload(alertMessages, alertCount);
             // Try to include the total unread count for the home screen badge.
             // If the query fails for any reason, send the push without it so
             // notifications are never silently dropped.

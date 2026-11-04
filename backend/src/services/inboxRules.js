@@ -347,6 +347,23 @@ export function newMailAlerts({ remaining, mutedIds = new Set(), notifyMessages 
   return { alertMessages, alertCount: alertMessages.length, send: remaining.length > 0 || notifyMessages.length > 0 };
 }
 
+// The Web Push payload for a sync's alerts. The notification's tag collapses arrivals into one
+// card for the latest message. `messageId` is sent only when the push is about that one message,
+// so the card's Mark as read / Archive buttons (#689) never act on one of several it summarizes.
+export function newMailPushPayload(alertMessages, alertCount) {
+  const latest = alertMessages[alertMessages.length - 1];
+  const payload = {
+    title: latest.fromName || latest.fromEmail || 'New mail',
+    body: alertCount === 1 ? (latest.subject || '(no subject)') : `${alertCount} new messages`,
+    icon: '/icon-512.png',
+    badge: '/badge-96.png',
+    // Fall back to the inbox if the id is somehow absent.
+    url: latest.id ? `/?m=${latest.id}` : '/',
+  };
+  if (alertCount === 1 && latest.id) payload.messageId = latest.id;
+  return payload;
+}
+
 // Moves messages from blocked senders to trash before inbox rules run.
 export async function applyBlockList(messages, account, imapManager) {
   if (!messages.length) return messages;
