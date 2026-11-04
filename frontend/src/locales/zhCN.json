@@ -1471,6 +1471,15 @@
       "ssoUnlinkBody": "解除后您将无法再通过此服务商登录。请确保您还有其他登录方式。",
       "ssoUnlinkConfirm": "解除绑定",
       "ssoNoProviders": "此服务器尚未配置任何 SSO 服务商。",
+      "ssoLinkConfirmPassword": "请输入密码以绑定 {{provider}}。",
+      "ssoLinkConfirmTotp": "请输入身份验证器应用中的验证码以绑定 {{provider}}。",
+      "ssoLinkConfirmOidc": "请再次通过 SSO 登录以确认是您本人，然后在此处绑定 {{provider}}。",
+      "ssoLinkConfirmOidcButton": "通过 {{provider}} 确认",
+      "ssoLinkConfirmNoProvider": "您的账户没有可用于确认的 SSO 身份，也未启用密码登录。请联系管理员。",
+      "ssoLinkConfirmTotpSetup": "此服务器要求双重身份验证。绑定前请先在上方设置身份验证器应用。",
+      "ssoLinkConfirmed": "已通过 SSO 确认，有效期至 {{time}}。现在可以绑定其他服务商。",
+      "ssoLinkContinue": "继续",
+      "ssoLinkChecking": "正在检查…",
       "activityColEvent": "事件",
       "activityColStatus": "状态",
       "activityColTime": "时间",
@@ -1915,6 +1924,10 @@
     "ssoLinked": {
       "title": "SSO 身份已绑定",
       "body": "您的账户已成功绑定至该 SSO 服务商。"
+    },
+    "ssoReauth": {
+      "title": "已通过 SSO 确认",
+      "body": "接下来的 10 分钟内，您可以绑定另一个 SSO 账户。"
     },
     "ssoError": {
       "title": "SSO 错误"

@@ -1471,6 +1471,15 @@
       "ssoUnlinkBody": "Vous ne pourrez plus vous connecter avec ce fournisseur. Assurez-vous d'avoir une autre méthode de connexion.",
       "ssoUnlinkConfirm": "Délier",
       "ssoNoProviders": "Aucun fournisseur SSO n'est configuré sur ce serveur.",
+      "ssoLinkConfirmPassword": "Entrez votre mot de passe pour lier {{provider}}.",
+      "ssoLinkConfirmTotp": "Entrez le code de votre application d'authentification pour lier {{provider}}.",
+      "ssoLinkConfirmOidc": "Reconnectez-vous via SSO pour confirmer que c'est bien vous, puis liez {{provider}} depuis cette page.",
+      "ssoLinkConfirmOidcButton": "Confirmer avec {{provider}}",
+      "ssoLinkConfirmNoProvider": "Votre compte n'a aucune identité SSO pour confirmer et pas de connexion par mot de passe. Contactez un administrateur.",
+      "ssoLinkConfirmTotpSetup": "Ce serveur exige la double authentification. Configurez une application d'authentification ci-dessus avant de lier.",
+      "ssoLinkConfirmed": "Confirmé via SSO jusqu'à {{time}}. Vous pouvez lier un autre fournisseur maintenant.",
+      "ssoLinkContinue": "Continuer",
+      "ssoLinkChecking": "Vérification…",
       "activityColEvent": "Événement",
       "activityColStatus": "Statut",
       "activityColTime": "Heure",
@@ -1915,6 +1924,10 @@
     "ssoLinked": {
       "title": "Identité SSO liée",
       "body": "Votre compte est maintenant lié au fournisseur SSO."
+    },
+    "ssoReauth": {
+      "title": "Confirmé via SSO",
+      "body": "Vous pouvez lier un autre compte SSO pendant les 10 prochaines minutes."
     },
     "ssoError": {
       "title": "Erreur SSO"

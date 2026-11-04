@@ -1471,6 +1471,15 @@
       "ssoUnlinkBody": "Non potrai più accedere con questo provider. Assicurati di avere un altro metodo di accesso.",
       "ssoUnlinkConfirm": "Scollega",
       "ssoNoProviders": "Nessun provider SSO è configurato su questo server.",
+      "ssoLinkConfirmPassword": "Inserisci la tua password per collegare {{provider}}.",
+      "ssoLinkConfirmTotp": "Inserisci il codice della tua app di autenticazione per collegare {{provider}}.",
+      "ssoLinkConfirmOidc": "Accedi di nuovo tramite SSO per confermare che sei tu, poi collega {{provider}} da qui.",
+      "ssoLinkConfirmOidcButton": "Conferma con {{provider}}",
+      "ssoLinkConfirmNoProvider": "Il tuo account non ha alcuna identità SSO con cui confermare né l'accesso con password. Rivolgiti a un amministratore.",
+      "ssoLinkConfirmTotpSetup": "Questo server richiede l'autenticazione a due fattori. Configura un'app di autenticazione qui sopra prima di collegare.",
+      "ssoLinkConfirmed": "Confermato con SSO fino alle {{time}}. Ora puoi collegare un altro provider.",
+      "ssoLinkContinue": "Continua",
+      "ssoLinkChecking": "Controllo in corso…",
       "activityColEvent": "Evento",
       "activityColStatus": "Stato",
       "activityColTime": "Ora",
@@ -1915,6 +1924,10 @@
     "ssoLinked": {
       "title": "Identità SSO collegata",
       "body": "Il tuo account è ora collegato al provider SSO."
+    },
+    "ssoReauth": {
+      "title": "Confermato con SSO",
+      "body": "Puoi collegare un altro account SSO nei prossimi 10 minuti."
     },
     "ssoError": {
       "title": "Errore SSO"

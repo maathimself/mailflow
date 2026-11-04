@@ -133,7 +133,7 @@ describe('SSO browser routes honour the screen lock (#235)', () => {
   });
 
   it('still links an identity from an unlocked session', async () => {
-    const cookie = await sessionWith({ userId: 'u1' });
+    const cookie = await sessionWith({ userId: 'u1', linkConfirmation: { at: Date.now(), userId: 'u1' } });
 
     const start = await get('/auth/oidc/idp/start?action=link', cookie);
     expect(start.headers.get('location').split('?')[0]).toBe(`${issuer}/authorize`);
@@ -151,7 +151,7 @@ describe('SSO browser routes honour the screen lock (#235)', () => {
 // #714: linking showed nowhere; it now goes to the security log, and a sign-in does not.
 describe('SSO identity links in the security log', () => {
   it('logs a link', async () => {
-    const cookie = await sessionWith({ userId: 'u1', username: 'owner@example.com' });
+    const cookie = await sessionWith({ userId: 'u1', username: 'owner@example.com', linkConfirmation: { at: Date.now(), userId: 'u1' } });
     await get('/auth/oidc/idp/start?action=link', cookie);
     const { oidcPending } = await sessionOf(cookie);
     jwtVerify.mockResolvedValue(verifiedIdToken(oidcPending.nonce));

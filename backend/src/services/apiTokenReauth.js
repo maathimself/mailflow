@@ -12,16 +12,18 @@ import { clearOidcConfirmation, freshOidcConfirmation, OIDC_CONFIRMATION_MS } fr
 // Confirming who is at the browser before an API token is created (#617). A token can do what its
 // scopes allow for as long as it lasts, past sign-out and past the session, so an unlocked browser
 // must not be able to mint one quietly, and a token must not get round the server's sign-in
-// policy. This module is the whole of that rule; routes/apiTokens.js only asks it.
+// policy. Linking a single sign-on identity takes the same confirmation (#714): an identity signs
+// in as the account past a password reset and without its two-factor code. This module is the
+// whole of that rule; routes/apiTokens.js and routes/oidc.js only ask it.
 //
 // - 'oidc' when the account cannot sign in with a password: password sign-in is off, or it has
 //   none. Only its single sign-on provider vouches for it, so creating a token needs a sign-in
 //   made through the provider in the last 10 minutes from the form's Confirm button, which makes
 //   the provider ask for credentials again (oidcConfirmation.js; routes/oidc.js, action=reauth),
-//   and each such sign-in makes one token. An ordinary sign-in does not count, and a provider
-//   that sends no auth_time (Entra ID without that optional claim) cannot confirm at all. Such a
-//   token lasts 30 days at most, which bounds how long it can outlive the provider deprovisioning
-//   the user, which MailFlow cannot see.
+//   and each such sign-in confirms one token or one link. An ordinary sign-in does not count, and
+//   a provider that sends no auth_time (Entra ID without that optional claim) cannot confirm at
+//   all. Such a token lasts 30 days at most, which bounds how long it can outlive the provider
+//   deprovisioning the user, which MailFlow cannot see.
 // - 'totp' when the user has two-factor on: their current code, checked as the sign-in challenge
 //   checks it (routes/auth.js), with the same replay guard and totp:<uid> limit.
 // - 'totpSetup' when two-factor is required and the user has no authenticator: they sign in with an
@@ -52,6 +54,12 @@ async function signInSettings() {
   return Object.fromEntries(rows.map(row => [row.key, row.value]));
 }
 
+// The user with what reauthFor and confirmReauth look at; undefined when there is no such user.
+export const userForReauth = async userId => (await query(
+  'SELECT id, username, password_hash, totp_enabled, totp_secret FROM users WHERE id = $1',
+  [userId]
+)).rows[0];
+
 // Enabled providers the user has an identity at, which are the ones a sign-in can confirm with.
 const linkedProviders = async userId => (await query(
   `SELECT DISTINCT op.id, op.slug, op.name FROM user_identities ui
@@ -81,7 +89,7 @@ export async function confirmReauth(req, user, reauth) {
   if (reauth === 'totp') return confirmTotp(req, user, req.body?.totpCode);
   if (reauth === 'password') return confirmPassword(req, user, req.body?.password);
   if (reauth === 'oidc') return confirmOidc(req, user);
-  return { refusal: { status: 403, body: { error: 'This server requires two-factor authentication. Set up an authenticator app to create API tokens.', reauth } } };
+  return { refusal: { status: 403, body: { error: 'This server requires two-factor authentication. Set up an authenticator app first.', reauth } } };
 }
 
 const TOTP_WINDOW_MS = 15 * 60 * 1000;
@@ -128,9 +136,9 @@ async function confirmPassword(req, user, password) {
 
 // The provider is checked again here: it may have been turned off, or the identity unlinked, since
 // the sign-in (and again under locks when the token is stored, apiTokens.js). A confirmation makes
-// one token: the session forgets it here, and Redis keeps its nonce as spent for as long as it
-// could have counted, so two requests carrying the same one cannot both pass, as confirmTotp keeps
-// a two-factor code from being used twice.
+// one token, or one link: the session forgets it here, and Redis keeps its nonce as spent for as
+// long as it could have counted, so two requests carrying the same one cannot both pass, as
+// confirmTotp keeps a two-factor code from being used twice.
 async function confirmOidc(req, user) {
   const fresh = freshOidcConfirmation(req.session);
   if (fresh && fresh.userId === user.id && (await linkedProviders(user.id)).some(p => p.id === fresh.providerId)) {
@@ -140,7 +148,7 @@ async function confirmOidc(req, user) {
       return { confirmedWith: 'oidc', oidcProvider: { id: fresh.providerId, issuerUrl: fresh.issuerUrl, clientId: fresh.clientId } };
     }
   }
-  return { refusal: { status: 400, body: { error: 'Confirm through single sign-on first; each confirmation makes one token and counts for 10 minutes', reauth: 'oidc' } } };
+  return { refusal: { status: 400, body: { error: 'Confirm through single sign-on first; each confirmation can be used once, within 10 minutes', reauth: 'oidc' } } };
 }
 
 const tooManyAttempts = (reauth, resetMs) => ({
