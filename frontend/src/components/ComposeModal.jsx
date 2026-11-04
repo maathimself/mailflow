@@ -3890,6 +3890,24 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
   const mobileMoreRef = useRef(null);
   const desktopMoreRef = useRef(null);
 
+  // Measure in visual coordinates so font scaling and translated labels are included.
+  // Layout effect positions the picker before paint; resizing it or the viewport reclamps it.
+  useLayoutEffect(() => {
+    if (!tablePos || !tablePopRef.current) return;
+    const clamp = () => {
+      const popup = tablePopRef.current;
+      const width = popup.getBoundingClientRect().width;
+      const anchor = tableBtnRef.current.getBoundingClientRect();
+      const left = Math.max(4, Math.min(anchor.left, window.innerWidth - width - 4));
+      popup.style.left = `${descale(left, uiScale)}px`;
+    };
+    clamp();
+    const observer = new ResizeObserver(clamp);
+    observer.observe(tablePopRef.current);
+    window.addEventListener('resize', clamp);
+    return () => { observer.disconnect(); window.removeEventListener('resize', clamp); };
+  }, [tablePos, uiScale]);
+
   // Keep every formatting-toolbar control out of the Tab sequence so Tab from the
   // Subject field lands directly in the editor body (#266). Formatting stays reachable
   // by mouse and the standard editor shortcuts (Ctrl/Cmd+B, +I, etc.). Re-applied after
@@ -4023,8 +4041,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
     e.preventDefault();
     if (tablePos) { setTablePos(null); return; }
     const r = tableBtnRef.current.getBoundingClientRect();
-    const left = Math.max(4, Math.min(r.left, window.innerWidth - 200));
-    setTablePos({ top: r.bottom + 4, left });
+    setTablePos({ top: r.bottom + 4, left: r.left });
     setTypeMenuPos(null); setEmojiPos(null); setLinkPos(null);
   };
 
@@ -4371,12 +4388,13 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
       {tablePos && (
         <div ref={tablePopRef} style={{
           position: 'fixed', top: descale(tablePos.top, uiScale), left: descale(tablePos.left, uiScale), zIndex: 9900,
+          width: 'max-content', maxWidth: `calc(${100 / uiScale}vw - ${8 / uiScale}px)`, boxSizing: 'border-box',
           background: 'var(--bg-elevated)', border: '1px solid var(--border)',
           borderRadius: 8, padding: '10px 12px', boxShadow: 'var(--shadow-popover)',
           display: 'flex', flexDirection: 'column', gap: 8,
         }}>
           <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>{t('compose.toolbar.insertTable')}</span>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {[
               { label: '3×3', rows: 3, cols: 3 },
               { label: '3×4', rows: 3, cols: 4 },
