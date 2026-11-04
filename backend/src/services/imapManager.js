@@ -5292,12 +5292,12 @@ export class ImapManager {
             alertMessages: alertMessages.slice(-5), alertCount,
           }, account.user_id);
           if (newMessages.length > 0) broadcastedNewMessages = true;
-          // Web Push — INBOX only, alert-eligible messages only. Non-inbox folder syncs
+          // Notifications — INBOX only, alert-eligible messages only. Non-inbox folder syncs
           // (Archive, Spam, on-demand) can surface old or filtered messages; sending push
           // for them or for mark_read-silenced messages would be misleading.
           // Fire-and-forget: push errors are non-fatal.
           if (folder === 'INBOX' && alertMessages.length > 0) {
-            notifyNewMail({ userId: account.user_id, alertMessages, alertCount });
+            notifyNewMail({ userId: account.user_id, accountName: account.name, alertMessages, alertCount });
           }
           // Pre-warm the body cache for newly arrived messages so clicking one
           // immediately after receipt doesn't require a live IMAP fetch.
