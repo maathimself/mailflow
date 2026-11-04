@@ -27,13 +27,11 @@ function ActionButton({ primary = false, disabled, children, ...props }) {
   }}>{children}</button>;
 }
 
-export default function WebhookSettings({ isAdmin = false }) {
+export default function WebhookSettings() {
   const { t } = useTranslation();
-  const [revision, setRevision] = useState(0);
   return <section style={sectionStyle}>
     <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 4px' }}>{t('webhooks.title')}</h3>
-    <UserWebhookSettings key={revision} />
-    {isAdmin && <AdminWebhookSettings onSaved={() => setRevision(r => r + 1)} />}
+    <UserWebhookSettings />
   </section>;
 }
 
@@ -73,13 +71,15 @@ export function UserWebhookSettings() {
       setBusy(false);
     }
   }
+  if (config && !config.available) {
+    return <p style={helpStyle}>{t('webhooks.unavailable')}</p>;
+  }
   return <div>
     <p style={{ fontSize: 13, color: 'var(--text-tertiary)', margin: '0 0 20px', lineHeight: 1.5 }}>{t('webhooks.description')}</p>
     {error && <p role="alert" style={{ fontSize: 13, color: 'var(--red)', margin: '0 0 14px' }}>{error}</p>}
     {message && <p role="status" style={{ fontSize: 13, color: 'var(--green, #22c55e)', margin: '0 0 14px' }}>{message}</p>}
     {!config && !error && <p style={helpStyle}>{t('common.loading')}</p>}
     {config && <>
-      {!config.available && <p style={{ ...helpStyle, padding: '12px 16px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>{t('webhooks.unavailable')}</p>}
       {!config.enabled && config.failures >= 5 && <p role="alert" style={{ fontSize: 13, color: 'var(--red)' }}>{t('webhooks.disabled')}</p>}
       {config.lastError && <p role="status" style={helpStyle}>{config.lastError}</p>}
       <fieldset disabled={busy || !config.available} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
@@ -103,7 +103,7 @@ export function UserWebhookSettings() {
   </div>;
 }
 
-export function AdminWebhookSettings({ onSaved = () => {} }) {
+export function AdminWebhookSettings() {
   const { t } = useTranslation();
   const [config, setConfig] = useState(null);
   const [origins, setOrigins] = useState('');
@@ -119,11 +119,12 @@ export function AdminWebhookSettings({ onSaved = () => {} }) {
     setBusy(true); setError(''); setMessage('');
     try {
       await api.webhooks.saveAdmin({ enabled: config.enabled, allowedOrigins: origins.split('\n').map(s => s.trim()).filter(Boolean) });
-      setMessage(t('webhooks.saved')); onSaved();
+      setMessage(t('webhooks.saved'));
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
   }
-  return <div style={sectionStyle}>
+  return <div>
+    <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 20px' }}>{t('webhooks.title')}</h3>
     {error && <p role="alert" style={{ fontSize: 13, color: 'var(--red)', margin: '0 0 14px' }}>{error}</p>}
     {message && <p role="status" style={{ fontSize: 13, color: 'var(--green, #22c55e)', margin: '0 0 14px' }}>{message}</p>}
     {!config && !error && <p style={helpStyle}>{t('common.loading')}</p>}

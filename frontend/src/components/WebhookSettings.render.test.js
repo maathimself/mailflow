@@ -134,13 +134,14 @@ describe('webhook settings', () => {
     await click(button('common.save'));
     assert.deepEqual(calls.find(c => c.method === 'PUT').body, { enabled: true, allowedOrigins: ['https://notify.example.com:443', 'http://192.168.1.20:8080'] });
     await act(async () => root.unmount()); calls = [];
-    await mount(WebhookSettings);
+    await mount(WebhookSettings, { isAdmin: true });
     assert.ok(!calls.some(c => c.url.endsWith('/admin')));
   });
-  test('global disable prevents user actions', async () => {
+  test('global disable shows only the disabled notice', async () => {
     config.available = false;
     await mount();
     assert.match(host.textContent, /webhooks.unavailable/);
-    assert.equal(host.querySelector('fieldset').disabled, true);
+    assert.equal(host.textContent, 'webhooks.unavailable');
+    assert.equal(host.querySelector('input, select, textarea, button, fieldset'), null);
   });
 });
