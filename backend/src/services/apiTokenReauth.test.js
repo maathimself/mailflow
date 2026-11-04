@@ -77,7 +77,7 @@ describe('which confirmation token creation asks for', () => {
   it('an authenticator set up first when two-factor is required and the user has none', async () => {
     settings.mfaEnforcement = 'required';
     expect(await reauthFor(PASSWORD_USER)).toBe('totpSetup');
-    const refusal = { status: 403, body: { error: 'This server requires two-factor authentication. Set up an authenticator app to create API tokens.', reauth: 'totpSetup' } };
+    const refusal = { status: 403, body: { error: 'This server requires two-factor authentication. Set up an authenticator app first.', reauth: 'totpSetup' } };
     expect(await confirmReauth(request({ password: 'right' }), PASSWORD_USER, 'totpSetup')).toEqual({ refusal });
   });
 
@@ -173,7 +173,7 @@ describe('confirming with the password', () => {
 });
 
 describe('confirming with a sign-in through single sign-on', () => {
-  const refused = { refusal: { status: 400, body: { error: 'Confirm through single sign-on first; each confirmation makes one token and counts for 10 minutes', reauth: 'oidc' } } };
+  const refused = { refusal: { status: 400, body: { error: 'Confirm through single sign-on first; each confirmation can be used once, within 10 minutes', reauth: 'oidc' } } };
   const signedIn = (msAgo, providerId = CORP.id) => {
     const session = {};
     recordOidcConfirmation(session, SSO_USER.id, { id: providerId, issuer_url: 'https://corp.example.com', client_id: 'mailflow' }, Date.now() - msAgo);

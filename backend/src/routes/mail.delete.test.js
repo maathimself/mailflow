@@ -121,7 +121,10 @@ function fakeQuery(rawSql, params = []) {
     for (const [id, r] of [...rows]) if (r.uid === params[1] && r.folder === params[2] && id !== params[3]) rows.delete(id);
     return result([]);
   }
-  if (sql === 'DELETE FROM messages WHERE id = $1') return result([], rows.delete(params[0]) ? 1 : 0);
+  if (sql === 'DELETE FROM messages WHERE id = $1' || sql === 'DELETE FROM messages WHERE id = $1 RETURNING *') {
+    const row = rows.get(params[0]);
+    return result(row ? [row] : [], rows.delete(params[0]) ? 1 : 0);
+  }
   // Any "UPDATE messages SET a = $n, ... WHERE id = $m", so the tests pin behaviour rather than SQL text.
   const update = sql.match(/^UPDATE messages SET (.+) WHERE id = \$(\d+)$/);
   if (update) {

@@ -123,6 +123,38 @@ test('updating the signed-in user keeps their compose and mailbox', () => {
   assert.equal(s().accounts.length, 1);
 });
 
+test('unlocking reopens the message that was open at the lock, after a reload too', () => {
+  s().setSelectedMessage('m1');
+  s().setLocked(true);
+  s().setLocked(false);
+  assert.equal(s().selectedMessageId, 'm1');
+  // Locked again, then reloaded: /me finds the session alive and locked, so App.jsx signs the
+  // user back in and locks before the PIN unlocks it (#235).
+  s().setLocked(true);
+  useStore.setState({ user: null });
+  s().setUser({ id: 'alice' });
+  s().setLocked(true);
+  s().setLocked(false);
+  assert.equal(s().selectedMessageId, 'm1');
+});
+
+test('a cold load that finds the locked session expired does not reopen its message for the next user', () => {
+  // The browser closed behind the lock and the session expired. The next load starts with no
+  // user, /me answers 401, and App.jsx clears the user and the lock; the login page then signs
+  // the next user in without a reload.
+  s().setSelectedMessage('m1');
+  s().setLocked(true);
+  useStore.setState({ user: null });
+  s().setUser(null);
+  s().setLocked(false);
+  s().setUser({ id: 'bob' });
+  assert.equal(s().selectedMessageId, null);
+  // Nor once they lock and unlock themselves.
+  s().setLocked(true);
+  s().setLocked(false);
+  assert.equal(s().selectedMessageId, null);
+});
+
 test('a cold load keeps the reading preferences the store seeded from localStorage', () => {
   // The store reads these two from localStorage when it is created, so they apply before
   // loadPreferences answers. App.jsx then calls setUser with the signed-in user, going from no

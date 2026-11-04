@@ -15,12 +15,33 @@ import { unlinkUserIdentity } from '../services/userIdentities.js';
 import { isUuid } from '../utils/uuid.js';
 import { recordOidcConfirmation } from '../services/oidcConfirmation.js';
 import { revokedTokensNote } from '../services/apiTokens.js';
+import { confirmReauth, oidcConfirmationState, reauthFor, userForReauth } from '../services/apiTokenReauth.js';
 
 // In-memory OIDC discovery cache keyed by issuerUrl
 const discoveryCache = new Map();
 const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 // How far before a reauth flow began its id_token's auth_time may lie: clock skew, nothing more.
 const REAUTH_CLOCK_SKEW_MS = 60 * 1000;
+
+// Linking an identity takes the confirmation creating an API token does (#714): the password, the
+// two-factor code or a fresh sign-in through a provider already linked, checked by
+// POST /api/auth/oidc/link-confirm with the rule in services/apiTokenReauth.js. A session on its
+// own cannot add one, since an identity signs in as the account past a password reset and without
+// its two-factor code. The confirmation counts for five minutes, for one link: the link start
+// spends it.
+const LINK_CONFIRMATION_MS = 5 * 60 * 1000;
+
+function recordLinkConfirmation(session, userId, now = Date.now()) {
+  session.linkConfirmation = { at: now, userId };
+  return new Date(now + LINK_CONFIRMATION_MS);
+}
+
+// Whether the session's user confirmed in the last five minutes.
+function linkConfirmed(session, now = Date.now()) {
+  const record = session?.linkConfirmation;
+  if (!record || typeof record.userId !== 'string' || record.userId !== session.userId) return false;
+  return Number.isFinite(record.at) && record.at <= now && now - record.at <= LINK_CONFIRMATION_MS;
+}
 
 // Fetch that skips TLS certificate verification — only used when allow_insecure is set.
 function makeInsecureFetch(signal) {
@@ -222,9 +243,13 @@ oidcApiRouter.get('/providers', async (req, res) => {
   }
 });
 
-// List identities linked to the current user
+// List identities linked to the current user, and what linking another has to be confirmed with
+// (#714), as the API token form is told: with 'oidc', the providers a sign-in can confirm with and
+// until when the last one counts.
 oidcApiRouter.get('/identities', requireAuth, async (req, res) => {
   try {
+    const user = await userForReauth(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not authenticated' });
     const result = await query(
       `SELECT ui.id, ui.issuer, ui.email, ui.created_at, ui.last_used_at,
               op.name AS provider_name, op.slug AS provider_slug
@@ -234,9 +259,32 @@ oidcApiRouter.get('/identities', requireAuth, async (req, res) => {
        ORDER BY ui.created_at ASC`,
       [req.session.userId]
     );
-    res.json({ identities: result.rows });
+    const reauth = await reauthFor(user);
+    res.json({
+      identities: result.rows,
+      reauth,
+      ...(reauth === 'oidc' ? { oidc: await oidcConfirmationState(req, user) } : {}),
+    });
   } catch {
     res.status(500).json({ error: 'Failed to load identities' });
+  }
+});
+
+// Confirms the user before a link (#714), as creating an API token is confirmed and with its
+// refusals, limits and log entries (never 401: the web client signs out on one). A fresh sign-in
+// through single sign-on is spent here, as a token spends it. The link start takes what this
+// records, once, within five minutes.
+oidcApiRouter.post('/link-confirm', requireAuth, async (req, res) => {
+  try {
+    const user = await userForReauth(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not authenticated' });
+    const { refusal } = await confirmReauth(req, user, await reauthFor(user));
+    if (refusal) return res.status(refusal.status).set(refusal.headers ?? {}).json(refusal.body);
+    const until = recordLinkConfirmation(req.session, user.id);
+    res.json({ ok: true, until: until.toISOString() });
+  } catch (err) {
+    console.error('OIDC link confirmation error:', err.message);
+    res.status(500).json({ error: 'Failed to confirm' });
   }
 });
 
@@ -276,9 +324,9 @@ function oidcError(res, action, message) {
 }
 
 // Step 1: redirect the browser to the OIDC provider's authorization endpoint.
-// action=link adds an identity to the signed-in account; action=reauth has the provider vouch
-// again for the signed-in user, which creating an API token needs when the account cannot sign in
-// with a password (#617).
+// action=link adds an identity to the signed-in account, once its user has confirmed (#714);
+// action=reauth has the provider vouch again for the signed-in user, which creating an API token
+// needs when the account cannot sign in with a password (#617).
 oidcBrowserRouter.get('/:slug/start', async (req, res) => {
   const { slug } = req.params;
   const action = ['link', 'reauth'].includes(req.query.action) ? req.query.action : 'login';
@@ -291,6 +339,14 @@ oidcBrowserRouter.get('/:slug/start', async (req, res) => {
   // must not link another identity to the account, or sign in again to get an unlocked session.
   if (req.session?.locked) {
     return oidcError(res, action, 'Screen was locked — please try again');
+  }
+  // A link takes a confirmation just given (POST /api/auth/oidc/link-confirm), and spends it: the
+  // next link needs one of its own. Refused before the provider is looked up.
+  if (isLink) {
+    if (!linkConfirmed(req.session)) {
+      return oidcError(res, action, 'Confirm it is you first — link from Settings → Security');
+    }
+    delete req.session.linkConfirmation;
   }
 
   try {
@@ -466,7 +522,8 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
 
     // ── Link action: add this identity to an already-authenticated account ────
     if (pending.action === 'link') {
-      if (!pending.linkUserId) {
+      // Only for the user who started it, still signed in on this session, as reauth requires too.
+      if (!pending.linkUserId || req.session.userId !== pending.linkUserId) {
         return oidcError(res, 'link', 'Link session invalid');
       }
       try {

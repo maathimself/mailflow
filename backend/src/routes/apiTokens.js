@@ -7,7 +7,7 @@ import {
   apiTokensEnabled, countTokens, createToken, deleteToken, expiryDate, listTokens, MAX_TOKENS_PER_USER,
   normalizeIp, normalizeScopes, normalizeTokenName, TOKENS_OFF_ERROR,
 } from '../services/apiTokens.js';
-import { confirmReauth, expiryChoicesFor, oidcConfirmationState, reauthFor } from '../services/apiTokenReauth.js';
+import { confirmReauth, expiryChoicesFor, oidcConfirmationState, reauthFor, userForReauth } from '../services/apiTokenReauth.js';
 
 // Personal API tokens (#617): Settings → Security lists, creates and revokes them with the browser
 // session. A token itself can only ask who it is.
@@ -29,13 +29,8 @@ router.use((req, res, next) => {
 router.use(requireAuth);
 router.param('id', uuidParam('id'));
 
-const loadUser = async userId => (await query(
-  'SELECT id, username, password_hash, totp_enabled, totp_secret FROM users WHERE id = $1',
-  [userId]
-)).rows[0];
-
 router.get('/', async (req, res) => {
-  const user = await loadUser(req.session.userId);
+  const user = await userForReauth(req.session.userId);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
   const reauth = await reauthFor(user);
   res.json({
@@ -52,7 +47,7 @@ const describeExpiry = days => `Choose an expiry of ${days.slice(0, -1).join(', 
 
 router.post('/', async (req, res) => {
   if (!(await apiTokensEnabled())) return res.status(403).json({ error: TOKENS_OFF_ERROR });
-  const user = await loadUser(req.session.userId);
+  const user = await userForReauth(req.session.userId);
   if (!user) return res.status(401).json({ error: 'Not authenticated' });
   const { name: rawName, scopes: rawScopes, expiresInDays } = req.body ?? {};
 

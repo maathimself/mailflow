@@ -256,6 +256,14 @@ export const api = {
     enrollmentEnable: (code) => request('POST', '/auth/2fa/enrollment/enable', { code }),
   },
 
+  // Personal API tokens (#617), managed from the browser session. create's response is the only
+  // place the new token's secret ever appears.
+  apiTokens: {
+    list: () => request('GET', '/api-tokens'),
+    create: (data) => request('POST', '/api-tokens', data),
+    revoke: (id) => request('DELETE', `/api-tokens/${encodeURIComponent(id)}`),
+  },
+
   // Admin
   admin: {
     getUsers: (params) => request('GET', '/admin/users' + (params ? '?' + new URLSearchParams(params) : '')),
@@ -344,6 +352,9 @@ export const api = {
     getProviders: () => request('GET', '/auth/oidc/providers'),
     getIdentities: () => request('GET', '/auth/oidc/identities'),
     unlinkIdentity: (id) => request('DELETE', `/auth/oidc/identities/${id}`),
+    // Before linking another identity (#714): the password or totpCode the server asked for, or
+    // nothing when a sign-in through single sign-on counts. The link start then takes what it records.
+    confirmLink: (data) => request('POST', '/auth/oidc/link-confirm', data),
   },
 
   // Accounts

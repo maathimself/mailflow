@@ -502,7 +502,7 @@ describe('applyInboxRules — UID update after move', () => {
 
     expect(result.remaining).toHaveLength(0);
     const sqls = query.mock.calls.map(([sql, params]) => [sql.replace(/\s+/g, ' ').trim(), params]);
-    expect(sqls).toContainEqual(['DELETE FROM messages WHERE id = $1', ['msg-1']]);
+    expect(sqls).toContainEqual(['DELETE FROM messages WHERE id = $1 RETURNING *', ['msg-1']]);
     expect(sqls.filter(([sql]) => sql.startsWith('UPDATE messages SET folder'))).toEqual([]);
     expect(mockImap.syncFolderOnDemand).toHaveBeenCalledWith(account, destination);
     expect(mockImap.setFlag).not.toHaveBeenCalled();

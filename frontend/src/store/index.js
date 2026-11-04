@@ -142,9 +142,7 @@ export const useStore = create((set, get) => ({
       // run that outlived a logout would finish and write the previous user's result into this
       // device's cache, under their message id, for whoever signs in next.
       aiRuns.abortAll();
-      // The message remembered for the lock screen is the leaving user's too. After a lockout,
-      // App.jsx clears the lock right after it clears the user, and setLocked(false) would
-      // restore that message for whoever signs in next.
+      // The message remembered for the lock screen is the leaving user's too.
       if (get().user) localStorage.removeItem('mailflow_locked_message');
     }
     set(state => ({
@@ -253,7 +251,10 @@ export const useStore = create((set, get) => ({
         gtdSections: null, categoryCounts: {}, categoryTotals: {}, activeGtdTab: null,
       });
     } else {
-      const restoredMessageId = localStorage.getItem('mailflow_locked_message') || null;
+      // Only for a signed-in user, who is the one unlocking. With nobody signed in (after a
+      // lockout, or on a cold load that found the locked session expired), it is the previous
+      // user's message, and it would open for whoever signs in next: signing in doesn't reload.
+      const restoredMessageId = (get().user && localStorage.getItem('mailflow_locked_message')) || null;
       localStorage.removeItem('mailflow_locked_message');
       localStorage.removeItem('mailflow_locked');
       set({ isLocked: false, selectedMessageId: restoredMessageId });
