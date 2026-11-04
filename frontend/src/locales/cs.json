@@ -2435,6 +2435,27 @@
     "createAppPassword": "Vytvořit heslo aplikace"
   },
   "webhooks": {
+    "errors": {
+      "url": "Zadejte platnou adresu URL oznámení.",
+      "urlScheme": "Použijte adresu HTTP nebo HTTPS bez uživatelského jména, hesla a fragmentu.",
+      "settings": "Zkontrolujte nastavení oznámení a zkuste to znovu.",
+      "origin": "Zadejte protokol, hostitele a případně port, bez cesty a parametrů dotazu.",
+      "format": "Vyberte podporovaný formát oznámení.",
+      "tokenPreset": "Ověřovací tokeny jsou podporovány pouze pro ntfy a Gotify.",
+      "https": "Veřejné adresy oznámení musí používat HTTPS.",
+      "urlRequired": "Před zapnutím oznámení zadejte adresu URL.",
+      "token": "Zadejte platný token bez mezer a znaků mimo ASCII.",
+      "session": "Platnost relace vypršela. Přihlaste se znovu.",
+      "admin": "Jsou vyžadována oprávnění správce.",
+      "timeout": "Vypršel čas pro odeslání. Zkontrolujte službu a zkuste to znovu.",
+      "blocked": "Síťová pravidla serveru tento cíl blokují.",
+      "delivery": "Oznámení se nepodařilo doručit. Zkontrolujte službu a nastavení připojení.",
+      "rateLimit": "Příliš mnoho oznámení. Počkejte minutu a zkuste to znovu.",
+      "disabled": "Oznámení jsou vypnutá. Zkontrolujte své nastavení i nastavení správce.",
+      "unavailable": "Služba oznámení je dočasně nedostupná. Zkuste to později.",
+      "http": "Služba oznámení vrátila HTTP {{status}}. Zkontrolujte adresu a ověření.",
+      "request": "Požadavek se nepodařilo dokončit. Zkontrolujte připojení a zkuste to znovu."
+    },
     "title": "Odchozí webhooky",
     "description": "Odesílejte název účtu a počet nových e-mailů do jednoho cíle oznámení. Volitelné podrobnosti popisují pouze poslední způsobilou zprávu. Těla zpráv se nikdy neodesílají.",
     "unavailable": "Správce zakázal webhooky.",

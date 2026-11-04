@@ -2435,6 +2435,27 @@
     "createAppPassword": "Utwórz hasło aplikacji"
   },
   "webhooks": {
+    "errors": {
+      "url": "Wpisz prawidłowy adres URL powiadomień.",
+      "urlScheme": "Użyj adresu HTTP lub HTTPS bez nazwy użytkownika, hasła ani fragmentu.",
+      "settings": "Sprawdź ustawienia powiadomień i spróbuj ponownie.",
+      "origin": "Podaj protokół, host i opcjonalny port, bez ścieżki ani parametrów zapytania.",
+      "format": "Wybierz obsługiwany format powiadomień.",
+      "tokenPreset": "Tokeny uwierzytelniania są obsługiwane tylko przez ntfy i Gotify.",
+      "https": "Publiczne adresy powiadomień muszą używać HTTPS.",
+      "urlRequired": "Podaj adres URL przed włączeniem powiadomień.",
+      "token": "Wpisz prawidłowy token bez spacji ani znaków spoza ASCII.",
+      "session": "Sesja wygasła. Zaloguj się ponownie.",
+      "admin": "Wymagane są uprawnienia administratora.",
+      "timeout": "Przekroczono czas wysyłania. Sprawdź usługę i spróbuj ponownie.",
+      "blocked": "Polityka sieciowa serwera blokuje ten adres.",
+      "delivery": "Nie udało się dostarczyć powiadomienia. Sprawdź usługę i ustawienia połączenia.",
+      "rateLimit": "Zbyt wiele powiadomień. Poczekaj minutę i spróbuj ponownie.",
+      "disabled": "Powiadomienia są wyłączone. Sprawdź swoje ustawienia i ustawienia administratora.",
+      "unavailable": "Usługa powiadomień jest chwilowo niedostępna. Spróbuj później.",
+      "http": "Usługa powiadomień zwróciła HTTP {{status}}. Sprawdź adres i uwierzytelnianie.",
+      "request": "Nie udało się wykonać żądania. Sprawdź połączenie i spróbuj ponownie."
+    },
     "title": "Wychodzące webhooki",
     "description": "Wysyłaj nazwę konta i liczbę nowych wiadomości do jednego punktu powiadomień. Opcjonalne szczegóły dotyczą tylko ostatniej kwalifikującej się wiadomości. Treść wiadomości nigdy nie jest wysyłana.",
     "unavailable": "Administrator wyłączył webhooki.",

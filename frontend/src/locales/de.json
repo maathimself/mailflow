@@ -2416,6 +2416,27 @@
     "createAppPassword": "App-Passwort erstellen"
   },
   "webhooks": {
+    "errors": {
+      "url": "Gib eine gültige Benachrichtigungs-URL ein.",
+      "urlScheme": "Verwende eine HTTP- oder HTTPS-URL ohne Benutzername, Passwort oder Fragment.",
+      "settings": "Prüfe die Benachrichtigungseinstellungen und versuche es erneut.",
+      "origin": "Gib Protokoll, Host und optional einen Port an, ohne Pfad oder Abfrage.",
+      "format": "Wähle ein unterstütztes Benachrichtigungsformat.",
+      "tokenPreset": "Authentifizierungstoken werden nur für ntfy und Gotify unterstützt.",
+      "https": "Öffentliche Benachrichtigungs-URLs müssen HTTPS verwenden.",
+      "urlRequired": "Gib eine Benachrichtigungs-URL ein, bevor du Benachrichtigungen aktivierst.",
+      "token": "Gib ein gültiges Token ohne Leerzeichen oder Nicht-ASCII-Zeichen ein.",
+      "session": "Deine Sitzung ist abgelaufen. Melde dich erneut an.",
+      "admin": "Administratorrechte sind erforderlich.",
+      "timeout": "Zeitüberschreitung beim Senden. Prüfe den Dienst und versuche es erneut.",
+      "blocked": "Die Netzwerkrichtlinie des Servers blockiert dieses Ziel.",
+      "delivery": "Die Benachrichtigung konnte nicht zugestellt werden. Prüfe Dienst und Verbindungseinstellungen.",
+      "rateLimit": "Zu viele Benachrichtigungen. Warte eine Minute und versuche es erneut.",
+      "disabled": "Benachrichtigungen sind deaktiviert. Prüfe deine Einstellungen und die des Administrators.",
+      "unavailable": "Der Benachrichtigungsdienst ist vorübergehend nicht verfügbar. Versuche es später erneut.",
+      "http": "Der Benachrichtigungsdienst meldet HTTP {{status}}. Prüfe Adresse und Authentifizierung.",
+      "request": "Die Anfrage konnte nicht abgeschlossen werden. Prüfe deine Verbindung und versuche es erneut."
+    },
     "title": "Ausgehende Webhooks",
     "description": "Kontoname und Anzahl neuer E-Mails an einen Benachrichtigungsendpunkt senden. Optionale Details betreffen nur die letzte relevante Nachricht. Nachrichteninhalte werden nie gesendet.",
     "unavailable": "Webhooks wurden von der Administration deaktiviert.",

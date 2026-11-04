@@ -2416,6 +2416,27 @@
     "createAppPassword": "Crear una contraseña de aplicación"
   },
   "webhooks": {
+    "errors": {
+      "url": "Introduce una URL de notificación válida.",
+      "urlScheme": "Usa una URL HTTP o HTTPS sin nombre de usuario, contraseña ni fragmento.",
+      "settings": "Revisa la configuración de notificaciones e inténtalo de nuevo.",
+      "origin": "Introduce el protocolo, el servidor y, opcionalmente, el puerto, sin ruta ni parámetros de consulta.",
+      "format": "Elige un formato de notificación compatible.",
+      "tokenPreset": "Los tokens de autenticación solo se admiten en ntfy y Gotify.",
+      "https": "Las URL de notificación públicas deben usar HTTPS.",
+      "urlRequired": "Introduce una URL antes de activar las notificaciones.",
+      "token": "Introduce un token válido sin espacios ni caracteres no ASCII.",
+      "session": "Tu sesión ha caducado. Inicia sesión de nuevo.",
+      "admin": "Se requieren permisos de administrador.",
+      "timeout": "El envío agotó el tiempo de espera. Revisa el servicio e inténtalo de nuevo.",
+      "blocked": "La política de red del servidor bloquea este destino.",
+      "delivery": "No se pudo enviar la notificación. Revisa el servicio y la conexión.",
+      "rateLimit": "Demasiadas notificaciones. Espera un minuto e inténtalo de nuevo.",
+      "disabled": "Las notificaciones están desactivadas. Revisa tus ajustes y los del administrador.",
+      "unavailable": "El servicio de notificaciones no está disponible temporalmente. Inténtalo más tarde.",
+      "http": "El servicio de notificaciones devolvió HTTP {{status}}. Revisa la dirección y la autenticación.",
+      "request": "No se pudo completar la solicitud. Revisa la conexión e inténtalo de nuevo."
+    },
     "title": "Webhooks salientes",
     "description": "Envía el nombre de la cuenta y la cantidad de correos nuevos a un destino de notificaciones. Los detalles opcionales describen solo el último mensaje apto. Nunca se envían los cuerpos de los mensajes.",
     "unavailable": "El administrador ha desactivado los webhooks.",

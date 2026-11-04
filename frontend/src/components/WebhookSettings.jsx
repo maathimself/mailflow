@@ -1,6 +1,7 @@
 import { cloneElement, useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
+import { webhookErrorText } from '../utils/webhookErrors.js';
 import ToggleRow from './SettingsToggleRow.jsx';
 import PasswordInput from './PasswordInput.jsx';
 
@@ -47,7 +48,7 @@ export function UserWebhookSettings() {
   const [message, setMessage] = useState('');
   useEffect(() => {
     let active = true;
-    api.webhooks.get().then(data => { if (active) setConfig(data); }).catch(err => { if (active) setError(err.message); });
+    api.webhooks.get().then(data => { if (active) setConfig(data); }).catch(err => { if (active) setError(err); });
     return () => { active = false; };
   }, []);
   const edit = (key, value) => { setConfig(c => ({ ...c, [key]: value })); setDirty(true); setMessage(''); };
@@ -59,13 +60,13 @@ export function UserWebhookSettings() {
       // Clear secrets immediately after a successful write, even if the refresh fails.
       setUrl(''); setToken(''); setClearToken(false);
       setConfig(await api.webhooks.get()); setDirty(false); setMessage(t('webhooks.saved'));
-    } catch (err) { setError(err.message); }
+    } catch (err) { setError(err); }
     finally { setBusy(false); }
   }
   async function test() {
     setBusy(true); setError(''); setMessage('');
     try { await api.webhooks.test(); setMessage(t('webhooks.testSent')); }
-    catch (err) { setError(err.message); }
+    catch (err) { setError(err); }
     finally {
       try { setConfig(await api.webhooks.get()); } catch { /* Keep the delivery error visible. */ }
       setBusy(false);
@@ -76,12 +77,12 @@ export function UserWebhookSettings() {
   }
   return <div>
     <p style={{ fontSize: 13, color: 'var(--text-tertiary)', margin: '0 0 20px', lineHeight: 1.5 }}>{t('webhooks.description')}</p>
-    {error && <p role="alert" style={{ fontSize: 13, color: 'var(--red)', margin: '0 0 14px' }}>{error}</p>}
+    {error && <p role="alert" style={{ fontSize: 13, color: 'var(--red)', margin: '0 0 14px' }}>{webhookErrorText(error, t)}</p>}
     {message && <p role="status" style={{ fontSize: 13, color: 'var(--green, #22c55e)', margin: '0 0 14px' }}>{message}</p>}
     {!config && !error && <p style={helpStyle}>{t('common.loading')}</p>}
     {config && <>
       {!config.enabled && config.failures >= 5 && <p role="alert" style={{ fontSize: 13, color: 'var(--red)' }}>{t('webhooks.disabled')}</p>}
-      {config.lastError && <p role="status" style={helpStyle}>{config.lastError}</p>}
+      {config.lastError && <p role="status" style={helpStyle}>{webhookErrorText(config.lastError, t)}</p>}
       <fieldset disabled={busy || !config.available} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <Check label={t('webhooks.enable')} checked={!!config.enabled} onChange={v => edit('enabled', v)} />
         <Field label={t('webhooks.format')}><select style={fieldStyle} value={config.format} onChange={e => { edit('format', e.target.value); if (e.target.value === 'generic') { setToken(''); setClearToken(false); } }}><option value="generic">{t('webhooks.generic')}</option><option value="ntfy">{'ntfy'}</option><option value="gotify">{'Gotify'}</option></select></Field>
@@ -112,7 +113,7 @@ export function AdminWebhookSettings() {
   const [message, setMessage] = useState('');
   useEffect(() => {
     let active = true;
-    api.webhooks.getAdmin().then(data => { if (active) { setConfig(data); setOrigins(data.allowedOrigins.join('\n')); } }).catch(err => { if (active) setError(err.message); });
+    api.webhooks.getAdmin().then(data => { if (active) { setConfig(data); setOrigins(data.allowedOrigins.join('\n')); } }).catch(err => { if (active) setError(err); });
     return () => { active = false; };
   }, []);
   async function save() {
@@ -120,12 +121,12 @@ export function AdminWebhookSettings() {
     try {
       await api.webhooks.saveAdmin({ enabled: config.enabled, allowedOrigins: origins.split('\n').map(s => s.trim()).filter(Boolean) });
       setMessage(t('webhooks.saved'));
-    } catch (err) { setError(err.message); }
+    } catch (err) { setError(err); }
     finally { setBusy(false); }
   }
   return <div>
     <h3 style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 20px' }}>{t('webhooks.title')}</h3>
-    {error && <p role="alert" style={{ fontSize: 13, color: 'var(--red)', margin: '0 0 14px' }}>{error}</p>}
+    {error && <p role="alert" style={{ fontSize: 13, color: 'var(--red)', margin: '0 0 14px' }}>{webhookErrorText(error, t)}</p>}
     {message && <p role="status" style={{ fontSize: 13, color: 'var(--green, #22c55e)', margin: '0 0 14px' }}>{message}</p>}
     {!config && !error && <p style={helpStyle}>{t('common.loading')}</p>}
     {config && <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
