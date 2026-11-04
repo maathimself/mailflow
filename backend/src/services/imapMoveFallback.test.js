@@ -519,7 +519,7 @@ describe('removeMessageCopy', () => {
     for (const k of Object.keys(rowAt)) delete rowAt[k];
     query.mockImplementation(async (sql, params) => {
       if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [acct] };
-      if (sql.startsWith('SELECT message_id, date, subject, from_email FROM messages')) {
+      if (sql.startsWith('SELECT message_id, date, subject, from_email, thread_key FROM messages')) {
         const row = rowAt[`${params[2]}:${params[1]}`];
         return { rows: row ? [row] : [] };
       }

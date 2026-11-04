@@ -14,7 +14,7 @@ vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./spamPipeline.js', () => ({ classifyAndTagMessage: vi.fn() }));
 vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }));
 
-import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, contentLocationFromMimeHeader, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, pairMovedCopies, computeThreadId, noteDraftsChanged } from './imapManager.js';
+import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, rollbackCopiedMessageOnInsertFailure, deleteReconciledMessageRows, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, contentLocationFromMimeHeader, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, pairMovedCopies, computeThreadId, noteDraftsChanged } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { ensureFreshToken } from './imapManager.js';
 import { clearCarries, hasCarries, rememberDroppedRows } from './movedRowCarry.js';
@@ -543,6 +543,59 @@ describe('insertCopiedSibling', () => {
     await insertCopiedSibling('acct-1', 100, 'INBOX', 'Todo', 5001);
     expect(countAdjusts()).toHaveLength(0);
   });
+
+  it('propagates a local sibling insert failure', async () => {
+    query.mockRejectedValueOnce(new Error('database unavailable'));
+    await expect(insertCopiedSibling('acct-1', 100, 'INBOX', 'Todo', 5001))
+      .rejects.toThrow('database unavailable');
+  });
+});
+
+describe('rollbackCopiedMessageOnInsertFailure', () => {
+  it('removes the confirmed server copy before rethrowing the insert failure', async () => {
+    const manager = { permanentDeleteMessage: vi.fn().mockResolvedValue(true) };
+    const account = { id: 'acct-1' };
+    const insertError = new Error('database unavailable');
+    await expect(rollbackCopiedMessageOnInsertFailure(
+      manager, account, 'Delegated', 5001, insertError, 42n,
+    )).rejects.toBe(insertError);
+    expect(manager.permanentDeleteMessage).toHaveBeenCalledWith(account, 5001, 'Delegated', { expectUidValidity: 42n });
+    expect(insertError.copiedUid).toBeUndefined();
+  });
+
+  it('reports the confirmed UID when server rollback also fails', async () => {
+    const rollbackError = new Error('imap unavailable');
+    const manager = { permanentDeleteMessage: vi.fn().mockRejectedValue(rollbackError) };
+    const insertError = new Error('database unavailable');
+    await expect(rollbackCopiedMessageOnInsertFailure(
+      manager, { id: 'acct-1' }, 'Delegated', 5001, insertError, 42n,
+    )).rejects.toMatchObject({ copiedUid: 5001, rollbackError });
+  });
+});
+
+describe('deleteReconciledMessageRows', () => {
+  beforeEach(() => query.mockReset());
+
+  it('returns deleted thread keys to plugins after the guarded delete', async () => {
+    query.mockResolvedValueOnce({
+      rowCount: 2,
+      rows: [{ thread_key: 'thread-1' }, { thread_key: 'thread-1' }],
+    });
+    const runHook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    const reconcileStartedAt = new Date('2026-08-26T10:00:00Z');
+    const account = { id: 'acct-1', user_id: 'user-1' };
+    try {
+      expect(await deleteReconciledMessageRows(account, 'Delegated', [41, 42], reconcileStartedAt)).toBe(2);
+      expect(query.mock.calls[0][0]).toContain('RETURNING thread_key');
+      expect(runHook).toHaveBeenCalledWith('messageRowsDeleted', {
+        account,
+        folder: 'Delegated',
+        threadKeys: ['thread-1'],
+      });
+    } finally {
+      runHook.mockRestore();
+    }
+  });
 });
 
 // ── upsertDraftMessageRecord — the row a reopened draft is built from ───────
@@ -635,6 +688,56 @@ describe('deleteMessageCopyRow', () => {
     query.mockResolvedValueOnce({ rows: [] });
     await deleteMessageCopyRow('acct-1', 100, 'Todo');
     expect(countAdjusts()).toHaveLength(0);
+  });
+});
+
+describe('removeMessageCopy hook', () => {
+  it('reports the removed row thread to plugins', async () => {
+    const mgr = new ImapManager({ clients: new Set() });
+    const account = { id: 'acct-1', user_id: 'user-1' };
+    query.mockReset();
+    query.mockResolvedValueOnce({ rows: [account] });
+    query.mockResolvedValueOnce({ rows: [{ message_id: '<a@example.test>', thread_key: 'thread-1' }] });
+    query.mockResolvedValueOnce({ rows: [] });
+    vi.spyOn(mgr, 'permanentDeleteMessage').mockResolvedValue(true);
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    try {
+      await mgr.removeMessageCopy(account.id, 42, 'Delegated');
+      expect(hook).toHaveBeenCalledWith('afterLabelRemove', expect.objectContaining({ threadKey: 'thread-1' }));
+    } finally { hook.mockRestore(); }
+  });
+});
+
+describe('syncFolderOnDemand coalescing', () => {
+  it('waits for an already claimed folder sync instead of reporting completion early', async () => {
+    const mgr = new ImapManager({ clients: new Set() });
+    const acct = { id: 'acct-1', user_id: 'user-1', email_address: 'user@example.test' };
+    expect(mgr.pluginFacade.tryClaimFolderSync(acct.id, 'Delegated')).toBe(true);
+
+    let settled = false;
+    const waiting = mgr.syncFolderOnDemand(acct, 'Delegated').then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    mgr.pluginFacade.releaseFolderSync(acct.id, 'Delegated');
+    await waiting;
+    expect(settled).toBe(true);
+  });
+
+  it('runs a fresh sync after an older claimed sync when post-copy freshness is required', async () => {
+    const mgr = new ImapManager({ clients: new Set() });
+    const acct = { id: 'acct-1', user_id: 'user-1', email_address: 'user@example.test' };
+    expect(mgr.pluginFacade.tryClaimFolderSync(acct.id, 'Delegated')).toBe(true);
+    const syncNow = vi.spyOn(mgr, '_syncFolderOnDemandNow').mockResolvedValue(undefined);
+
+    const waiting = mgr.syncFolderOnDemand(acct, 'Delegated', { freshAfterActive: true });
+    await Promise.resolve();
+    expect(syncNow).not.toHaveBeenCalled();
+    mgr.pluginFacade.releaseFolderSync(acct.id, 'Delegated');
+    await waiting;
+
+    expect(syncNow).toHaveBeenCalledTimes(1);
+    expect(syncNow).toHaveBeenCalledWith(acct, 'Delegated');
   });
 });
 
@@ -1594,7 +1697,7 @@ describe('_syncSpamFolder — periodic spam poll guards', () => {
   it('no-ops when the account has no resolvable spam folder', async () => {
     query.mockReset();
     query.mockResolvedValue({ rows: [] }); // resolveSpamFolder finds nothing
-    const ctx = { _secondaryConnectBlocked: () => null, onDemandSyncing: new Set(), broadcast: vi.fn(), syncMessages: vi.fn() };
+    const ctx = { _secondaryConnectBlocked: () => null, onDemandSyncing: new Map(), broadcast: vi.fn(), syncMessages: vi.fn() };
     await ImapManager.prototype._syncSpamFolder.call(ctx, account);
     expect(ctx.syncMessages).not.toHaveBeenCalled();
     expect(ctx.broadcast).not.toHaveBeenCalled();
@@ -1605,7 +1708,13 @@ describe('_syncSpamFolder — periodic spam poll guards', () => {
     // resolveSpamFolder's special-use lookup (identified by its name-regex clause) yields "Junk".
     query.mockImplementation((sql) =>
       sql.includes('lower(name) ~') ? Promise.resolve({ rows: [{ path: 'Junk' }] }) : Promise.resolve({ rows: [] }));
-    const ctx = { _secondaryConnectBlocked: () => null, onDemandSyncing: new Set(['a1:Junk']), broadcast: vi.fn(), syncMessages: vi.fn() };
+    const ctx = {
+      _secondaryConnectBlocked: () => null,
+      onDemandSyncing: new Map([['a1:Junk', { promise: Promise.resolve(), release: null }]]),
+      _tryClaimFolderSync: ImapManager.prototype._tryClaimFolderSync,
+      broadcast: vi.fn(),
+      syncMessages: vi.fn(),
+    };
     await ImapManager.prototype._syncSpamFolder.call(ctx, account);
     expect(ctx.syncMessages).not.toHaveBeenCalled();
     expect(ctx.broadcast).not.toHaveBeenCalled();
@@ -6466,6 +6575,26 @@ describe('server copy identity checks', () => {
   it('does not count a missing server UID as a surviving copy', async () => {
     const { mgr, account } = arrange(new Map());
     expect(await mgr.hasMessageCopy(account, 7, 'INBOX', '<invoice@example.test>')).toBe(false);
+  });
+
+  it('does not delete a copied UID after the destination UID validity changes', async () => {
+    const { mgr, account, client } = arrange(new Map([[7, '<old@example.test>']]));
+    client.mailbox = { uidValidity: 43n };
+    expect(await mgr.permanentDeleteMessage(account, 7, 'Drafts', { expectUidValidity: 42n })).toBe(false);
+    expect(client.messageDelete).not.toHaveBeenCalled();
+  });
+
+  it('rolls back a server copy if inserting its local row fails', async () => {
+    const { mgr, account, client } = arrange(new Map());
+    const insertError = new Error('insert failed');
+    client.messageCopy = vi.fn().mockResolvedValue({ uidValidity: 42n, uidMap: new Map([[7, 99]]) });
+    query.mockResolvedValueOnce({ rows: [account] }).mockRejectedValueOnce(insertError);
+    const rollback = vi.spyOn(mgr, 'permanentDeleteMessage').mockResolvedValue(true);
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    try {
+      await expect(mgr.copyMessage(account.id, 7, 'INBOX', 'Todo')).rejects.toBe(insertError);
+      expect(rollback).toHaveBeenCalledWith(account, 99, 'Todo', { expectUidValidity: 42n });
+    } finally { hook.mockRestore(); }
   });
 
   it('deletes the uid when the server copy carries the expected Message-ID', async () => {
