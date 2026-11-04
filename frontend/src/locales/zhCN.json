@@ -2438,7 +2438,7 @@
       "request": "请求未能完成，请检查网络连接后重试。"
     },
     "title": "第三方通知",
-    "description": "收到新邮件时，通过 ntfy、Gotify 或自定义 Webhook 接收提醒。通知会显示邮箱名称和新邮件数量，你也可以选择显示本次提醒中最后一封邮件的发件人和主题，不包含邮件正文。",
+    "description": "收到新邮件时，通过 ntfy、Gotify 或自定义 Webhook 接收提醒。",
     "unavailable": "管理员已禁用。",
     "disabled": "连续五次发送失败，已停止通知。启用并保存即可恢复。",
     "enable": "启用我的 Webhook",
