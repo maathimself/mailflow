@@ -7655,12 +7655,12 @@ export class ImapManager {
       throw err;
     }
 
-    // Hand off to label plugins (GTD broadcasts its section-refresh and, on the deferred path,
-    // reconciles once the sibling lands — see plugins/gtd/hooks.js afterLabelCopy). Fired before
-    // the sibling INSERT to preserve the historical emit-then-insert order; `newUid` tells the
-    // plugin whether the sibling is available now (UIDPLUS) or deferred to a destination sync
-    // (null). The hook swallows per-plugin errors and the plugin's deferred work is fire-and-
-    // forget, so this never blocks or breaks the copy.
+    // Other sessions refetch on this hook without the initiating request's later refresh.
+    // Persist a known sibling first so those sessions can already see the copy. Without
+    // COPYUID, the hook still starts deferred reconciliation and emits again after sync.
+    if (newUid != null) {
+      await insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid);
+    }
     await pluginRegistry.runHook('afterLabelCopy', { mgr: this.pluginFacade, account, toFolder, fromFolder, srcUid: uid, newUid });
 
     if (newUid == null) {
@@ -7672,7 +7672,6 @@ export class ImapManager {
       return null;
     }
 
-    await insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid);
     return newUid;
   }
 
