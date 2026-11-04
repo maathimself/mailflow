@@ -32,6 +32,7 @@ export const SETUP_TABLES = [
   'inbox_rules',
   'integration_config',
   'invites',
+  'notification_webhooks',
   'oidc_providers',
   'plugin_account_config',
   'plugin_data',
