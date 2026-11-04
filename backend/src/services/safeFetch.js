@@ -37,20 +37,24 @@ function insecure() {
 
 // A connector that refuses plaintext (when required) and private/reserved addresses,
 // pinning the socket to a validated IP (with the original hostname kept for TLS SNI).
-function guardedConnector(allowPrivate, requireHttps) {
+function guardedConnector(allowPrivate, requireHttps, allowPrivateNetworks, blockReserved, requirePublicHttps) {
   return (opts, callback) => {
     if (requireHttps && opts.protocol === 'http:') return callback(insecure());
     const host = opts.hostname;
+    if ((allowPrivateNetworks || blockReserved) && validateHostLiteral(host, { allowPrivateNetworks, blockReserved })) return callback(blocked());
     // Literal IP target (e.g. a redirect to http://169.254.169.254) — check directly.
     if (net.isIP(host)) {
-      if (validateHostLiteral(host, { allowPrivate })) return callback(blocked());
+      if (validateHostLiteral(host, { allowPrivate, allowPrivateNetworks, blockReserved })) return callback(blocked());
+      if (requirePublicHttps && opts.protocol === 'http:' && !validateHostLiteral(host, { blockReserved: true })) return callback(insecure());
       return baseConnect(opts, callback);
     }
     // Hostname — resolve, validate every address, then connect to a checked IP.
     dns.lookup(host, { all: true }, (err, addresses) => {
       if (err) return callback(err);
+      if (!addresses?.length) return callback(Object.assign(new Error('No resolved addresses'), { code: 'ENOTFOUND' }));
       for (const a of addresses) {
-        if (validateHostLiteral(a.address, { allowPrivate })) return callback(blocked());
+        if (validateHostLiteral(a.address, { allowPrivate, allowPrivateNetworks, blockReserved })) return callback(blocked());
+        if (requirePublicHttps && opts.protocol === 'http:' && !validateHostLiteral(a.address, { blockReserved: true })) return callback(insecure());
       }
       baseConnect({ ...opts, hostname: addresses[0].address, servername: opts.servername || host }, callback);
     });
@@ -58,13 +62,17 @@ function guardedConnector(allowPrivate, requireHttps) {
 }
 
 const agents = new Map();
-function agentFor(allowPrivate, requireHttps) {
-  const key = `${allowPrivate ? 'priv' : 'pub'}:${requireHttps ? 'https' : 'any'}`;
-  if (!agents.has(key)) agents.set(key, new Agent({ connect: guardedConnector(allowPrivate, requireHttps) }));
+function agentFor(allowPrivate, requireHttps, allowPrivateNetworks, blockReserved, requirePublicHttps) {
+  const key = `${allowPrivate ? 'priv' : 'pub'}:${requireHttps ? 'https' : 'any'}:${allowPrivateNetworks ? 'lan' : 'default'}:${blockReserved}:${requirePublicHttps}`;
+  if (!agents.has(key)) agents.set(key, new Agent({ connect: guardedConnector(allowPrivate, requireHttps, allowPrivateNetworks, blockReserved, requirePublicHttps) }));
   return agents.get(key);
 }
 
-export function safeFetch(url, options = {}, { allowPrivate = false, requireHttps = !allowPrivate } = {}) {
+// allowPrivateNetworks is the restricted LAN exception; callers must first match
+// an administrator-approved origin, disable redirects, and set requireHttps explicitly.
+// blockReserved also applies strict reserved-range checks to public-only requests.
+// requirePublicHttps permits HTTP only when every resolved address is a permitted LAN IP.
+export function safeFetch(url, options = {}, { allowPrivate = false, allowPrivateNetworks = false, blockReserved = false, requirePublicHttps = false, requireHttps = !allowPrivate } = {}) {
   let parsed;
   try { parsed = new URL(url); }
   catch { return Promise.reject(new Error('Invalid URL')); }
@@ -74,5 +82,5 @@ export function safeFetch(url, options = {}, { allowPrivate = false, requireHttp
   if (requireHttps && parsed.protocol !== 'https:') {
     return Promise.reject(insecure());
   }
-  return fetch(url, { ...options, dispatcher: agentFor(allowPrivate, requireHttps) });
+  return fetch(url, { ...options, dispatcher: agentFor(allowPrivate, requireHttps, allowPrivateNetworks, blockReserved, requirePublicHttps) });
 }
