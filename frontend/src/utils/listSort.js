@@ -62,13 +62,17 @@ function subjectKey(subject) {
 const senderKey = m => String(m.from_name || m.from_email || '').toLowerCase();
 const time = m => new Date(m.date || 0).getTime();
 
+// A conversation row counts as starred when any of its messages is: its own, or another one
+// (others_starred, from the server), as listOrderSql orders threads.
+const starredOf = m => Boolean(m.is_starred || m.others_starred);
+
 // A comparator for rows in the given order, as listOrderSql in messageService.js sorts them.
 // Rows with nothing to sort on go last; ties fall back to newest first.
 export function compareListOrder(order = DEFAULT_LIST_ORDER) {
   const sign = order.dir === 'asc' ? 1 : -1;
   const keyOf = order.sort === 'from' ? senderKey : order.sort === 'subject' ? m => subjectKey(m.subject) : null;
   return (a, b) => {
-    if (order.starredFirst && Boolean(a.is_starred) !== Boolean(b.is_starred)) return a.is_starred ? -1 : 1;
+    if (order.starredFirst && starredOf(a) !== starredOf(b)) return starredOf(a) ? -1 : 1;
     if (keyOf) {
       const ka = keyOf(a), kb = keyOf(b);
       if (ka !== kb) {
