@@ -177,6 +177,13 @@ async function endPushSubscription() {
 }
 
 export const api = {
+  webhooks: {
+    get: () => request('GET', '/webhooks'),
+    save: data => request('PUT', '/webhooks', data),
+    test: () => request('POST', '/webhooks/test'),
+    getAdmin: () => request('GET', '/webhooks/admin'),
+    saveAdmin: data => request('PUT', '/webhooks/admin', data),
+  },
   get: (path) => request('GET', path),
   post: (path, body, extraHeaders) => request('POST', path, body, extraHeaders),
   put: (path, body) => request('PUT', path, body),
