@@ -137,6 +137,18 @@ export default function MessageList() {
   return scheduledView ? <ScheduledList /> : <MailboxList />;
 }
 
+// Whether the query names its own folder scope. The server's search route lets an in: operator
+// (in:sent, in:all) win over the folder param, so a note naming the open folder would mislead
+// then. The operator pattern is the route's own.
+const SEARCH_OPERATOR_PATTERN = /(-?)\b(from|to|subject|has|is|after|before|in):("([^"]*)"|(\S+))/gi;
+function queryNamesSearchFolder(query) {
+  for (const match of String(query || '').matchAll(SEARCH_OPERATOR_PATTERN)) {
+    const value = (match[4] !== undefined ? match[4] : match[5] || '').trim();
+    if (match[2].toLowerCase() === 'in' && value) return true;
+  }
+  return false;
+}
+
 function MailboxList() {
   const { t } = useTranslation();
   const uiScale = useUiScale();
@@ -158,7 +170,7 @@ function MailboxList() {
     folders, favoriteFolders, recentFolders, addFavoriteFolder, removeFavoriteFolder, setSelectedAccount,
     categorizationEnabled, categoryCounts, categoryTotals, setCategoryCounts, adjustCategoryCount,
     markReadBehavior, markReadDelay,
-    searchAllFolders,
+    searchAllFolders, setSearchAllFolders,
     activeGtdTab, setActiveGtdTab, gtdSections, enabledPlugins,
     openMessageWindow,
   } = useStore();
@@ -2689,6 +2701,8 @@ function MailboxList() {
   const label = searchQuery.trim()
     ? `Search: "${searchQuery}"`
     : isSnoozedView ? t('sidebar.snoozed') : isUnified ? t('sidebar.allInboxes') : folderLabel;
+  // The scope note names the folder as the header does outside a search.
+  const searchScopeLabel = isSnoozedView ? t('sidebar.snoozed') : folderLabel;
 
   const headerUnread = isSnoozedView && isUnified ? 0
     : isUnified ? unreadCounts.total
@@ -3663,6 +3677,29 @@ function MailboxList() {
                 <div className="skeleton-line" style={{ width: 36, height: 11, flexShrink: 0, borderRadius: 4 }} />
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Scope reminder while a folder-scoped search is active — recent matches
+            often live in other folders, which otherwise reads as broken search. */}
+        {searchQuery.trim() && searchFolder && !queryNamesSearchFolder(searchQuery) && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+            padding: '6px 14px', fontSize: 12, color: 'var(--text-tertiary)',
+            borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)',
+          }}>
+            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {t('messageList.searchScopeNote', { folder: searchScopeLabel })}
+            </span>
+            <button
+              onClick={() => setSearchAllFolders(true)}
+              style={{
+                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                color: 'var(--accent)', fontSize: 12, flexShrink: 0,
+              }}
+            >
+              {t('sidebar.searchAllFolders')}
+            </button>
           </div>
         )}
 

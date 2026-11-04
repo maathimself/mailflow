@@ -511,6 +511,7 @@
     "noSearchResults": "Результаты не найдены",
     "searching": "Поиск…",
     "noSearchResultsDesc": "Ничего не найдено по запросу {{query}}",
+    "searchScopeNote": "Поиск только в «{{folder}}»",
     "searchFailed": "Ошибка поиска",
     "clearSearch": "Очистить поиск",
     "searchHelp": {
