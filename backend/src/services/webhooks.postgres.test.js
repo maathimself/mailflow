@@ -26,7 +26,7 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL || !process.env.MAILFLOW
     process.env.ENCRYPTION_KEY = 'ab'.repeat(32);
     database = new pg.Pool({ connectionString: process.env.MAILFLOW_TEST_DATABASE_URL, options: `-c search_path=${schema}` });
     await database.query(`CREATE SCHEMA ${schema}`);
-    await database.query('CREATE TABLE users (id uuid PRIMARY KEY); CREATE TABLE system_settings (key text PRIMARY KEY, value text, updated_at timestamptz DEFAULT NOW())');
+    await database.query('CREATE TABLE users (id uuid PRIMARY KEY, preferences jsonb DEFAULT \'{}\'::jsonb); CREATE TABLE system_settings (key text PRIMARY KEY, value text, updated_at timestamptz DEFAULT NOW())');
     const migration = await readFile(new URL('../../migrations/0075_notification_webhooks.sql', import.meta.url), 'utf8');
     await database.query(migration);
     // Idempotence matters when startup rechecks migration files.
@@ -151,4 +151,17 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL || !process.env.MAILFLOW
     expect(await send()).toEqual({ sent: true });
     expect(await redis.zCard(key)).toBe(1);
   });
+  it('uses the saved user language and picks up changes without restarting', async () => {
+    await database.query("UPDATE users SET preferences = $1 WHERE id = $2", [JSON.stringify({ language: 'zhCN' }), userId]);
+    await saveWebhook(userId, { includeSubject: true });
+    await send();
+    let request = safeFetch.mock.calls[0][1];
+    expect(Buffer.from(request.headers.Title.slice(10, -2), 'base64').toString()).toBe('Work · 1 封新邮件');
+    expect(request.body).toBe('Mail');
+    await database.query("UPDATE users SET preferences = $1 WHERE id = $2", [JSON.stringify({ language: 'en' }), userId]);
+    await send();
+    request = safeFetch.mock.calls[1][1];
+    expect(Buffer.from(request.headers.Title.slice(10, -2), 'base64').toString()).toBe('Work · 1 new message');
+  });
+
 });

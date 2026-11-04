@@ -3,6 +3,7 @@ import { query } from './db.js';
 import { encrypt, decrypt, isEncrypted } from './encryption.js';
 import { redisClient } from './redis.js';
 import { safeFetch } from './safeFetch.js';
+import { webhookText } from './webhookText.js';
 
 const formats = ['generic', 'ntfy', 'gotify'];
 const bad = message => Object.assign(new Error(message), { status: 400 });
@@ -108,15 +109,17 @@ export function webhookRequest(row, { accountName, count, latest = {} }) {
   const token = row.token ? decrypt(row.token) : null;
   if (row.token && !token) throw new Error('Invalid stored credential');
   const headers = { 'Content-Type': 'application/json' };
-  const message = `${payload.account}: ${count} new message${count === 1 ? '' : 's'}${payload.sender ? `\nFrom: ${payload.sender}` : ''}${payload.subject ? `\nSubject: ${payload.subject}` : ''}`;
+  const { title, message } = webhookText(row.language, payload);
   if (row.format === 'ntfy') {
     headers['Content-Type'] = 'text/plain; charset=utf-8';
+    // ntfy decodes RFC 2047; ASCII encoding keeps Unicode titles valid HTTP headers.
+    headers.Title = `=?UTF-8?B?${Buffer.from(title).toString('base64')}?=`;
     if (token) headers.Authorization = `Bearer ${token}`;
     return { method: 'POST', headers, body: message };
   }
   if (row.format === 'gotify') {
     if (token) headers['X-Gotify-Key'] = token;
-    return { method: 'POST', headers, body: JSON.stringify({ title: 'New mail', message, priority: 5 }) };
+    return { method: 'POST', headers, body: JSON.stringify({ title, message, priority: 5 }) };
   }
   return { method: 'POST', headers, body: JSON.stringify(payload) };
 }
@@ -144,7 +147,8 @@ function admitWebhook(userId, timeout) {
 export async function notifyWebhook({ userId, accountName, count, latest }) {
   const admin = await webhookAdminSettings();
   if (!admin.enabled) return { skipped: 'disabled' };
-  const { rows } = await query('SELECT * FROM notification_webhooks WHERE user_id = $1', [userId]);
+  const { rows } = await query(`SELECT w.*, u.preferences->>'language' AS language
+    FROM notification_webhooks w JOIN users u ON u.id = w.user_id WHERE w.user_id = $1`, [userId]);
   const row = rows[0];
   if (!row?.enabled || !row.url) return { skipped: 'disabled' };
   if (!redisClient.isReady || stalledAdmissions) return { skipped: 'unavailable' };

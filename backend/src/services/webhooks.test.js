@@ -74,7 +74,7 @@ describe('webhook delivery', () => {
     const details = { accountName: 'Work', count: 1 };
     expect(webhookRequest({ ...row, format: 'ntfy' }, details).headers.Authorization).toBe('Bearer private-token');
     expect(webhookRequest({ ...row, format: 'gotify' }, details).headers['X-Gotify-Key']).toBe('private-token');
-    expect(JSON.parse(webhookRequest({ ...row, format: 'gotify' }, details).body).message).toContain('Work');
+    expect(JSON.parse(webhookRequest({ ...row, format: 'gotify' }, details).body).title).toBe('Work · 1 new message');
   });
   it('grants private-network mode only for an exact origin', async () => {
     admin.allowedOrigins = ['https://example.com:8443'];
@@ -155,5 +155,36 @@ describe('bounded Redis admission', () => {
       expect(await pending).toEqual({ sent: true });
       expect(timeout).toHaveBeenCalledWith(2000);
     } finally { timeout.mockRestore(); vi.useRealTimers(); }
+  });
+});
+
+describe('localized presets', () => {
+  it('reads the current user language on each delivery and encodes ntfy Unicode titles', async () => {
+    row.format = 'ntfy'; row.language = 'zhCN'; row.include_sender = true; row.include_subject = true;
+    await send();
+    const request = safeFetch.mock.calls[0][1];
+    expect(request.headers.Title).toMatch(/^=\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/);
+    expect(Buffer.from(request.headers.Title.slice(10, -2), 'base64').toString()).toBe('Work · 2 封新邮件');
+    expect(request.body).toBe('Confidential\n发件人: Alice');
+    expect(() => new Headers(request.headers)).not.toThrow();
+    row.language = 'en';
+    await send();
+    expect(safeFetch.mock.calls[1][1].body).toBe('Confidential\nFrom: Alice');
+  });
+  it.each(['ntfy', 'gotify'])('respects independent opt-ins in %s', format => {
+    const details = { accountName: 'QQ', count: 1, latest: { fromName: 'Alice', subject: 'Secret subject', body: 'Never send' } };
+    const make = flags => {
+      const req = webhookRequest({ ...row, format, language: 'zhCN', ...flags }, details);
+      return format === 'ntfy' ? req.body : JSON.parse(req.body).message;
+    };
+    expect(make({})).toBe('收到新邮件');
+    expect(make({ include_sender: true })).toBe('收到新邮件\n发件人: Alice');
+    expect(make({ include_subject: true })).toBe('Secret subject');
+  });
+  it('keeps generic JSON independent of user language', () => {
+    const details = { accountName: 'QQ', count: 2, latest: { fromName: 'Alice', subject: 'Hello' } };
+    const req = webhookRequest({ ...row, language: 'zhCN', include_sender: true, include_subject: true }, details);
+    expect(req.headers.Title).toBeUndefined();
+    expect(JSON.parse(req.body)).toEqual({ account: 'QQ', count: 2, sender: 'Alice', subject: 'Hello' });
   });
 });
