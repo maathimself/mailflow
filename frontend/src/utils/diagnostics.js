@@ -50,7 +50,7 @@ const PII_PATTERNS = [
   /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/,
   /\beyJ[\w-]+\.[\w-]+\.[\w-]+/,
   /\b[A-Fa-f0-9]{32,}\b/,
-  /(ghp_|gho_|sk-|xoxb-|Bearer\s+\S)/i,
+  /(ghp_|gho_|sk-|xoxb-|mfat_|Bearer\s+\S)/i,
 ];
 
 export function scrubReport(obj) {
