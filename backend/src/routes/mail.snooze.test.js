@@ -158,7 +158,7 @@ function fakeQuery(rawSql, params = []) {
     return result([]);
   }
   if (sql.startsWith('SELECT * FROM email_accounts')) return result([ACCOUNT]);
-  if (sql === 'DELETE FROM messages WHERE id = $1') {
+  if (sql === 'DELETE FROM messages WHERE id = $1 RETURNING *') {
     const before = messages.length;
     messages = messages.filter(m => m.id !== params[0]);
     return result(new Array(before - messages.length).fill({}));

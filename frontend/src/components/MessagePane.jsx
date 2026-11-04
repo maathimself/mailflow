@@ -27,7 +27,7 @@ import MessageBodyView from './MessageBodyView.jsx';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { saveSenderCategory } from '../utils/senderCategory.js';
 import { buildMovePickerSections, movePickerSectionHeading, movePickerFoldersEmpty, runMovePickerAction } from '../utils/folderDisplay.js';
-import { usePluginCollected } from '../plugins/PluginSlot.jsx';
+import { PluginSlot, usePluginCollected } from '../plugins/PluginSlot.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
 import SpamBadge from './SpamBadge.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
@@ -1573,7 +1573,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
             fontFamily: 'var(--font-display)',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-              <span>
+              <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
                 {(() => {
                   const paneSubject = resolvedSubject || message.subject;
                   return (paneSubject && paneSubject !== '(no subject)')
@@ -1582,6 +1582,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                 })()}
               </span>
               <SpamBadge message={message} onClick={(m) => setSpamExplainMessageId(m.id)} />
+              <PluginSlot name="message-header-meta" ctx={{ message, account }} />
             </div>
           </div>
 

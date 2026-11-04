@@ -640,8 +640,11 @@ describe('POST /api/mail/draft — attachments', () => {
     expect(text).toContain('application/pdf');
     // The payload is base64-encoded in the MIME, and the row is flagged for the paperclip.
     expect(text.replace(/\r?\n/g, '')).toContain(content.toString('base64'));
-    expect(imapManager.upsertDraftMessageRecord.mock.calls[0][3].hasAttachments).toBe(true);
-    expect(imapManager.upsertDraftMessageRecord.mock.calls[0][3].hasAttachments).toBe(true);
+    const meta = imapManager.upsertDraftMessageRecord.mock.calls[0][3];
+    expect(meta.hasAttachments).toBe(true);
+    // No stored body: opening the draft reads it from the server, so its attachments are listed.
+    expect(meta.bodyHtml).toBeNull();
+    expect(meta.bodyText).toBeNull();
   });
 
   it('rejects path-like filenames and more than five attachments', async () => {

@@ -163,6 +163,8 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     const threadResult = await query(`
       WITH paged_threads AS (
         SELECT m.thread_key AS thread_id,
+               -- Starred on top orders by any starred message (listOrderSql); see others_starred.
+               COUNT(*) FILTER (WHERE m.is_starred)::int AS starred_count,
                -- The page's own order, which the rows are returned in at the end.
                ROW_NUMBER() OVER (ORDER BY ${listOrderSql({ ...order, threaded: true })}) AS pos
         FROM messages m
@@ -247,7 +249,10 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
              category, list_unsubscribe, list_unsubscribe_post, delivery_addresses,
              spam_verdict, spam_user_override, spam_score_ml,
              message_count, unread_count,
-             thread_has_contact_photo AS has_contact_photo
+             thread_has_contact_photo AS has_contact_photo,
+             -- Whether a message other than the row's own is starred: the client sorts the row as
+             -- starred when either is, so starring or unstarring the row moves it as the server would.
+             (pt.starred_count - CASE WHEN is_starred THEN 1 ELSE 0 END) > 0 AS others_starred
       FROM ranked
       JOIN paged_threads pt USING (thread_id)
       WHERE rn = 1

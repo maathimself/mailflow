@@ -401,8 +401,10 @@ router.post('/draft', async (req, res) => {
           cc: mapRecipientList(cc),
           bcc: mapRecipientList(bcc),
           snippet: meta.snippet,
-          bodyHtml: meta.bodyHtml,
-          bodyText: meta.bodyText,
+          // The row has no attachment list, so a draft with files keeps no body here: opening it
+          // reads it from the server, parts and all, and the composer gets its attachments.
+          bodyHtml: attachments.length ? null : meta.bodyHtml,
+          bodyText: attachments.length ? null : meta.bodyText,
           hasAttachments: attachments.length > 0,
           inReplyTo: meta.inReplyTo,
           references: meta.references,

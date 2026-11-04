@@ -22,6 +22,7 @@ import { getAccountAddresses } from './mailAccess.js';
 import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList, newMailAlerts } from './inboxRules.js';
+import { carryUpdate, hasCarries, rememberDroppedRows, takeCarry } from './movedRowCarry.js';
 import { classifyAndTagMessage } from './spamPipeline.js';
 import { generateVCard } from '../utils/vcard.js';
 import { mimeToExtension, standardImageType, rasterImageTypeOfName, sniffImageType } from '../utils/inlineImages.js';
@@ -4999,7 +5000,18 @@ export class ImapManager {
               sanitizeStr(parsed.forwardedFromName), sanitizeStr(parsed.forwardedFromEmail), sanitizeStr(parsed.forwardedVia),
               providerProfile(account).labelStore ? parsed.providerMsgid || null : null,
             ]);
-            if (result.rows[0]?.is_new) {
+            // A message a move dropped the row of, filed again here: it gets back what MailFlow
+            // knew about it and is not new mail, as a move with a known uid is not
+            // (services/movedRowCarry.js).
+            const carried = result.rows[0]?.is_new && hasCarries()
+              ? takeCarry(account.id, folder, msgId, parsed.date) : null;
+            if (carried) {
+              insertedCount++;
+              const update = carryUpdate(result.rows[0].id, carried);
+              if (update) await query(update.text, update.params);
+              // A row moved before its spam check finished still gets one.
+              if (carried.spam_analyzed_at == null) this.maybeClassifyNewMessage(account, result.rows[0].id, parsed);
+            } else if (result.rows[0]?.is_new) {
               insertedCount++;
               // Inbox-ingest candidate: any newly-inserted INBOX row, read OR unread (read state
               // is not a gate here — the plugin decides). The unread-only push below still drives
@@ -7686,9 +7698,10 @@ export class ImapManager {
   // The uid is expunged only while its server copy is still the row's message (isRowsMessage): a
   // row left on a stale uid, by a move without UIDPLUS before #665 or a sync behind the server,
   // would otherwise remove whatever message holds that uid now. A uid with no row has nothing to
-  // check against and is left alone. A refused row is dropped and its folder pulled, as a refused
-  // Delete forever is, since sync never corrects it, and the call throws an error marked
-  // `copyChanged`.
+  // check against and is left alone. When the folder holds the refused row's message once under
+  // another uid, that copy is removed instead (expungeMovedCopy). Otherwise the row is dropped and
+  // its folder pulled, as a refused Delete forever is, since sync never corrects it, and the call
+  // throws an error marked `copyChanged`.
   async removeMessageCopy(accountId, uid, folder) {
     const accountResult = await query('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
     const account = accountResult.rows[0];
@@ -7700,7 +7713,21 @@ export class ImapManager {
     );
     if (!row) return 0;
     if ((await this.permanentDeleteMessage(account, uid, folder, { expectRow: row })) === false) {
+      // The folder may still hold the row's message under another uid. Removing that copy is
+      // what was asked; otherwise the sync below files it again and the label comes back.
+      let movedUid = null;
+      try {
+        movedUid = await this.expungeMovedCopy(account, folder, row, uid);
+      } catch (err) {
+        console.warn(`removeMessageCopy: looking up the ${folder} copy by Message-ID failed: ${err.message}`);
+      }
       await deleteMessageCopyRow(accountId, uid, folder);
+      if (movedUid != null) {
+        // A sync may have filed the copy at its real uid meanwhile.
+        await deleteMessageCopyRow(accountId, movedUid, folder);
+        await pluginRegistry.runHook('afterLabelRemove', { mgr: this.pluginFacade, account, folder, uid: movedUid });
+        return 1;
+      }
       this.syncFolderOnDemand(account, folder)
         .catch(err => console.warn(`removeMessageCopy: sync of ${folder} failed: ${err.message}`));
       const err = new Error(`removeMessageCopy: uid ${uid} in ${folder} holds another message, so nothing was removed`);
@@ -7711,6 +7738,33 @@ export class ImapManager {
     // Removing a label copy changes label-feed data — let plugins broadcast their refresh.
     await pluginRegistry.runHook('afterLabelRemove', { mgr: this.pluginFacade, account, folder, uid });
     return result;
+  }
+
+  // A row whose uid holds another message (a sync behind the server, or a move without UIDPLUS
+  // before #665) can still have its message in the folder under another uid. With exactly one
+  // such copy, found by Message-ID and checked as permanentDeleteMessage checks one, it is
+  // expunged under the same lock and its uid returned. Anything else deletes nothing and
+  // returns null: no Message-ID, no copy, or two that could each be it.
+  async expungeMovedCopy(account, folder, row, staleUid) {
+    const mid = bareMessageId(row?.message_id);
+    if (!mid) return null;
+    return withFreshClient(account, async (client) => {
+      const lock = await client.getMailboxLock(folder);
+      try {
+        // A header SEARCH matches substrings, so each hit is checked against the row.
+        const found = await client.search({ header: { 'Message-ID': mid } }, { uid: true });
+        if (!Array.isArray(found) || !found.length) return null;
+        const matches = [];
+        for await (const copy of client.fetch(found.join(','), { uid: true, envelope: true, internalDate: true }, { uid: true })) {
+          if (copy.envelope && copy.uid !== Number(staleUid) && isRowsMessage(row, copy)) matches.push(copy.uid);
+        }
+        if (matches.length !== 1) return null;
+        if (!(await expungeUids(client, String(matches[0])))) return null;
+        return matches[0];
+      } finally {
+        lock.release();
+      }
+    });
   }
 
   // Move a batch of UIDs from one folder to another in a single IMAP command.
@@ -8144,10 +8198,11 @@ export class ImapManager {
           // original folder (#665). Drop the row rather than keep it on that uid, and let a sync
           // of the folder file the message under its real one. Only this row: another message in
           // Snoozed may carry the same Message-ID, and a sync would not add its row back.
-          await query(
-            'DELETE FROM messages WHERE account_id = $1 AND message_id = $2 AND folder = $3 AND uid = $4',
+          const dropped = await query(
+            'DELETE FROM messages WHERE account_id = $1 AND message_id = $2 AND folder = $3 AND uid = $4 RETURNING *',
             [row.account_id, row.message_id_header, row.snoozed_folder, row.uid]
           );
+          rememberDroppedRows(row.original_folder, dropped?.rows);
           this.syncFolderOnDemand(account, row.original_folder)
             .catch(err => console.warn(`Snooze wakeup: sync of ${row.original_folder} failed: ${err.message}`));
         }
