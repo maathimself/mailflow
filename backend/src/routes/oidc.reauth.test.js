@@ -222,7 +222,7 @@ describe('signing in through single sign-on', () => {
   });
 
   it('nor does linking an identity', async () => {
-    const cookie = await sessionWith({ userId: 'u1' });
+    const cookie = await sessionWith({ userId: 'u1', linkConfirmation: { at: Date.now(), userId: 'u1' } });
     const start = await get('/auth/oidc/idp/start?action=link', cookie);
     expect(new URL(start.headers.get('location')).searchParams.has('prompt')).toBe(false);
     const { oidcPending } = await sessionOf(cookie);

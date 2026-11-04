@@ -1471,6 +1471,15 @@
       "ssoUnlinkBody": "Ya no podrás iniciar sesión con este proveedor. Asegúrate de tener otra forma de iniciar sesión.",
       "ssoUnlinkConfirm": "Desvincular",
       "ssoNoProviders": "No hay proveedores SSO configurados en este servidor.",
+      "ssoLinkConfirmPassword": "Introduce tu contraseña para vincular {{provider}}.",
+      "ssoLinkConfirmTotp": "Introduce el código de tu aplicación de autenticación para vincular {{provider}}.",
+      "ssoLinkConfirmOidc": "Vuelve a iniciar sesión con SSO para confirmar que eres tú y luego vincula {{provider}} desde aquí.",
+      "ssoLinkConfirmOidcButton": "Confirmar con {{provider}}",
+      "ssoLinkConfirmNoProvider": "Tu cuenta no tiene ninguna identidad SSO con la que confirmar ni inicio de sesión con contraseña. Pide ayuda a un administrador.",
+      "ssoLinkConfirmTotpSetup": "Este servidor exige la verificación en dos pasos. Configura una aplicación de autenticación arriba antes de vincular.",
+      "ssoLinkConfirmed": "Confirmado con SSO hasta las {{time}}. Ya puedes vincular otro proveedor.",
+      "ssoLinkContinue": "Continuar",
+      "ssoLinkChecking": "Comprobando…",
       "activityColEvent": "Evento",
       "activityColStatus": "Estado",
       "activityColTime": "Hora",
@@ -1915,6 +1924,10 @@
     "ssoLinked": {
       "title": "Identidad SSO vinculada",
       "body": "Tu cuenta ahora está vinculada al proveedor SSO."
+    },
+    "ssoReauth": {
+      "title": "Confirmado con SSO",
+      "body": "Puedes vincular otra cuenta SSO durante los próximos 10 minutos."
     },
     "ssoError": {
       "title": "Error de SSO"

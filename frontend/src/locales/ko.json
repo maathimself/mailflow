@@ -1475,6 +1475,15 @@
       "protectionSaved": "저장됨",
       "ssoUnlinkBody": "더 이상 이 제공업체로 로그인할 수 없습니다. 다른 로그인 방법이 있는지 확인하세요.",
       "ssoNoProviders": "이 서버에는 SSO 공급자가 구성되어 있지 않습니다.",
+      "ssoLinkConfirmPassword": "{{provider}}을(를) 연결하려면 비밀번호를 입력하세요.",
+      "ssoLinkConfirmTotp": "{{provider}}을(를) 연결하려면 인증 앱의 코드를 입력하세요.",
+      "ssoLinkConfirmOidc": "본인 확인을 위해 SSO로 다시 로그인한 다음, 여기에서 {{provider}}을(를) 연결하세요.",
+      "ssoLinkConfirmOidcButton": "{{provider}}(으)로 확인",
+      "ssoLinkConfirmNoProvider": "계정에 확인에 사용할 SSO ID가 없고 비밀번호 로그인도 꺼져 있습니다. 관리자에게 문의하세요.",
+      "ssoLinkConfirmTotpSetup": "이 서버는 이중 인증이 필요합니다. 연결하기 전에 위에서 인증 앱을 설정하세요.",
+      "ssoLinkConfirmed": "{{time}}까지 SSO로 확인되었습니다. 이제 다른 공급자를 연결할 수 있습니다.",
+      "ssoLinkContinue": "계속",
+      "ssoLinkChecking": "확인 중…",
       "activityRefresh": "새로 고침",
       "activityTitle": "로그인 활동",
       "loginProtectionTitle": "로그인 보호",
@@ -1915,6 +1924,10 @@
     "ssoLinked": {
       "title": "SSO ID가 연결됨",
       "body": "이제 계정이 SSO 공급자에 연결되었습니다."
+    },
+    "ssoReauth": {
+      "title": "SSO로 확인됨",
+      "body": "앞으로 10분 동안 다른 SSO 계정을 연결할 수 있습니다."
     },
     "about": {
       "version": "버전",

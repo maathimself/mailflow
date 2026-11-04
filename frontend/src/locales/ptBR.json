@@ -1471,6 +1471,15 @@
       "ssoUnlinkBody": "Você não poderá mais entrar com este provedor. Certifique-se de ter outra forma de entrar.",
       "ssoUnlinkConfirm": "Desvincular",
       "ssoNoProviders": "Nenhum provedor SSO está configurado neste servidor.",
+      "ssoLinkConfirmPassword": "Digite sua senha para vincular {{provider}}.",
+      "ssoLinkConfirmTotp": "Digite o código do seu aplicativo autenticador para vincular {{provider}}.",
+      "ssoLinkConfirmOidc": "Entre novamente pelo SSO para confirmar que é você e depois vincule {{provider}} a partir daqui.",
+      "ssoLinkConfirmOidcButton": "Confirmar com {{provider}}",
+      "ssoLinkConfirmNoProvider": "Sua conta não tem nenhuma identidade SSO para confirmar nem login com senha. Fale com um administrador.",
+      "ssoLinkConfirmTotpSetup": "Este servidor exige autenticação em dois fatores. Configure um aplicativo autenticador acima antes de vincular.",
+      "ssoLinkConfirmed": "Confirmado pelo SSO até {{time}}. Você já pode vincular outro provedor.",
+      "ssoLinkContinue": "Continuar",
+      "ssoLinkChecking": "Verificando…",
       "loginProtectionTitle": "Proteção de login",
       "loginProtectionDesc": "Tentativas de login com falha permitidas a partir de um único endereço IP antes de ele ser bloqueado temporariamente.",
       "maxAttempts": "Máximo de tentativas",
@@ -1915,6 +1924,10 @@
     "ssoLinked": {
       "title": "Identidade SSO vinculada",
       "body": "Sua conta agora está vinculada ao provedor SSO."
+    },
+    "ssoReauth": {
+      "title": "Confirmado pelo SSO",
+      "body": "Você pode vincular outra conta SSO nos próximos 10 minutos."
     },
     "ssoError": {
       "title": "Erro de SSO"
