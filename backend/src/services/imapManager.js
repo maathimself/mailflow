@@ -22,6 +22,7 @@ import { getAccountAddresses } from './mailAccess.js';
 import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { applyInboxRules, applyBlockList, newMailAlerts } from './inboxRules.js';
+import { carryUpdate, hasCarries, rememberDroppedRows, takeCarry } from './movedRowCarry.js';
 import { classifyAndTagMessage } from './spamPipeline.js';
 import { generateVCard } from '../utils/vcard.js';
 import { mimeToExtension, standardImageType, rasterImageTypeOfName, sniffImageType } from '../utils/inlineImages.js';
@@ -4999,7 +5000,18 @@ export class ImapManager {
               sanitizeStr(parsed.forwardedFromName), sanitizeStr(parsed.forwardedFromEmail), sanitizeStr(parsed.forwardedVia),
               providerProfile(account).labelStore ? parsed.providerMsgid || null : null,
             ]);
-            if (result.rows[0]?.is_new) {
+            // A message a move dropped the row of, filed again here: it gets back what MailFlow
+            // knew about it and is not new mail, as a move with a known uid is not
+            // (services/movedRowCarry.js).
+            const carried = result.rows[0]?.is_new && hasCarries()
+              ? takeCarry(account.id, folder, msgId, parsed.date) : null;
+            if (carried) {
+              insertedCount++;
+              const update = carryUpdate(result.rows[0].id, carried);
+              if (update) await query(update.text, update.params);
+              // A row moved before its spam check finished still gets one.
+              if (carried.spam_analyzed_at == null) this.maybeClassifyNewMessage(account, result.rows[0].id, parsed);
+            } else if (result.rows[0]?.is_new) {
               insertedCount++;
               // Inbox-ingest candidate: any newly-inserted INBOX row, read OR unread (read state
               // is not a gate here — the plugin decides). The unread-only push below still drives
@@ -8144,10 +8156,11 @@ export class ImapManager {
           // original folder (#665). Drop the row rather than keep it on that uid, and let a sync
           // of the folder file the message under its real one. Only this row: another message in
           // Snoozed may carry the same Message-ID, and a sync would not add its row back.
-          await query(
-            'DELETE FROM messages WHERE account_id = $1 AND message_id = $2 AND folder = $3 AND uid = $4',
+          const dropped = await query(
+            'DELETE FROM messages WHERE account_id = $1 AND message_id = $2 AND folder = $3 AND uid = $4 RETURNING *',
             [row.account_id, row.message_id_header, row.snoozed_folder, row.uid]
           );
+          rememberDroppedRows(row.original_folder, dropped?.rows);
           this.syncFolderOnDemand(account, row.original_folder)
             .catch(err => console.warn(`Snooze wakeup: sync of ${row.original_folder} failed: ${err.message}`));
         }

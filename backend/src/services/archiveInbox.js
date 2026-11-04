@@ -1,4 +1,5 @@
 import { query } from './db.js';
+import { rememberDroppedRows } from './movedRowCarry.js';
 import { resolveArchiveFolder, isAllMailFolder, adjustFolderCounts } from '../utils/mailUtils.js';
 
 // Archive a single INBOX copy of a message: the one guarded per-copy archive move, shared
@@ -54,8 +55,9 @@ export async function archiveInboxCopy(imapManager, account, inboxCopy, fromFold
       write = await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3 AND folder = $4 RETURNING is_read', [archiveFolder, newUid, inboxCopy.id, fromFolder]);
       applied = write.rowCount > 0;
     } else {
-      write = await query('DELETE FROM messages WHERE id = $1 AND folder = $2 RETURNING is_read', [inboxCopy.id, fromFolder]);
+      write = await query('DELETE FROM messages WHERE id = $1 AND folder = $2 RETURNING *', [inboxCopy.id, fromFolder]);
       applied = write.rowCount > 0;
+      rememberDroppedRows(archiveFolder, write.rows);
     }
     const uidKnown = allMail || newUid != null;
     if (applied) {

@@ -26,6 +26,7 @@ import { resolveForConnection } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { query } from './db.js';
 import { adjustFolderCounts } from '../utils/mailUtils.js';
+import { takeCarry } from './movedRowCarry.js';
 
 const HOUR = 3_600_000;
 const ACCOUNT = { id: 'acct-1', user_id: 'u1', imap_host: 'imap.example.com', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'enc' };
@@ -66,8 +67,10 @@ function fakeQuery(sql, params = []) {
   }
   if (sql.startsWith('DELETE FROM messages')) {
     const where = { mid: params[1], folder: params[2], uid: params[3] };
-    messages = messages.filter(m => !matches(sql, m, where));
-    return { rows: [] };
+    const cond = sql.replace(/\s+RETURNING \*$/, '');
+    const gone = messages.filter(m => matches(cond, m, where));
+    messages = messages.filter(m => !gone.includes(m));
+    return { rows: gone.map(m => ({ account_id: params[0], message_id: m.mid, uid: m.uid, folder: m.folder, category: m.category ?? null })) };
   }
   if (sql.startsWith('DELETE FROM snoozed_messages WHERE id')) { snoozes.delete(params[0]); return { rows: [] }; }
   return { rows: [] };
@@ -155,12 +158,15 @@ describe('the sweep', () => {
 describe('waking a snooze whose move names no new uid', () => {
   it('drops the row and pulls the folder, rather than keep the row on its Snoozed uid', async () => {
     snooze('a');
+    byMid('<a@x>').category = 'promotions';
     mgr.moveMessageGetNewUid = vi.fn(async () => null);
     expect(await mgr.wakeSnoozed(rowRead('a'), { markUnread: false })).toBe(true);
     expect(byMid('<a@x>')).toBeUndefined();
     expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(ACCOUNT, 'INBOX');
     expect(snoozes.size).toBe(0);
     expect(adjustFolderCounts.mock.calls).toEqual([['acct-1', 'Snoozed', -1, -1]]);
+    // The inbox's sync files it again with what MailFlow knew, not as new mail.
+    expect(takeCarry('acct-1', 'INBOX', '<a@x>', null)).toEqual({ category: 'promotions' });
   });
 });
 

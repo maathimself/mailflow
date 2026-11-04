@@ -1,4 +1,5 @@
 import { query } from './db.js';
+import { rememberDroppedRows } from './movedRowCarry.js';
 import { resolveArchiveFolder, isAllMailFolder, resolveTrashFolder, resolveAllTrashPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 
 async function getRulesForAccount(userId, accountId) {
@@ -429,7 +430,8 @@ export const RULE_CATEGORIES = new Set(['primary', 'newsletter', 'promotion', 'a
 // destination (#665), so the row is dropped rather than kept on it, and a sync of the destination
 // files the message under its real uid. The destination's counts come from that sync.
 async function dropMovedRow(imapManager, account, msg, destination) {
-  await query('DELETE FROM messages WHERE id = $1', [msg.id]);
+  const dropped = await query('DELETE FROM messages WHERE id = $1 RETURNING *', [msg.id]);
+  rememberDroppedRows(destination, dropped?.rows);
   imapManager.syncFolderOnDemand(account, destination)
     .catch(err => console.warn(`inboxRules: sync of ${destination} after a move without a new uid failed: ${err.message}`));
 }
