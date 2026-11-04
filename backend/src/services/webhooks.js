@@ -121,22 +121,43 @@ export function webhookRequest(row, { accountName, count, latest = {} }) {
   return { method: 'POST', headers, body: JSON.stringify(payload) };
 }
 
+// A sent Redis command cannot be cancelled by node-redis v4. If one times out,
+// stop admitting more work until it settles, rather than accumulating pending replies.
+let stalledAdmissions = 0;
+function admitWebhook(userId, timeout) {
+  return new Promise(resolve => {
+    let expired = false;
+    const timer = setTimeout(() => {
+      expired = true;
+      stalledAdmissions++;
+      resolve(null);
+    }, timeout);
+    const settle = value => {
+      if (expired) stalledAdmissions--;
+      else { clearTimeout(timer); resolve(value); }
+    };
+    Promise.resolve().then(() => redisClient.eval(rateScript, { keys: [`webhook:rate:${userId}`], arguments: [randomUUID()] }))
+      .then(settle, () => settle(null));
+  });
+}
+
 export async function notifyWebhook({ userId, accountName, count, latest }) {
   const admin = await webhookAdminSettings();
   if (!admin.enabled) return { skipped: 'disabled' };
   const { rows } = await query('SELECT * FROM notification_webhooks WHERE user_id = $1', [userId]);
   const row = rows[0];
   if (!row?.enabled || !row.url) return { skipped: 'disabled' };
-  let admitted;
-  try { admitted = await redisClient.eval(rateScript, { keys: [`webhook:rate:${userId}`], arguments: [randomUUID()] }); }
-  catch { return { skipped: 'unavailable' }; }
+  if (!redisClient.isReady || stalledAdmissions) return { skipped: 'unavailable' };
+  const deadline = Date.now() + 5000;
+  const admitted = await admitWebhook(userId, 5000);
+  if (admitted === null || Date.now() >= deadline) return { skipped: 'unavailable' };
   if (!admitted) return { skipped: 'rate_limit' };
   let error = null;
   try {
     const url = parseWebhookUrl(decrypt(row.url));
     const allowed = admin.allowedOrigins.includes(url.origin);
     const response = await safeFetch(url.href, {
-      ...webhookRequest(row, { accountName, count, latest }), redirect: 'error', signal: AbortSignal.timeout(5000),
+      ...webhookRequest(row, { accountName, count, latest }), redirect: 'error', signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
     }, { allowPrivate: false, allowPrivateNetworks: allowed, requireHttps: !allowed, blockReserved: true, requirePublicHttps: true });
     // No response content is needed. Cancel it rather than retaining an unbounded or slow body.
     void response.body?.cancel().catch(() => {});
