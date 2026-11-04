@@ -2414,5 +2414,27 @@
     "formNote": "Les boîtes Gmail et Google Workspace peuvent se connecter avec Google au lieu d'un mot de passe d'application.",
     "appPasswordNote": "Gmail demande un mot de passe d'application, pas votre mot de passe habituel. Activez la validation en deux étapes de votre compte Google, puis créez un mot de passe d'application et saisissez-le dans le champ du mot de passe.",
     "createAppPassword": "Créer un mot de passe d'application"
+  },
+  "webhooks": {
+    "title": "Webhooks sortants",
+    "description": "Envoyez le nom du compte et le nombre de nouveaux messages à un point de notification. Les détails facultatifs concernent seulement le dernier message admissible. Le corps des messages n’est jamais envoyé.",
+    "unavailable": "Les webhooks sont désactivés par l’administration.",
+    "disabled": "Arrêt après cinq échecs consécutifs. Activez et enregistrez pour reprendre les notifications.",
+    "enable": "Activer mon webhook",
+    "format": "Format des données",
+    "generic": "JSON générique",
+    "url": "URL du point de notification",
+    "token": "Jeton d’authentification facultatif",
+    "secretKept": "Configuré •••••••• — laisser vide pour conserver",
+    "clearToken": "Supprimer le jeton enregistré",
+    "sender": "Envoyer l’expéditeur au point de notification",
+    "subject": "Envoyer l’objet au point de notification",
+    "testHelp": "Enregistrez avant de tester. Les tests utilisent la configuration enregistrée et partagent la limite de 10 tentatives par minute.",
+    "test": "Envoyer une notification de test",
+    "testSent": "Notification de test envoyée.",
+    "saved": "Paramètres du webhook enregistrés.",
+    "adminEnable": "Autoriser les webhooks de notification pour les utilisateurs",
+    "origins": "Origines privées autorisées (une par ligne)",
+    "originsHelp": "Saisissez les origines exactes avec protocole, hôte et port, sans chemin. Les destinations publiques exigent HTTPS. Les destinations privées autorisées peuvent utiliser HTTP ; les adresses de boucle locale, de liaison locale et réservées restent bloquées."
   }
 }

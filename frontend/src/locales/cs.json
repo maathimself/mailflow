@@ -2433,5 +2433,27 @@
     "formNote": "Schránky Gmail a Google Workspace se mohou místo hesla aplikace přihlásit přes Google.",
     "appPasswordNote": "Gmail vyžaduje heslo aplikace, ne vaše běžné heslo. Zapněte pro účet Google dvoufázové ověření, vytvořte heslo aplikace a zadejte ho do pole pro heslo.",
     "createAppPassword": "Vytvořit heslo aplikace"
+  },
+  "webhooks": {
+    "title": "Odchozí webhooky",
+    "description": "Odesílejte název účtu a počet nových e-mailů do jednoho cíle oznámení. Volitelné podrobnosti popisují pouze poslední způsobilou zprávu. Těla zpráv se nikdy neodesílají.",
+    "unavailable": "Správce zakázal webhooky.",
+    "disabled": "Zastaveno po pěti po sobě jdoucích chybách. Pro obnovení oznámení funkci zapněte a uložte.",
+    "enable": "Zapnout můj webhook",
+    "format": "Formát dat",
+    "generic": "Obecný JSON",
+    "url": "URL cíle oznámení",
+    "token": "Volitelný ověřovací token",
+    "secretKept": "Nastaveno •••••••• — ponechte prázdné pro zachování",
+    "clearToken": "Odstranit uložený token",
+    "sender": "Odesílat odesílatele do cíle",
+    "subject": "Odesílat předmět do cíle",
+    "testHelp": "Před testem uložte změny. Testy používají uloženou konfiguraci a sdílejí limit 10 pokusů za minutu.",
+    "test": "Odeslat testovací oznámení",
+    "testSent": "Testovací oznámení odesláno.",
+    "saved": "Nastavení webhooku uloženo.",
+    "adminEnable": "Povolit uživatelům webhooky oznámení",
+    "origins": "Povolené soukromé zdroje (jeden na řádek)",
+    "originsHelp": "Zadejte přesné zdroje včetně protokolu, hostitele a portu, bez cesty. Veřejné cíle vyžadují HTTPS. Povolené soukromé cíle mohou používat HTTP; adresy zpětné smyčky, link-local a vyhrazené adresy zůstávají blokované."
   }
 }

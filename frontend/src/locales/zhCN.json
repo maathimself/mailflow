@@ -2414,5 +2414,27 @@
     "formNote": "Gmail 和 Google Workspace 邮箱可以使用 Google 登录，而不必使用应用专用密码。",
     "appPasswordNote": "Gmail 需要应用专用密码，而不是你的常用密码。请为 Google 帐号开启两步验证，然后创建应用专用密码并填入密码栏。",
     "createAppPassword": "创建应用专用密码"
+  },
+  "webhooks": {
+    "title": "出站 Webhook",
+    "description": "将账户名称和新邮件数量发送到一个通知端点。可选详情仅描述最后一封符合提醒条件的邮件，绝不发送正文。",
+    "unavailable": "管理员已禁用 Webhook。",
+    "disabled": "连续五次发送失败，已停止通知。启用并保存即可恢复。",
+    "enable": "启用我的 Webhook",
+    "format": "消息格式",
+    "generic": "通用 JSON",
+    "url": "端点 URL",
+    "token": "可选认证令牌",
+    "secretKept": "已配置 •••••••• — 留空以保留",
+    "clearToken": "移除已保存的令牌",
+    "sender": "将发件人发送到端点",
+    "subject": "将主题发送到端点",
+    "testHelp": "请先保存更改再测试。测试使用已保存的配置，并共享每分钟 10 次尝试的限额。",
+    "test": "发送测试通知",
+    "testSent": "测试通知已发送。",
+    "saved": "Webhook 设置已保存。",
+    "adminEnable": "允许用户使用通知 Webhook",
+    "origins": "允许的私网来源（每行一个）",
+    "originsHelp": "输入包含协议、主机和端口的完整来源，不包含路径。公网端点必须使用 HTTPS。允许的私网目标可使用 HTTP，但仍禁止环回、链路本地及保留地址。"
   }
 }

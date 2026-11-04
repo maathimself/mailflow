@@ -2414,5 +2414,27 @@
     "formNote": "Los buzones de Gmail y Google Workspace pueden iniciar sesión con Google en lugar de usar una contraseña de aplicación.",
     "appPasswordNote": "Gmail necesita una contraseña de aplicación, no tu contraseña habitual. Activa la verificación en dos pasos de tu cuenta de Google, crea una contraseña de aplicación y escríbela en el campo de contraseña.",
     "createAppPassword": "Crear una contraseña de aplicación"
+  },
+  "webhooks": {
+    "title": "Webhooks salientes",
+    "description": "Envía el nombre de la cuenta y la cantidad de correos nuevos a un destino de notificaciones. Los detalles opcionales describen solo el último mensaje apto. Nunca se envían los cuerpos de los mensajes.",
+    "unavailable": "El administrador ha desactivado los webhooks.",
+    "disabled": "Detenido tras cinco fallos consecutivos. Activa y guarda para reanudar las notificaciones.",
+    "enable": "Activar mi webhook",
+    "format": "Formato de los datos",
+    "generic": "JSON genérico",
+    "url": "URL del destino",
+    "token": "Token de autenticación opcional",
+    "secretKept": "Configurado •••••••• — deja vacío para conservar",
+    "clearToken": "Eliminar el token guardado",
+    "sender": "Enviar el remitente al destino",
+    "subject": "Enviar el asunto al destino",
+    "testHelp": "Guarda los cambios antes de probar. Las pruebas usan la configuración guardada y comparten el límite de 10 intentos por minuto.",
+    "test": "Enviar notificación de prueba",
+    "testSent": "Notificación de prueba enviada.",
+    "saved": "Ajustes del webhook guardados.",
+    "adminEnable": "Permitir webhooks de notificación a los usuarios",
+    "origins": "Orígenes privados permitidos (uno por línea)",
+    "originsHelp": "Introduce orígenes exactos con protocolo, host y puerto, sin ruta. Los destinos públicos requieren HTTPS. Los destinos privados permitidos pueden usar HTTP; las direcciones de bucle local, enlace local y reservadas siguen bloqueadas."
   }
 }
