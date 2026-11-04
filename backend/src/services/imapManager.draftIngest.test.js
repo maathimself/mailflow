@@ -27,7 +27,7 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('draft ingestion SQL id
         to_addresses jsonb, cc_addresses jsonb, bcc_addresses jsonb,
         in_reply_to text, thread_references text, thread_id text,
         date timestamptz, flags jsonb, has_attachments boolean, attachments jsonb,
-        is_read boolean, is_deleted boolean DEFAULT false, body_html text, body_text text,
+        provider_msgid text, is_read boolean, is_deleted boolean DEFAULT false, body_html text, body_text text,
         UNIQUE(account_id, uid, folder)
       )`);
   });
@@ -54,11 +54,11 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('draft ingestion SQL id
     await database.query(`INSERT INTO messages(account_id, uid, folder, message_id, thread_id, body_html, body_text)
       VALUES ('account-a',1,'Drafts',$1,$2,'<p>Cached</p>','Cached'),
         ('account-a',2,'Sent','<known@example.test>','<computed@example.test>',null,null)`, [oldId, oldRoot]);
-    parseMessage.mockResolvedValueOnce({ messageId: newId, fromEmail: 'me@example.test', subject: 'Fresh subject',
+    parseMessage.mockResolvedValueOnce({ messageId: newId, providerMsgid: '9007199254740993', fromEmail: 'me@example.test', subject: 'Fresh subject',
       to: [], cc: [], inReplyTo: '<known@example.test>', references: '<known@example.test>',
       parsedHeaders: { bcc: 'bcc@example.test' }, flags: [], hasAttachments: false });
     const manager = Object.create(ImapManager.prototype);
-    const metadata = await manager._ingestDraftUidWithClient({ id: 'account-a', email_address: 'me@example.test' }, 'Drafts', 1,
+    const metadata = await manager._ingestDraftUidWithClient({ id: 'account-a', email_address: 'me@example.test', imap_host: 'imap.gmail.com' }, 'Drafts', 1,
       { mailbox: { uidValidity: current } }, { headers: Buffer.from('headers'), bodyStructure: { type: 'text/plain' } });
     const persisted = (await database.query("SELECT * FROM messages WHERE folder='Drafts'")).rows[0];
     expect(metadata.thread_id).toBe(root);
@@ -66,6 +66,7 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('draft ingestion SQL id
     expect(persisted.body_html).toBe(keep ? '<p>Cached</p>' : null);
     expect(persisted.body_text).toBe(keep ? 'Cached' : null);
     expect(persisted.message_id).toBe(newId);
+    expect(persisted.provider_msgid).toBe('9007199254740993');
     expect(persisted.subject).toBe('Fresh subject');
     expect(persisted.bcc_addresses).toEqual([{ email: 'bcc@example.test' }]);
     expect((await database.query('SELECT uid_validity FROM folders')).rows[0]?.uid_validity).toBe(stored);

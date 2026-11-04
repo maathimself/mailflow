@@ -38,7 +38,7 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('Sent row attachment fl
       bcc_addresses jsonb, date timestamptz, snippet text, is_read boolean, is_starred boolean,
       has_attachments boolean DEFAULT false, flags jsonb, thread_id text, thread_key text, in_reply_to text,
       thread_references text, normalized_subject text, is_bulk boolean, is_deleted boolean DEFAULT false,
-      attachments jsonb DEFAULT '[]', UNIQUE (account_id, uid, folder))`);
+      attachments jsonb DEFAULT '[]', provider_msgid text, UNIQUE (account_id, uid, folder))`);
     query.mockImplementation((sql, values) => database.query(sql, values));
   });
   afterAll(async () => { await database?.end(); });

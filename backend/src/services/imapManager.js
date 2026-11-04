@@ -1568,7 +1568,7 @@ export async function insertCopiedSibling(accountId, uid, fromFolder, toFolder, 
       read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
       spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
       category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email,
-      forwarded_from_name, forwarded_from_email, forwarded_via, bcc_addresses, plugin_annotations
+      forwarded_from_name, forwarded_from_email, forwarded_via, bcc_addresses, plugin_annotations, provider_msgid
     )
     SELECT
       account_id, $4, $5, message_id, subject,
@@ -1579,7 +1579,7 @@ export async function insertCopiedSibling(accountId, uid, fromFolder, toFolder, 
       read_changed_at, star_changed_at, spam_score_sa, spam_score_ml,
       spam_verdict, spam_analyzed_at, spam_details, spam_user_override,
       category, list_unsubscribe, list_unsubscribe_post, unsubscribed_at, delivery_addresses, sender_name, sender_email,
-      forwarded_from_name, forwarded_from_email, forwarded_via, bcc_addresses, plugin_annotations
+      forwarded_from_name, forwarded_from_email, forwarded_via, bcc_addresses, plugin_annotations, provider_msgid
     FROM messages
     WHERE account_id = $1 AND folder = $2 AND uid = $3
     ON CONFLICT (account_id, uid, folder) DO NOTHING
@@ -4916,10 +4916,11 @@ export class ImapManager {
                 thread_references, thread_id, is_bulk, category,
                 list_unsubscribe, list_unsubscribe_post, delivery_addresses,
                 sender_name, sender_email,
-                forwarded_from_name, forwarded_from_email, forwarded_via
-              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
+                forwarded_from_name, forwarded_from_email, forwarded_via, provider_msgid
+              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33)
               ON CONFLICT (account_id, uid, folder) DO UPDATE
-              SET subject = CASE
+              SET provider_msgid = COALESCE(EXCLUDED.provider_msgid, messages.provider_msgid),
+                  subject = CASE
                     WHEN EXCLUDED.subject IS NOT NULL
                          AND EXCLUDED.subject != ''
                          AND EXCLUDED.subject != '(no subject)'
@@ -4996,6 +4997,7 @@ export class ImapManager {
               JSON.stringify(parsed.deliveryAddresses || []),
               sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
               sanitizeStr(parsed.forwardedFromName), sanitizeStr(parsed.forwardedFromEmail), sanitizeStr(parsed.forwardedVia),
+              providerProfile(account).labelStore ? parsed.providerMsgid || null : null,
             ]);
             if (result.rows[0]?.is_new) {
               insertedCount++;
@@ -5666,10 +5668,11 @@ export class ImapManager {
                     thread_references, thread_id, is_bulk, category,
                     list_unsubscribe, list_unsubscribe_post, delivery_addresses,
                     sender_name, sender_email,
-                    forwarded_from_name, forwarded_from_email, forwarded_via
-                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
+                    forwarded_from_name, forwarded_from_email, forwarded_via, provider_msgid
+                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33)
                   ON CONFLICT (account_id, uid, folder) DO UPDATE
-                  SET subject = CASE
+                  SET provider_msgid = COALESCE(EXCLUDED.provider_msgid, messages.provider_msgid),
+                      subject = CASE
                         WHEN EXCLUDED.subject IS NOT NULL
                              AND EXCLUDED.subject != ''
                              AND EXCLUDED.subject != '(no subject)'
@@ -5744,6 +5747,7 @@ export class ImapManager {
                   JSON.stringify(parsed.deliveryAddresses || []),
                   sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
                   sanitizeStr(parsed.forwardedFromName), sanitizeStr(parsed.forwardedFromEmail), sanitizeStr(parsed.forwardedVia),
+                  providerProfile(account).labelStore ? parsed.providerMsgid || null : null,
                 ]);
                 backfilledRows++;
                 // v0.2 antispam: classify genuinely-new rows — the same hook the
@@ -6262,6 +6266,7 @@ export class ImapManager {
   // wipe subject/from/to.
   async upsertSentMessageRecord(account, folder, uid, {
     messageId,
+    providerMsgid = null,
     subject,
     fromName,
     fromEmail,
@@ -6289,9 +6294,10 @@ export class ImapManager {
         account_id, uid, folder, message_id, subject,
         from_name, from_email, to_addresses, cc_addresses,
         date, snippet, is_read, is_starred, has_attachments, flags, thread_id, bcc_addresses,
-        in_reply_to, thread_references
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,true,false,$14,'[]',$12,$13::jsonb,$15,$16)
+        in_reply_to, thread_references, provider_msgid
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,true,false,$14,'[]',$12,$13::jsonb,$15,$16,$17)
       ON CONFLICT (account_id, uid, folder) DO UPDATE SET
+        provider_msgid = COALESCE(EXCLUDED.provider_msgid, messages.provider_msgid),
         message_id = COALESCE(EXCLUDED.message_id, messages.message_id),
         subject = CASE
           WHEN EXCLUDED.subject IS NOT NULL AND EXCLUDED.subject <> '' AND EXCLUDED.subject <> '(no subject)'
@@ -6332,6 +6338,7 @@ export class ImapManager {
       Array.isArray(bcc) && bcc.length ? JSON.stringify(bcc) : null,
       Boolean(hasAttachments),
       sanitizeStr(inReplyTo) || null, sanitizeStr(references) || null,
+      providerProfile(account).labelStore ? providerMsgid : null,
     ]);
   }
 
@@ -6345,6 +6352,7 @@ export class ImapManager {
   // (its own upsert COALESCEs the existing body/subject/recipients).
   async upsertDraftMessageRecord(account, folder, uid, {
     messageId,
+    providerMsgid = null,
     subject,
     fromName,
     fromEmail,
@@ -6367,9 +6375,10 @@ export class ImapManager {
         account_id, uid, folder, message_id, subject,
         from_name, from_email, to_addresses, cc_addresses,
         in_reply_to, date, snippet, is_read, is_starred, has_attachments,
-        flags, body_html, body_text, thread_id, bcc_addresses, thread_references
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,$19,$13::jsonb,$14,$15,$16,$17::jsonb,$18)
+        flags, body_html, body_text, thread_id, bcc_addresses, thread_references, provider_msgid
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,true,false,$19,$13::jsonb,$14,$15,$16,$17::jsonb,$18,$20)
       ON CONFLICT (account_id, uid, folder) DO UPDATE SET
+        provider_msgid = COALESCE(EXCLUDED.provider_msgid, messages.provider_msgid),
         message_id = COALESCE(EXCLUDED.message_id, messages.message_id),
         subject = CASE
           WHEN EXCLUDED.subject IS NOT NULL AND EXCLUDED.subject <> '' AND EXCLUDED.subject <> '(no subject)'
@@ -6406,6 +6415,7 @@ export class ImapManager {
       JSON.stringify(Array.isArray(bcc) ? bcc : []),
       references,
       Boolean(hasAttachments),
+      providerProfile(account).labelStore ? providerMsgid : null,
     ]);
   }
 
@@ -6510,9 +6520,10 @@ export class ImapManager {
     const { rows } = await query(`
       INSERT INTO messages (account_id, uid, folder, message_id, subject, from_name, from_email,
         to_addresses, cc_addresses, bcc_addresses, in_reply_to, thread_references, thread_id,
-        date, flags, has_attachments, attachments, is_read)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15::jsonb,$16,$17::jsonb,true)
+        date, flags, has_attachments, attachments, is_read, provider_msgid)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15::jsonb,$16,$17::jsonb,true,$20)
       ON CONFLICT (account_id, uid, folder) DO UPDATE SET
+        provider_msgid = EXCLUDED.provider_msgid,
         message_id = EXCLUDED.message_id, subject = EXCLUDED.subject,
         from_name = EXCLUDED.from_name, from_email = EXCLUDED.from_email,
         to_addresses = EXCLUDED.to_addresses, cc_addresses = EXCLUDED.cc_addresses,
@@ -6532,7 +6543,7 @@ export class ImapManager {
       JSON.stringify(parsed.cc || []), JSON.stringify(bcc), parsed.inReplyTo || null,
       parsed.references || null, threadId || null, safeDate(parsed.date),
       JSON.stringify(parsed.flags || []), parsed.hasAttachments, JSON.stringify(structure.attachments),
-      uidValidity, validIdentity]);
+      uidValidity, validIdentity, providerProfile(account).labelStore ? parsed.providerMsgid || null : null]);
     if (!rows.length) throw new Error('Draft ingestion did not persist a row');
     return { id: rows[0].id, account_id: account.id, uid, folder, message_id: parsed.messageId,
       subject: parsed.subject || '', from_email: parsed.fromEmail, from_name: parsed.fromName,

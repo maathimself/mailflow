@@ -518,6 +518,8 @@ describe('insertCopiedSibling', () => {
     expect(ins[0]).toContain('delivery_addresses');
     // So is a draft's Bcc (0061), in both the INSERT list and the SELECT.
     expect(ins[0].match(/\bbcc_addresses\b/g)).toHaveLength(2);
+    // A label copy keeps the provider identity alongside the RFC Message-ID.
+    expect(ins[0].match(/\bprovider_msgid\b/g)).toHaveLength(2);
   });
 
   it('increments destination unread only when the copied message is unread', async () => {
@@ -550,7 +552,7 @@ describe('upsertDraftMessageRecord', () => {
     query.mockResolvedValue({ rows: [] });
   });
 
-  const save = (meta) => ImapManager.prototype.upsertDraftMessageRecord.call({}, { id: 'acct-1' }, 'Drafts', 5, {
+  const save = (meta, account = { id: 'acct-1' }) => ImapManager.prototype.upsertDraftMessageRecord.call({}, account, 'Drafts', 5, {
     messageId: '<d1@example.com>', subject: 's', fromName: 'A', fromEmail: 'a@example.com',
     to: [{ name: '', email: 'to@example.com' }], ...meta,
   });
@@ -578,6 +580,28 @@ describe('upsertDraftMessageRecord', () => {
     await save({ bcc: [] });
     const [sql] = findCall('INSERT INTO messages');
     expect(sql).toMatch(/bcc_addresses = EXCLUDED\.bcc_addresses/);
+  });
+
+  it('stores the Gmail provider identity when one is available', async () => {
+    await save({ providerMsgid: '9007199254740993' }, { id: 'acct-1', imap_host: 'imap.gmail.com' });
+    expect(insertedValue('provider_msgid')).toBe('9007199254740993');
+    expect(findCall('INSERT INTO messages')[0]).toMatch(/provider_msgid = COALESCE\(EXCLUDED\.provider_msgid, messages\.provider_msgid\)/);
+  });
+});
+
+describe('upsertSentMessageRecord provider identity', () => {
+  beforeEach(() => {
+    query.mockReset();
+    query.mockResolvedValue({ rows: [] });
+  });
+
+  it('stores the Gmail provider identity when one is available', async () => {
+    await ImapManager.prototype.upsertSentMessageRecord.call({},
+      { id: 'acct-1', email_address: 'me@example.test', imap_host: 'imap.gmail.com' }, 'Sent', 5,
+      { messageId: '<sent@example.test>', providerMsgid: '9007199254740993' });
+    const [sql, params] = findCall('INSERT INTO messages');
+    expect(sql).toMatch(/provider_msgid = COALESCE\(EXCLUDED\.provider_msgid, messages\.provider_msgid\)/);
+    expect(params.at(-1)).toBe('9007199254740993');
   });
 });
 
@@ -3667,6 +3691,7 @@ describe('Gmail label memberships (#418)', () => {
   });
   afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); });
   const manager = () => ({ backfillRunning: new Set(), broadcast: vi.fn(), pluginFacade: {}, _secondaryConnectBlocked: () => null, _noteSecondaryRefusal: vi.fn(),
+    maybeClassifyNewMessage: vi.fn(),
     // A re-sync of cached rows now routes flags through the bulk path (#495) instead of
     // re-upserting each row, so the bare-object manager needs the real method.
     _applyFlagUpdates: ImapManager.prototype._applyFlagUpdates });
@@ -3688,6 +3713,19 @@ describe('Gmail label memberships (#418)', () => {
         expect(rows.map(r => r.folder).sort()).toEqual([...order].sort());
         for (const folder of order) await run(mgr, folder);
         expect(rows).toHaveLength(2);
+      });
+    }
+  }
+  for (const mode of ['sync', 'backfill']) {
+    for (const [host, expected] of [['imap.gmail.com', '9007199254740993'], ['imap.example.test', null]]) {
+      it(`${mode} scopes provider identity to Gmail on ${host}`, async () => {
+        acct.imap_host = host;
+        parseMessage.mockImplementation(async m => ({ ...parsed(m.uid), providerMsgid: '9007199254740993' }));
+        await (mode === 'sync' ? sync : backfill)(manager(), 'INBOX');
+        const [sql, values] = query.mock.calls.find(([sql]) => sql.includes('INSERT INTO messages'));
+        const columns = sql.match(/INSERT INTO messages\s*\(([^)]*)\)/)[1].split(',').map(c => c.trim());
+        expect(columns).toContain('provider_msgid');
+        expect(values[columns.indexOf('provider_msgid')]).toBe(expected);
       });
     }
   }
