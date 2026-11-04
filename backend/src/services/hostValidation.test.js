@@ -413,3 +413,23 @@ describe('allowPrivate option', () => {
     expect(result.host).toBe('192.168.1.100');
   });
 });
+
+describe('restricted webhook private networks', () => {
+  const policy = { allowPrivateNetworks: true };
+  it.each(['10.0.0.1', '172.16.0.1', '172.31.255.254', '192.168.1.1', 'fd12::1', 'fc00::1234', '::ffff:192.168.1.1', '8.8.8.8', '2606:4700:4700::1111', 'notify.internal'])('permits %s', host => {
+    expect(validateHostLiteral(host, policy)).toBeNull();
+  });
+  it.each(['127.0.0.1', '127.1', '2130706433', '0x7f000001', '0.0.0.0', '169.254.169.254', '100.64.0.1', '192.0.2.1', '198.51.100.1', '203.0.113.1', '224.0.0.1', '240.0.0.1', '::', '::1', 'fe80::1', 'ff02::1', '2001:db8::1', '2001::1', '2002:7f00:1::', '64:ff9b::7f00:1', '::ffff:127.0.0.1', '::ffff:a9fe:a9fe', '::ffff:e000:1', 'localhost.'])('blocks %s even with the broad option also enabled', host => {
+    expect(validateHostLiteral(host, policy)).toBeTruthy();
+    expect(validateHostLiteral(host, { ...policy, allowPrivate: true })).toBeTruthy();
+  });
+});
+
+describe('strict public webhook addresses', () => {
+  it.each(['224.0.0.1', '192.0.2.1', '203.0.113.1', 'ff02::1', '2001:db8::1', '10.0.0.1', 'fd00::1', '::ffff:192.168.1.1'])('blocks %s without a LAN exception', host => {
+    expect(validateHostLiteral(host, { blockReserved: true })).toBeTruthy();
+  });
+  it.each(['8.8.8.8', '2606:4700:4700::1111', '::ffff:8.8.8.8'])('allows public %s', host => {
+    expect(validateHostLiteral(host, { blockReserved: true })).toBeNull();
+  });
+});

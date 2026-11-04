@@ -65,6 +65,30 @@ function isPrivateIPv6(ip) {
   return false;
 }
 
+// Restricted private-network exceptions for outgoing webhooks. Unlike allowPrivate,
+// this never admits loopback, link-local, multicast or reserved destinations.
+function blockedWebhookIPv4(ip, allowPrivateNetworks) {
+  if (inCidr(ip, '10.0.0.0', 8) || inCidr(ip, '172.16.0.0', 12) || inCidr(ip, '192.168.0.0', 16)) return !allowPrivateNetworks;
+  return isPrivateIPv4(ip) || inCidr(ip, '192.0.2.0', 24) ||
+    inCidr(ip, '192.88.99.0', 24) || inCidr(ip, '198.51.100.0', 24) ||
+    inCidr(ip, '203.0.113.0', 24) || inCidr(ip, '224.0.0.0', 4);
+}
+
+function blockedWebhookIPv6(ip, allowPrivateNetworks) {
+  const g = ipv6Groups(ip);
+  if ((g[0] & 0xfe00) === 0xfc00) return !allowPrivateNetworks; // ULA
+  // Mapped IPv4 uses exactly the same policy as its native representation.
+  if (g.slice(0, 5).every(x => x === 0) && g[5] === 0xffff) {
+    return blockedWebhookIPv4(`${g[6] >> 8}.${g[6] & 255}.${g[7] >> 8}.${g[7] & 255}`, allowPrivateNetworks);
+  }
+  // Only global unicast otherwise. Exclude special-purpose, documentation and
+  // transition ranges rather than allowing tunnels to evade destination policy.
+  if ((g[0] & 0xe000) !== 0x2000) return true;
+  if (g[0] === 0x2001 && (g[1] < 0x200 || g[1] === 0xdb8)) return true;
+  if (g[0] === 0x2002 || (g[0] === 0x3fff && (g[1] & 0xf000) === 0)) return true;
+  return false;
+}
+
 // getaddrinfo (glibc, musl) reads 2130706433, 0x7f000001, 0177.0.0.1 and 127.1 as IPv4
 // addresses, but net.isIPv4 accepts only the dotted quad. The URL parser reads the same
 // inet_aton forms, so use it to find the address the socket would connect to.
@@ -79,9 +103,9 @@ function inetAtonIPv4(host) {
 }
 
 // Synchronous check: literal IPs and reserved hostnames.
-export function validateHostLiteral(host, { allowPrivate = false } = {}) {
+export function validateHostLiteral(host, { allowPrivate = false, allowPrivateNetworks = false, blockReserved = false } = {}) {
   if (!host || typeof host !== 'string') return null;
-  if (allowPrivate) return null;
+  if (allowPrivate && !allowPrivateNetworks && !blockReserved) return null;
   let h = host.trim();
   // dns.lookup converts a non-ASCII host to ASCII before getaddrinfo reads it, so
   // １２７.０.０.１ reaches 127.0.0.1 and ::１ reaches ::1. Check the converted form, and
@@ -93,13 +117,13 @@ export function validateHostLiteral(host, { allowPrivate = false } = {}) {
   h = h.toLowerCase();
   // A trailing dot makes a name fully qualified, not a different one: localhost. is localhost.
   const name = h.replace(/\.+$/, '');
-  if (name === 'localhost' || name.endsWith('.local') || name.endsWith('.localhost') || name.endsWith('.internal')) {
+  if (name === 'localhost' || name.endsWith('.localhost') || (!allowPrivateNetworks && (name.endsWith('.local') || name.endsWith('.internal')))) {
     return 'Host cannot be a local address';
   }
   const bare = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h;
   const v4 = isIPv4(bare) ? bare : inetAtonIPv4(bare);
-  if (v4 && isPrivateIPv4(v4)) return 'Host cannot be a private or reserved IP address';
-  if (isIPv6(bare) && isPrivateIPv6(bare)) return 'Host cannot be a private or reserved IP address';
+  if (v4 && ((allowPrivateNetworks || blockReserved) ? blockedWebhookIPv4(v4, allowPrivateNetworks) : isPrivateIPv4(v4))) return 'Host cannot be a private or reserved IP address';
+  if (isIPv6(bare) && ((allowPrivateNetworks || blockReserved) ? blockedWebhookIPv6(bare, allowPrivateNetworks) : isPrivateIPv6(bare))) return 'Host cannot be a private or reserved IP address';
   return null;
 }
 
