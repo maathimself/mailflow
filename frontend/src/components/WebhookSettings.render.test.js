@@ -120,7 +120,7 @@ describe('webhook settings', () => {
     await mount();
     assert.match(host.textContent, /webhooks.disabled/);
     assert.match(host.textContent, /webhooks.errors.timeout/);
-    assert.equal(button('webhooks.test').disabled, true);
+    assert.ok(!button('webhooks.test'));
     await click(checkbox('webhooks.enable'));
     await click(button('common.save'));
     assert.equal(calls.find(c => c.method === 'PUT').body.enabled, true);
@@ -164,6 +164,20 @@ describe('webhook settings', () => {
     await mount();
     assert.match(host.textContent, /webhooks.errors.http.*401/);
     assert.ok(!host.textContent.includes('Endpoint returned'));
+  });
+  test('collapses disabled settings while allowing the change to be saved', async () => {
+    await mount();
+    await click(checkbox('webhooks.enable'));
+    assert.ok(!host.querySelector('select, input, textarea'));
+    assert.equal(host.querySelectorAll('[role="switch"]').length, 1);
+    assert.ok(!button('webhooks.test'));
+    assert.ok(!host.textContent.includes('webhooks.testHelp'));
+    await click(button('common.save'));
+    assert.equal(calls.find(c => c.method === 'PUT').body.enabled, false);
+    assert.equal(button('common.save'), undefined);
+    await click(checkbox('webhooks.enable'));
+    assert.ok(host.querySelector('select'));
+    assert.ok(checkbox('webhooks.sender'));
   });
   test('global disable shows only the disabled notice', async () => {
     config.available = false;
