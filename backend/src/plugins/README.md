@@ -74,6 +74,8 @@ A plugin exports a manifest (see `gtd/index.js`): `{ id, name, version, tier, ro
 Core mounts the router and fires the hooks through the registry — core never calls a plugin directly.
 `hooks` are the plugin's halves of generic core events (e.g. `inboxIngest`, `afterLabelCopy`,
 `onSentMessage`, `validateAccountSettings`, `enrichAccount`, …); `sync` is an optional periodic tick.
+`messageRowsDeleted` receives `{ account, folder, threadKeys }` when reconciliation removes rows;
+`afterLabelRemove` includes the removed copy’s `threadKey`.
 
 ### Data
 

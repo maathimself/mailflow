@@ -1593,6 +1593,40 @@ export async function insertCopiedSibling(accountId, uid, fromFolder, toFolder, 
   return row ? row.id : null;
 }
 
+export async function rollbackCopiedMessageOnInsertFailure(
+  manager, account, toFolder, newUid, insertError, uidValidity,
+) {
+  try {
+    if (uidValidity == null || !(await manager.permanentDeleteMessage(
+      account, newUid, toFolder, { expectUidValidity: uidValidity },
+    ))) throw new Error('Cannot safely roll back copy: destination UID validity is unknown or changed');
+  } catch (rollbackError) {
+    // The copy is confirmed on the server but has no local row. Preserve enough context for the
+    // caller to report an uncompensated operation and for logs to identify the orphan exactly.
+    insertError.copiedUid = newUid;
+    insertError.rollbackError = rollbackError;
+  }
+  throw insertError;
+}
+
+// Delete the rows identified by reconcileDeletes' IMAP snapshot and report their thread keys to
+// plugins. RETURNING makes the hook reflect only rows that survived the cutoff re-check, not every
+// candidate from the earlier SELECT.
+export async function deleteReconciledMessageRows(account, folder, orphanUids, reconcileStartedAt) {
+  const deleted = await query(
+    `DELETE FROM messages
+     WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[])
+       AND (synced_at IS NULL OR synced_at < $4)
+     RETURNING thread_key`,
+    [account.id, folder, orphanUids, reconcileStartedAt]
+  );
+  const threadKeys = [...new Set(deleted.rows.map(row => row.thread_key).filter(Boolean))];
+  if (threadKeys.length > 0) {
+    await pluginRegistry.runHook('messageRowsDeleted', { account, folder, threadKeys });
+  }
+  return deleted.rowCount ?? deleted.rows.length;
+}
+
 // DB half of removeMessageCopy: delete exactly one folder's copy of a message. Scoped
 // to (account_id, uid, folder) — the messages unique key — so sibling rows in other
 // folders are never touched. Decrements that folder's counts off the removed row's
@@ -2818,7 +2852,7 @@ export class ImapManager {
     this._syncErrorState = new Map();
     this._accountErrorStreak = new Map(); // accountId -> consecutive recoverable failures not yet surfaced
     this._errorForgets = new Map(); // accountId -> times forgetAccountError ran (see there)
-    this.onDemandSyncing = new Set(); // `${accountId}:${folder}` — prevent duplicate on-demand syncs
+    this.onDemandSyncing = new Map(); // awaitable folder sync claims
     // Bounded engine facade handed to plugin hooks instead of `this` — plugins get only the reviewed
     // sync/label primitives (see mailEngineFacade), never the raw engine, its connections, or locks.
     this.pluginFacade = createPluginMailFacade(this);
@@ -6623,26 +6657,60 @@ export class ImapManager {
   // Syncs the most recent messages in a specific folder on demand.
   // Called when the user navigates to a folder that has no local messages yet.
   // Uses a pooled connection — does NOT touch the main sync connection.
-  async syncFolderOnDemand(account, folder) {
+  async _syncFolderOnDemandNow(account, folder) {
+    await withFreshClient(account, async (client) => {
+      await this.syncMessages(account, client, folder, 100, false, true);
+    });
+  }
+
+  async syncFolderOnDemand(account, folder, { freshAfterActive = false } = {}) {
     const key = `${account.id}:${folder}`;
-    if (this.onDemandSyncing.has(key)) {
-      console.log(`syncFolderOnDemand skipped (already running): ${logAccount(account)}/${folder}`);
-      return;
+    const active = this.onDemandSyncing.get(key);
+    if (active) {
+      console.log(`syncFolderOnDemand waiting (already running): ${logAccount(account)}/${folder}`);
+      await active.promise;
+      if (!freshAfterActive) return;
+      // A sync that started before a non-UIDPLUS COPY may not have observed the new destination
+      // row. Once that older owner settles, take a new claim and perform one post-copy pass.
+      if (this.onDemandSyncing.get(key) === active) this.onDemandSyncing.delete(key);
+      return this.syncFolderOnDemand(account, folder);
     }
-    this.onDemandSyncing.add(key);
-    console.log(`syncFolderOnDemand start: ${logAccount(account)}/${folder}`);
+
+    const task = (async () => {
+      console.log(`syncFolderOnDemand start: ${logAccount(account)}/${folder}`);
+      try {
+        await this._syncFolderOnDemandNow(account, folder);
+        console.log(`syncFolderOnDemand done: ${logAccount(account)}/${folder}`);
+        // sync_complete fires mailflow:refresh in the frontend, reloading the message list
+        this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
+      } catch (err) {
+        console.error(`On-demand sync error ${logAccount(account)}/${folder}:`, err.message);
+      }
+    })();
+    const entry = { promise: task, release: null };
+    this.onDemandSyncing.set(key, entry);
     try {
-      await withFreshClient(account, async (client) => {
-        await this.syncMessages(account, client, folder, 100, false, true);
-      });
-      console.log(`syncFolderOnDemand done: ${logAccount(account)}/${folder}`);
-      // sync_complete fires mailflow:refresh in the frontend, reloading the message list
-      this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
-    } catch (err) {
-      console.error(`On-demand sync error ${logAccount(account)}/${folder}:`, err.message);
+      return await task;
     } finally {
-      this.onDemandSyncing.delete(key);
+      if (this.onDemandSyncing.get(key) === entry) this.onDemandSyncing.delete(key);
     }
+  }
+
+  _tryClaimFolderSync(accountId, folder) {
+    const key = `${accountId}:${folder}`;
+    if (this.onDemandSyncing.has(key)) return false;
+    let release;
+    const promise = new Promise(resolve => { release = resolve; });
+    this.onDemandSyncing.set(key, { promise, release });
+    return true;
+  }
+
+  _releaseFolderSync(accountId, folder) {
+    const key = `${accountId}:${folder}`;
+    const entry = this.onDemandSyncing.get(key);
+    if (!entry) return;
+    entry.release?.();
+    if (this.onDemandSyncing.get(key) === entry) this.onDemandSyncing.delete(key);
   }
 
   // Periodically pull new mail into the special-use spam/Junk folder. Server-side spam filtering
@@ -6668,9 +6736,7 @@ export class ImapManager {
       spamPath = await resolveSpamFolder(account.id, account.folder_mappings);
     } catch { return; }
     if (!spamPath) return;
-    const key = `${account.id}:${spamPath}`;
-    if (this.onDemandSyncing.has(key)) return;
-    this.onDemandSyncing.add(key);
+    if (!this._tryClaimFolderSync(account.id, spamPath)) return;
     const host = (account.imap_host || '').toLowerCase();
     try {
       await this._bgConnSem.acquire(host);
@@ -6685,7 +6751,7 @@ export class ImapManager {
     } catch (err) {
       console.warn(`Periodic spam sync failed for ${logAccount(account)}/${spamPath}:`, err.message);
     } finally {
-      this.onDemandSyncing.delete(key);
+      this._releaseFolderSync(account.id, spamPath);
     }
   }
 
@@ -7610,11 +7676,12 @@ export class ImapManager {
   // so one read from a stale row, or looked up in the wrong account, would otherwise expunge
   // whatever sits there. Resolves false, having deleted nothing, when it does not match, and true
   // when nothing holds the uid any more, which is where a delete would have left it.
-  async permanentDeleteMessage(account, uid, folder, { expectMessageId, expectRow } = {}) {
+  async permanentDeleteMessage(account, uid, folder, { expectMessageId, expectRow, expectUidValidity } = {}) {
     const expected = expectRow ?? (expectMessageId === undefined ? undefined : { message_id: expectMessageId });
     return withFreshClient(account, async (client) => {
       const lock = await client.getMailboxLock(folder);
       try {
+        if (expectUidValidity != null && String(client.mailbox?.uidValidity) !== String(expectUidValidity)) return false;
         if (expected) {
           let copy = null;
           // An unsolicited FETCH (a flag change) carries no envelope and must not stand in for the copy.
@@ -7651,12 +7718,14 @@ export class ImapManager {
     if (!account) throw new Error(`copyMessage: account ${accountId} not found`);
 
     let newUid = null;
+    let copyUidValidity = null;
     try {
       await withFreshClient(account, async (client) => {
         const lock = await client.getMailboxLock(fromFolder);
         try {
           const result = await client.messageCopy(String(uid), toFolder, { uid: true });
           if (result === false) throw new Error('messageCopy returned false — server did not confirm copy');
+          copyUidValidity = result?.uidValidity;
           if (result?.uidMap) newUid = result.uidMap.get(Number(uid)) || null;
         } finally {
           lock.release();
@@ -7684,7 +7753,11 @@ export class ImapManager {
       return null;
     }
 
-    await insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid);
+    try {
+      await insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid);
+    } catch (error) {
+      await rollbackCopiedMessageOnInsertFailure(this, account, toFolder, newUid, error, copyUidValidity);
+    }
     return newUid;
   }
 
@@ -7708,7 +7781,7 @@ export class ImapManager {
     if (!account) throw new Error(`removeMessageCopy: account ${accountId} not found`);
 
     const { rows: [row] } = await query(
-      'SELECT message_id, date, subject, from_email FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+      'SELECT message_id, date, subject, from_email, thread_key FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
       [accountId, uid, folder]
     );
     if (!row) return 0;
@@ -7725,7 +7798,7 @@ export class ImapManager {
       if (movedUid != null) {
         // A sync may have filed the copy at its real uid meanwhile.
         await deleteMessageCopyRow(accountId, movedUid, folder);
-        await pluginRegistry.runHook('afterLabelRemove', { mgr: this.pluginFacade, account, folder, uid: movedUid });
+        await pluginRegistry.runHook('afterLabelRemove', { mgr: this.pluginFacade, account, folder, uid: movedUid, threadKey: row.thread_key });
         return 1;
       }
       this.syncFolderOnDemand(account, folder)
@@ -7736,7 +7809,7 @@ export class ImapManager {
     }
     const result = await deleteMessageCopyRow(accountId, uid, folder);
     // Removing a label copy changes label-feed data — let plugins broadcast their refresh.
-    await pluginRegistry.runHook('afterLabelRemove', { mgr: this.pluginFacade, account, folder, uid });
+    await pluginRegistry.runHook('afterLabelRemove', { mgr: this.pluginFacade, account, folder, uid, threadKey: row.thread_key });
     return result;
   }
 
@@ -8412,10 +8485,7 @@ export class ImapManager {
       console.log(`Reconcile: removing ${orphanUids.length} server-deleted message(s) from ${logAccount(account)}/${folder}`);
       // Re-assert the cutoff in the DELETE: a row updated to a fresh synced_at between
       // the SELECT above and here (e.g. a concurrent bulk-move reinsert) is spared.
-      await query(
-        'DELETE FROM messages WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[]) AND (synced_at IS NULL OR synced_at < $4)',
-        [account.id, folder, orphanUids, reconcileStartedAt]
-      );
+      const deletedHere = await deleteReconciledMessageRows(account, folder, orphanUids, reconcileStartedAt);
       // Resync cached folder counts from actual row data — reconcile deletes rows
       // without going through adjustFolderCounts, so counts would otherwise drift.
       await query(
@@ -8426,7 +8496,7 @@ export class ImapManager {
          WHERE f.account_id = $1 AND f.path = $2`,
         [account.id, folder]
       );
-      deletedCount += orphanUids.length;
+      deletedCount += deletedHere;
     }
 
     if (deletedCount > 0) {
