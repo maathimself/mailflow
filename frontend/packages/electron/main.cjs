@@ -15,6 +15,7 @@ const {
   normalizeHost,
 } = require('./security.cjs');
 const { createNotificationRetainer } = require('./notificationRetainer.cjs');
+const { configureWindowOpening } = require('./windowOpening.cjs');
 
 // New-mail notifications stay referenced while they can be clicked (#587).
 const newMailNotifications = createNotificationRetainer();
@@ -1687,12 +1688,10 @@ function createWindow() {
     mainWindow.show();
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (isAllowedExternalUrl(url)) {
-      shell.openExternal(url);
-    }
-
-    return { action: 'deny' };
+  configureWindowOpening(mainWindow.webContents, {
+    getHost: readHost,
+    isAllowedExternalUrl,
+    openExternal: (url) => shell.openExternal(url),
   });
 
   mainWindow.webContents.on('context-menu', (_event, params) => {

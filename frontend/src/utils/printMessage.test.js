@@ -89,11 +89,24 @@ function fakeWindow() {
 }
 
 describe('print window', () => {
+  it('opens uniquely named blank windows permitted by the desktop shell', () => {
+    const calls = [];
+    dom.window.open = (...args) => { calls.push(args); return fakeWindow(); };
+    openPrintWindow();
+    openPrintWindow();
+    assert.equal(calls[0][0], '');
+    assert.match(calls[0][1], /^mailflow-print-\d+$/);
+    assert.match(calls[1][1], /^mailflow-print-\d+$/);
+    assert.notEqual(calls[0][1], calls[1][1]);
+  });
+
   it('shows a placeholder while the conversation loads', () => {
     const win = fakeWindow();
+    win.opener = dom.window;
     dom.window.open = () => win;
     globalThis.window.open = dom.window.open;
     assert.equal(openPrintWindow('Preparing <to> print'), win);
+    assert.equal(win.opener, null, 'email cannot reach the main window native bridge through its opener');
     assert.match(win.writes.join(''), /Preparing &lt;to&gt; print/);
   });
 

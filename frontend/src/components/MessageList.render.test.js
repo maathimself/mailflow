@@ -198,6 +198,39 @@ describe('MessageList — selected-row shortcuts', () => {
   });
 });
 
+// Deleting a conversation row sends what the thread route returns to bulk-delete, which expunges a
+// copy already in Trash. The route marks that copy in_trash; this account's folder list has not
+// loaded and INBOX.Trash goes by no name the client knows, so only the mark leaves it alone. The ids
+// are this test's own: the delete guards are module state and would hide THREAD from later tests.
+describe('MessageList — deleting a conversation leaves its copy in Trash', () => {
+  test('the bulk-delete request leaves out the copy the thread route marks in_trash', async () => {
+    const row = { ...THREAD, id: 'tr-new', message_id: '<tr-new@example.com>', thread_id: 'thr-tr' };
+    ROUTES['/mail/thread?id=thr-tr&folder=INBOX'] = [200, { messages: [
+      { ...MESSAGE, id: 'tr-old', folder: 'INBOX.Trash', message_id: '<tr-old@example.com>', thread_id: 'thr-tr', in_trash: true },
+      { ...MESSAGE, id: 'tr-new', message_id: '<tr-new@example.com>', thread_id: 'thr-tr', in_trash: false },
+      { ...MESSAGE, id: 'tr-reply', folder: 'Sent', message_id: '<tr-reply@example.com>', thread_id: 'thr-tr', in_trash: false },
+    ] }];
+    await mount({ rows: [row], threadedView: true });
+    await React.act(async () => {
+      useStore.setState({ folders: {}, notifications: [] });
+      useStore.getState().setSelectedMessage(row.id);
+    });
+    CALLS = [];
+    await React.act(async () => { shortcutBus.emit('delete'); await new Promise(r => setTimeout(r, 30)); });
+    // Unmounting sends the pending delete at once instead of after the undo window. Its undo toast
+    // would otherwise be the first thing the Ctrl+Z test below undoes.
+    await React.act(async () => root.unmount());
+    root = null;
+    await React.act(async () => {
+      useStore.setState({ selectedMessageId: null, notifications: [] });
+      await new Promise(r => setTimeout(r, 30));
+    });
+    const request = CALLS.find(c => c.path.endsWith('/mail/messages/bulk-delete'));
+    assert.ok(request, 'expected a bulk-delete request');
+    assert.deepEqual(request.body.ids.sort(), ['tr-new', 'tr-reply']);
+  });
+});
+
 describe('MessageList — modifier-click enters multi-select (#220)', () => {
   // Before this, modifiers only worked once ALREADY in selection mode; entering it took the
   // avatar or the toolbar button. A Ctrl/Cmd- or Shift-click on a row must now enter it in
@@ -339,11 +372,11 @@ describe('MessageList — reopening a saved draft keeps its Bcc', () => {
     to_addresses: [{ name: '', email: 'alice@example.com' }], cc_addresses: [],
     in_reply_to: '<parent@example.com>', thread_references: '<root@example.com> <parent@example.com>' };
 
-  const openDraft = async ({ bcc }) => {
-    ROUTES = { '/mail/messages/draft-1/body': [200, { html: '<p>hello</p>', text: 'hello' }], '/mail/messages/draft-1/bcc': bcc };
+  const openDraft = async ({ bcc, body = { html: '<p>hello</p>', text: 'hello' }, draft = DRAFT }) => {
+    ROUTES = { '/mail/messages/draft-1/body?remoteImages=1': [200, body], '/mail/messages/draft-1/bcc': bcc };
     const opened = [];
     await React.act(async () => { useStore.setState({ openCompose: d => opened.push(d), notifications: [], selectedMessageId: null }); });
-    await mount({ rows: [DRAFT], threadedView: false, folder: 'Drafts' });
+    await mount({ rows: [draft], threadedView: false, folder: 'Drafts' });
     const row = container.querySelector('[data-msgid="draft-1"]');
     assert.ok(row, 'expected a row for the draft');
     await React.act(async () => {
@@ -362,6 +395,30 @@ describe('MessageList — reopening a saved draft keeps its Bcc', () => {
     assert.deepEqual(opened[0].bcc, bcc);
     assert.equal(opened[0].inReplyTo, DRAFT.in_reply_to);
     assert.equal(opened[0].references, DRAFT.thread_references);
+  });
+
+  // Saving replaces the draft and compose saves no attachments, so compose has to know about them:
+  // it then sends them from the draft's own parts and refuses to save over it.
+  test('a draft with attachments hands compose its parts', async () => {
+    const opened = await openDraft({ bcc: [200, { bcc: [] }], draft: { ...DRAFT, has_attachments: true },
+      body: { html: '<p>hello</p>', attachments: [{ part: '2', filename: 'report.pdf', size: 1200 }] } });
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0].externalAttachments.length, 1);
+    assert.deepEqual(opened[0].forwardedAttachments, [{ messageId: 'draft-1', part: '2', filename: 'report.pdf', size: 1200 }]);
+    assert.equal(opened[0].unresolvedExternalAttachments, false);
+  });
+
+  test('a draft flagged with attachments that are not listed cannot be saved over', async () => {
+    const opened = await openDraft({ bcc: [200, { bcc: [] }], draft: { ...DRAFT, has_attachments: true },
+      body: { html: '<p>hello</p>', attachments: [] } });
+    assert.equal(opened[0].unresolvedExternalAttachments, true);
+  });
+
+  test('a draft without attachments stays an ordinary draft', async () => {
+    const opened = await openDraft({ bcc: [200, { bcc: [] }] });
+    assert.deepEqual(opened[0].externalAttachments, []);
+    assert.deepEqual(opened[0].forwardedAttachments, []);
+    assert.equal(opened[0].unresolvedExternalAttachments, false);
   });
 
   test('a draft whose Bcc cannot be read opens read-only, with an error, never in compose', async () => {

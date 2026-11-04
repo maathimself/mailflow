@@ -244,6 +244,39 @@ describe('drafts in the conversation', () => {
   });
 });
 
+// A copy deleted earlier, which the thread route marks in_trash: bulk-delete would expunge it. This
+// account's folder list never loaded and INBOX.Trash goes by no name the client knows, so only the
+// mark tells.
+describe('a copy the thread route marks in Trash', () => {
+  const OLD = { id: 't1', account_id: 'acct', folder: 'INBOX.Trash', subject: 'Hello', from_email: 'them@x.z', date: '2025-12-31T00:00:00Z', is_read: true, in_trash: true };
+  const withTrash = [OLD, ...THREAD.map(m => ({ ...m, in_trash: false }))];
+  const fetchWithTrash = async () => ({ messages: [...withTrash, { ...LATE_REPLY, in_trash: false }] });
+
+  test('deleting the conversation from the Inbox leaves it out of the request', async () => {
+    assert.equal(useStore.getState().folders.acct, undefined);
+    useStore.getState().setMessages(withTrash.map(m => ({ ...m })));
+    deleteThread(withTrash, { t, addNotification, fetchThread: fetchWithTrash, anchorId: 'a3' });
+    const listed = ids();
+    await tick(UNDO_WINDOW + 50);
+    assert.match(requests.at(-1).url, /bulk-delete/);
+    assert.deepEqual(requests.at(-1).body.ids.sort(), ['a1', 'a2', 'a3', 'a4']);
+    assert.deepEqual(listed, ['t1'], 'the copy in Trash stays in the list');
+  });
+
+  // Another client moved the conversation into INBOX.Trash during the undo window. The copies come
+  // back under new ids, so the message the delete was anchored on is no longer in the thread.
+  test('a conversation moved to Trash meanwhile is not expunged, and its draft stays', async () => {
+    const DRAFT = { id: 'd1', account_id: 'acct', folder: 'Drafts', subject: 'Re: Hello', from_email: 'me@x.z', date: '2026-01-05T00:00:00Z', is_read: true, is_draft: true, in_trash: false };
+    const shown = [THREAD[0], THREAD[2]].map(m => ({ ...m, in_trash: false }));
+    const moved = shown.map(m => ({ ...m, id: `${m.id}-moved`, folder: 'INBOX.Trash', in_trash: true }));
+    useStore.getState().setMessages([...shown, DRAFT].map(m => ({ ...m })));
+    deleteThread([...shown, DRAFT], { t, addNotification, fetchThread: async () => ({ messages: [...moved, DRAFT] }), anchorId: 'a3' });
+    await tick(UNDO_WINDOW + 50);
+    assert.match(requests.at(-1).url, /bulk-delete/);
+    assert.deepEqual(requests.at(-1).body.ids.sort(), ['a1', 'a3'], 'only the rows the pane removed, which the server no longer has');
+  });
+});
+
 describe('snoozeThread', () => {
   test('snoozes the newest inbox message, not the sent reply and not the whole thread', async () => {
     // a3 is the newest INBOX message. a2 is the reader's own sent reply, and snoozing it

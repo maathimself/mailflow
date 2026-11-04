@@ -12,6 +12,7 @@ import { resolveThreadMessages } from '../utils/threadActions.js';
 import { keepDraftsApart } from '../utils/conversationActions.js';
 import { unreadDeltaByAccount } from '../utils/countSnapshots.js';
 import { splitDraftSignature } from '../utils/draftSignature.js';
+import { draftAttachmentFields } from '../utils/openSavedDraft.js';
 import { useSwipeRow } from '../hooks/useSwipeRow.js';
 import { useHoverPrefetch } from '../hooks/useHoverPrefetch.js';
 import ContextMenu from './ContextMenu.jsx';
@@ -198,7 +199,8 @@ function MailboxList() {
   const currentLayout = LAYOUTS[layout] || LAYOUTS.comfortable;
   const isColumn = currentLayout.direction === 'column';
   const listFirst = useListFirst();
-  const isNarrow = !isColumn && currentLayout.listWidth <= 260;
+  // List first has no fixed width (null): it is the widest list, not a narrow one.
+  const isNarrow = !isColumn && currentLayout.listWidth != null && currentLayout.listWidth <= 260;
 
   // Apply the optimistic delete and read guards to a batch of messages from the server
   // (utils/pendingDeletes.js, utils/pendingReads.js), against the rows shown now.
@@ -209,6 +211,11 @@ function MailboxList() {
 
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [activeCategory, setActiveCategory] = useState('primary');
+  // The category tab and unread filter are this list's own state; the store keys an Undo by them
+  // too, so a message goes back only into the tab it left (#630).
+  useEffect(() => {
+    useStore.setState({ listFilter: `${activeCategory || ''}|${unreadOnly ? 'unread' : 'all'}` });
+  }, [activeCategory, unreadOnly]);
   const [currentPage, setCurrentPage] = useState(1);
   const currentPageRef = useRef(1);
   const archiveViewKeyRef = useRef(null);
@@ -2567,6 +2574,9 @@ function MailboxList() {
           inReplyTo: message.in_reply_to || undefined,
           references: message.thread_references || undefined,
           ...(signature !== null ? { signature } : inline ? { signature: '' } : {}),
+          // Saving the reopened draft replaces it, and compose saves no attachments, so a draft
+          // with any opened as if it had none lost them on the next save.
+          ...draftAttachmentFields(message, bodyData),
         });
       } catch (err) {
         console.error('Failed to open draft:', err.message);

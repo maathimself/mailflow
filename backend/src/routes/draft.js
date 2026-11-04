@@ -19,6 +19,35 @@ const router = Router();
 router.use(requireAuth);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Draft attachments: base64 payloads kept in the MIME itself (the draft row stores the body only).
+// Bounded so a client cannot stuff an unbounded blob into the Drafts folder.
+const MAX_DRAFT_ATTACHMENTS = 5;
+const MAX_DRAFT_ATTACHMENT_BYTES = 15 * 1024 * 1024;
+const BASE64_RE = /^[A-Za-z0-9+/=]+$/;
+
+const hasUnsafeFilenameChars = (name) => name.includes('/') || name.includes('\\')
+  || [...name].some((ch) => ch.charCodeAt(0) < 0x20);
+
+function normalizeDraftAttachments(input) {
+  if (input == null) return [];
+  if (!Array.isArray(input)) throw Object.assign(new Error('attachments must be an array'), { status: 400 });
+  if (input.length > MAX_DRAFT_ATTACHMENTS) throw Object.assign(new Error(`attachments: ${MAX_DRAFT_ATTACHMENTS} files max`), { status: 400 });
+  let total = 0;
+  return input.map((a) => {
+    if (!a || typeof a !== 'object' || Array.isArray(a)) throw Object.assign(new Error('Invalid attachment'), { status: 400 });
+    const filename = typeof a.filename === 'string' ? a.filename.trim() : '';
+    if (!filename || filename.length > 200 || hasUnsafeFilenameChars(filename)) throw Object.assign(new Error('Invalid attachment filename'), { status: 400 });
+    const b64 = typeof a.contentBase64 === 'string' ? a.contentBase64.replace(/\s+/g, '') : '';
+    if (!b64 || !BASE64_RE.test(b64)) throw Object.assign(new Error('Invalid attachment content'), { status: 400 });
+    const content = Buffer.from(b64, 'base64');
+    if (!content.length) throw Object.assign(new Error('Invalid attachment content'), { status: 400 });
+    total += content.length;
+    if (total > MAX_DRAFT_ATTACHMENT_BYTES) throw Object.assign(new Error('Attachments are too large (15 MB max)'), { status: 400 });
+    const contentType = typeof a.contentType === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(a.contentType) ? a.contentType : undefined;
+    return { filename, content, ...(contentType ? { contentType } : {}) };
+  });
+}
+
 const MAX_REPLY_CONVERSATION = 10000;
 
 function groupReplyRows(rows, keys) {
@@ -241,7 +270,7 @@ function textToHtml(text) {
     .join('');
 }
 
-async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, inReplyTo, references }) {
+async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, inReplyTo, references, attachments = [] }) {
   const replyToId = replyHeader(inReplyTo, true);
   const referenceIds = replyHeader(references) || replyToId;
   const acctResult = await query(
@@ -308,7 +337,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     ...(referenceIds ? { references: referenceIds } : {}),
     text: textBody,
     html: draftHtml,
-    ...(inlineImageAttachments.length ? { attachments: inlineImageAttachments } : {}),
+    ...((inlineImageAttachments.length || attachments.length) ? { attachments: [...inlineImageAttachments, ...attachments] } : {}),
   };
 
   const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'unix' });
@@ -330,13 +359,16 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
 }
 
 router.post('/draft', async (req, res) => {
-  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder, existingAccountId, inReplyTo, references } = req.body;
+  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, existingUid, existingFolder, existingAccountId, inReplyTo, references, attachments: rawAttachments } = req.body;
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
 
   if (!(await findOwnedAccount(req.session.userId, accountId, { columns: 'id' }))) return res.status(404).json({ error: 'Account not found' });
 
+  let attachments;
+  try { attachments = normalizeDraftAttachments(rawAttachments); } catch (err) { return res.status(err.status || 400).json({ error: err.message }); }
+
   try {
-    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, inReplyTo, references });
+    const { rawMessage, account, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, inReplyTo, references, attachments });
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });
@@ -371,6 +403,7 @@ router.post('/draft', async (req, res) => {
           snippet: meta.snippet,
           bodyHtml: meta.bodyHtml,
           bodyText: meta.bodyText,
+          hasAttachments: attachments.length > 0,
           inReplyTo: meta.inReplyTo,
           references: meta.references,
         });

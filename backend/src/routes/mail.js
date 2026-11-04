@@ -16,7 +16,7 @@ import { fitInlineImages } from '../services/inlineImageFit.js';
 import { needsCidRefetch, needsImageRefetch, settleCids, settledEarlier, withoutCidMarker } from '../utils/cidRefs.js';
 import { sanitizeDbText, storeFetchedBody } from '../services/messageBodyStore.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, parseMailboxList, buildHeadersFromMessage } from '../services/messageParser.js';
-import { draftMessageSql, resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings, readCopyTargets, pushSeen } from '../utils/mailUtils.js';
+import { draftMessageSql, trashMessageSql, resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings, readCopyTargets, pushSeen } from '../utils/mailUtils.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { listMessages, LIST_SORTS, LIST_SORT_DIRS, NOT_PLACEHOLDER_SQL } from '../services/messageService.js';
 import { recordSyncSignal } from '../services/diagnosticsRing.js';
@@ -41,13 +41,15 @@ const accountMaintainsLabelSiblings = (accountId) =>
   pluginRegistry.hasActiveAsync('inboxIngest', { account: { id: accountId } });
 
 // Validate a folder name / path component: no control chars, max 255 chars.
-function isValidFolderName(name) {
+// Exported with areValidUUIDs for middleware/apiTokenGuards.js, which leaves to these routes
+// whatever input they refuse.
+export function isValidFolderName(name) {
   // eslint-disable-next-line no-control-regex -- intentionally rejecting control characters
   return typeof name === 'string' && name.length > 0 && name.length <= 255 && !/[\x00-\x1f\x7f]/.test(name);
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function areValidUUIDs(ids) {
+export function areValidUUIDs(ids) {
   return ids.every(id => typeof id === 'string' && UUID_RE.test(id));
 }
 
@@ -325,8 +327,10 @@ async function getThread(req, res, threadId) {
                m.has_attachments, m.account_id, m.category,
                m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses,
                a.name AS account_name, a.email_address AS account_email, a.color AS account_color,
-               -- Deleting or moving the conversation leaves its drafts alone (utils/conversationActions.js).
-               ${draftMessageSql('m')} AS is_draft
+               -- Deleting or moving the conversation leaves its drafts alone, and its copies already
+               -- in Trash, where a delete expunges (utils/conversationActions.js).
+               ${draftMessageSql('m')} AS is_draft,
+               ${trashMessageSql('m')} AS in_trash
         FROM messages m
         JOIN email_accounts a ON m.account_id = a.id
         WHERE m.is_deleted = false

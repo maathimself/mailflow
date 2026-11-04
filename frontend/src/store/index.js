@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { resolveConversationMode, groupsMessageList, conversationModeTransition, isConversationMode } from '../utils/conversationMode.js';
 import { applyMessageUpdate } from '../utils/readState.js';
 import { api } from '../utils/api.js';
+import { signOut as signOutAndLeave } from '../utils/signOut.js';
 import { mergeCountSnapshots, adjustCountPending, expireCountPending, settleCountPending, displayCountSnapshot, mergeFolderSnapshots } from '../utils/countSnapshots.js';
 import { resolveSelectedAccount, pruneFolders } from '../utils/accountScope.js';
 import { UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
@@ -120,7 +121,7 @@ function expirePendingCounts() {
 const removedFromView = new Map();
 const listViewOf = state => JSON.stringify([state.selectedAccountId ?? null, state.selectedFolder ?? null,
   String(state.searchQuery || '').trim(), Boolean(state.searchAllFolders), state.activeGtdTab ?? null, Boolean(state.threadedView),
-  listOrderFor(state.listSort, state.selectedAccountId, state.selectedFolder)]);
+  listOrderFor(state.listSort, state.selectedAccountId, state.selectedFolder), state.listFilter ?? null]);
 function noteRemoved(state, ids) {
   if (removedFromView.size > 5000) removedFromView.clear();
   const view = listViewOf(state);
@@ -183,6 +184,24 @@ export const useStore = create((set, get) => ({
     }));
   },
   updateUser: (updates) => set(state => ({ user: state.user ? { ...state.user, ...updates } : state.user })),
+  // The sidebar and the lock screen sign out here, through the shared helper (#523, #310).
+  signOut: async () => {
+    // Before the request, not after it: if the page reloads while the request is out and the
+    // server did sign out, the next load clears the lock with no user signed in, which reopens
+    // this message for whoever signs in next.
+    localStorage.removeItem('mailflow_locked_message');
+    let loggedOut = false;
+    await signOutAndLeave({
+      setUser: get().setUser,
+      logout: async () => { const res = await api.logout(); loggedOut = true; return res; },
+      navigate: (url) => {
+        // If the sign-out failed, the session may still be alive, and unlocked if the lock
+        // request failed too. Keep the lock then, so the next load sends it again.
+        if (loggedOut) get().setLocked(false);
+        window.location.href = url;
+      },
+    });
+  },
 
   // Plugin activation — the per-user set of activated plugin ids (users.preferences.enabledPlugins).
   // Hydrated in loadPreferences and mutated only via setPluginActivated (the Plugins settings
@@ -1205,9 +1224,13 @@ export const useStore = create((set, get) => ({
     const key = listSortKey(accountId, folder);
     // eslint-disable-next-line no-unused-vars
     const { [key]: _old, ...rest } = get().listSort;
-    const next = isDefaultListOrder(order)
+    let next = isDefaultListOrder(order)
       ? rest
       : { ...rest, [key]: { sort: order.sort, dir: order.dir, starredFirst: Boolean(order.starredFirst) } };
+    // The server refuses more than 500 (and with them every preference saved alongside), so the
+    // folders sorted longest ago give way first.
+    const keys = Object.keys(next);
+    if (keys.length > 400) next = Object.fromEntries(keys.slice(keys.length - 400).map(k => [k, next[k]]));
     localStorage.setItem('mailflow_list_sort', JSON.stringify(next));
     set({ listSort: next });
     schedulePrefSave({ listSort: next });

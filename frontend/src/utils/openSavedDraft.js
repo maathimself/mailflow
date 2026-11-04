@@ -14,12 +14,6 @@ export function savedDraftToComposeData(draft, bodyData, accounts = []) {
   const { body, signature } = bodyData?.html
     ? splitDraftSignature(raw)
     : { body: raw, signature: null, inline: false };
-  const listed = Array.isArray(bodyData?.attachments) ? bodyData.attachments : [];
-  // A file the draft's HTML also shows (#640) is kept by that HTML, which is saved and sent with
-  // the image inline, so it is not attached again. It still accounts for the draft's paperclip.
-  const shownInline = bodyData?.html ? listed.filter(a => a?.shownInline) : [];
-  const externalAttachments = listed.filter(a => !shownInline.includes(a));
-  const knownAttachments = externalAttachments.filter(a => a?.part);
   const account = accounts.find(a => a.id === draft.account_id);
   const aliasId = account?.aliases?.find(alias =>
     alias.email?.toLowerCase() === draft.from_email?.toLowerCase())?.id;
@@ -45,9 +39,25 @@ export function savedDraftToComposeData(draft, bodyData, accounts = []) {
     references: draft.thread_references || undefined,
     threadId: draft.thread_id || undefined,
     isReply: Boolean(draft.in_reply_to || draft.thread_references),
+    ...draftAttachmentFields(draft, bodyData, { complete: draft.attachments_complete === true }),
+  };
+}
+
+// What compose needs to know about a reopened draft's attachments. Compose saves drafts without
+// attachments, so with any it sends them from the draft's own parts and refuses to save over it.
+// `complete` says the listed attachments are the draft's full set; a list row's are its synced
+// structure, a reply-draft lookup's are only complete when the server says so.
+export function draftAttachmentFields(draft, bodyData, { complete = true } = {}) {
+  const listed = Array.isArray(bodyData?.attachments) ? bodyData.attachments : [];
+  // A file the draft's HTML also shows (#640) is kept by that HTML, which is saved and sent with
+  // the image inline, so it is not attached again. It still accounts for the draft's paperclip.
+  const shownInline = bodyData?.html ? listed.filter(a => a?.shownInline) : [];
+  const externalAttachments = listed.filter(a => !shownInline.includes(a));
+  const knownAttachments = externalAttachments.filter(a => a?.part);
+  return {
     externalAttachments: externalAttachments.length || (draft.has_attachments && !shownInline.length) ? externalAttachments.length ? externalAttachments : [{}] : [],
     forwardedAttachments: knownAttachments.map(a => ({ messageId: draft.id, part: a.part, filename: a.filename, size: a.size })),
-    unresolvedExternalAttachments: draft.attachments_complete !== true
+    unresolvedExternalAttachments: !complete
       || Boolean(draft.has_attachments && !externalAttachments.length && !shownInline.length)
       || knownAttachments.length !== externalAttachments.length,
   };
