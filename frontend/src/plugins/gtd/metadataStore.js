@@ -8,6 +8,7 @@ const listeners = new Set();
 const refreshListeners = new Set();
 const clockListeners = new Set();
 let requestGeneration = 0;
+let fullFetchRequired = true;
 let refreshGeneration = 0;
 let sessionGeneration = 0;
 let clock = Date.now();
@@ -44,6 +45,7 @@ export function tickGtdMetadataClock(now = Date.now()) {
 
 export function invalidateGtdMetadata() {
   requestGeneration += 1;
+  fullFetchRequired = true;
   refreshGeneration += 1;
   for (const listener of refreshListeners) listener();
 }
@@ -69,6 +71,7 @@ export function clearGtdMetadata(message) {
     metadata.clear();
     answered.clear();
     visibleMessages.clear();
+    fullFetchRequired = true;
     sessionGeneration += 1;
   }
   requestGeneration += 1;
@@ -86,9 +89,11 @@ export function refreshGtdMetadata(message, session = sessionGeneration) {
 // message and drops what has left the screen; an onlyMissing one keeps the cache as it is.
 export async function fetchVisibleGtdMetadata(messages, { api, onlyMissing = false }) {
   const generation = ++requestGeneration;
+  onlyMissing = onlyMissing && !fullFetchRequired;
   visibleMessages = new Map((messages || []).filter(message => message?.id && message.account_id)
     .map(message => [message.id, message]));
   if (!onlyMissing) {
+    fullFetchRequired = true;
     for (const id of metadata.keys()) if (!visibleMessages.has(id)) metadata.delete(id);
     answered.clear();
     emit();
@@ -126,7 +131,9 @@ export async function fetchVisibleGtdMetadata(messages, { api, onlyMissing = fal
     return complete;
   }));
   if (generation !== requestGeneration) return 'stale';
-  return responses.every(Boolean) ? 'complete' : 'partial';
+  const complete = responses.every(Boolean);
+  if (!onlyMissing && complete) fullFetchRequired = false;
+  return complete ? 'complete' : 'partial';
 }
 
 export function startGtdMetadataFetch(messages, {

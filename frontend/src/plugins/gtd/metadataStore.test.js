@@ -79,6 +79,29 @@ describe('fetchVisibleGtdMetadata', () => {
     assert.deepEqual(getGtdMetadata(M1).states, ['watch']);
   });
 
+  it('refreshes cached states when a full fetch is superseded before answering', async () => {
+    clearGtdMetadata();
+    const message = { id: M1, account_id: A1 };
+    await fetchVisibleGtdMetadata([message], {
+      api: { gtdMetadata: async () => ({ messages: { [M1]: { states: ['todo'] } } }) },
+    });
+    let finishOld;
+    const old = fetchVisibleGtdMetadata([message], {
+      api: { gtdMetadata: () => new Promise(resolve => { finishOld = resolve; }) },
+    });
+    const calls = [];
+    await fetchVisibleGtdMetadata([message], { onlyMissing: true, api: {
+      gtdMetadata: async (_account, ids) => {
+        calls.push(ids);
+        return { messages: { [M1]: { states: ['watch'] } } };
+      },
+    } });
+    finishOld({ messages: { [M1]: { states: ['todo'] } } });
+    assert.equal(await old, 'stale');
+    assert.deepEqual(calls, [[M1]]);
+    assert.deepEqual(getGtdMetadata(M1).states, ['watch']);
+  });
+
   it('clears cached labels omitted by a fresh response', async () => {
     patchGtdMetadata(M2, 'todo', '2026-08-01T00:00:00.000Z');
     await fetchVisibleGtdMetadata([{ id: M2, account_id: A1 }], {
