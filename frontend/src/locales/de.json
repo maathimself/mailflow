@@ -1396,6 +1396,15 @@
       "ssoUnlinkBody": "Du kannst dich nicht mehr mit diesem Anbieter anmelden. Stelle sicher, dass du eine andere Anmeldemöglichkeit hast.",
       "ssoUnlinkConfirm": "Verbindung trennen",
       "ssoNoProviders": "Auf diesem Server sind keine SSO-Anbieter konfiguriert.",
+      "ssoLinkConfirmPassword": "Gib dein Passwort ein, um {{provider}} zu verknüpfen.",
+      "ssoLinkConfirmTotp": "Gib den Code aus deiner Authenticator-App ein, um {{provider}} zu verknüpfen.",
+      "ssoLinkConfirmOidc": "Melde dich erneut per SSO an, um zu bestätigen, dass du es bist, und verknüpfe {{provider}} dann von hier aus.",
+      "ssoLinkConfirmOidcButton": "Mit {{provider}} bestätigen",
+      "ssoLinkConfirmNoProvider": "Dein Konto hat keine SSO-Identität zum Bestätigen und keine Passwort-Anmeldung. Wende dich an einen Administrator.",
+      "ssoLinkConfirmTotpSetup": "Dieser Server verlangt Zwei-Faktor-Authentifizierung. Richte oben eine Authenticator-App ein, bevor du verknüpfst.",
+      "ssoLinkConfirmed": "Per SSO bestätigt bis {{time}}. Du kannst jetzt einen weiteren Anbieter verknüpfen.",
+      "ssoLinkContinue": "Weiter",
+      "ssoLinkChecking": "Wird geprüft…",
       "loginProtectionTitle": "Anmeldeschutz",
       "loginProtectionDesc": "Fehlgeschlagene Anmeldeversuche von einer einzelnen IP-Adresse, bevor sie vorübergehend gesperrt wird.",
       "maxAttempts": "Maximale Versuche",
@@ -1840,6 +1849,10 @@
     "ssoLinked": {
       "title": "SSO-Identität verknüpft",
       "body": "Dein Konto ist jetzt mit dem SSO-Anbieter verknüpft."
+    },
+    "ssoReauth": {
+      "title": "Per SSO bestätigt",
+      "body": "Du kannst in den nächsten 10 Minuten ein weiteres SSO-Konto verknüpfen."
     },
     "ssoError": {
       "title": "SSO-Fehler"
