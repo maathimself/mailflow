@@ -43,6 +43,8 @@ export function createImageCache({
   let disabled = false;
   const failures = new Map();
   const inFlight = new Map();
+  // Stores load() started and did not wait for, so clear() does not race one that lands after it.
+  const writes = new Set();
 
   const fileOf = (key, type) => path.join(dir, `${key}.${EXTENSIONS[type]}`);
   const forget = (key) => {
@@ -150,7 +152,8 @@ export function createImageCache({
       const work = (async () => {
         try {
           const image = await produce();
-          put(key, image).catch(() => {});
+          const write = put(key, image).catch(() => {}).finally(() => writes.delete(write));
+          writes.add(write);
           return { ...image, hit: false };
         } finally {
           inFlight.delete(key);
@@ -162,6 +165,7 @@ export function createImageCache({
     stats: () => ({ entries: index.size, bytes: total, disabled }),
     async clear() {
       await ready;
+      await Promise.all(writes);
       for (const key of [...index.keys()]) forget(key);
       failures.clear();
     },
