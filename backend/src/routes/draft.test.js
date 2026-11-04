@@ -173,6 +173,18 @@ describe('POST /api/mail/draft — local row persistence', () => {
       .toBe('<root@example.test> <parent@example.test>');
   });
 
+  it('appends the draft with CRLF line endings (#365)', async () => {
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: ['recipient@example.test'],
+        subject: 'Hi', body: 'Line one\nLine two', inReplyTo: '<parent@example.test>' }),
+    });
+    expect(res.status).toBe(200);
+    const raw = imapManager.appendToFolder.mock.calls[0][2].toString();
+    expect(raw).toMatch(/\r\nSubject: Hi\r\n/);
+    expect(raw.replace(/\r\n/g, '')).not.toContain('\n');
+  });
+
   it('rejects reply-header injection before appending a draft', async () => {
     const res = await fetch(`${base}/api/mail/draft`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
