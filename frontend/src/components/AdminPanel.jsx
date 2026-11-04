@@ -49,6 +49,7 @@ import SpamSettings from './SpamSettings.jsx';
 import BackupSettings from './BackupSettings.jsx';
 import PasswordInput from './PasswordInput.jsx';
 import ApiTokensSection from './ApiTokensSection.jsx';
+import WebhookSettings from './WebhookSettings.jsx';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -5402,6 +5403,7 @@ function PushNotificationsSection() {
 // ─── Notifications Tab ────────────────────────────────────────────────────────
 function NotificationsTab() {
   const { t } = useTranslation();
+  const isAdmin = useStore(s => !!s.user?.isAdmin);
   const { notificationSound, setNotificationSound, customSoundDataUrl, setCustomSoundDataUrl,
           showAppBadge, setShowAppBadge, showFaviconBadge, setShowFaviconBadge } = useStore();
   const fileInputRef = useRef(null);
@@ -5621,6 +5623,7 @@ function NotificationsTab() {
 
       {/* Push Notifications */}
       <PushNotificationsSection />
+      <WebhookSettings isAdmin={isAdmin} />
     </div>
   );
 }

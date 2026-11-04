@@ -2414,5 +2414,27 @@
     "formNote": "Caixas do Gmail e do Google Workspace podem entrar com o Google em vez de usar uma senha de app.",
     "appPasswordNote": "O Gmail precisa de uma senha de app, não da sua senha normal. Ative a verificação em duas etapas da sua Conta do Google, crie uma senha de app e digite-a no campo de senha.",
     "createAppPassword": "Criar uma senha de app"
+  },
+  "webhooks": {
+    "title": "Webhooks de saída",
+    "description": "Envie o nome da conta e a quantidade de novos e-mails para um destino de notificações. Os detalhes opcionais descrevem apenas a última mensagem elegível. O corpo das mensagens nunca é enviado.",
+    "unavailable": "Os webhooks foram desativados pelo administrador.",
+    "disabled": "Interrompido após cinco falhas consecutivas. Ative e salve para retomar as notificações.",
+    "enable": "Ativar meu webhook",
+    "format": "Formato dos dados",
+    "generic": "JSON de uso geral",
+    "url": "URL do destino",
+    "token": "Token de autenticação opcional",
+    "secretKept": "Configurado •••••••• — deixe em branco para manter",
+    "clearToken": "Remover o token salvo",
+    "sender": "Enviar o remetente ao destino",
+    "subject": "Enviar o assunto ao destino",
+    "testHelp": "Salve as alterações antes de testar. Os testes usam a configuração salva e compartilham o limite de 10 tentativas por minuto.",
+    "test": "Enviar notificação de teste",
+    "testSent": "Notificação de teste enviada.",
+    "saved": "Configurações do webhook salvas.",
+    "adminEnable": "Permitir webhooks de notificação para usuários",
+    "origins": "Origens privadas permitidas (uma por linha)",
+    "originsHelp": "Informe origens exatas com protocolo, host e porta, sem caminho. Destinos públicos exigem HTTPS. Destinos privados permitidos podem usar HTTP; endereços de loopback, link-local e reservados continuam bloqueados."
   }
 }

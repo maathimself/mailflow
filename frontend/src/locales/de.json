@@ -2414,5 +2414,27 @@
     "formNote": "Postfächer von Gmail und Google Workspace können sich statt mit einem App-Passwort mit Google anmelden.",
     "appPasswordNote": "Gmail braucht ein App-Passwort, nicht Ihr normales Passwort. Schalten Sie die Bestätigung in zwei Schritten für Ihr Google-Konto ein, erstellen Sie dann ein App-Passwort und geben Sie es im Passwortfeld ein.",
     "createAppPassword": "App-Passwort erstellen"
+  },
+  "webhooks": {
+    "title": "Ausgehende Webhooks",
+    "description": "Kontoname und Anzahl neuer E-Mails an einen Benachrichtigungsendpunkt senden. Optionale Details betreffen nur die letzte relevante Nachricht. Nachrichteninhalte werden nie gesendet.",
+    "unavailable": "Webhooks wurden von der Administration deaktiviert.",
+    "disabled": "Nach fünf aufeinanderfolgenden Fehlern angehalten. Zum Fortsetzen aktivieren und speichern.",
+    "enable": "Meinen Webhook aktivieren",
+    "format": "Nachrichtenformat",
+    "generic": "Allgemeines JSON",
+    "url": "Endpunkt-URL",
+    "token": "Optionales Authentifizierungstoken",
+    "secretKept": "Konfiguriert •••••••• — zum Beibehalten leer lassen",
+    "clearToken": "Gespeichertes Token entfernen",
+    "sender": "Absender an den Endpunkt senden",
+    "subject": "Betreff an den Endpunkt senden",
+    "testHelp": "Änderungen vor dem Test speichern. Tests verwenden die gespeicherte Konfiguration und zählen zum Limit von 10 Versuchen pro Minute.",
+    "test": "Testbenachrichtigung senden",
+    "testSent": "Testbenachrichtigung gesendet.",
+    "saved": "Webhook-Einstellungen gespeichert.",
+    "adminEnable": "Benachrichtigungs-Webhooks für Benutzer erlauben",
+    "origins": "Erlaubte private Ursprünge (einer pro Zeile)",
+    "originsHelp": "Exakte Ursprünge mit Protokoll, Host und Port ohne Pfad eingeben. Öffentliche Endpunkte benötigen HTTPS. Erlaubte private Ziele dürfen HTTP verwenden; Loopback-, Link-Local- und reservierte Adressen bleiben gesperrt."
   }
 }
