@@ -1,0 +1,23 @@
+import { newMailPushPayload } from './inboxRules.js';
+import { query } from './db.js';
+import { sendPushToUser } from './pushNotifications.js';
+
+// Called only for alert-eligible INBOX arrivals. Delivery never blocks mail sync.
+export function notifyNewMail({ userId, alertMessages, alertCount }) {
+  const basePayload = newMailPushPayload(alertMessages, alertCount);
+  // Try to include the total unread count for the home screen badge.
+  // If the query fails for any reason, send the push without it so
+  // notifications are never silently dropped.
+  query(
+    `SELECT COUNT(*)::int AS total FROM messages m
+     JOIN email_accounts a ON a.id = m.account_id
+     WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false`,
+    [userId]
+  ).then(r => {
+    sendPushToUser(userId, { ...basePayload, unreadCount: r.rows[0]?.total ?? 0 })
+      .catch(err => console.warn('Push notification error:', err.message));
+  }).catch(() => {
+    sendPushToUser(userId, basePayload)
+      .catch(err => console.warn('Push notification error:', err.message));
+  });
+}
