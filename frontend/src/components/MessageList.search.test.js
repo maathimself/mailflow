@@ -348,4 +348,24 @@ describe('MessageList search scope note', () => {
     assert.equal(note(), null, 'the unified view already searches every folder');
     await drain();
   });
+
+  test('keeps the button out of Trash, which an all-folder search leaves out', async () => {
+    await mount();
+    await React.act(async () => useStore.setState({
+      selectedFolder: 'INBOX.Trash',
+      folders: { 'acct-1': [{ path: 'INBOX', name: 'INBOX' }, { path: 'INBOX.Trash', name: 'Trash', special_use: '\\Trash' }] },
+    }));
+    await search('Synthetic');
+    assert.equal(note(), 'Trash', 'the search is still scoped, so the note stays');
+    assert.ok(!allFoldersButton(), 'no button: the server skips Trash when it searches every folder');
+    await drain();
+    // The route skips a folder by name too, flagged or not.
+    await React.act(async () => useStore.setState({
+      selectedFolder: 'Deleted Items',
+      folders: { 'acct-1': [{ path: 'INBOX', name: 'INBOX' }, { path: 'Deleted Items', name: 'Deleted Items' }] },
+    }));
+    assert.equal(note(), 'Deleted Items');
+    assert.ok(!allFoldersButton(), 'an unflagged "Deleted Items" is skipped by name');
+    await drain();
+  });
 });

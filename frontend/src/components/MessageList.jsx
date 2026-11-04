@@ -149,6 +149,17 @@ function queryNamesSearchFolder(query) {
   return false;
 }
 
+// Whether the server leaves the open folder out of an all-folder search. The search route drops
+// Trash from every all-folder search (shouldExcludeTrashFromSearch, trashFolderExclusionCondition),
+// so "Search all folders" offered from Trash would empty the results. The rule is the route's own:
+// the \Trash-flagged folder, or one named with "trash" or "deleted". A folder that is Trash only by
+// the account's folder mapping stays searched, so it keeps the button.
+function allFolderSearchSkips(folder, path) {
+  if (String(folder?.special_use ?? '').toLowerCase() === '\\trash') return true;
+  const name = String(folder?.name ?? path ?? '').toLowerCase();
+  return name.includes('trash') || name.includes('deleted');
+}
+
 function MailboxList() {
   const { t } = useTranslation();
   const uiScale = useUiScale();
@@ -2703,6 +2714,8 @@ function MailboxList() {
     : isSnoozedView ? t('sidebar.snoozed') : isUnified ? t('sidebar.allInboxes') : folderLabel;
   // The scope note names the folder as the header does outside a search.
   const searchScopeLabel = isSnoozedView ? t('sidebar.snoozed') : folderLabel;
+  // From Trash the note offers no widening: the server's all-folder search skips Trash.
+  const offerAllFolders = !allFolderSearchSkips(selectedFolderCounts, selectedFolder);
 
   const headerUnread = isSnoozedView && isUnified ? 0
     : isUnified ? unreadCounts.total
@@ -3691,15 +3704,17 @@ function MailboxList() {
             <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {t('messageList.searchScopeNote', { folder: searchScopeLabel })}
             </span>
-            <button
-              onClick={() => setSearchAllFolders(true)}
-              style={{
-                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                color: 'var(--accent)', fontSize: 12, flexShrink: 0,
-              }}
-            >
-              {t('sidebar.searchAllFolders')}
-            </button>
+            {offerAllFolders && (
+              <button
+                onClick={() => setSearchAllFolders(true)}
+                style={{
+                  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                  color: 'var(--accent)', fontSize: 12, flexShrink: 0,
+                }}
+              >
+                {t('sidebar.searchAllFolders')}
+              </button>
+            )}
           </div>
         )}
 
