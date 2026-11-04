@@ -1,9 +1,14 @@
 import { newMailPushPayload } from './inboxRules.js';
 import { query } from './db.js';
 import { sendPushToUser } from './pushNotifications.js';
+import { notifyWebhook } from './webhooks.js';
 
 // Called only for alert-eligible INBOX arrivals. Delivery never blocks mail sync.
-export function notifyNewMail({ userId, alertMessages, alertCount }) {
+export function notifyNewMail({ userId, accountName, alertMessages, alertCount }) {
+  const latest = alertMessages[alertMessages.length - 1];
+  // Each channel starts independently; webhook failures must never delay Web Push.
+  notifyWebhook({ userId, accountName, count: alertCount, latest })
+    .catch(() => console.warn('Webhook notification unavailable'));
   const basePayload = newMailPushPayload(alertMessages, alertCount);
   // Try to include the total unread count for the home screen badge.
   // If the query fails for any reason, send the push without it so

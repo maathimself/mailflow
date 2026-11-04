@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('./webhooks.js', () => ({ notifyWebhook: vi.fn() }));
 vi.mock('./db.js', () => ({ query: vi.fn() }));
 vi.mock('./pushNotifications.js', () => ({ sendPushToUser: vi.fn() }));
+import { notifyWebhook } from './webhooks.js';
 import { query } from './db.js';
 import { sendPushToUser } from './pushNotifications.js';
 import { notifyNewMail } from './notifyNewMail.js';
@@ -9,6 +11,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   query.mockResolvedValue({ rows: [{ total: 7 }] });
   sendPushToUser.mockResolvedValue();
+  notifyWebhook.mockResolvedValue({ sent: true });
 });
 describe('new mail Web Push', () => {
   it('uses the last eligible message and the user-wide unread badge', async () => {
@@ -35,4 +38,17 @@ describe('new mail Web Push', () => {
     expect(warn).toHaveBeenCalledWith('Push notification error:', 'offline');
     warn.mockRestore();
   });
+});
+
+it('starts webhook delivery independently of badge lookup and contains its errors', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  query.mockReturnValue(new Promise(() => {}));
+  notifyWebhook.mockRejectedValue(new Error('secret URL must never be logged'));
+  const latest = { subject: 'Hello' };
+  notifyNewMail({ userId: 'u', accountName: 'Work', alertMessages: [latest], alertCount: 1 });
+  expect(notifyWebhook).toHaveBeenCalledWith({ userId: 'u', accountName: 'Work', count: 1, latest });
+  await settle();
+  expect(warn).toHaveBeenCalledWith('Webhook notification unavailable');
+  expect(sendPushToUser).not.toHaveBeenCalled();
+  warn.mockRestore();
 });
