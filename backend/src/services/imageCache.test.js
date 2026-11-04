@@ -88,4 +88,14 @@ describe('createImageCache', () => {
     await cache.put(key('a'), png(10));
     expect(readdirSync(d).filter(n => n.endsWith('.tmp'))).toEqual([]);
   });
+
+  // load() stores in the background; a clear() right after must not leave that image behind.
+  it('clears an image whose store was still under way', async () => {
+    const cache = createImageCache({ dir: dir() });
+    await cache.load(key('a'), async () => png(10));
+    await cache.clear();
+    await new Promise(r => setTimeout(r, 100)); // time for a store that clear() missed to land
+    expect(await cache.get(key('a'))).toBeNull();
+    expect(cache.stats().entries).toBe(0);
+  });
 });
