@@ -72,7 +72,7 @@ async function mount(Component = UserWebhookSettings, props = {}) {
 }
 const click = el => act(async () => { el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
 const button = text => [...host.querySelectorAll('button')].find(b => b.textContent === text);
-const checkbox = text => [...host.querySelectorAll('label')].find(l => l.textContent === text)?.querySelector('input');
+const checkbox = text => [...host.querySelectorAll('[role="switch"]')].find(el => el.getAttribute('aria-label') === text);
 async function setValue(el, value) {
   const proto = el.tagName === 'SELECT' ? dom.window.HTMLSelectElement.prototype : el.tagName === 'TEXTAREA' ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype;
   Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
