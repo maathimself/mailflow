@@ -20,7 +20,7 @@ import { ImapManager } from './imapManager.js';
 // temporary tables in an explicitly supplied database.
 describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('Sent row Bcc (upsertSentMessageRecord)', () => {
   let database;
-  const account = { id: '22222222-2222-4222-8222-222222222222', email_address: 'me@example.com' };
+  const account = { id: '22222222-2222-4222-8222-222222222222', email_address: 'me@example.com', imap_host: 'imap.gmail.com' };
   const upsert = (uid, meta) => ImapManager.prototype.upsertSentMessageRecord.call({}, account, 'Sent', uid, {
     messageId: `<m${uid}@example.com>`, subject: 'Hello', fromName: 'Me', fromEmail: 'me@example.com',
     to: [{ name: 'To', email: 'to@example.com' }], ...meta,
@@ -35,6 +35,7 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('Sent row Bcc (upsertSe
       bcc_addresses jsonb, date timestamptz, snippet text, is_read boolean, is_starred boolean,
       has_attachments boolean, flags jsonb, thread_id text, thread_key text, in_reply_to text,
       thread_references text, normalized_subject text, is_bulk boolean, is_deleted boolean DEFAULT false,
+      provider_msgid text, body_html text, body_text text,
       UNIQUE (account_id, uid, folder))`);
     query.mockImplementation((sql, values) => database.query(sql, values));
   });
@@ -56,4 +57,17 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('Sent row Bcc (upsertSe
     await upsert(3, {});
     expect(await bccOf(3)).toEqual([{ name: '', email: 'hidden@example.com' }]);
   });
+
+  it.each([
+    ['sent', (uid, meta) => upsert(uid, meta)],
+    ['draft', (uid, meta) => ImapManager.prototype.upsertDraftMessageRecord.call({}, account, 'Drafts', uid, meta)],
+  ])('keeps an existing provider message ID when a %s save supplies null', async (kind, save) => {
+    const folder = kind === 'sent' ? 'Sent' : 'Drafts';
+    await database.query('INSERT INTO messages (account_id, uid, folder, provider_msgid) VALUES ($1, $2, $3, $4)',
+      [account.id, 4, folder, '9007199254740993']);
+    await save(4, { providerMsgid: null });
+    const result = await database.query('SELECT provider_msgid FROM messages WHERE uid = $1 AND folder = $2', [4, folder]);
+    expect(result.rows[0].provider_msgid).toBe('9007199254740993');
+  });
+
 });
