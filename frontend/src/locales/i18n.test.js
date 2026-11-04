@@ -141,6 +141,7 @@ const SAME_VALUE_ALLOWED = {
   'admin.integrations.google.clientIdPh':   'any', // xxxxxxxx.apps.googleusercontent.com
   'admin.integrations.google.clientSecretPh':'any', // GOCSPX-…
   'admin.security.totpVerifyPh':            'any', // 000000
+  'admin.security.ssoLinkContinue':         [['es', 'ptBR']], // Continuar
   'admin.sso.adminGroupClaimPh':            'any', // groups
   'admin.sso.adminGroupValuePh':            'any', // mailflow-admins
   'admin.sso.issuerUrlPh':                  'any', // https://accounts.google.com
@@ -587,6 +588,13 @@ const SAME_VALUE_ALLOWED = {
   'admin.tabs.groupMail': [['de', 'en']],
   // "Comportamento" is the word in both Italian and Portuguese.
   'admin.tabs.behavior': [['it', 'ptBR']],
+
+  // ── API tokens (#617) ─────────────────────────────────────────────────────
+  // "Tokens de API" in Spanish and Portuguese, "Tokeny API" in Czech and Polish; "Nome" in
+  // Italian and Portuguese; "Copiado" in Spanish and Portuguese, as for admin.sso.copiedUri.
+  'admin.apiTokens.title':     [['es', 'ptBR'], ['cs', 'pl']],
+  'admin.apiTokens.nameLabel': [['it', 'ptBR']],
+  'admin.apiTokens.copied':    [['es', 'ptBR']],
 };
 
 // Locale-specific plural forms are allowed per locale. A locale may add forms
@@ -828,10 +836,15 @@ function loadSourceText() {
   return out.join('\n');
 }
 
-function loadLiteralSourceTranslationKeys(prefix) {
+// The keys under these prefixes that the source names: in a t('…') call, or as a quoted string
+// kept in a table and handed to t() later (ApiTokensSection's scopes). The render tests echo keys
+// back, and "no unused keys" is a substring search, so neither notices a key that no locale has.
+function loadLiteralSourceTranslationKeys(prefixes) {
   const srcRoot = resolve(dir, '../..');
   const keys = new Set();
   const literalTranslationCall = /(?<![\w$.])t\(\s*['"]([^'"]+)['"]/g;
+  const quotedKey = /(['"])([\w.]+)\1/g;
+  const wanted = (key) => prefixes.some(prefix => key.startsWith(prefix));
 
   function walk(d) {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
@@ -845,7 +858,10 @@ function loadLiteralSourceTranslationKeys(prefix) {
       ) {
         const source = readFileSync(full, 'utf8');
         for (const match of source.matchAll(literalTranslationCall)) {
-          if (match[1].startsWith(prefix)) keys.add(match[1]);
+          if (wanted(match[1])) keys.add(match[1]);
+        }
+        for (const match of source.matchAll(quotedKey)) {
+          if (wanted(match[2])) keys.add(match[2]);
         }
       }
     }
@@ -901,8 +917,8 @@ describe('i18n locale files', () => {
         `Unused keys (remove from all locale files or add to DYNAMIC_KEYS if referenced dynamically):\n${unused.map(k => `  - ${k}`).join('\n')}`);
     });
 
-    it('every literal admin.ai source translation key exists in every locale', () => {
-      const sourceKeys = loadLiteralSourceTranslationKeys('admin.ai.');
+    it('every admin.ai, admin.apiTokens and admin.security key the source names exists in every locale', () => {
+      const sourceKeys = loadLiteralSourceTranslationKeys(['admin.ai.', 'admin.apiTokens.', 'admin.security.']);
       const missing = [];
       for (const lang of langs) {
         const present = new Set(Object.keys(locales[lang]));

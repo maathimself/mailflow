@@ -12,6 +12,7 @@ import { resolveThreadMessages } from '../utils/threadActions.js';
 import { keepDraftsApart } from '../utils/conversationActions.js';
 import { unreadDeltaByAccount } from '../utils/countSnapshots.js';
 import { splitDraftSignature } from '../utils/draftSignature.js';
+import { draftAttachmentFields } from '../utils/openSavedDraft.js';
 import { useSwipeRow } from '../hooks/useSwipeRow.js';
 import { useHoverPrefetch } from '../hooks/useHoverPrefetch.js';
 import ContextMenu from './ContextMenu.jsx';
@@ -2573,6 +2574,9 @@ function MailboxList() {
           inReplyTo: message.in_reply_to || undefined,
           references: message.thread_references || undefined,
           ...(signature !== null ? { signature } : inline ? { signature: '' } : {}),
+          // Saving the reopened draft replaces it, and compose saves no attachments, so a draft
+          // with any opened as if it had none lost them on the next save.
+          ...draftAttachmentFields(message, bodyData),
         });
       } catch (err) {
         console.error('Failed to open draft:', err.message);

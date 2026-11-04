@@ -125,6 +125,8 @@ function draft(req) {
   if (!(absent(body.bodyIsHtml) || body.bodyIsHtml === false) || !absent(body.quotedBodyHtml)) {
     return { status: 400, error: PLAIN_TEXT_ERROR };
   }
+  // draft.js would add these to the saved message; a token's drafts stay plain text (#617).
+  if (!absent(body.attachments)) return { status: 400, error: PLAIN_TEXT_ERROR };
   // Unchecked, a malformed id reaches a uuid comparison and answers 500.
   if (!isUuid(body.accountId)) return { status: 400, error: 'Invalid accountId' };
   if (!absent(body.aliasId) && !isUuid(body.aliasId)) return { status: 400, error: 'Invalid aliasId' };

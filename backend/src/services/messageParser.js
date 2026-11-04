@@ -886,6 +886,7 @@ export async function parseMessage(msg) {
 
   return {
     uid: msg.uid,
+    providerMsgid: typeof msg.emailId === 'string' && msg.emailId ? msg.emailId : null,
     messageId: capHeaderField(envelope.messageId || null),
     subject: resolveSubject(envelope.subject, parsedHeaders),
     fromName: capHeaderField(fromName),
