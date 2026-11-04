@@ -50,6 +50,8 @@ describe('signatureText', () => {
 
 const SIG = 'Jordan Doe\nExample Arena';
 const NO_ADDED_CLOSING = /do not add a closing line, sign-off, name or contact details that it does not have/;
+const KEEP_BRACKETS = /^Keep any text in square brackets that the email has, such as \[TBD\], as it is\.$/m;
+const NAME_PLACEHOLDER = "Never use a placeholder such as [Your Name] or [Your Title] for the sender's name or sign-off.";
 
 describe('aiSenderNote', () => {
   test('rewriting (Improve, Shorten, Fix grammar): keeps the closing the email has and adds none', () => {
@@ -67,6 +69,13 @@ describe('aiSenderNote', () => {
     assert.doesNotMatch(aiSenderNote({ name: 'Jordan Doe', rewriting: true }), /sign the email off/);
   });
 
+  test('rewriting keeps bracketed text the user wrote, such as [TBD]', () => {
+    assert.match(aiSenderNote({ rewriting: true }), KEEP_BRACKETS);
+    assert.match(aiSenderNote({ name: 'Jordan Doe', signature: SIG, rewriting: true }), KEEP_BRACKETS);
+    // Write draft starts from no text of the user's, so there is nothing to keep.
+    assert.doesNotMatch(aiSenderNote({ name: 'Jordan Doe', signature: SIG }), /square brackets/);
+  });
+
   test('Draft with a signature: no name or contact details, and no second closing line', () => {
     const note = aiSenderNote({ name: 'Jordan Doe', signature: `Thank you,\n${SIG}` });
     assert.ok(note.includes('"""\nThank you,\nJordan Doe\nExample Arena\n"""'));
@@ -81,11 +90,19 @@ describe('aiSenderNote', () => {
     assert.doesNotMatch(note, /"""/);
   });
 
-  test('with nothing known: only rules out placeholders', () => {
+  test('Draft with nothing known: a closing line with no name, as Reply with AI ends', () => {
     assert.equal(
       aiSenderNote({}),
-      'Never use placeholders such as [Your Name] or [Recipient Name]; leave out anything you do not know.',
+      `No signature is added and the sender's name is not known, so end with a brief closing line and no name.\n${NAME_PLACEHOLDER}`,
     );
     assert.equal(aiSenderNote(), aiSenderNote({ name: null, signature: undefined }));
+  });
+
+  test('the placeholder rule covers the sender\'s name and sign-off only, so a draft may still leave a [date] to fill in', () => {
+    const senders = [{}, { name: 'Jordan Doe' }, { signature: SIG }, { name: 'Jordan Doe', signature: SIG }, { rewriting: true }, { name: 'Jordan Doe', signature: SIG, rewriting: true }];
+    for (const sender of senders) {
+      const rules = aiSenderNote(sender).split('\n').filter(line => /placeholder/i.test(line));
+      assert.deepEqual(rules, [NAME_PLACEHOLDER], JSON.stringify(sender));
+    }
   });
 });
