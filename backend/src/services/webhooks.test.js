@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./redis.js', () => ({ redisClient: { eval: vi.fn() } }));
+vi.mock('./redis.js', () => ({ redisClient: { eval: vi.fn(), isReady: true } }));
 vi.mock('./safeFetch.js', () => ({ safeFetch: vi.fn() }));
 vi.mock('./encryption.js', () => ({ isEncrypted: value => value?.startsWith('encrypted:'), encrypt: value => value ? `encrypted:${value}` : value, decrypt: value => value?.replace(/^encrypted:/, '') }));
 import { query } from './db.js';
@@ -116,5 +116,44 @@ describe('webhook delivery', () => {
     safeFetch.mockRejectedValue(Object.assign(new Error('secret'), { name: 'TimeoutError' }));
     expect(await send()).toEqual({ error: 'Delivery timed out' });
     expect(safeFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('bounded Redis admission', () => {
+  it('skips disconnected Redis without queueing a command', async () => {
+    redisClient.isReady = false;
+    try {
+      expect(await send()).toEqual({ skipped: 'unavailable' });
+      expect(redisClient.eval).not.toHaveBeenCalled();
+      expect(safeFetch).not.toHaveBeenCalled();
+    } finally { redisClient.isReady = true; }
+  });
+  it('times out stalled admission, prevents accumulation, and never delivers it late', async () => {
+    vi.useFakeTimers();
+    let finish;
+    redisClient.eval.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    try {
+      const pending = send();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(await pending).toEqual({ skipped: 'unavailable' });
+      expect(await send()).toEqual({ skipped: 'unavailable' });
+      expect(redisClient.eval).toHaveBeenCalledTimes(1);
+      expect(query.mock.calls.some(([sql]) => sql.startsWith('UPDATE'))).toBe(false);
+      finish(1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(safeFetch).not.toHaveBeenCalled();
+      expect(await send()).toEqual({ sent: true });
+    } finally { finish?.(1); vi.useRealTimers(); }
+  });
+  it('uses only the remaining five-second budget for HTTP', async () => {
+    vi.useFakeTimers();
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    redisClient.eval.mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve(1), 3000)));
+    try {
+      const pending = send();
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(await pending).toEqual({ sent: true });
+      expect(timeout).toHaveBeenCalledWith(2000);
+    } finally { timeout.mockRestore(); vi.useRealTimers(); }
   });
 });

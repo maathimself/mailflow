@@ -5,7 +5,7 @@ import pg from 'pg';
 import { createClient } from 'redis';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./redis.js', () => ({ redisClient: { eval: vi.fn() } }));
+vi.mock('./redis.js', () => ({ redisClient: { eval: vi.fn(), isReady: true } }));
 vi.mock('./safeFetch.js', () => ({ safeFetch: vi.fn() }));
 import { query } from './db.js';
 import { redisClient } from './redis.js';
