@@ -2416,6 +2416,27 @@
     "createAppPassword": "Créer un mot de passe d'application"
   },
   "webhooks": {
+    "errors": {
+      "url": "Saisissez une URL de notification valide.",
+      "urlScheme": "Utilisez une URL HTTP ou HTTPS sans identifiant, mot de passe ni fragment.",
+      "settings": "Vérifiez les paramètres de notification et réessayez.",
+      "origin": "Saisissez le protocole, l’hôte et éventuellement le port, sans chemin ni paramètres de requête.",
+      "format": "Choisissez un format de notification pris en charge.",
+      "tokenPreset": "Les jetons d’authentification sont réservés à ntfy et Gotify.",
+      "https": "Les URL de notification publiques doivent utiliser HTTPS.",
+      "urlRequired": "Saisissez une URL avant d’activer les notifications.",
+      "token": "Saisissez un jeton valide sans espaces ni caractères non ASCII.",
+      "session": "Votre session a expiré. Reconnectez-vous.",
+      "admin": "Les droits d’administration sont nécessaires.",
+      "timeout": "L’envoi a expiré. Vérifiez le service et réessayez.",
+      "blocked": "La politique réseau du serveur bloque cette destination.",
+      "delivery": "La notification n’a pas pu être envoyée. Vérifiez le service et la connexion.",
+      "rateLimit": "Trop de notifications. Patientez une minute puis réessayez.",
+      "disabled": "Les notifications sont désactivées. Vérifiez vos paramètres et ceux de l’administrateur.",
+      "unavailable": "Le service de notification est temporairement indisponible. Réessayez plus tard.",
+      "http": "Le service de notification a renvoyé HTTP {{status}}. Vérifiez l’adresse et l’authentification.",
+      "request": "La requête n’a pas abouti. Vérifiez votre connexion et réessayez."
+    },
     "title": "Webhooks sortants",
     "description": "Envoyez le nom du compte et le nombre de nouveaux messages à un point de notification. Les détails facultatifs concernent seulement le dernier message admissible. Le corps des messages n’est jamais envoyé.",
     "unavailable": "Les webhooks sont désactivés par l’administration.",

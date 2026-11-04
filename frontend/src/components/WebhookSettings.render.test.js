@@ -119,7 +119,7 @@ describe('webhook settings', () => {
     config.enabled = false; config.failures = 5; config.lastError = 'Delivery timed out';
     await mount();
     assert.match(host.textContent, /webhooks.disabled/);
-    assert.match(host.textContent, /Delivery timed out/);
+    assert.match(host.textContent, /webhooks.errors.timeout/);
     assert.equal(button('webhooks.test').disabled, true);
     await click(checkbox('webhooks.enable'));
     await click(button('common.save'));
@@ -136,6 +136,34 @@ describe('webhook settings', () => {
     await act(async () => root.unmount()); calls = [];
     await mount(WebhookSettings, { isAdmin: true });
     assert.ok(!calls.some(c => c.url.endsWith('/admin')));
+  });
+  test('translates validation errors returned when saving', async () => {
+    await mount();
+    await click(checkbox('webhooks.sender'));
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () => json({ error: 'Invalid webhook URL' }, 400);
+      await click(button('common.save'));
+      assert.equal(host.querySelector('[role="alert"]').textContent, 'webhooks.errors.url');
+    } finally { globalThis.fetch = originalFetch; }
+  });
+  test('translates skipped test notifications instead of showing Request failed', async () => {
+    await mount();
+    const originalFetch = globalThis.fetch;
+    try {
+      for (const [skipped, key] of [['rate_limit', 'rateLimit'], ['disabled', 'disabled'], ['unavailable', 'unavailable']]) {
+        globalThis.fetch = async (url, init) => url.endsWith('/test')
+          ? json({ skipped }, skipped === 'rate_limit' ? 429 : 502) : originalFetch(url, init);
+        await click(button('webhooks.test'));
+        assert.equal(host.querySelector('[role="alert"]').textContent, `webhooks.errors.${key}`);
+      }
+    } finally { globalThis.fetch = originalFetch; }
+  });
+  test('translates stored HTTP errors while retaining the status code', async () => {
+    config.lastError = 'Endpoint returned HTTP 401';
+    await mount();
+    assert.match(host.textContent, /webhooks.errors.http.*401/);
+    assert.ok(!host.textContent.includes('Endpoint returned'));
   });
   test('global disable shows only the disabled notice', async () => {
     config.available = false;

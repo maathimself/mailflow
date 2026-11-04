@@ -2416,6 +2416,27 @@
     "createAppPassword": "Create an app password"
   },
   "webhooks": {
+    "errors": {
+      "url": "Enter a valid notification URL.",
+      "urlScheme": "Use an HTTP or HTTPS URL without a username, password, or fragment.",
+      "settings": "Check the notification settings and try again.",
+      "origin": "Enter an origin with a protocol, host, and optional port, without a path or query.",
+      "format": "Choose a supported notification format.",
+      "tokenPreset": "Authentication tokens are only supported for ntfy and Gotify.",
+      "https": "Public notification URLs must use HTTPS.",
+      "urlRequired": "Enter a notification URL before enabling notifications.",
+      "token": "Enter a valid authentication token without spaces or non-ASCII characters.",
+      "session": "Your session has expired. Sign in again.",
+      "admin": "Administrator access is required.",
+      "timeout": "The notification timed out. Check the service and try again.",
+      "blocked": "The destination is blocked by the server’s network policy.",
+      "delivery": "The notification could not be delivered. Check the service and connection settings.",
+      "rateLimit": "Too many notifications. Wait a minute and try again.",
+      "disabled": "Notifications are disabled. Check your settings and the administrator’s settings.",
+      "unavailable": "The notification service is temporarily unavailable. Try again later.",
+      "http": "The notification service returned HTTP {{status}}. Check its address and authentication settings.",
+      "request": "Unable to complete the request. Check your connection and try again."
+    },
     "title": "Outgoing webhooks",
     "description": "Send account name and new-mail count to one notification endpoint. Optional details describe the last eligible message only. Message bodies are never sent.",
     "unavailable": "Webhooks are disabled by the administrator.",
