@@ -139,6 +139,8 @@ function connectionTo(server) {
       // undefined when no mailbox is selected, false when the SEARCH fails.
       if ('searchResult' in f) return f.searchResult;
       if (q.deleted) return f.uids.filter(u => f.deleted.has(u));
+      // A header SEARCH matches substrings, as servers do.
+      if (q.header?.['Message-ID']) return f.uids.filter(u => contentOf(server, this.mailbox.path, u).messageId.includes(q.header['Message-ID']));
       return uidSet(q.uid, f.uids);
     },
     // imapflow's store.js: a NO resolves false rather than throwing.
@@ -543,6 +545,25 @@ describe('removeMessageCopy', () => {
     expect(server.folders.Trash.uids).toEqual([7, 8]);
     expect(server.commands.filter(([c]) => c === 'EXPUNGE')).toEqual([]);
     expect(rowAt['Trash:7']).toBeUndefined();
+    expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(acct, 'Trash');
+  });
+
+  // The row's message is still in the folder under another uid: that copy is the one removed, and
+  // nothing is left for a sync to file again (the GTD Done flicker).
+  it('removes the copy where the folder holds it now, past a lookalike Message-ID', async () => {
+    deliver(server, 'Trash', { messageId: '<x-trash-8@example.com>', subject: 'Lookalike' });
+    rowAt['Trash:7'] = { message_id: '<trash-8@example.com>' };
+    await expect(mgr.removeMessageCopy(acct.id, 7, 'Trash')).resolves.toBe(1);
+    expect(server.folders.Trash.uids).toEqual([7, 9]);
+    expect(rowAt['Trash:7']).toBeUndefined();
+    expect(mgr.syncFolderOnDemand).not.toHaveBeenCalled();
+  });
+
+  it('removes nothing when two copies could each be the message', async () => {
+    deliver(server, 'Trash', { ...contentOf(server, 'Trash', 8) });
+    rowAt['Trash:7'] = { message_id: '<trash-8@example.com>' };
+    await expect(mgr.removeMessageCopy(acct.id, 7, 'Trash')).rejects.toMatchObject({ copyChanged: true });
+    expect(server.folders.Trash.uids).toEqual([7, 8, 9]);
     expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(acct, 'Trash');
   });
 

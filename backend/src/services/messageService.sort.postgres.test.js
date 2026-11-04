@@ -160,6 +160,14 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('list sort PostgreSQL',
       await database.query("UPDATE messages SET is_starred = true WHERE subject = 'Zoning'");
       expect(await threads({ starredFirst: 'true' })).toEqual(['C', 'A', 'B']);
     });
+
+    // The row shows the newest message; an older starred one still makes the conversation starred.
+    it('tells the client when a message other than the row\'s own is starred', async () => {
+      await seedThreads();
+      await database.query("UPDATE messages SET is_starred = true WHERE subject = 'Budget'");
+      const rows = (await listMessages({ userId: 'owner', accountId: account, folder: 'INBOX', threaded: 'true', starredFirst: 'true' })).messages;
+      expect(rows.map(m => [m.thread_id, m.is_starred, m.others_starred])).toEqual([['A', false, true], ['B', false, false], ['C', false, false]]);
+    });
   });
 
   it('refuses an unknown sort or direction', async () => {

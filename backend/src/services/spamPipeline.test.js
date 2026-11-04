@@ -341,7 +341,7 @@ describe('autoMove: a move with or without a new UID (mirrors the manual /spam p
     expect(imap._guardMoveUid).toHaveBeenCalledWith(ACCOUNT_ID, 'INBOX', 100);
     expect(imap._guardMoveUid).not.toHaveBeenCalledWith(ACCOUNT_ID, 'Junk', 100);
     expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE messages SET folder'))).toBe(false);
-    expect(query.mock.calls).toContainEqual(['DELETE FROM messages WHERE id = $1', [MESSAGE_ID]]);
+    expect(query.mock.calls).toContainEqual(['DELETE FROM messages WHERE id = $1 RETURNING *', [MESSAGE_ID]]);
     expect(imap.syncFolderOnDemand).toHaveBeenCalledWith({ id: ACCOUNT_ID }, 'Junk');
   });
 

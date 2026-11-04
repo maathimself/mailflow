@@ -30,6 +30,7 @@ import { query } from '../services/db.js';
 import { imapManager } from '../index.js';
 import { tokenize, extractFlagFeatures } from '../services/spamTokenizer.js';
 import { updateIncrementalForUser } from '../services/spamModelStore.js';
+import { takeCarry } from '../services/movedRowCarry.js';
 
 const USER_ID = 'user-1';
 const ACCOUNT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -187,7 +188,10 @@ describe('POST /api/mail/messages/:id/ham — move path (message leaves spam)', 
     query.mockResolvedValueOnce({ rows: [{}] });
     query.mockResolvedValueOnce({ rows: [messageRow()] });
     query.mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID }] });
-    query.mockResolvedValue({ rows: [] });
+    const date = '2026-11-04T10:00:00.000Z';
+    query.mockImplementation(async (sql) => (sql === 'DELETE FROM messages WHERE id = $1 RETURNING *'
+      ? { rows: [messageRow({ date, spam_verdict: 'spam', spam_user_override: null, category: 'promotions' })] }
+      : { rows: [] }));
     imapManager.moveMessage.mockResolvedValue(null);
     imapManager.syncFolderOnDemand.mockResolvedValue(undefined);
 
@@ -195,8 +199,12 @@ describe('POST /api/mail/messages/:id/ham — move path (message leaves spam)', 
     expect(res.status).toBe(200);
     const sqls = query.mock.calls.map(([sql, params]) => [sql.replace(/\s+/g, ' ').trim(), params]);
     expect(sqls.filter(([sql]) => sql.startsWith('UPDATE messages'))).toEqual([]);
-    expect(sqls).toContainEqual(['DELETE FROM messages WHERE id = $1', [MESSAGE_ID]]);
+    expect(sqls).toContainEqual(['DELETE FROM messages WHERE id = $1 RETURNING *', [MESSAGE_ID]]);
     expect(imapManager.syncFolderOnDemand).toHaveBeenCalledWith({ id: ACCOUNT_ID }, 'INBOX');
     expect(getSpamInserts()).toHaveLength(1);
+    // The inbox's sync files it again with the user's verdict, not as mail to classify.
+    expect(takeCarry(ACCOUNT_ID, 'INBOX', '<abc123@example.com>', date)).toMatchObject({
+      spam_user_override: 'ham', spam_verdict: 'ham', category: 'promotions',
+    });
   });
 });

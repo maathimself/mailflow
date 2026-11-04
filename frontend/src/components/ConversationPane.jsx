@@ -21,6 +21,7 @@ import { aiReplyAvailable } from '../utils/aiReply.js';
 import ContextMenu from './ContextMenu.jsx';
 import { prefetchBody } from '../utils/bodyCache.js';
 import { ActionBtn, ArchiveIcon, MoveIcon, SnoozeIcon, SpamIcon, PrintIcon, TrashIcon, useShortcutTitle } from './MessageActions.jsx';
+import { PluginSlot } from '../plugins/PluginSlot.jsx';
 
 // What the reader is told when an action finds nothing to take (runAction below). In the unified
 // inbox, which has no "this account" to speak of, only Spam and Snooze can: keepDraftsApart and
@@ -59,6 +60,11 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   const withShortcut = useShortcutTitle();
   const addNotification = useStore(s => s.addNotification);
   const accounts = useStore(s => s.accounts);
+  const selectedRow = useStore(s => {
+    const pool = s.searchQuery?.trim() ? s.searchResults : s.messages;
+    return pool.find(message => message.id === selectedMessageId)
+      ?? Object.values(s.threadMessages).flat().find(message => message.id === selectedMessageId);
+  });
   const setSelectedMessage = useStore(s => s.setSelectedMessage);
   const updateMessage = useStore(s => s.updateMessage);
   const plaintextEmail = useStore(s => s.plaintextEmail);
@@ -241,9 +247,14 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   // status bar — a standalone PWA draws its content behind it — and the conversation
   // could not be left at all, since a standalone PWA has no swipe-back either. Same bar
   // the message pane shows, safe-area padding included.
-  const mobileBackBar = (isMobile || listFirst) && (
+  // The GTD states of the open message: in the back bar when there is one, else in the toolbar.
+  const headerMessage = selectedRow || messages.find(message => message.id === selectedMessageId)
+    || newestConversationMessage(inAccount(messages, accountId));
+  const headerContext = { message: headerMessage, account: accounts.find(account => account.id === headerMessage?.account_id) };
+  const hasBackBar = isMobile || listFirst;
+  const mobileBackBar = hasBackBar && (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 8,
+      display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8,
       paddingTop: 'calc(var(--sat) + 10px)', paddingBottom: 'calc(10px - var(--sat-trim))', paddingLeft: 14, paddingRight: 14,
       borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', flexShrink: 0,
     }}>
@@ -261,12 +272,13 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         {t('common.back')}
       </button>
       <div style={{
-        flex: 1, minWidth: 0,
+        flex: '1 1 120px', minWidth: 0,
         fontSize: 14, fontWeight: 500, color: 'var(--text-primary)',
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
       }}>
         {newestConversationMessage(messages)?.subject || ''}
       </div>
+      {headerMessage && <PluginSlot name="message-header-meta" ctx={headerContext} />}
     </div>
   );
 
@@ -310,6 +322,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         <ActionBtn onClick={e => openPicker(e, 'snooze')} label={t('contextMenu.snooze.label')} touch={isMobile} popup expanded={picker?.view === 'snooze'}>
           <SnoozeIcon />
         </ActionBtn>
+        {!hasBackBar && headerMessage && <PluginSlot name="message-header-meta" ctx={headerContext} />}
         <div style={{ flex: 1 }} />
         <ActionBtn onClick={() => runAction('spam', spamThread)} label={t('contextMenu.markAsSpam')} touch={isMobile}>
           <SpamIcon />
