@@ -9,6 +9,7 @@ import { dispatchPluginWsMessage, dispatchPluginReconnect } from '../plugins/eve
 import { recordDiagEvent } from '../utils/diagEvents.js';
 import { scheduledFeed } from '../utils/scheduledFeed.js';
 import { SOCKET_CAUGHT_UP_EVENT } from '../utils/resumeRefresh.js';
+import { invalidateTags } from '../tags/tagStore.js';
 
 function _applyServerCounts(counts) {
   useStore.getState().setUnreadCounts(counts);
@@ -383,6 +384,11 @@ export function useWebSocket() {
         }
         break;
       }
+
+      case 'tags_updated':
+        // A tag was added or removed (in another tab): refetch those rows' tags.
+        invalidateTags(Array.isArray(data.messageIds) ? data.messageIds : []);
+        break;
 
       default:
         // A message type core doesn't handle — hand it to any activated plugin that registered for

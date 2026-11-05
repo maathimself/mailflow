@@ -30,6 +30,7 @@ import contactsRoutes from './routes/contacts.js';
 import todoistRoutes from './routes/todoist.js';
 import aiRoutes from './routes/ai.js';
 import categoriesRoutes from './routes/categories.js';
+import tagsRoutes from './routes/tags.js';
 import { pluginRegistry } from './plugins/registry.js';
 import { loadBundledPlugins } from './plugins/loadPlugins.js';
 import { setMailEngine } from './plugins/mailEngine.js';
@@ -174,6 +175,7 @@ app.use('/api/todoist', todoistRoutes);
 app.use('/api/carddav', carddavAccountRouter);
 app.use('/api', aiRoutes);
 app.use('/api', categoriesRoutes);
+app.use('/api/tags', tagsRoutes);
 // Tier-1 plugin routers, mounted via the plugin registry (see src/plugins/). Registered
 // here — before the unauthenticated /api/health and /api/version probes below — so a
 // plugin's router-level auth can't intercept them. GTD is the first such plugin; its

@@ -8,6 +8,7 @@ export function getContextMenuPolicy(variant = 'inbox') {
     archive: !gtdSidebar,
     snooze: !gtdSidebar,
     categorize: !gtdSidebar,
+    tags: !gtdSidebar,
     done: gtdSidebar,
     rules: true,
     spam: !gtdSidebar,
