@@ -3888,6 +3888,34 @@ describe('Gmail label memberships (#418)', () => {
       });
     }
   }
+  // A FETCH that names one message the server cannot produce fails as a whole (Gmail's "Some
+  // messages could not be FETCHed"). Backfill used to retry it forever at a batch of 10.
+  it('isolates a message the server refuses to hand over, skips it, and backfills the rest', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    serverUids = Array.from({ length: 30 }, (_, k) => k + 1);
+    ImapFlow.mockImplementation(function () {
+      const client = clientFor('INBOX');
+      const fetchAll = client.fetch;
+      client.fetch = vi.fn(function (range, ...rest) {
+        if (!range.includes(':') && range.split(',').map(Number).includes(17)) {
+          return (async function* () {
+            if (range) throw new Error('Some messages could not be FETCHed (Failure)');
+            yield null;
+          })();
+        }
+        return fetchAll(range, ...rest);
+      });
+      return client;
+    });
+    const pending = ImapManager.prototype.backfillMessages.call(manager(), acct, 'INBOX');
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(rows.filter(r => r.folder === 'INBOX').map(r => r.uid).sort((a, b) => a - b))
+      .toEqual(serverUids.filter(uid => uid !== 17));
+    const written = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO unfetchable_uids'));
+    expect(written.some(([, params]) => params[2].map(Number).includes(17))).toBe(true);
+  });
   it('repairs an older INBOX hole even when cached counts and maximum UID look complete', async () => {
     serverUids = [1, 2];
     rows = [{ folder: 'INBOX', uid: 2 }, { folder: 'INBOX', uid: 3 },

@@ -5656,6 +5656,9 @@ export class ImapManager {
       const bodyParts = cfg.fetchBody ? BODY_PREFETCH_PARTS : [];
       let consecutiveErrors = 0;
       let reconnectFailures = 0;
+      // Single UIDs given up on in a row (see the batch error handling below).
+      let skippedInRow = 0;
+      const fullBatchSize = cfg.batchSize;
       let i = 0;
       // Count rows this backfill actually wrote (UID upserts) so GTD section data can be
       // refreshed once at completion when the account is gtd_enabled — the tick's fingerprint
@@ -5883,6 +5886,7 @@ export class ImapManager {
           i += batch.length;
           batchesOnConn++;
           consecutiveErrors = 0;
+          skippedInRow = 0;
 
           // Log progress every 10 batches to avoid log spam
           if (batchesOnConn % 10 === 1 || i >= missingUids.length) {
@@ -5902,11 +5906,28 @@ export class ImapManager {
           if (bfClient) { try { bfClient.close(); } catch { /* already disconnected */ } bfClient = null; }
           batchesOnConn = cfg.batchesPerConn; // force reconnect
 
-          if (consecutiveErrors >= 3) {
-            // Persistent failures — halve the batch size to reduce load on the server
-            // rather than skipping messages entirely (which would leave permanent gaps).
+          if (consecutiveErrors >= 3 && cfg.batchSize === 1) {
+            // One message the server will not hand over: a FETCH that names it fails as a whole
+            // (Gmail's "Some messages could not be FETCHed", Dovecot's SERVERBUG on a corrupt
+            // one). Retrying the batch would loop forever, a login every half minute, holding
+            // this folder and a background slot for the host. It counts toward the write-off
+            // like a UID the server silently left out, and the run moves past it at full size.
+            // Three in a row is the server refusing everything: the run ends, and the folder
+            // check finds the gap again later.
+            const [uid] = batch;
+            try { await recordUnfetchable(account.id, folder, [Number(uid)], bfUidValidity); }
+            catch (uErr) { console.warn(`Unfetchable bookkeeping failed for ${logAccount(account)}:`, uErr.message); }
+            console.warn(`Backfill skipping UID ${uid} in ${logAccount(account)}/${folder}: the server refused it 3 times (${detail})`);
+            if (++skippedInRow >= 3) throw new Error(`the server refused ${skippedInRow} messages in a row (${detail})`, { cause: err });
+            i += 1;
+            cfg.batchSize = fullBatchSize;
+            consecutiveErrors = 0;
+            await new Promise(r => setTimeout(r, cfg.batchDelay));
+          } else if (consecutiveErrors >= 3) {
+            // Persistent failures: halve the batch, down to the one message a failing FETCH
+            // may be about, rather than skipping a whole batch (which would leave gaps).
             const oldSize = cfg.batchSize;
-            cfg.batchSize = Math.max(10, Math.floor(cfg.batchSize / 2));
+            cfg.batchSize = Math.max(1, Math.floor(cfg.batchSize / 2));
             console.warn(`Backfill reducing batch size for ${logAccount(account)}: ${oldSize} → ${cfg.batchSize} after 3 failures (${detail})`);
             consecutiveErrors = 0;
             await new Promise(r => setTimeout(r, cfg.batchDelay));
