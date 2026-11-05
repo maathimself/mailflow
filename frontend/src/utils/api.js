@@ -12,11 +12,20 @@ const messageBodyRequests = new Map();
 // Hover prefetches of bodies under way (prefetchMessageBody), by the same keys.
 const prefetchRequests = new Map();
 
+// Set while the page is being hidden for good (pagehide): a request sent then is keepalive, so
+// the browser completes it after the page is gone. Cleared on pageshow, because keepalive bodies
+// share a 64 KB budget that an attachment upload would exceed.
+let pageClosing = false;
+export function setPageClosing(closing) {
+  pageClosing = Boolean(closing);
+}
+
 async function request(method, path, body, extraHeaders) {
   const opts = {
     method,
     credentials: 'include',
     headers: { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) },
+    ...(pageClosing ? { keepalive: true } : {}),
   };
   if (body) {
     opts.headers['Content-Type'] = 'application/json';

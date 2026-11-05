@@ -62,7 +62,7 @@ import {
   isCurrentThreadLoad,
   unreadCountsByAccount,
 } from '../utils/threadedArchive.js';
-import { createUndoableCommit, UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
+import { createUndoableCommit, holdUndoable, releaseUndoable, UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
 import { resolveConversationSelection, selectListedMessage } from '../utils/conversation.js';
 
 // Folder icon for move picker
@@ -1179,7 +1179,7 @@ function MailboxList() {
       return fn(id).catch(err => ({ __failed: true, id, message: err.message }));
     };
 
-    timers.set('__call__', setTimeout(async () => {
+    timers.set('__call__', holdUndoable(async () => {
       if (settled) return;
       timers.delete('__call__');
       const results = await Promise.allSettled(ids.map(performCall));
@@ -1607,7 +1607,7 @@ function MailboxList() {
     setSelectionModeActive(false);
     setShowFolderPicker(false);
     let undone = false;
-    const timer = setTimeout(async () => {
+    const timer = holdUndoable(async () => {
       if (undone) return;
       try {
         const result = await api.bulkMove(moveIds, folder);
@@ -1631,7 +1631,7 @@ function MailboxList() {
       body: folder,
       onUndo: () => {
         undone = true;
-        clearTimeout(timer);
+        releaseUndoable(timer);
         useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
@@ -2342,7 +2342,7 @@ function MailboxList() {
           if (next.size === 0) setSelectionModeActive(false);
         }
         let moveUndone = false;
-        const moveTimer = setTimeout(async () => {
+        const moveTimer = holdUndoable(async () => {
           if (moveUndone) return;
           try {
             const result = await api.bulkMove(moveIds, folder);
@@ -2372,7 +2372,7 @@ function MailboxList() {
           body: folder,
           onUndo: () => {
             moveUndone = true;
-            clearTimeout(moveTimer);
+            releaseUndoable(moveTimer);
             useStore.getState().restoreMessages([moved]);
             if (!moved.is_read) incrementUnread(moved.account_id);
           },

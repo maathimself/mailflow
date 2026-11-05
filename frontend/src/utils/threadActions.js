@@ -4,6 +4,7 @@ import { normalizeConversation, newestConversationMessage } from './conversation
 import { conversationActionIds, conversationSpamTargets, newestSnoozeTarget, keepDraftsApart } from './conversationActions.js';
 import { setPendingDelete, setCompletedDelete, clearDeleteGuard, clearPendingDelete } from './pendingDeletes.js';
 import { archiveTargetsForFolder } from './threadedArchive.js';
+import { holdUndoable, releaseUndoable } from './undoableAction.js';
 
 // Which messages a thread-wide action should actually operate on.
 //
@@ -96,7 +97,7 @@ export function runThreadAction({ messages, commit, resolve, notification, addNo
   };
 
   let undone = false;
-  const timer = setTimeout(async () => {
+  const timer = holdUndoable(async () => {
     if (undone) return;
     try {
       // Resolve last, so a message that arrived during the undo window is included.
@@ -118,7 +119,7 @@ export function runThreadAction({ messages, commit, resolve, notification, addNo
     body: notification.body,
     onUndo: () => {
       undone = true;
-      clearTimeout(timer);
+      releaseUndoable(timer);
       restore();
     },
   });

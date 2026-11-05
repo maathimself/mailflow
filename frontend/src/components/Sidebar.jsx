@@ -27,6 +27,7 @@ import { SNOOZED_FOLDER } from '../utils/snoozeActions.js';
 import { SCHEDULED_VIEW } from '../utils/scheduledCompose.js';
 import { SendLaterIcon } from './SendLater.jsx';
 import { describeAccountError, needsSignIn } from '../utils/accountErrors.js';
+import { holdUndoable, releaseUndoable } from '../utils/undoableAction.js';
 
 const ICONS = {
   snoozed: (
@@ -384,7 +385,7 @@ export default function Sidebar() {
       if (!msg.is_read) state.decrementUnread(msg.account_id, 1, { undoable: true });
     });
     let undone = false;
-    const timer = setTimeout(async () => {
+    const timer = holdUndoable(async () => {
       if (undone) return;
       try {
         const result = await api.bulkMove(movedIds, targetFolder);
@@ -415,7 +416,7 @@ export default function Sidebar() {
       body: targetFolder,
       onUndo: () => {
         undone = true;
-        clearTimeout(timer);
+        releaseUndoable(timer);
         const s = useStore.getState();
         s.restoreMessages(msgs);
         msgs.forEach(m => { if (!m.is_read) s.incrementUnread(m.account_id); });
