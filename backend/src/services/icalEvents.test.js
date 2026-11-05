@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import ICAL from 'ical.js';
-import { applyEdit, buildEvent, expandResource, removeOccurrence, resourceInfo, vtimezoneBlock } from './icalEvents.js';
+import { applyEdit, buildEvent, expandResource, removeOccurrence, resourceInfo, seriesMarkers, vtimezoneBlock } from './icalEvents.js';
 
 const range = (from, to) => [Date.parse(from), Date.parse(to)];
 const cal = (...lines) => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//t//EN', ...lines, 'END:VCALENDAR'].join('\r\n');
@@ -268,6 +268,15 @@ describe('a zone only the resource defines', () => {
     const occ = expandResource(out, ...window);
     expect(occ).toHaveLength(5);
     expect(occ[0].recurrence.until).toBe('2027-03-19');
+  });
+});
+
+describe('seriesMarkers', () => {
+  it('counts exclusions and exceptions', () => {
+    expect(seriesMarkers(WEEKLY)).toBe(0);
+    const excluded = removeOccurrence(WEEKLY, '2026-10-26T09:00:00');
+    expect(seriesMarkers(excluded)).toBe(1);
+    expect(seriesMarkers(applyEdit(excluded, { allDay: false, start: '2026-11-02T09:00:00Z', end: '2026-11-02T09:30:00Z' }, { scope: 'this', recurrenceId: '2026-11-02T09:00:00' }))).toBe(2);
   });
 });
 

@@ -11,7 +11,7 @@ import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { discoverCalendars, findCalDavServer, getEvent, putEvent, deleteEvent } from '../services/caldavClient.js';
 import { syncAccount, credentialsFor, isSyncing } from '../services/caldavSync.js';
-import { applyEdit, buildEvent, expandResource, removeOccurrence, resourceInfo } from '../services/icalEvents.js';
+import { applyEdit, buildEvent, expandResource, removeOccurrence, resourceInfo, seriesMarkers } from '../services/icalEvents.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -322,6 +322,21 @@ async function storeFromServer(calendarId, userId, href, ical, creds) {
 
 const readOnlyError = res => res.status(403).json({ error: 'This calendar is read-only', code: 'read_only' });
 
+// MDaemon, like Outlook, drops a series' exceptions and exclusions when its start changes, which
+// brings deleted occurrences back. The series now has its new start, so sending it again keeps them.
+export async function putKeepingMarkers(href, ical, creds, etag) {
+  await putEvent(href, ical, creds, { etag });
+  const sent = seriesMarkers(ical);
+  if (!sent) return;
+  const stored = await getEvent(href, creds);
+  if (!stored || seriesMarkers(stored.ical) >= sent) return;
+  await putEvent(href, ical, creds, { etag: stored.etag });
+  const again = await getEvent(href, creds);
+  if (again && seriesMarkers(again.ical) < sent) {
+    console.warn(`Calendar: the server dropped exceptions of ${href} and would not take them back`);
+  }
+}
+
 // A conflict waits for the server's newer version to sync, so the client's refetch shows it.
 async function sendWriteError(res, err, accountId) {
   if (err.conflict) {
@@ -386,7 +401,7 @@ router.patch('/events/:eventId', async (req, res) => {
       await deleteEvent(event.href, creds, { etag: event.etag });
       await query('DELETE FROM calendar_events WHERE id = $1', [event.id]);
     } else {
-      await putEvent(event.href, ical, creds, { etag: event.etag });
+      await putKeepingMarkers(event.href, ical, creds, event.etag);
       await storeFromServer(event.calendar_id, event.user_id, event.href, ical, creds);
     }
     res.json({ ok: true });

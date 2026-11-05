@@ -648,6 +648,13 @@ function editSeries(root, input, recurrenceId, zones) {
   touch(master);
 }
 
+// How many exceptions and exclusions a resource holds, to notice a server dropping them.
+export function seriesMarkers(ics) {
+  const { master, overrides } = masterAndOverrides(parseRoot(ics));
+  const excluded = master ? master.getAllProperties('exdate').reduce((n, prop) => n + prop.getValues().length, 0) : 0;
+  return overrides.length + excluded;
+}
+
 export function applyEdit(ics, input, { scope = 'all', recurrenceId } = {}) {
   const root = parseRoot(ics);
   const zones = zonesOf(root, input.timezone);
