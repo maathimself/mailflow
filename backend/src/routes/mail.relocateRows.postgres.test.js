@@ -47,12 +47,15 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('relocateRows on Postgr
     expect(takeCarry(ACC, 'INBOX', '<b@x>', '2026-11-04T10:00:00Z')).toMatchObject({ spam_user_override: 'ham', category: 'social' });
   });
 
-  it('keeps the row a sync already filed at the new uid, and does not count it as dropped', async () => {
-    await database.query(`INSERT INTO messages (account_id, uid, folder, message_id, subject) VALUES ($1, 500, 'INBOX', '<a@x>', 'Synced')`, [ACC]);
+  it('keeps the row a sync already filed at the new uid, with what only MailFlow knew, and does not count it as dropped', async () => {
+    await database.query(`INSERT INTO messages (account_id, uid, folder, message_id, subject, spam_verdict, unsubscribed_at)
+      VALUES ($1, 500, 'INBOX', '<a@x>', 'Synced', 'spam', '2026-11-01')`, [ACC]);
     await relocateRows([A], new Map([[A, 500]]), 'INBOX');
 
-    const { rows } = await database.query("SELECT subject FROM messages WHERE folder = 'INBOX'");
-    expect(rows).toEqual([{ subject: 'Synced' }]);
+    const { rows } = await database.query("SELECT subject, spam_user_override, category, spam_verdict, unsubscribed_at FROM messages WHERE folder = 'INBOX'");
+    // The server's copy stays (subject); the "Not spam" decision and category come back; what the
+    // moved row never had keeps the synced row's value.
+    expect(rows).toEqual([{ subject: 'Synced', spam_user_override: 'ham', category: 'social', spam_verdict: 'spam', unsubscribed_at: '2026-11-01' }]);
     expect(takeCarry(ACC, 'INBOX', '<a@x>', '2026-11-04T10:00:00Z')).toBeNull();
   });
 });

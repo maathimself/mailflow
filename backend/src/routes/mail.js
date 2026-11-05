@@ -8,7 +8,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { extractImapError } from '../services/imapError.js';
 import { isConnectionRefusal } from '../services/imapManager.js';
-import { rememberDroppedRows } from '../services/movedRowCarry.js';
+import { CARRIED_COLUMNS, rememberDroppedRows } from '../services/movedRowCarry.js';
 import { stripEmailHead, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs, splitDarkScheme, proxyRemoteImages, remoteImageRefs } from '../services/emailSanitizer.js';
 import { imageProxyPath, proxyWidth, fetchProxiedImage, createUserLimiter } from '../services/imageProxy.js';
 import { imageCache, imageCacheKey } from '../services/imageCache.js';
@@ -102,8 +102,14 @@ const RELOCATE_COPY_COLS = [
 export const RELOCATE_INSERT_COLS = ['account_id', 'uid', 'folder', ...RELOCATE_COPY_COLS].join(', ');
 export const RELOCATE_SELECT_COLS = ['d.account_id', 'u.new_uid', '$4', ...RELOCATE_COPY_COLS.map(c => `d.${c}`)].join(', ');
 
+// On a uid a sync already filed, the synced row is kept with what it read from the server, and
+// takes from the moved row what only MailFlow knew (a "Not spam" decision, the category, an
+// unsubscribe), which the sync had no carry to restore from. A column the moved row never had
+// keeps the synced row's value.
+const RELOCATE_CONFLICT_SET = CARRIED_COLUMNS.map(c => `${c} = COALESCE(EXCLUDED.${c}, messages.${c})`).join(', ');
+
 // Move rows to `folder` in one statement: each row whose new uid the server named is re-inserted
-// there with every carried column; if a sync already inserted that uid, its row is kept. A row
+// there with every carried column; if a sync already inserted that uid, its row is kept (above). A row
 // without a new uid is dropped for the folder's sync to file again (#665), and kept in
 // movedRowCarry for that sync to give back what only MailFlow knew about it.
 export async function relocateRows(ids, newUids, folder) {
@@ -120,7 +126,7 @@ export async function relocateRows(ids, newUids, folder) {
       SELECT ${RELOCATE_SELECT_COLS}
       FROM deleted d
       JOIN uid_map u ON d.id = u.src_id
-      ON CONFLICT (account_id, uid, folder) DO NOTHING
+      ON CONFLICT (account_id, uid, folder) DO UPDATE SET ${RELOCATE_CONFLICT_SET}
     )
     SELECT d.* FROM deleted d WHERE NOT (d.id = ANY($2::uuid[]))
   `, [ids, withUid, withUid.map(id => newUids.get(id)), folder]);
