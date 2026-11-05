@@ -386,7 +386,14 @@ router.post('/draft', async (req, res) => {
     }
 
     // APPEND the new draft first so we never lose the message
-    const { uid } = await imapManager.appendToFolder(account, draftsFolder, rawMessage, ['\\Draft', '\\Seen']);
+    let { uid } = await imapManager.appendToFolder(account, draftsFolder, rawMessage, ['\\Draft', '\\Seen']);
+    // A server without UIDPLUS does not name the new uid. The composer then had nothing to replace
+    // on its next save, and every autosave left one more copy in Drafts. The Message-ID is new for
+    // every save, so a SEARCH for it finds this copy and no other.
+    if (uid == null) {
+      uid = await imapManager.findUidByMessageId(account, draftsFolder, meta.messageId)
+        .catch(err => { console.warn(`Draft: could not find the saved draft's uid: ${err.message}`); return null; });
+    }
 
     // Persist a local Drafts row immediately so the composer can reopen this draft
     // (recipient/subject/body) even if the folder re-sync is delayed or fails on a

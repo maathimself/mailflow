@@ -80,6 +80,9 @@ function restoreMessagesIfViewCurrent(viewKey, currentViewKeyRef, messages) {
   if (currentViewKeyRef.current === viewKey) useStore.getState().restoreMessages(messages);
 }
 
+// After a manual sync, when to reload the list if the socket has not said the sync finished.
+const MANUAL_SYNC_FALLBACK_MS = [5000, 15000];
+
 const SWIPE_ACTIONS = {
   archive: { color: 'var(--amber, #d97706)' },
   delete: { color: 'var(--red, #ef4444)' },
@@ -233,6 +236,9 @@ function MailboxList() {
   const pullDirectionRef = useRef(null);
   const pullDistRef = useRef(0);
   const handleSyncRef = useRef(null);
+  // When the socket last said a sync finished (mailflow:sync_done), for a manual sync to tell
+  // whether its answer came.
+  const lastSyncDoneAtRef = useRef(0);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, message, defaultMoveView?, defaultSnoozeView? }
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchHasMore, setSearchHasMore] = useState(false);
@@ -348,6 +354,9 @@ function MailboxList() {
   // Bumped by every new search, by clearing the query, and by a change of account or folder, so a
   // response (or a page of more results) that arrives after any of them is dropped (#592).
   const searchSeq = useRef(0);
+  // Bumped whenever the list is replaced by a fresh first page (folder, filter or page change).
+  // A next page still in flight from before belongs to the old list and is dropped.
+  const listGenRef = useRef(0);
   const isSearching = useStore(s => s.isSearching);
   const refreshRequestRef = useRef(null);
   if (refreshRequestRef.current === null) refreshRequestRef.current = createLatestRequest();
@@ -445,6 +454,7 @@ function MailboxList() {
       // resolves, finds no account IDs, and returns empty — causing the blank
       // "All Inboxes" on first load.
       if (!accountsReady) return;
+      listGenRef.current += 1;
       setLoadingMessages(true);
       setMessagesOffset(0);
       setHasMoreMessages(true);
@@ -503,6 +513,7 @@ function MailboxList() {
   // Load next page (called by scroll or button)
   const loadMore = useCallback(async () => {
     if (loadingMessages || !hasMoreMessages) return;
+    const gen = listGenRef.current;
     setLoadingMessages(true);
     try {
       // Read current offset directly from store to avoid stale closure
@@ -514,13 +525,15 @@ function MailboxList() {
       if (useStore.getState().threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       const data = await api.getMessages(params);
+      if (listGenRef.current !== gen) return;
       appendMessages(applyReadGuard(data.messages));
       setMessagesOffset(currentOffset + data.messages.length);
       setHasMoreMessages(currentOffset + data.messages.length < data.total);
     } catch (err) {
       console.error('Failed to load more messages:', err);
     } finally {
-      setLoadingMessages(false);
+      // The new list's own load owns the flag once the list was replaced.
+      if (listGenRef.current === gen) setLoadingMessages(false);
     }
   }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset]);
 
@@ -717,6 +730,7 @@ function MailboxList() {
   // Load a specific page (paginated mode)
   const loadPage = useCallback(async (pageNum) => {
     if (loadingMessages) return;
+    listGenRef.current += 1;
     setLoadingMessages(true);
     setCurrentPage(pageNum);
     try {
@@ -759,9 +773,16 @@ function MailboxList() {
           .catch(err => console.error('syncFolder failed:', err.message));
       }
       // The server will send sync_complete via WebSocket when done, which triggers
-      // mailflow:refresh (list reload) and mailflow:sync_done (spinner off).
-      // Safety fallback: stop spinner after 15s in case WS event never arrives.
-      setTimeout(() => setSyncing(false), 15000);
+      // mailflow:refresh (list reload) and mailflow:sync_done (spinner off). The sync runs after
+      // the request answers, so without the socket (a phone back from the background, still
+      // reconnecting) nothing said it was done: the list stayed as it was and the spinner ran
+      // for 15 s. With no word from the socket the list is reloaded anyway, twice, since a sync
+      // can take a while; the second time the spinner stops.
+      const startedAt = Date.now();
+      MANUAL_SYNC_FALLBACK_MS.forEach((delay, i) => setTimeout(() => {
+        if (lastSyncDoneAtRef.current < startedAt) window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        if (i === MANUAL_SYNC_FALLBACK_MS.length - 1) setSyncing(false);
+      }, delay));
     } catch (err) {
       console.error('Sync failed:', err);
       setSyncing(false);
@@ -839,6 +860,7 @@ function MailboxList() {
   // caused two concurrent setMessages() calls racing each other.
   useEffect(() => {
     const handler = async () => {
+      lastSyncDoneAtRef.current = Date.now();
       setSyncing(true);
       setTimeout(() => setSyncing(false), 1200);
     };

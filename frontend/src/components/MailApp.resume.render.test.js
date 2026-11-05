@@ -150,3 +150,43 @@ describe('MailApp: returning to the tab', () => {
     assert.equal(refreshes, 2, 'and only until it works');
   });
 });
+
+describe('MailApp: the account list', () => {
+  // A load that failed (the server restarting under a deploy) left the app with no accounts
+  // until the page was reloaded.
+  test('a failed load is tried again until it works', async (t) => {
+    await React.act(async () => root.unmount());
+    let calls = 0;
+    const ACCOUNT = { id: 'acct-1', email_address: 'a@example.com', name: 'A' };
+    api.getAccounts = async () => {
+      calls += 1;
+      if (calls < 3) throw Object.assign(new Error('Failed to fetch'), { status: 502 });
+      return [ACCOUNT];
+    };
+    const error = t.mock.method(console, 'error', () => {});
+    useStore.setState({ accounts: [], accountsReady: false });
+    root = createRoot(document.getElementById('root'));
+    await React.act(async () => { root.render(React.createElement(MailApp)); });
+    assert.equal(calls, 1);
+    assert.equal(useStore.getState().accountsReady, true, 'the list does not wait on it');
+    await React.act(async () => { t.mock.timers.tick(2000); });
+    assert.equal(calls, 2);
+    await React.act(async () => { t.mock.timers.tick(5000); });
+    assert.equal(calls, 3);
+    assert.deepEqual(useStore.getState().accounts.map(a => a.id), ['acct-1']);
+    await React.act(async () => { t.mock.timers.tick(120_000); });
+    assert.equal(calls, 3, 'and not again once it worked');
+    assert.ok(error.mock.callCount() >= 2);
+  });
+
+  test('a signed-out answer is not retried', async (t) => {
+    await React.act(async () => root.unmount());
+    let calls = 0;
+    api.getAccounts = async () => { calls += 1; throw Object.assign(new Error('Unauthorized'), { status: 401 }); };
+    t.mock.method(console, 'error', () => {});
+    root = createRoot(document.getElementById('root'));
+    await React.act(async () => { root.render(React.createElement(MailApp)); });
+    await React.act(async () => { t.mock.timers.tick(120_000); });
+    assert.equal(calls, 1);
+  });
+});

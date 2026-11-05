@@ -2892,10 +2892,14 @@ export class ImapManager {
     this._expungeDebounceTimers = new Map(); // accountId -> debounce timer for expunge reconciles
     this._pendingFlagSync = new Set(); // accountId — flag sync was skipped because a full sync was running; drain after sync
     this._pendingNewMail = new Set(); // accountId — new mail (EXISTS) arrived while a sync was running; sync again after it
-    // accountId -> Map<`${messageId}:${flag}`, { messageId, flag, attempts }>: local read/star
-    // changes whose IMAP push failed and must be retried until the server confirms them.
+    // accountId -> how many times it was disconnected; a connect in flight stops when it changes.
+    this._disconnectGeneration = new Map();
     // `${accountId}\n${folder}` -> how many mark-all-reads of it are still writing to the server.
     this._markingAllRead = new Map();
+    // Pauses before each retry of a mark-all-read whose \Seen write failed (tests shorten them).
+    this._markAllReadRetryMs = [5000, 30000];
+    // accountId -> Map<`${messageId}:${flag}`, { messageId, flag, attempts }>: local read/star
+    // changes whose IMAP push failed and must be retried until the server confirms them.
     this._pendingFlagPush = new Map();
     // Tracks UIDs that are actively being moved by inboxRules so reconcileDeletes
     // does not delete the DB row if an EXPUNGE arrives before the DB update completes,
@@ -3428,6 +3432,11 @@ export class ImapManager {
     // Previously this only ran when a connection existed, which left orphaned
     // intervals running whenever the connection died between reconnect attempts.
     await this.disconnectAccount(account.id);
+    // A disconnect from here on (the account disabled or deleted while this connects, which can
+    // take a minute) bumps the generation, and this connect then stops instead of setting up an
+    // IDLE connection and a sync timer for an account nobody wants synced.
+    const generation = this._disconnectGeneration.get(account.id) || 0;
+    const superseded = () => (this._disconnectGeneration.get(account.id) || 0) !== generation;
 
     // Per-host persistent-connection budget (#379 Phase 2). When an operator has set a finite cap
     // for this (connection-limited) host and this account is beyond it, run poll-only instead of
@@ -3438,6 +3447,7 @@ export class ImapManager {
     if (Number.isFinite(persistentCap)) {
       const eligible = await this._isPersistentEligible(account, persistentCap).catch(() => true);
       if (!eligible) {
+        if (superseded()) { this.connectingAccounts.delete(account.id); return false; }
         try { this._startPollOnly(account); }
         finally { this.connectingAccounts.delete(account.id); }
         return true;
@@ -3461,6 +3471,11 @@ export class ImapManager {
       client = await connectImapClient(account, resolved,
         { enableIdle: providerProfile(account).usesIdle !== false, policy, idleKeepaliveMs: providerProfile(account).idleKeepaliveMs },
         30000, 'IMAP connect');
+      if (superseded()) {
+        try { client.close(); } catch { /* already closed */ }
+        console.log(`Connect of ${logAccount(account)} abandoned: disconnected meanwhile`);
+        return false;
+      }
 
       // Remove from active connections the moment the server closes the socket.
       // Without this, a cleanly-closed connection lingers in this.connections and
@@ -3509,6 +3524,14 @@ export class ImapManager {
         this._connectCooldown.delete(account.id);
       } catch (syncErr) {
         console.warn(`Initial sync skipped for ${logAccount(account)}: ${extractImapError(syncErr)}`);
+      }
+
+      // Disconnected during the initial sync: no backfill, pool or sync timer for it.
+      if (superseded()) {
+        if (this.connections.get(account.id) === client) this.connections.delete(account.id);
+        try { client.close(); } catch { /* already closed */ }
+        console.log(`Connect of ${logAccount(account)} abandoned: disconnected meanwhile`);
+        return false;
       }
 
       // Pre-warm one pool connection immediately so the first email click doesn't
@@ -3574,6 +3597,7 @@ export class ImapManager {
   }
 
   async disconnectAccount(accountId) {
+    this._disconnectGeneration.set(accountId, (this._disconnectGeneration.get(accountId) || 0) + 1);
     const timer = this.syncIntervals.get(accountId);
     // clearTimeout works for both setTimeout and setInterval Timeout objects in Node.js
     if (timer) { clearTimeout(timer); this.syncIntervals.delete(accountId); }
@@ -7715,24 +7739,33 @@ export class ImapManager {
 
   async markAllReadImap(account, folder) {
     // While this runs, the integrity pass leaves the folder's read state alone (see its repair).
+    // That includes the retries: a write given up on leaves the server unread, and the repair
+    // then takes the folder back to unread, which is the server's state.
     const marking = `${account.id}\n${folder}`;
     this._markingAllRead.set(marking, (this._markingAllRead.get(marking) || 0) + 1);
     try {
-      return await withFreshClient(account, async (client) => {
-        const lock = await client.getMailboxLock(folder);
+      for (let attempt = 0; ; attempt++) {
         try {
-          if (!client.mailbox || client.mailbox.exists === 0) return;
-          // Chunked so a single STORE +FLAGS \Seen over a large folder can't get throttled
-          // into a whole-operation failure (which would leave the DB read but the server
-          // unread, and the next flag-sync would flip those rows back to unread).
-          await this._markSeenInFolder(client, folder);
+          return await withFreshClient(account, async (client) => {
+            const lock = await client.getMailboxLock(folder);
+            try {
+              if (!client.mailbox || client.mailbox.exists === 0) return;
+              // Chunked so a single STORE +FLAGS \Seen over a large folder can't get throttled
+              // into a whole-operation failure.
+              await this._markSeenInFolder(client, folder);
+            } finally {
+              lock.release();
+            }
+          });
         } catch (err) {
-          console.warn(`markAllRead IMAP warning for ${folder}:`, err.message);
-          // Non-fatal — DB is already updated; the next sync reconciles any residual unread.
-        } finally {
-          lock.release();
+          const wait = this._markAllReadRetryMs[attempt];
+          // A dropped connection or a throttled STORE used to be the end of it: the DB said read,
+          // the server unread, and the next pass put the folder back to unread.
+          if (wait === undefined) throw err;
+          console.warn(`markAllRead IMAP warning for ${folder}, retrying:`, err.message);
+          await new Promise(resolve => setTimeout(resolve, wait));
         }
-      });
+      }
     } finally {
       const left = (this._markingAllRead.get(marking) || 1) - 1;
       if (left > 0) this._markingAllRead.set(marking, left); else this._markingAllRead.delete(marking);
@@ -8176,7 +8209,10 @@ export class ImapManager {
           usedFreshSyncClient = true;
           await this._syncInboxWithFreshLogin(account);
         } else {
-          await this.syncMessages(account, client, 'INBOX', 20, false, true);
+          // The interval tick's wall-clock bound: imapflow has no per-command timeout and waits
+          // up to 5 minutes on a half-open socket, holding the account's sync lock (no interval
+          // sync either) for all of it. On the timeout the catch below closes the client.
+          await raceTimeout(this.syncMessages(account, client, 'INBOX', 20, false, true), 55000, 'Manual sync');
         }
         console.log(`syncNow complete: ${logAccount(account)}`);
       } catch (err) {
