@@ -340,7 +340,8 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     ...((inlineImageAttachments.length || attachments.length) ? { attachments: [...inlineImageAttachments, ...attachments] } : {}),
   };
 
-  const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'unix' });
+  // CRLF, like the Sent copy (renderRawMessage, #365): IMAP APPEND requires it.
+  const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'windows' });
   const streamInfo = await streamTransport.sendMail(mailOptions);
   const chunks = [];
   await new Promise((resolve, reject) => {
