@@ -2377,10 +2377,20 @@ router.post('/messages/:id/snooze', async (req, res) => {
   for (const tm of convo) {
     imapManager._guardMoveUid(tm.account_id, tm.folder, tm.uid);
     try {
+      // The record goes in before the move. Written after it, a failed row update or a restart
+      // in between left the message in Snoozed with nothing to wake it. Until the move lands the
+      // record is not live (no copy in Snoozed), so nothing reads it as a snooze yet.
+      const record = await query(
+        `INSERT INTO snoozed_messages (user_id, account_id, message_id_header, original_folder, snooze_until, snoozed_folder)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [req.session.userId, tm.account_id, tm.message_id, tm.folder, untilDate.toISOString(), snoozedFolder]
+      );
       let snoozedUid;
       try {
         snoozedUid = await imapManager.moveMessage(account, tm.uid, tm.folder, snoozedFolder);
       } catch (err) {
+        await query('DELETE FROM snoozed_messages WHERE id = $1', [record.rows[0]?.id])
+          .catch(e => console.error(`Snooze record cleanup failed for message ${tm.id}:`, e.message));
         console.error(`Snooze IMAP move failed for message ${tm.id}:`, err.message);
         // The message the user acted on must succeed; a failed sibling is logged
         // and skipped so the rest of the conversation still snoozes.
@@ -2398,12 +2408,6 @@ router.post('/messages/:id/snooze', async (req, res) => {
         imapManager.syncFolderOnDemand(account, snoozedFolder)
           .catch(err => console.warn(`Sync of ${snoozedFolder} after a snooze without a new uid failed: ${err.message}`));
       }
-
-      await query(
-        `INSERT INTO snoozed_messages (user_id, account_id, message_id_header, original_folder, snooze_until, snoozed_folder)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [req.session.userId, tm.account_id, tm.message_id, tm.folder, untilDate.toISOString(), snoozedFolder]
-      );
 
       adjustFolderCounts(tm.account_id, tm.folder, -1, tm.is_read ? 0 : -1);
       if (snoozedUid != null) adjustFolderCounts(tm.account_id, snoozedFolder, 1, tm.is_read ? 0 : 1);
