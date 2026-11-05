@@ -292,6 +292,18 @@ describe('deleted messages in their restore window', () => {
     expect((await call('GET', `/${ID}`)).status).toBe(404);
   });
 
+  it("hands out a deleted message's attachments in its window, for Undo, and not after it", async () => {
+    const readsAttachments = () => query.mock.calls.some(([sql]) => /scheduled_message_attachments/.test(sql));
+    query.mockClear();
+    query.mockResolvedValue({ rows: [] });
+    findOwnedScheduledMessage.mockResolvedValue(cancelled(new Date(Date.now() - 1000)));
+    expect((await call('GET', `/${ID}/attachments/0`)).status).toBe(404);
+    expect(readsAttachments()).toBe(false);
+    findOwnedScheduledMessage.mockResolvedValue(cancelled(new Date(Date.now() + 60_000)));
+    await call('GET', `/${ID}/attachments/0`);
+    expect(readsAttachments()).toBe(true);
+  });
+
   it('a restore decides in its UPDATE, by the database clock, to come back paused when due', async () => {
     withTransaction.mockImplementation(fn => fn({ query }));
     query.mockImplementation(async sql => {

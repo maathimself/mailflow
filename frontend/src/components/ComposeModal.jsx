@@ -39,7 +39,7 @@ import { aiTextToHtml } from '../utils/aiText.js';
 import { browserTimeZone, checkSendAt, formatSendAt } from '../utils/scheduleTimes.js';
 import {
   DUE_MARGIN_MS, SCHEDULE_UNDO_MS, UNDO_FOR, createEditHold, isScheduledEdit, needsConfirmation, newClientKey, once,
-  openScheduledView, scheduleErrorText, sendNowUndoMs, undoSchedule, undoSendNow,
+  openScheduledView, scheduleErrorText, sendNowUndoMs, undoSchedule, undoSendNow, withScheduledAttachments,
 } from '../utils/scheduledCompose.js';
 import { ComposeQuestion, ScheduledStrip, SendLaterIcon, SendLaterMenu, SendLaterSheet } from './SendLater.jsx';
 
@@ -1359,6 +1359,7 @@ export default function ComposeModal() {
             // Open goes to the message there, highlighted: a deleted one can be restored for minutes.
             openView: () => openScheduledView(useStore, undo.id),
             t,
+            loadAttachments: data => withScheduledAttachments(data, undo.id, api.scheduled),
           });
         }),
       } : {}),

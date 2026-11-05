@@ -553,6 +553,17 @@ export const api = {
     release: (id, editToken, { keepPaused = false } = {}) =>
       request('POST', `/mail/scheduled/${encodeURIComponent(id)}/release`, { editToken, ...(keepPaused ? { keepPaused: true } : {}) }),
     cancel:  (id)              => request('POST', `/mail/scheduled/${encodeURIComponent(id)}/cancel`),
+    // One attachment's content, base64, as the composer holds an upload.
+    attachmentBase64: async (id, index) => {
+      const res = await fetch(`${BASE}/mail/scheduled/${encodeURIComponent(id)}/attachments/${Number(index)}`, {
+        credentials: 'include', headers: { [CSRF_HEADER]: CSRF_VALUE },
+      });
+      if (!res.ok) throw Object.assign(new Error('Attachment not found'), { status: res.status });
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      let binary = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return btoa(binary);
+    },
     // editToken: send a message this composer holds for editing, in the same request.
     sendNow: (id, confirm, editToken) => request('POST', `/mail/scheduled/${encodeURIComponent(id)}/send-now`,
       { ...(confirm ? { confirm: true } : {}), ...(editToken ? { editToken } : {}) }),
