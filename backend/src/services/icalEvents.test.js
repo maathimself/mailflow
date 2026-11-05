@@ -237,6 +237,47 @@ describe('applyEdit', () => {
   });
 });
 
+describe('a zone only the resource defines', () => {
+  const VTZ = ['BEGIN:VTIMEZONE', 'TZID:Paris\\, Madrid',
+    'BEGIN:STANDARD', 'DTSTART:16011005T030000', 'TZOFFSETFROM:+0200', 'TZOFFSETTO:+0100', 'RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=10', 'END:STANDARD',
+    'BEGIN:DAYLIGHT', 'DTSTART:16010305T020000', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0200', 'RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=3', 'END:DAYLIGHT', 'END:VTIMEZONE'];
+  const SERIES = cal(...VTZ, 'BEGIN:VEVENT', 'UID:p', 'DTSTAMP:20260101T000000Z', 'SUMMARY:Serie',
+    'DTSTART;TZID="Paris, Madrid":20270315T090000', 'DTEND;TZID="Paris, Madrid":20270315T100000', 'RRULE:FREQ=WEEKLY;COUNT=6', 'END:VEVENT');
+  const window = range('2027-03-01T00:00:00Z', '2027-05-30T00:00:00Z');
+
+  it('keeps the event in that zone when it is edited', () => {
+    const out = applyEdit(SERIES, { allDay: false, start: '2027-03-15T09:00:00Z', end: '2027-03-15T10:00:00Z' }, { scope: 'all' });
+    expect(out).toContain('DTSTART;TZID="Paris, Madrid":20270315T100000');
+  });
+
+  it('keeps an exception and an exclusion when the series moves', () => {
+    const excluded = removeOccurrence(SERIES, '2027-04-05T09:00:00');
+    const edited = applyEdit(excluded, { summary: 'Solo', allDay: false, start: '2027-03-23T10:00:00Z', end: '2027-03-23T11:00:00Z' }, { scope: 'this', recurrenceId: '2027-03-22T09:00:00' });
+    const out = applyEdit(edited, { allDay: false, start: '2027-03-30T08:00:00Z', end: '2027-03-30T09:00:00Z' }, { scope: 'all', recurrenceId: '2027-03-29T09:00:00' });
+    expect(out).toContain('EXDATE;TZID="Paris, Madrid":20270406T100000');
+    expect(out).toContain('RECURRENCE-ID;TZID="Paris, Madrid":20270323T100000');
+    const occ = expandResource(out, ...window).sort((a, b) => (a.start < b.start ? -1 : 1));
+    expect(occ).toHaveLength(5);
+    expect(occ.find(o => o.summary === 'Solo').start).toBe('2027-03-23T10:00:00.000Z');
+    expect(occ.some(o => o.start.startsWith('2027-04-06'))).toBe(false);
+  });
+
+  it('ends a series on the day asked, on a server that keeps only the local date of UNTIL', () => {
+    const out = applyEdit(SERIES, { recurrence: { freq: 'DAILY', until: '2027-03-19' } });
+    expect(out).toContain('UNTIL=20270319T080000Z');
+    const occ = expandResource(out, ...window);
+    expect(occ).toHaveLength(5);
+    expect(occ[0].recurrence.until).toBe('2027-03-19');
+  });
+});
+
+describe('text values', () => {
+  it('drops the backslash a server puts before a double quote', () => {
+    const ics = cal('BEGIN:VEVENT', 'UID:q', 'DTSTAMP:20260101T000000Z', 'SUMMARY:a \\"b\\" c\\, d', 'DTSTART:20261105T100000Z', 'END:VEVENT');
+    expect(expandResource(ics, ...range('2026-11-01T00:00:00Z', '2026-11-30T00:00:00Z'))[0].summary).toBe('a "b" c, d');
+  });
+});
+
 describe('removeOccurrence', () => {
   it('adds an EXDATE in the series\' zone', () => {
     const out = removeOccurrence(WEEKLY, '2026-10-26T09:00:00');

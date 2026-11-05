@@ -93,6 +93,22 @@ function zonesOf(root, floatingTz) {
   return zones;
 }
 
+// The wall clock of an instant in a zone, by the same rules as toUtcMs.
+function utcToWall(ms, tzid, zones) {
+  if (isIana(tzid)) return wallParts(ms, tzid);
+  const zone = zones?.get(tzid);
+  if (zone) {
+    const { year, month, day, hour, minute, second } = ICAL.Time.fromJSDate(new Date(ms), true).convertToZone(zone);
+    return { year, month, day, hour, minute, second };
+  }
+  if (zones?.floatingTz) return wallParts(ms, zones.floatingTz);
+  const d = new Date(ms);
+  return {
+    year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate(),
+    hour: d.getUTCHours(), minute: d.getUTCMinutes(), second: d.getUTCSeconds(),
+  };
+}
+
 function parseRoot(ics) {
   const root = new ICAL.Component(ICAL.parse(ics));
   if (root.name !== 'vcalendar') throw new Error('Not an iCalendar object');
@@ -182,9 +198,10 @@ export function resourceInfo(ics) {
   };
 }
 
+// MDaemon escapes double quotes, which RFC 5545 does not, and ical.js leaves the backslash in.
 function text(vevent, name) {
   const value = vevent.getFirstPropertyValue(name);
-  return value == null || value === '' ? null : String(value);
+  return value == null || value === '' ? null : String(value).replace(/\\"/g, '"');
 }
 
 function person(prop) {
@@ -204,12 +221,13 @@ function reminderOf(vevent) {
   return null;
 }
 
-function recurrenceOf(master, b) {
+function recurrenceOf(master, b, zones) {
   const props = master.getAllProperties('rrule');
   if (!props.length) return { recurrence: null, custom: master.hasProperty('rdate') };
   const rule = props[0].getFirstValue();
   const parts = Object.keys(rule.parts || {});
-  const weekday = WEEKDAYS[new Date(b.allDay ? b.startMs : b.startMs + offsetMs(b.startMs, isIana(b.tzid) ? b.tzid : 'UTC')).getUTCDay()];
+  const w = utcToWall(b.startMs, b.tzid, zones);
+  const weekday = WEEKDAYS[new Date(b.allDay ? b.startMs : Date.UTC(w.year, w.month - 1, w.day)).getUTCDay()];
   const plainWeekly = rule.freq === 'WEEKLY' && parts.length === 1 && parts[0] === 'BYDAY'
     && rule.parts.BYDAY.length === 1 && rule.parts.BYDAY[0] === weekday;
   const custom = props.length > 1 || master.hasProperty('rdate')
@@ -218,10 +236,8 @@ function recurrenceOf(master, b) {
   let until = null;
   if (rule.until) {
     if (rule.until.isDate) until = isoDate(rule.until);
-    else if (rule.until.zone === ICAL.Timezone.utcTimezone && isIana(b.tzid)) {
-      const w = wallParts(rule.until.toUnixTime() * 1000, b.tzid);
-      until = isoDate(w);
-    } else until = isoDate(rule.until);
+    else if (rule.until.zone === ICAL.Timezone.utcTimezone) until = isoDate(utcToWall(rule.until.toUnixTime() * 1000, b.tzid, zones));
+    else until = isoDate(rule.until);
   }
   return {
     recurrence: { freq: rule.freq, interval: rule.interval || 1, until, count: rule.count || null },
@@ -290,7 +306,7 @@ export function expandResource(ics, fromMs, toMs, { floatingTz } = {}) {
   for (const prop of master.getAllProperties('exdate')) {
     for (const value of prop.getValues()) excluded.add(occurrenceKey(value, tzidOf(prop) || b.tzid, zones));
   }
-  const { recurrence, custom } = recurrenceOf(master, b);
+  const { recurrence, custom } = recurrenceOf(master, b, zones);
   const it = new ICAL.Event(master).iterator();
   let next;
   let n = 0;
@@ -390,23 +406,18 @@ function dateProp(name, dateStr) {
   return prop;
 }
 
-function wallTime(ms, tzid) {
-  const time = new ICAL.Time({ ...wallParts(ms, tzid), isDate: false });
-  return time;
-}
-
-function instantProp(name, ms, tzid) {
+function instantProp(name, ms, tzid, zones) {
   const prop = new ICAL.Property(name);
-  if (tzid && tzid !== 'UTC' && isIana(tzid)) {
+  if (tzid && tzid !== 'UTC' && (isIana(tzid) || zones?.has(tzid))) {
     prop.setParameter('tzid', tzid);
-    prop.setValue(wallTime(ms, tzid));
+    prop.setValue(new ICAL.Time({ ...utcToWall(ms, tzid, zones), isDate: false }));
   } else {
     prop.setValue(ICAL.Time.fromJSDate(new Date(ms), true));
   }
   return prop;
 }
 
-function setBounds(vevent, input, tzid) {
+function setBounds(vevent, input, tzid, zones) {
   vevent.removeAllProperties('dtstart');
   vevent.removeAllProperties('dtend');
   vevent.removeAllProperties('duration');
@@ -414,12 +425,14 @@ function setBounds(vevent, input, tzid) {
     vevent.addProperty(dateProp('dtstart', input.start));
     vevent.addProperty(dateProp('dtend', input.end));
   } else {
-    vevent.addProperty(instantProp('dtstart', Date.parse(input.start), tzid));
-    vevent.addProperty(instantProp('dtend', Date.parse(input.end), tzid));
+    vevent.addProperty(instantProp('dtstart', Date.parse(input.start), tzid, zones));
+    vevent.addProperty(instantProp('dtend', Date.parse(input.end), tzid, zones));
   }
 }
 
-function setRecurrence(vevent, recurrence, input, tzid) {
+// UNTIL names the last occurrence's own start rather than the end of its day: MDaemon stores it in
+// local time and keeps only the date, so 23:59:59 UTC would add a day east of Greenwich.
+function setRecurrence(vevent, recurrence, input, tzid, zones) {
   vevent.removeAllProperties('rrule');
   if (!recurrence) return;
   const data = { freq: recurrence.freq, interval: recurrence.interval > 1 ? recurrence.interval : 1 };
@@ -428,10 +441,11 @@ function setRecurrence(vevent, recurrence, input, tzid) {
     if (input.allDay) {
       data.until = ICAL.Time.fromDateString(recurrence.until);
     } else {
-      const [y, m, d] = recurrence.until.split('-').map(Number);
-      const end = { year: y, month: m, day: d, hour: 23, minute: 59, second: 59 };
-      const ms = tzid && isIana(tzid) ? wallToUtc(end, tzid) : Date.UTC(y, m - 1, d, 23, 59, 59);
-      data.until = ICAL.Time.fromJSDate(new Date(ms), true);
+      const [year, month, day] = recurrence.until.split('-').map(Number);
+      const start = vevent.getFirstPropertyValue('dtstart');
+      const last = new ICAL.Time({ year, month, day, hour: start.hour, minute: start.minute, second: start.second, isDate: false });
+      if (start.zone === ICAL.Timezone.utcTimezone) last.zone = ICAL.Timezone.utcTimezone;
+      data.until = ICAL.Time.fromJSDate(new Date(toUtcMs(last, tzid, zones)), true);
     }
   }
   vevent.addPropertyWithValue('rrule', new ICAL.Recur(data));
@@ -476,7 +490,7 @@ export function buildEvent(input, uid = crypto.randomUUID()) {
   applyText(vevent, input);
   const tzid = input.allDay ? null : input.timezone;
   setBounds(vevent, input, tzid);
-  if (input.recurrence) setRecurrence(vevent, input.recurrence, input, tzid);
+  if (input.recurrence) setRecurrence(vevent, input.recurrence, input, tzid, null);
   if (input.reminderMinutes != null) setReminder(vevent, input.reminderMinutes);
   root.addSubcomponent(vevent);
   if (tzid) ensureTimezone(root, tzid);
@@ -535,7 +549,7 @@ function editOccurrence(root, input, recurrenceId, zones) {
   const current = bounds(target, zones);
   const tzid = input.allDay ? null : (current?.tzid || input.timezone);
   applyText(target, input);
-  setBounds(target, input, tzid);
+  setBounds(target, input, tzid, zones);
   if (input.reminderMinutes !== undefined) setReminder(target, input.reminderMinutes);
   touch(target);
   if (tzid) ensureTimezone(root, tzid);
@@ -546,8 +560,8 @@ function shiftTime(prop, value, deltaMs, tzid, zones) {
     return ICAL.Time.fromDateString(msToDate(dateToMs(isoDate(value)) + deltaMs));
   }
   const ms = toUtcMs(value, tzid, zones) + deltaMs;
-  if (value.zone === ICAL.Timezone.utcTimezone || !isIana(tzid)) return ICAL.Time.fromJSDate(new Date(ms), true);
-  return wallTime(ms, tzid);
+  if (value.zone === ICAL.Timezone.utcTimezone) return ICAL.Time.fromJSDate(new Date(ms), true);
+  return new ICAL.Time({ ...utcToWall(ms, tzid, zones), isDate: false });
 }
 
 // A series whose start moved: its EXDATEs and its overrides' RECURRENCE-IDs name occurrences by
@@ -565,10 +579,10 @@ function shiftSeriesMarkers(master, overrides, deltaMs, tzid, zones) {
 }
 
 // A rule pinned to weekdays or a month day has to follow a series dragged to another day.
-function shiftRuleDays(master, b, newStartMs) {
+function shiftRuleDays(master, b, newStartMs, zones) {
   const dayOf = (ms) => {
     if (b.allDay) return new Date(ms);
-    const w = wallParts(ms, isIana(b.tzid) ? b.tzid : 'UTC');
+    const w = utcToWall(ms, b.tzid, zones);
     return new Date(Date.UTC(w.year, w.month - 1, w.day));
   };
   const before = dayOf(b.startMs);
@@ -616,7 +630,7 @@ function editSeries(root, input, recurrenceId, zones) {
       const deltaMs = newStartMs - b.startMs;
       if (deltaMs) {
         shiftSeriesMarkers(master, overrides, deltaMs, b.tzid, zones);
-        shiftRuleDays(master, b, newStartMs);
+        shiftRuleDays(master, b, newStartMs, zones);
       }
     }
     if (kindChanged) {
@@ -624,11 +638,11 @@ function editSeries(root, input, recurrenceId, zones) {
       master.removeAllProperties('exdate');
       overrides.forEach(o => root.removeSubcomponent(o));
     }
-    setBounds(master, moved, tzid);
+    setBounds(master, moved, tzid, zones);
     if (tzid) ensureTimezone(root, tzid);
-    if (input.recurrence !== undefined) setRecurrence(master, input.recurrence, input, tzid);
+    if (input.recurrence !== undefined) setRecurrence(master, input.recurrence, input, tzid, zones);
   } else if (input.recurrence !== undefined) {
-    setRecurrence(master, input.recurrence, { allDay: b.allDay }, b.tzid);
+    setRecurrence(master, input.recurrence, { allDay: b.allDay }, b.tzid, zones);
   }
   if (input.reminderMinutes !== undefined) setReminder(master, input.reminderMinutes);
   touch(master);
