@@ -134,6 +134,15 @@ afterEach(async () => {
   document.body.innerHTML = '<div id="root"></div>';
 });
 
+describe('event colour', () => {
+  test('comes from the background alone, with no stripe', async () => {
+    await mount();
+    const buttons = [...document.querySelectorAll('button')].filter(b => b.style.background.includes('color-mix'));
+    assert.ok(buttons.length > 0, 'events are tinted');
+    for (const b of buttons) assert.ok(!b.style.boxShadow.includes('inset'), b.textContent);
+  });
+});
+
 describe('inside the sidebar', () => {
   test('draws the rail and the new-event button in the slot, then shrinks with the sidebar', async () => {
     const slot = document.createElement('div');

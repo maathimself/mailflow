@@ -59,7 +59,7 @@ function Check({ checked, color }) {
   );
 }
 
-function CalendarRow({ cal, onToggle, onColor }) {
+function CalendarRow({ cal, onToggle, onColor, roomy }) {
   const { t } = useTranslation();
   const [picking, setPicking] = useState(false);
   return (
@@ -68,7 +68,7 @@ function CalendarRow({ cal, onToggle, onColor }) {
         onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
         onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
         <button type="button" role="checkbox" aria-checked={cal.visible} onClick={() => onToggle(cal)} style={{
-          flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 9, padding: '6px 6px', border: 'none', background: 'none',
+          flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 9, padding: roomy ? '11px 6px' : '6px 6px', border: 'none', background: 'none',
           cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: cal.visible ? 'var(--text-primary)' : 'var(--text-tertiary)', textAlign: 'left',
         }}>
           <Check checked={cal.visible} color={cal.color} />
@@ -153,7 +153,7 @@ export default function CalendarRail({
         {groups.map(g => (
           <div key={g.id}>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', padding: '0 6px 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
-            {g.items.map(cal => <CalendarRow key={cal.id} cal={cal} onToggle={onToggle} onColor={onColor} />)}
+            {g.items.map(cal => <CalendarRow key={cal.id} cal={cal} onToggle={onToggle} onColor={onColor} roomy={compact} />)}
           </div>
         ))}
       </div>

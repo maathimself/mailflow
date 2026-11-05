@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   formatClock, formatDayText, hiddenCounts, layoutWeek, parseDay, shiftOccurrence,
@@ -13,8 +13,23 @@ export default function MonthView({
   const { t } = useTranslation();
   const gridRef = useRef(null);
   const suppressClick = useRef(false);
-  const maxLanes = isMobile ? 2 : 3;
-  const lane = isMobile ? 17 : 20;
+  const lane = isMobile ? 18 : 20;
+  const baseLanes = isMobile ? 2 : 3;
+  const [maxLanes, setMaxLanes] = useState(baseLanes);
+
+  // As many events per day as the screen has room for.
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const measure = () => {
+      const rowHeight = el.clientHeight / weeks.length;
+      setMaxLanes(Math.max(baseLanes, Math.min(12, Math.floor((rowHeight - 46) / lane))));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [weeks.length, baseLanes, lane]);
   const month = parseDay(anchor).m;
 
   const cellAt = (e) => {
@@ -110,19 +125,14 @@ export default function MonthView({
                       gridColumn: `${seg.startCol + 1} / ${seg.endCol + 1}`, gridRow: seg.lane + 2, zIndex: 2,
                       margin: `1px ${seg.after ? 0 : 3}px 1px ${seg.before ? 0 : 3}px`,
                       display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, overflow: 'hidden',
-                      padding: '0 6px', fontFamily: 'inherit', fontSize: isMobile ? 10.5 : 11.5, lineHeight: 1,
+                      padding: isMobile ? '0 3px' : '0 6px', fontFamily: 'inherit', fontSize: isMobile ? 11 : 11.5, lineHeight: 1,
                       border: 'none', cursor: occ.readOnly ? 'pointer' : 'grab', textAlign: 'left',
                       color: 'var(--text-primary)', opacity: cancelled ? 0.55 : 1,
                       textDecoration: cancelled ? 'line-through' : 'none',
-                      background: bar ? tint(color, 26) : 'transparent',
-                      boxShadow: bar && !seg.before ? `inset 3px 0 0 ${color}` : 'none',
-                      paddingLeft: bar && !seg.before ? 8 : 4,
+                      background: tint(color, 30),
                       borderRadius: `${seg.before ? 0 : 4}px ${seg.after ? 0 : 4}px ${seg.after ? 0 : 4}px ${seg.before ? 0 : 4}px`,
                     }}
-                    onMouseEnter={e => { if (!bar) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                    onMouseLeave={e => { if (!bar) e.currentTarget.style.background = 'transparent'; }}
                   >
-                    {!bar && <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />}
                     {seg.before && <span aria-hidden="true" style={{ color: 'var(--text-tertiary)' }}>‹</span>}
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: bar ? 500 : 400, minWidth: 0 }}>
                       {!bar && <span style={{ color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{timeText}</span>}
@@ -139,12 +149,12 @@ export default function MonthView({
                   style={{
                     gridColumn: i + 1, gridRow: maxLanes + 2, zIndex: 2, justifySelf: 'start', margin: '0 3px',
                     border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer',
-                    fontSize: 11, padding: '0 4px', borderRadius: 4, fontFamily: 'inherit', fontWeight: 500,
+                    fontSize: 11, padding: '0 4px', borderRadius: 4, fontFamily: 'inherit', fontWeight: 500, whiteSpace: 'nowrap',
                   }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                 >
-                  {t('calendar.more', { count: n })}
+                  {isMobile ? `+${n}` : t('calendar.more', { count: n })}
                 </button>
               ))}
             </div>

@@ -10,6 +10,7 @@ import { canDrag, dragSession } from './dragSession.js';
 const ALL_DAY_LANES = 3;
 const LANE = 21;
 
+const MOBILE_COLUMN = 76;
 const minutesFromY = (rect, y, hourHeight) => Math.max(0, Math.min(1440, ((y - rect.top) / hourHeight) * 60));
 
 export default function TimeGridView({
@@ -17,7 +18,8 @@ export default function TimeGridView({
   onOpen, onCreate, onOpenDay, onPreview, onMove,
 }) {
   const { t } = useTranslation();
-  const hourHeight = isMobile ? 44 : 52;
+  // Taller screens get taller hours, so a working day fills them.
+  const hourHeight = isMobile ? 48 : Math.max(52, Math.min(72, Math.round(window.innerHeight / 14)));
   const gutter = isMobile ? 40 : 56;
   const n = days.length;
   const scrollRef = useRef(null);
@@ -40,6 +42,8 @@ export default function TimeGridView({
     const nowHour = new Date().getHours();
     const startHour = days.includes(dayKey(new Date())) && (nowHour < 7 || nowHour > 18) ? Math.max(0, nowHour - 1) : 7;
     scrollRef.current.scrollTop = startHour * hourHeight;
+    const todayColumn = days.indexOf(dayKey(new Date()));
+    if (isMobile && n > 1) scrollRef.current.scrollLeft = Math.max(0, todayColumn) * MOBILE_COLUMN;
     // Scrolls on opening and when the number of columns changes, not on every date step.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, n, hourHeight]);
@@ -115,14 +119,14 @@ export default function TimeGridView({
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const nowTop = (nowMin / 60) * hourHeight;
   const cols = `${gutter}px repeat(${n}, minmax(0, 1fr))`;
-  const minWidth = isMobile && n > 1 ? gutter + n * 64 : undefined;
+  const minWidth = isMobile && n > 1 ? gutter + n * MOBILE_COLUMN : undefined;
 
   return (
     <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', position: 'relative', minHeight: 0 }}>
       <div style={{ minWidth, position: 'relative' }}>
         <div style={{ position: 'sticky', top: 0, zIndex: 6, background: 'var(--bg-primary)', borderBottom: '1px solid var(--border)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: cols }}>
-            <div />
+            <div style={{ position: 'sticky', left: 0, zIndex: 1, background: 'var(--bg-primary)' }} />
             {days.map(day => {
               const isToday = day === today;
               const head = (
@@ -150,8 +154,8 @@ export default function TimeGridView({
             display: 'grid', gridTemplateColumns: cols, position: 'relative', borderTop: '1px solid var(--border-subtle)',
             gridTemplateRows: `repeat(${Math.max(1, shownLanes)}, ${LANE}px) ${hiddenAllDay.some(c => c > 0) || (allDayOpen && allDay.laneCount > ALL_DAY_LANES) ? '18px' : '4px'}`,
           }}>
-            <div style={{ gridColumn: 1, gridRow: '1 / -1', fontSize: 9.5, lineHeight: 1.1, color: 'var(--text-tertiary)', padding: '3px 6px 0 0', textAlign: 'right', overflow: 'hidden' }}>
-              {t('calendar.allDay')}
+            <div style={{ gridColumn: 1, gridRow: '1 / -1', fontSize: 9.5, lineHeight: 1.1, color: 'var(--text-tertiary)', padding: '3px 6px 0 0', textAlign: 'right', overflow: 'hidden', position: 'sticky', left: 0, zIndex: 3, background: 'var(--bg-primary)' }}>
+              {!isMobile && t('calendar.allDay')}
             </div>
             {days.map((day, i) => (
               <div key={day} onClick={() => onCreate({ allDay: true, start: day, end: addDays(day, 1) })}
@@ -182,11 +186,10 @@ export default function TimeGridView({
                   }}
                   style={{
                     gridColumn: `${seg.startCol + 2} / ${seg.endCol + 2}`, gridRow: seg.lane + 1, zIndex: 2,
-                    margin: `1px ${seg.after ? 0 : 3}px 1px ${seg.before ? 0 : 3}px`, padding: `0 6px 0 ${seg.before ? 6 : 8}px`,
+                    margin: `1px ${seg.after ? 0 : 3}px 1px ${seg.before ? 0 : 3}px`, padding: '0 6px',
                     display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left',
                     fontSize: 11.5, fontWeight: 500, fontFamily: 'inherit', color: 'var(--text-primary)', border: 'none',
-                    background: tint(color, 26), cursor: occ.readOnly ? 'pointer' : 'grab',
-                    boxShadow: seg.before ? 'none' : `inset 3px 0 0 ${color}`,
+                    background: tint(color, 30), cursor: occ.readOnly ? 'pointer' : 'grab',
                     borderRadius: `${seg.before ? 0 : 4}px ${seg.after ? 0 : 4}px ${seg.after ? 0 : 4}px ${seg.before ? 0 : 4}px`,
                   }}>
                   {occ.summary || t('common.noSubject')}
@@ -209,7 +212,7 @@ export default function TimeGridView({
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: cols, position: 'relative', height: 24 * hourHeight }}>
-          <div style={{ position: 'relative' }}>
+          <div style={{ position: 'sticky', left: 0, zIndex: 4, background: 'var(--bg-primary)' }}>
             {Array.from({ length: 23 }, (_, i) => i + 1).map(h => (
               <div key={h} style={{
                 position: 'absolute', top: h * hourHeight - 7, right: 8, fontSize: 10.5, lineHeight: '14px',
@@ -252,9 +255,9 @@ export default function TimeGridView({
                         style={{
                           position: 'absolute', top, height, zIndex: 2,
                           left: `calc(${(pos.col / pos.cols) * 100}% + 2px)`, width: `calc(${100 / pos.cols}% - 4px)`,
-                          boxSizing: 'border-box', padding: '2px 6px 2px 8px', textAlign: 'left', overflow: 'hidden',
+                          boxSizing: 'border-box', padding: '2px 6px', textAlign: 'left', overflow: 'hidden',
                           border: 'none', borderRadius: 5, fontFamily: 'inherit', color: 'var(--text-primary)',
-                          background: tint(color, 26), boxShadow: `inset 3px 0 0 ${color}, 0 0 0 1px var(--bg-primary)`,
+                          background: tint(color, 30), boxShadow: '0 0 0 1px var(--bg-primary)',
                           cursor: occ.readOnly ? 'pointer' : 'grab', opacity: cancelled ? 0.55 : 1,
                           textDecoration: cancelled ? 'line-through' : 'none',
                         }}>

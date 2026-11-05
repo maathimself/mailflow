@@ -11,7 +11,7 @@ export default function AgendaView({ days, today, events, colorOf, calendarName,
 
   return (
     <div style={{ flex: 1, overflow: 'hidden auto', minHeight: 0 }}>
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '8px 0 96px' }}>
+      <div style={{ maxWidth: 960, margin: '0 auto', padding: '8px 0 96px' }}>
         {groups.map(({ day, items }) => {
           const isToday = day === today;
           return (
@@ -45,10 +45,10 @@ export default function AgendaView({ days, today, events, colorOf, calendarName,
                       style={{
                         display: 'flex', alignItems: 'stretch', gap: 12, padding: '8px 12px 8px 0', textAlign: 'left', cursor: 'pointer',
                         border: 'none', borderRadius: 8, fontFamily: 'inherit', color: 'var(--text-primary)',
-                        background: tint(color, 14), boxShadow: `inset 4px 0 0 ${color}`, paddingLeft: 16,
+                        background: tint(color, 22), paddingLeft: 12,
                         opacity: cancelled ? 0.55 : 1, textDecoration: cancelled ? 'line-through' : 'none',
                       }}>
-                      <span style={{ width: 84, flexShrink: 0, fontSize: 12, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums', paddingTop: 1 }}>
+                      <span style={{ width: 'clamp(46px, 14vw, 84px)', flexShrink: 0, fontSize: 12, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums', paddingTop: 1 }}>
                         {occ.allDay ? t('calendar.allDay') : (
                           <>
                             {dayKey(new Date(occ.start)) === day ? formatClock(occ.start, locale) : '…'}
