@@ -57,13 +57,26 @@ function fakeQuery(sql, params = []) {
     return { rows: live.map(sm => rowRead(sm.id)) };
   }
   if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [ACCOUNT] };
+  if (sql.startsWith('SELECT * FROM messages')) {
+    const m = messages.find(m => m.folder === params[1] && m.uid === params[2] && m.mid === params[3]);
+    return { rows: m ? [{ account_id: params[0], message_id: m.mid, folder: m.folder, uid: m.uid, date: '2026-11-04T10:00:00Z', category: m.category ?? null }] : [] };
+  }
   if (sql.startsWith('UPDATE messages SET folder')) {
-    const where = { mid: params[2], folder: sql.includes('uid = $4') ? params[4] : params[3], uid: params[params.length - 1] };
-    for (const m of messages.filter(m => matches(sql, m, where))) {
+    // The repoint stands down when the destination already holds a row at the new uid.
+    const cond = sql.replace(/\s+AND NOT EXISTS[\s\S]*$/, '');
+    if (cond !== sql && messages.some(m => m.folder === params[0] && m.uid === params[3])) return { rows: [], rowCount: 0 };
+    const where = { mid: params[2], folder: sql.includes('uid = $4') ? params[4] : params[3], uid: params[5] ?? params[params.length - 1] };
+    const hit = messages.filter(m => matches(cond, m, where));
+    for (const m of hit) {
       m.folder = params[0];
       if (sql.includes('uid = $4')) m.uid = params[3];
+      if (sql.includes('is_read = false')) m.is_read = false;
     }
-    return { rows: [] };
+    return { rows: [], rowCount: hit.length };
+  }
+  if (sql.startsWith('UPDATE messages SET is_read = false')) {
+    for (const m of messages.filter(m => m.folder === params[1] && m.uid === params[2])) m.is_read = false;
+    return { rows: [], rowCount: 1 };
   }
   if (sql.startsWith('DELETE FROM messages')) {
     const where = { mid: params[1], folder: params[2], uid: params[3] };
@@ -234,5 +247,48 @@ describe('marking a woken message unread without its new uid', () => {
     expect(await mgr.wakeSnoozed(rowRead('a'))).toBe(true);
     expect(unflagged).toEqual([]);
     evictPool(ACCOUNT.id);
+  });
+});
+
+// The move announces the message to INBOX, whose sync can file it under its new uid before the
+// wake repoints the row. That row is then the message: the wake drops its own, and nothing ends
+// up in both INBOX and Snoozed or treated as new mail.
+describe('waking a snooze while the destination sync files the message first', () => {
+  it('keeps the row the sync filed, unread, and drops its own', async () => {
+    snooze('a', { uid: 10, isRead: true });
+    mgr.moveMessageGetNewUid = vi.fn(async () => {
+      messages.push({ mid: '<a@x>', folder: 'INBOX', uid: 500, is_read: true }); // the sync, first
+      return 500;
+    });
+    expect(await mgr.wakeSnoozed(rowRead('a'))).toBe(true);
+    expect(messages).toEqual([{ mid: '<a@x>', folder: 'INBOX', uid: 500, is_read: false }]);
+    expect(snoozes.has('a')).toBe(false);
+    expect(mgr.setFlag).toHaveBeenCalledWith(ACCOUNT, 500, 'INBOX', '\\Seen', false);
+    // Out of Snoozed only: the sync counted it into INBOX.
+    expect(adjustFolderCounts).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the sync this row's state to take, and only until the wake is done", async () => {
+    snooze('a');
+    let carried;
+    mgr.moveMessageGetNewUid = vi.fn(async () => {
+      carried = takeCarry('acct-1', 'INBOX', '<a@x>', '2026-11-04T10:00:00Z');
+      return 500;
+    });
+    await mgr.wakeSnoozed(rowRead('a'));
+    expect(carried).not.toBeNull();
+    snooze('b');
+    mgr.moveMessageGetNewUid = vi.fn(async () => 501);
+    await mgr.wakeSnoozed(rowRead('b'));
+    expect(takeCarry('acct-1', 'INBOX', '<b@x>', '2026-11-04T10:00:00Z')).toBeNull();
+  });
+
+  it('still brings the message back when the server refuses to mark it unread', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    snooze('a');
+    mgr.setFlag = vi.fn(async () => { throw new Error('NO [UNAVAILABLE]'); });
+    expect(await mgr.wakeSnoozed(rowRead('a'))).toBe(true);
+    expect(byMid('<a@x>')).toMatchObject({ folder: 'INBOX', uid: 500, is_read: false });
+    expect(snoozes.has('a')).toBe(false);
   });
 });

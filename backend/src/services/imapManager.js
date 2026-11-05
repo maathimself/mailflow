@@ -8230,56 +8230,100 @@ export class ImapManager {
       // is in flight.
       this._guardMoveUid(row.account_id, row.snoozed_folder, row.uid);
       let newUid;
+      // Whether the destination's sync filed the message before this wake repointed its row.
+      let filedBySync = false;
       try {
-        // Move back to original folder
-        newUid = await this.moveMessageGetNewUid(
-          account, row.uid, row.snoozed_folder, row.original_folder
-        );
+        // The move announces the message to the destination folder, whose sync can file it under
+        // its new uid before the row below is repointed. Kept for that sync (see movedRowCarry):
+        // it then takes this row's state (spam decision, category, annotations) and does not
+        // treat the message as new mail: no rules, alerts or spam check for a snoozed message.
+        const { rows: [snoozedRow] } = await query(
+          'SELECT * FROM messages WHERE account_id = $1 AND folder = $2 AND uid = $3 AND message_id = $4',
+          [row.account_id, row.snoozed_folder, row.uid, row.message_id_header]);
+        if (snoozedRow) rememberDroppedRows(row.original_folder, [snoozedRow]);
 
-        // Mark as unread so the user notices it (not when the reader asked for it back).
-        if (markUnread && newUid) {
-          await this.setFlag(account, newUid, row.original_folder, '\\Seen', false);
-        } else if (markUnread && row.message_id_header) {
-          // The move named no new uid. Search the destination folder by Message-ID to locate and
-          // unflag \Seen, but only when that finds one message: a Message-ID is not unique.
-          try {
-            await withFreshClient(account, async (client) => {
-              const lock = await client.getMailboxLock(row.original_folder);
-              try {
-                const uids = await client.search({ header: { 'Message-ID': row.message_id_header } }, { uid: true });
-                if (uids.length === 1) {
-                  const r = await client.messageFlagsRemove(String(uids[0]), ['\\Seen'], { uid: true });
-                  if (r === false) console.warn(`Snooze wakeup: messageFlagsRemove returned false for ${row.original_folder}`);
-                } else if (uids.length) {
-                  console.warn(`Snooze wakeup: ${uids.length} messages in ${row.original_folder} carry Message-ID ${row.message_id_header}, leaving them as they are`);
-                } else {
-                  console.warn(`Snooze wakeup: could not find message in ${row.original_folder} to mark unread (Message-ID: ${row.message_id_header})`);
-                }
-              } finally {
-                lock.release();
-              }
-            });
-          } catch (err) {
-            console.warn(`Snooze wakeup: could not mark message unread on server (no UIDPLUS): ${err.message}`);
-          }
+        // Move back to original folder
+        try {
+          newUid = await this.moveMessageGetNewUid(
+            account, row.uid, row.snoozed_folder, row.original_folder
+          );
+        } catch (err) {
+          // Not moved: nothing for the sync to file, and a later copy must not pick this up.
+          if (snoozedRow) takeCarry(row.account_id, row.original_folder, row.message_id_header, snoozedRow.date);
+          throw err;
         }
 
-        // Update DB: change folder (and mark unread, on its own wake-up), and update UID if the move returned one.
         if (newUid != null) {
-          await query(
-            `UPDATE messages SET folder = $1, uid = $4${markUnread ? ', is_read = false, read_changed_at = NOW()' : ''} WHERE account_id = $2 AND message_id = $3 AND folder = $5 AND uid = $6`,
-            [row.original_folder, row.account_id, row.message_id_header, newUid, row.snoozed_folder, row.uid]
-          );
+          // Repoint the row, unless the sync already filed the message under newUid: then that
+          // row is the message (it took this one's state) and this one goes. Unread on its own
+          // wake-up either way, in the database first, so the server's \Seen read by a sync in
+          // between cannot leave it read.
+          const unread = markUnread ? ', is_read = false, read_changed_at = NOW()' : '';
+          let repointed = 0;
+          try {
+            ({ rowCount: repointed } = await query(
+              `UPDATE messages SET folder = $1, uid = $4${unread} WHERE account_id = $2 AND message_id = $3 AND folder = $5 AND uid = $6
+                 AND NOT EXISTS (SELECT 1 FROM messages d WHERE d.account_id = $2 AND d.folder = $1 AND d.uid = $4)`,
+              [row.original_folder, row.account_id, row.message_id_header, newUid, row.snoozed_folder, row.uid]
+            ));
+          } catch (err) {
+            if (err?.code !== '23505') throw err; // the sync's insert landed in between
+          }
+          if (repointed) {
+            // Not needed any more, and a later copy of the message must not pick it up.
+            if (snoozedRow) takeCarry(row.account_id, row.original_folder, row.message_id_header, snoozedRow.date);
+          } else {
+            filedBySync = true;
+            await query('DELETE FROM messages WHERE account_id = $1 AND message_id = $2 AND folder = $3 AND uid = $4',
+              [row.account_id, row.message_id_header, row.snoozed_folder, row.uid]);
+            if (markUnread) {
+              await query(`UPDATE messages SET is_read = false, read_changed_at = NOW() WHERE account_id = $1 AND folder = $2 AND uid = $3`,
+                [row.account_id, row.original_folder, newUid]);
+            }
+          }
+          // Mark as unread on the server so the user notices it (not when the reader asked for it
+          // back). The message is already back, so a refused flag is logged, not a failed wake.
+          if (markUnread) {
+            try {
+              await this.setFlag(account, newUid, row.original_folder, '\\Seen', false);
+            } catch (err) {
+              console.warn(`Snooze wakeup: could not mark message unread on server: ${err.message}`);
+            }
+          }
         } else {
+          if (markUnread && row.message_id_header) {
+            // The move named no new uid. Search the destination folder by Message-ID to locate and
+            // unflag \Seen, but only when that finds one message: a Message-ID is not unique.
+            try {
+              await withFreshClient(account, async (client) => {
+                const lock = await client.getMailboxLock(row.original_folder);
+                try {
+                  const uids = await client.search({ header: { 'Message-ID': row.message_id_header } }, { uid: true });
+                  if (uids.length === 1) {
+                    const r = await client.messageFlagsRemove(String(uids[0]), ['\\Seen'], { uid: true });
+                    if (r === false) console.warn(`Snooze wakeup: messageFlagsRemove returned false for ${row.original_folder}`);
+                  } else if (uids.length) {
+                    console.warn(`Snooze wakeup: ${uids.length} messages in ${row.original_folder} carry Message-ID ${row.message_id_header}, leaving them as they are`);
+                  } else {
+                    console.warn(`Snooze wakeup: could not find message in ${row.original_folder} to mark unread (Message-ID: ${row.message_id_header})`);
+                  }
+                } finally {
+                  lock.release();
+                }
+              });
+            } catch (err) {
+              console.warn(`Snooze wakeup: could not mark message unread on server (no UIDPLUS): ${err.message}`);
+            }
+          }
           // The new uid is not known, and the source uid can belong to another message in the
           // original folder (#665). Drop the row rather than keep it on that uid, and let a sync
           // of the folder file the message under its real one. Only this row: another message in
           // Snoozed may carry the same Message-ID, and a sync would not add its row back.
-          const dropped = await query(
-            'DELETE FROM messages WHERE account_id = $1 AND message_id = $2 AND folder = $3 AND uid = $4 RETURNING *',
+          // Its state was kept for that sync before the move.
+          await query(
+            'DELETE FROM messages WHERE account_id = $1 AND message_id = $2 AND folder = $3 AND uid = $4',
             [row.account_id, row.message_id_header, row.snoozed_folder, row.uid]
           );
-          rememberDroppedRows(row.original_folder, dropped?.rows);
           this.syncFolderOnDemand(account, row.original_folder)
             .catch(err => console.warn(`Snooze wakeup: sync of ${row.original_folder} failed: ${err.message}`));
         }
@@ -8293,7 +8337,8 @@ export class ImapManager {
       // Update folder counts: message leaves Snoozed and re-enters original_folder (unread on its own wake-up).
       // row.is_read reflects the read state in the Snoozed folder before the move.
       adjustFolderCounts(row.account_id, row.snoozed_folder, -1, row.is_read ? 0 : -1);
-      if (newUid != null) adjustFolderCounts(row.account_id, row.original_folder, 1, markUnread || !row.is_read ? 1 : 0);
+      // A message the sync filed was counted by that sync.
+      if (newUid != null && !filedBySync) adjustFolderCounts(row.account_id, row.original_folder, 1, markUnread || !row.is_read ? 1 : 0);
 
       // Notify the user's open clients so the message reappears
       this.broadcast({ type: 'snooze_wakeup', accountId: row.account_id }, row.user_id);
