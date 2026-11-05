@@ -69,6 +69,22 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL || !process.env.MAILFLOW
     await saveWebhook(userId, { token: '' });
     expect((await stored()).token).toBeNull();
   });
+  it('keeps tokens within one origin and clears them for a different host, scheme or port', async () => {
+    await saveWebhook(userId, { url: 'https://NOTIFY.example:443/another-topic' });
+    expect(decrypt((await stored()).token)).toBe('secret-token');
+    for (const url of ['https://other.example/topic', 'https://other.example:8443/topic', 'http://other.example:8443/topic']) {
+      await saveWebhookAdminSettings({ enabled: true, allowedOrigins: [new URL(url).origin] });
+      await saveWebhook(userId, { token: 'saved-token' });
+      await saveWebhook(userId, { url });
+      expect((await stored()).token).toBeNull();
+      await send();
+      expect(safeFetch.mock.calls.at(-1)[1].headers.Authorization).toBeUndefined();
+    }
+  });
+  it('allows an explicitly supplied replacement token for a new origin', async () => {
+    await saveWebhook(userId, { url: 'https://other.example/topic', token: 'replacement-token' });
+    expect(decrypt((await stored()).token)).toBe('replacement-token');
+  });
   it('disables after five failures, skips while disabled, and explicitly re-enables', async () => {
     safeFetch.mockRejectedValue(new Error('secret URL'));
     for (let i = 1; i <= 5; i++) {
