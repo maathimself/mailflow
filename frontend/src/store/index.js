@@ -270,7 +270,11 @@ export const useStore = create((set, get) => ({
     // request waits for the next task: what locking sends first (actions still in their undo
     // window, see flushUndoables) must reach the server before it, or it is refused.
     get().setLocked(true);
-    setTimeout(() => { api.lock().catch(() => {}); }, 0);
+    // The next task, not a timer: auto-lock fires in a hidden tab, where timers are throttled
+    // to once a minute and the server would stay unlocked that long.
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => { channel.port1.close(); api.lock().catch(() => {}); };
+    channel.port2.postMessage(null);
   },
   autoLockMinutes: 0,
   setAutoLockMinutes: (m) => {

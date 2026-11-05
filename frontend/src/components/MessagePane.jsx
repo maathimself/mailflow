@@ -184,12 +184,15 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     closeWindowIfWindowed();
     if (wasUnread) decrementUnread(message.account_id, 1, { undoable: true });
     let settled = false;
+    let timer;
     const undo = () => {
+      // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+      if (!releaseUndoable(timer)) return;
       settled = true;
       useStore.getState().restoreMessages([message]);
       if (wasUnread) incrementUnread(message.account_id);
     };
-    holdUndoable(async () => {
+    timer = holdUndoable(async () => {
       if (settled) return;
       try {
         const fn = label === 'spam' ? api.markSpam : api.markHam;
@@ -870,8 +873,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       title: t('message.moved.title'),
       body: folder,
       onUndo: () => {
+        // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+        if (!releaseUndoable(timer)) return;
         undone = true;
-        releaseUndoable(timer);
         useStore.getState().restoreMessages([moved]);
         if (!moved.is_read) incrementUnread(moved.account_id);
       },
@@ -988,8 +992,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       title: t('messageList.deleted.title'),
       body: t('messageList.deleted.body'),
       onUndo: () => {
+        // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+        if (!releaseUndoable(timer)) return;
         undone = true;
-        releaseUndoable(timer);
         clearPendingDelete(deleted.id);
         useStore.getState().restoreMessages([deleted]);
         if (!deleted.is_read) incrementUnread(deleted.account_id);
@@ -1020,8 +1025,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       title: t('message.archived.title'),
       body: archived.subject || t('common.noSubject'),
       onUndo: () => {
+        // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+        if (!releaseUndoable(timer)) return;
         undone = true;
-        releaseUndoable(timer);
         // Back into the list it left, not into one opened since (#630).
         useStore.getState().restoreMessages([archived]);
         if (!archived.is_read) incrementUnread(archived.account_id);

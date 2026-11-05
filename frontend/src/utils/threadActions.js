@@ -122,8 +122,9 @@ export function runThreadAction({ messages, commit, resolve, notification, addNo
     title: notification.title,
     body: notification.body,
     onUndo: () => {
+      // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+      if (!releaseUndoable(timer)) return;
       undone = true;
-      releaseUndoable(timer);
       restore();
     },
   });

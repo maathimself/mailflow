@@ -415,8 +415,9 @@ export default function Sidebar() {
       title: t('messageList.bulkMoved.title', { count: msgs.length }),
       body: targetFolder,
       onUndo: () => {
+        // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+        if (!releaseUndoable(timer)) return;
         undone = true;
-        releaseUndoable(timer);
         const s = useStore.getState();
         s.restoreMessages(msgs);
         msgs.forEach(m => { if (!m.is_read) s.incrementUnread(m.account_id); });

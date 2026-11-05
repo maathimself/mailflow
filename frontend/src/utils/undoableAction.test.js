@@ -111,3 +111,13 @@ describe('a flushed createUndoableCommit', () => {
     assert.deepEqual(seen, [true, false]);
   });
 });
+
+describe('releaseUndoable', () => {
+  it('says whether the action was still pending', () => {
+    const pending = undoableAction.holdUndoable(() => {}, 60000);
+    assert.equal(undoableAction.releaseUndoable(pending), true);
+    const flushed = undoableAction.holdUndoable(() => {}, 60000);
+    undoableAction.flushUndoables();
+    assert.equal(undoableAction.releaseUndoable(flushed), false);
+  });
+});

@@ -1165,6 +1165,8 @@ export default function ComposeModal() {
   // `built` is buildSendPayload's result.
   const buildRestoreData = ({ accountId, aliasId, toFinal, ccFinal, bccFinal, bodyToSend, sentQuotedHtml, autoAtSend, savedDraft, hasDraft }) => ({
     ...composeData,
+    // A sender chosen since opening a draft from an address MailFlow cannot send as replaces it.
+    unsupportedFrom: unsupportedSenderRef.current ? composeData?.unsupportedFrom : undefined,
     accountId,
     aliasId: aliasId || undefined,
     draftUid: hasDraft ? savedDraft.uid : null,

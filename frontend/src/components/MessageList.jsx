@@ -1170,6 +1170,8 @@ function MailboxList() {
     const timers = new Map();
     let settled = false;
     const undo = () => {
+      // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+      if (!releaseUndoable(timers.get('__call__'))) return;
       settled = true;
       timers.forEach(timer => releaseUndoable(timer));
       timers.clear();
@@ -1646,8 +1648,9 @@ function MailboxList() {
       title: t('messageList.bulkMoved.title', { count: moveIds.length }),
       body: folder,
       onUndo: () => {
+        // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+        if (!releaseUndoable(timer)) return;
         undone = true;
-        releaseUndoable(timer);
         useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
@@ -1711,8 +1714,16 @@ function MailboxList() {
     setSelectionModeActive(false);
     setShowFolderPicker(false);
     // Conversations read now as well, for a flush that cannot wait to read them (see flushUndoables).
-    const early = new Map(msgs.filter(isThreadListRow)
-      .map(message => [message.id, resolveMessagesForThreadAction(message).catch(() => null)]));
+    // Eight at a time, as the commit reads them.
+    const early = new Map();
+    const threadRows = msgs.filter(isThreadListRow);
+    let previous = Promise.resolve();
+    for (let offset = 0; offset < threadRows.length; offset += 8) {
+      const batch = threadRows.slice(offset, offset + 8);
+      const read = previous.then(() => Promise.all(batch.map(message => resolveMessagesForThreadAction(message).catch(() => null))));
+      batch.forEach((message, k) => early.set(message.id, read.then(results => results[k])));
+      previous = read;
+    }
     const archiveAction = createUndoableCommit({
       delayMs: UNDO_COMMIT_DELAY_MS,
       commit: async ({ flushing = false } = {}) => {
@@ -2395,8 +2406,9 @@ function MailboxList() {
           title: t('message.moved.title'),
           body: folder,
           onUndo: () => {
+            // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+            if (!releaseUndoable(moveTimer)) return;
             moveUndone = true;
-            releaseUndoable(moveTimer);
             useStore.getState().restoreMessages([moved]);
             if (!moved.is_read) incrementUnread(moved.account_id);
           },

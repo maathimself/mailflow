@@ -136,6 +136,14 @@ describe('a conversation action flushed before its undo window ends', () => {
     await tick(UNDO_WINDOW + 50);
     assert.equal(requests.length, 1, 'and not again when its timer would have fired');
   });
+
+  test('its Undo, still on screen after the page comes back, puts nothing back', async () => {
+    archiveThread(THREAD, { t, addNotification });
+    flushUndoables();
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    notifications[0].onUndo();
+    assert.deepEqual(ids(), [], 'the server has it archived, so the list does not show it again');
+  });
 });
 
 // Archive from the conversation pane takes the conversation out of the folder it is shown in, as

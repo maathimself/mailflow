@@ -16,9 +16,11 @@ export function holdUndoable(run, ms) {
   return id;
 }
 
+// Cancels a held action. Returns whether it was still pending: false once it has run (its timer
+// fired, or a flush sent it), when an Undo can no longer take it back.
 export function releaseUndoable(id) {
   clearTimeout(id);
-  held.delete(id);
+  return held.delete(id);
 }
 
 export function flushUndoables() {
