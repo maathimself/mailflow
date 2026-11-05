@@ -2416,7 +2416,9 @@
     "createAppPassword": "Crea una password per le app"
   },
   "webhooks": {
-    "remove": "Rimuovi URL e token salvati",
+    "useToken": "Usa un token di autenticazione",
+    "removeConfirm": "Eliminare questa configurazione? Le notifiche verranno disattivate e URL e token salvati saranno rimossi.",
+    "remove": "Elimina configurazione notifiche",
     "removed": "URL e token salvati rimossi.",
     "errors": {
       "url": "Inserisci un URL di notifica valido.",
@@ -2449,7 +2451,6 @@
     "url": "URL dell’endpoint",
     "token": "Token di autenticazione facoltativo",
     "secretKept": "Configurato •••••••• — lascia vuoto per mantenere",
-    "clearToken": "Rimuovi il token salvato",
     "sender": "Invia il mittente all’endpoint",
     "subject": "Invia l’oggetto all’endpoint",
     "testHelp": "Salva le modifiche prima del test. I test usano la configurazione salvata e condividono il limite di 10 tentativi al minuto.",

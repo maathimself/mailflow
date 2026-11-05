@@ -2416,7 +2416,9 @@
     "createAppPassword": "App-Passwort erstellen"
   },
   "webhooks": {
-    "remove": "Gespeicherte URL und Token entfernen",
+    "useToken": "Authentifizierungstoken verwenden",
+    "removeConfirm": "Diese Benachrichtigungskonfiguration löschen? Benachrichtigungen werden beendet und die gespeicherte URL sowie das Token entfernt.",
+    "remove": "Benachrichtigungskonfiguration löschen",
     "removed": "Gespeicherte URL und Token wurden entfernt.",
     "errors": {
       "url": "Gib eine gültige Benachrichtigungs-URL ein.",
@@ -2449,7 +2451,6 @@
     "url": "Endpunkt-URL",
     "token": "Optionales Authentifizierungstoken",
     "secretKept": "Konfiguriert •••••••• — zum Beibehalten leer lassen",
-    "clearToken": "Gespeichertes Token entfernen",
     "sender": "Absender an den Endpunkt senden",
     "subject": "Betreff an den Endpunkt senden",
     "testHelp": "Änderungen vor dem Test speichern. Tests verwenden die gespeicherte Konfiguration und zählen zum Limit von 10 Versuchen pro Minute.",

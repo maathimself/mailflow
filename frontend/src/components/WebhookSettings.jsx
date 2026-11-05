@@ -19,11 +19,11 @@ function Field({ label, children }) {
 function Check(props) {
   return <div style={{ marginBottom: 12 }}><ToggleRow {...props} /></div>;
 }
-function ActionButton({ primary = false, disabled, children, ...props }) {
+function ActionButton({ primary = false, danger = false, disabled, children, ...props }) {
   return <button type="button" disabled={disabled} {...props} style={{
     padding: '8px 16px', borderRadius: 7, fontSize: 13, fontWeight: 500,
-    background: primary ? 'var(--accent)' : 'transparent', color: primary ? 'white' : 'var(--text-secondary)',
-    border: primary ? '1px solid transparent' : '1px solid var(--border)',
+    background: danger ? 'rgba(248,113,113,0.1)' : primary ? 'var(--accent)' : 'transparent', color: danger ? 'var(--red)' : primary ? 'white' : 'var(--text-secondary)',
+    border: danger ? '1px solid rgba(248,113,113,0.3)' : primary ? '1px solid transparent' : '1px solid var(--border)',
     cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, transition: 'all 0.15s',
   }}>{children}</button>;
 }
@@ -41,14 +41,15 @@ export function UserWebhookSettings() {
   const [config, setConfig] = useState(null);
   const [url, setUrl] = useState('');
   const [token, setToken] = useState('');
-  const [clearToken, setClearToken] = useState(false);
+  const [useToken, setUseToken] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   useEffect(() => {
     let active = true;
-    api.webhooks.get().then(data => { if (active) setConfig(data); }).catch(err => { if (active) setError(err); });
+    api.webhooks.get().then(data => { if (active) { setConfig(data); setUseToken(!!data.tokenConfigured); } }).catch(err => { if (active) setError(err); });
     return () => { active = false; };
   }, []);
   const edit = (key, value) => { setConfig(c => ({ ...c, [key]: value })); setDirty(true); setMessage(''); };
@@ -56,10 +57,11 @@ export function UserWebhookSettings() {
     setBusy(true); setError(''); setMessage('');
     try {
       const { enabled, format, includeSender, includeSubject } = config;
-      await api.webhooks.save({ enabled, format, includeSender, includeSubject, ...(url ? { url } : {}), ...(clearToken ? { token: '' } : token ? { token } : {}) });
+      await api.webhooks.save({ enabled, format, includeSender, includeSubject, ...(url ? { url } : {}), ...(format === 'generic' ? {} : !useToken ? { token: '' } : token ? { token } : {}) });
       // Clear secrets immediately after a successful write, even if the refresh fails.
-      setUrl(''); setToken(''); setClearToken(false);
-      setConfig(await api.webhooks.get()); setDirty(false); setMessage(t('webhooks.saved'));
+      setUrl(''); setToken('');
+      const saved = await api.webhooks.get();
+      setConfig(saved); setUseToken(!!saved.tokenConfigured); setDirty(false); setMessage(t('webhooks.saved'));
     } catch (err) { setError(err); }
     finally { setBusy(false); }
   }
@@ -67,8 +69,9 @@ export function UserWebhookSettings() {
     setBusy(true); setError(''); setMessage('');
     try {
       await api.webhooks.remove();
-      setUrl(''); setToken(''); setClearToken(false); setDirty(false);
+      setUrl(''); setToken(''); setDirty(false);
       setConfig(c => ({ ...c, enabled: false, urlConfigured: false, tokenConfigured: false, failures: 0, lastError: null }));
+      setConfirmRemove(false); setUseToken(false);
       setMessage(t('webhooks.removed'));
     } catch (err) { setError(err); }
     finally { setBusy(false); }
@@ -96,12 +99,12 @@ export function UserWebhookSettings() {
       <fieldset disabled={busy || !config.available} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <Check label={t('webhooks.enable')} checked={!!config.enabled} onChange={v => edit('enabled', v)} />
         {config.enabled && <>
-          <Field label={t('webhooks.format')}><select style={fieldStyle} value={config.format} onChange={e => { edit('format', e.target.value); if (e.target.value === 'generic') { setToken(''); setClearToken(false); } }}><option value="generic">{t('webhooks.generic')}</option><option value="ntfy">{'ntfy'}</option><option value="gotify">{'Gotify'}</option></select></Field>
+          <Field label={t('webhooks.format')}><select style={fieldStyle} value={config.format} onChange={e => { edit('format', e.target.value); if (e.target.value === 'generic') { setToken(''); setUseToken(false); } }}><option value="generic">{t('webhooks.generic')}</option><option value="ntfy">{'ntfy'}</option><option value="gotify">{'Gotify'}</option></select></Field>
           <Field label={t('webhooks.url')}><PasswordInput autoComplete="new-password" maxLength={4096} style={fieldStyle} value={url} placeholder={config.urlConfigured ? t('webhooks.secretKept') : undefined} onChange={e => { setUrl(e.target.value); setDirty(true); setMessage(''); }} /></Field>
           {config.format !== 'generic' && <p style={helpStyle}><code>{config.format === 'ntfy' ? 'https://ntfy.example.com/topic' : 'https://gotify.example.com/message'}</code></p>}
           {config.format !== 'generic' && <>
-            <Field label={t('webhooks.token')}><PasswordInput autoComplete="new-password" maxLength={4096} style={fieldStyle} value={token} disabled={clearToken} placeholder={config.tokenConfigured ? t('webhooks.secretKept') : undefined} onChange={e => { setToken(e.target.value); setDirty(true); setMessage(''); }} /></Field>
-            {config.tokenConfigured && <Check label={t('webhooks.clearToken')} checked={clearToken} onChange={v => { setClearToken(v); setDirty(true); }} />}
+            <Check label={t('webhooks.useToken')} checked={useToken} onChange={v => { setUseToken(v); setDirty(true); setMessage(''); }} />
+            {useToken && <Field label={t('webhooks.token')}><PasswordInput autoComplete="new-password" maxLength={4096} style={fieldStyle} value={token} placeholder={config.tokenConfigured ? t('webhooks.secretKept') : undefined} onChange={e => { setToken(e.target.value); setDirty(true); setMessage(''); }} /></Field>}
           </>}
           <Check label={t('webhooks.sender')} checked={!!config.includeSender} onChange={v => edit('includeSender', v)} />
           <Check label={t('webhooks.subject')} checked={!!config.includeSubject} onChange={v => edit('includeSubject', v)} />
@@ -109,8 +112,13 @@ export function UserWebhookSettings() {
         </>}
         {(config.enabled || dirty || config.urlConfigured) && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {(config.enabled || dirty) && <ActionButton primary disabled={busy || !dirty || (config.enabled && !url && !config.urlConfigured)} onClick={save}>{busy ? t('common.saving') : t('common.save')}</ActionButton>}
-          {config.urlConfigured && <ActionButton disabled={busy} onClick={remove}>{t('webhooks.remove')}</ActionButton>}
           {config.enabled && <ActionButton disabled={busy || dirty || !config.urlConfigured} onClick={test}>{t('webhooks.test')}</ActionButton>}
+          {config.urlConfigured && !confirmRemove && <div style={{ marginLeft: 'auto' }}><ActionButton danger disabled={busy} onClick={() => setConfirmRemove(true)}>{t('webhooks.remove')}</ActionButton></div>}
+        </div>}
+        {config.urlConfigured && confirmRemove && <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+          <span style={{ ...helpStyle, flex: '1 1 200px' }}>{t('webhooks.removeConfirm')}</span>
+          <ActionButton danger disabled={busy} onClick={remove}>{t('common.delete')}</ActionButton>
+          <ActionButton autoFocus disabled={busy} onClick={() => setConfirmRemove(false)}>{t('common.cancel')}</ActionButton>
         </div>}
       </fieldset>
     </>}

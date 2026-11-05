@@ -2435,7 +2435,9 @@
     "createAppPassword": "Utwórz hasło aplikacji"
   },
   "webhooks": {
-    "remove": "Usuń zapisany adres URL i token",
+    "useToken": "Używaj tokenu uwierzytelniania",
+    "removeConfirm": "Usunąć tę konfigurację? Powiadomienia zostaną wyłączone, a zapisany adres URL i token usunięte.",
+    "remove": "Usuń konfigurację powiadomień",
     "removed": "Zapisany adres URL i token zostały usunięte.",
     "errors": {
       "url": "Wpisz prawidłowy adres URL powiadomień.",
@@ -2468,7 +2470,6 @@
     "url": "Adres URL punktu docelowego",
     "token": "Opcjonalny token uwierzytelniania",
     "secretKept": "Skonfigurowano •••••••• — pozostaw puste, aby zachować",
-    "clearToken": "Usuń zapisany token",
     "sender": "Wysyłaj nadawcę do punktu docelowego",
     "subject": "Wysyłaj temat do punktu docelowego",
     "testHelp": "Zapisz zmiany przed testem. Testy używają zapisanej konfiguracji i współdzielą limit 10 prób na minutę.",

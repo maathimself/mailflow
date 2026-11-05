@@ -2416,7 +2416,9 @@
     "createAppPassword": "Créer un mot de passe d'application"
   },
   "webhooks": {
-    "remove": "Supprimer l’URL et le jeton enregistrés",
+    "useToken": "Utiliser un jeton d’authentification",
+    "removeConfirm": "Supprimer cette configuration ? Les notifications seront arrêtées et l’URL ainsi que le jeton enregistrés seront supprimés.",
+    "remove": "Supprimer la configuration des notifications",
     "removed": "L’URL et le jeton enregistrés ont été supprimés.",
     "errors": {
       "url": "Saisissez une URL de notification valide.",
@@ -2449,7 +2451,6 @@
     "url": "URL du point de notification",
     "token": "Jeton d’authentification facultatif",
     "secretKept": "Configuré •••••••• — laisser vide pour conserver",
-    "clearToken": "Supprimer le jeton enregistré",
     "sender": "Envoyer l’expéditeur au point de notification",
     "subject": "Envoyer l’objet au point de notification",
     "testHelp": "Enregistrez avant de tester. Les tests utilisent la configuration enregistrée et partagent la limite de 10 tentatives par minute.",

@@ -103,9 +103,19 @@ describe('webhook settings', () => {
   });
   test('clears a saved token only after explicit selection and save', async () => {
     await mount();
-    await click(checkbox('webhooks.clearToken'));
+    await click(checkbox('webhooks.useToken'));
+    assert.equal(host.querySelectorAll('input[type=password]').length, 1);
+    assert.ok(!calls.some(c => c.method === 'PUT'));
     await click(button('common.save'));
     assert.equal(calls.find(c => c.method === 'PUT').body.token, '');
+  });
+  test('undoing token removal retains the saved token on save', async () => {
+    await mount();
+    await click(checkbox('webhooks.useToken'));
+    await click(checkbox('webhooks.useToken'));
+    assert.equal(host.querySelectorAll('input[type=password]')[1].disabled, false);
+    await click(button('common.save'));
+    assert.ok(!Object.hasOwn(calls.find(c => c.method === 'PUT').body, 'token'));
   });
   test('does not send hidden pending token changes after switching to generic', async () => {
     await mount();
@@ -184,13 +194,18 @@ describe('webhook settings', () => {
     config.enabled = false;
     await mount();
     await click(button('webhooks.remove'));
+    assert.ok(!calls.some(c => c.method === 'DELETE'));
+    await click(button('common.cancel'));
+    assert.ok(!calls.some(c => c.method === 'DELETE'));
+    await click(button('webhooks.remove'));
+    await click(button('common.delete'));
     assert.equal(calls.filter(c => c.method === 'DELETE').length, 1);
     assert.ok(!button('webhooks.remove'));
     assert.ok(host.textContent.includes('webhooks.removed'));
     await click(checkbox('webhooks.enable'));
     assert.equal(button('common.save').disabled, true);
     assert.equal(button('webhooks.test').disabled, true);
-    assert.ok(!checkbox('webhooks.clearToken'));
+    assert.equal(checkbox('webhooks.useToken').getAttribute('aria-checked'), 'false');
   });
   test('keeps the saved configuration visible when removal fails', async () => {
     await mount();
@@ -198,7 +213,8 @@ describe('webhook settings', () => {
     try {
       globalThis.fetch = async () => json({ error: 'Request failed' }, 500);
       await click(button('webhooks.remove'));
-      assert.ok(button('webhooks.remove'));
+      await click(button('common.delete'));
+      assert.ok(button('common.delete'));
       assert.ok(host.querySelector('[role="alert"]'));
     } finally { globalThis.fetch = originalFetch; }
   });

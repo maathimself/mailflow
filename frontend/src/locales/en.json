@@ -2416,7 +2416,9 @@
     "createAppPassword": "Create an app password"
   },
   "webhooks": {
-    "remove": "Remove saved URL and token",
+    "useToken": "Use authentication token",
+    "removeConfirm": "Delete this notification configuration? Notifications will stop, and the saved URL and token will be removed.",
+    "remove": "Delete notification configuration",
     "removed": "Saved URL and token removed.",
     "errors": {
       "url": "Enter a valid notification URL.",
@@ -2449,7 +2451,6 @@
     "url": "Endpoint URL",
     "token": "Optional authentication token",
     "secretKept": "Configured •••••••• — leave blank to keep",
-    "clearToken": "Remove the stored token",
     "sender": "Send the sender to the endpoint",
     "subject": "Send the subject to the endpoint",
     "testHelp": "Save changes before testing. Test sends use the saved configuration and share the limit of 10 attempts per minute.",

@@ -2416,7 +2416,9 @@
     "createAppPassword": "Crear una contraseña de aplicación"
   },
   "webhooks": {
-    "remove": "Eliminar la URL y el token guardados",
+    "useToken": "Usar token de autenticación",
+    "removeConfirm": "¿Eliminar esta configuración? Se desactivarán las notificaciones y se eliminarán la URL y el token guardados.",
+    "remove": "Eliminar la configuración de notificaciones",
     "removed": "Se han eliminado la URL y el token guardados.",
     "errors": {
       "url": "Introduce una URL de notificación válida.",
@@ -2449,7 +2451,6 @@
     "url": "URL del destino",
     "token": "Token de autenticación opcional",
     "secretKept": "Configurado •••••••• — deja vacío para conservar",
-    "clearToken": "Eliminar el token guardado",
     "sender": "Enviar el remitente al destino",
     "subject": "Enviar el asunto al destino",
     "testHelp": "Guarda los cambios antes de probar. Las pruebas usan la configuración guardada y comparten el límite de 10 intentos por minuto.",
