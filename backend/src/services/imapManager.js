@@ -8209,7 +8209,10 @@ export class ImapManager {
           usedFreshSyncClient = true;
           await this._syncInboxWithFreshLogin(account);
         } else {
-          await this.syncMessages(account, client, 'INBOX', 20, false, true);
+          // The interval tick's wall-clock bound: imapflow has no per-command timeout and waits
+          // up to 5 minutes on a half-open socket, holding the account's sync lock (no interval
+          // sync either) for all of it. On the timeout the catch below closes the client.
+          await raceTimeout(this.syncMessages(account, client, 'INBOX', 20, false, true), 55000, 'Manual sync');
         }
         console.log(`syncNow complete: ${logAccount(account)}`);
       } catch (err) {

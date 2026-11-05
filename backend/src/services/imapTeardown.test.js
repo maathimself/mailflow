@@ -136,6 +136,26 @@ describe('a hung LOGOUT in syncNow', () => {
   });
 });
 
+describe('a manual sync on a connection that stops answering', () => {
+  it('gives up after the interval sync\'s bound and frees the account', async () => {
+    const mgr = manager();
+    const client = { close: vi.fn(), logout: vi.fn(() => new Promise(() => {})) };
+    mgr.connections.set(acct.id, client);
+    mgr.syncMessages = vi.fn(() => new Promise(() => {})); // a half-open socket: no answer, no error
+
+    let done = false;
+    const run = mgr.syncNow(acct.user_id, acct.id).then(() => { done = true; });
+    await vi.advanceTimersByTimeAsync(54000);
+    expect(done).toBe(false);
+    expect(mgr.syncingAccounts.has(acct.id)).toBe(true);
+    await vi.advanceTimersByTimeAsync(2000);
+    await run;
+    expect(mgr.syncingAccounts.has(acct.id)).toBe(false);
+    expect(client.close).toHaveBeenCalled();
+    expect(mgr.connections.has(acct.id)).toBe(false);
+  });
+});
+
 describe('an account disconnected while it is still connecting', () => {
   // Disabling or deleting an account disconnects it, but a connect already under way (a slow
   // login, the initial sync) used to carry on and leave an IDLE connection and a sync timer.
