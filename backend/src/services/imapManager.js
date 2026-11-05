@@ -2892,6 +2892,8 @@ export class ImapManager {
     this._expungeDebounceTimers = new Map(); // accountId -> debounce timer for expunge reconciles
     this._pendingFlagSync = new Set(); // accountId — flag sync was skipped because a full sync was running; drain after sync
     this._pendingNewMail = new Set(); // accountId — new mail (EXISTS) arrived while a sync was running; sync again after it
+    // accountId -> how many times it was disconnected; a connect in flight stops when it changes.
+    this._disconnectGeneration = new Map();
     // `${accountId}\n${folder}` -> how many mark-all-reads of it are still writing to the server.
     this._markingAllRead = new Map();
     // Pauses before each retry of a mark-all-read whose \Seen write failed (tests shorten them).
@@ -3430,6 +3432,11 @@ export class ImapManager {
     // Previously this only ran when a connection existed, which left orphaned
     // intervals running whenever the connection died between reconnect attempts.
     await this.disconnectAccount(account.id);
+    // A disconnect from here on (the account disabled or deleted while this connects, which can
+    // take a minute) bumps the generation, and this connect then stops instead of setting up an
+    // IDLE connection and a sync timer for an account nobody wants synced.
+    const generation = this._disconnectGeneration.get(account.id) || 0;
+    const superseded = () => (this._disconnectGeneration.get(account.id) || 0) !== generation;
 
     // Per-host persistent-connection budget (#379 Phase 2). When an operator has set a finite cap
     // for this (connection-limited) host and this account is beyond it, run poll-only instead of
@@ -3440,6 +3447,7 @@ export class ImapManager {
     if (Number.isFinite(persistentCap)) {
       const eligible = await this._isPersistentEligible(account, persistentCap).catch(() => true);
       if (!eligible) {
+        if (superseded()) { this.connectingAccounts.delete(account.id); return false; }
         try { this._startPollOnly(account); }
         finally { this.connectingAccounts.delete(account.id); }
         return true;
@@ -3463,6 +3471,11 @@ export class ImapManager {
       client = await connectImapClient(account, resolved,
         { enableIdle: providerProfile(account).usesIdle !== false, policy, idleKeepaliveMs: providerProfile(account).idleKeepaliveMs },
         30000, 'IMAP connect');
+      if (superseded()) {
+        try { client.close(); } catch { /* already closed */ }
+        console.log(`Connect of ${logAccount(account)} abandoned: disconnected meanwhile`);
+        return false;
+      }
 
       // Remove from active connections the moment the server closes the socket.
       // Without this, a cleanly-closed connection lingers in this.connections and
@@ -3511,6 +3524,14 @@ export class ImapManager {
         this._connectCooldown.delete(account.id);
       } catch (syncErr) {
         console.warn(`Initial sync skipped for ${logAccount(account)}: ${extractImapError(syncErr)}`);
+      }
+
+      // Disconnected during the initial sync: no backfill, pool or sync timer for it.
+      if (superseded()) {
+        if (this.connections.get(account.id) === client) this.connections.delete(account.id);
+        try { client.close(); } catch { /* already closed */ }
+        console.log(`Connect of ${logAccount(account)} abandoned: disconnected meanwhile`);
+        return false;
       }
 
       // Pre-warm one pool connection immediately so the first email click doesn't
@@ -3576,6 +3597,7 @@ export class ImapManager {
   }
 
   async disconnectAccount(accountId) {
+    this._disconnectGeneration.set(accountId, (this._disconnectGeneration.get(accountId) || 0) + 1);
     const timer = this.syncIntervals.get(accountId);
     // clearTimeout works for both setTimeout and setInterval Timeout objects in Node.js
     if (timer) { clearTimeout(timer); this.syncIntervals.delete(accountId); }

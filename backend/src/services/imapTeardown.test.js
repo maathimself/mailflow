@@ -135,3 +135,66 @@ describe('a hung LOGOUT in syncNow', () => {
     expect(client.logout).not.toHaveBeenCalled();
   });
 });
+
+describe('an account disconnected while it is still connecting', () => {
+  // Disabling or deleting an account disconnects it, but a connect already under way (a slow
+  // login, the initial sync) used to carry on and leave an IDLE connection and a sync timer.
+  it('stops after the login instead of keeping the connection', async () => {
+    const mgr = manager();
+    mgr._shouldAutoBackfillOnConnect = vi.fn().mockResolvedValue(false);
+    let finishLogin;
+    ImapFlow.mockImplementation(function () {
+      const c = new EventEmitter();
+      c.connect = vi.fn(() => new Promise(resolve => { finishLogin = resolve; }));
+      c.logout = vi.fn(async () => {}); c.close = vi.fn(); c.usable = true;
+      lastClient = c;
+      return c;
+    });
+    const connecting = mgr.connectAccount(acct);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(finishLogin).toBeTypeOf('function');
+    await mgr.disconnectAccount(acct.id);
+    finishLogin();
+    expect(await connecting).toBe(false);
+    expect(mgr.connections.has(acct.id)).toBe(false);
+    expect(mgr.syncIntervals.has(acct.id)).toBe(false);
+    expect(lastClient.close).toHaveBeenCalled();
+    expect(mgr.connectingAccounts.has(acct.id)).toBe(false);
+  });
+
+  it('stops after the initial sync, without a sync timer', async () => {
+    const mgr = manager();
+    mgr._shouldAutoBackfillOnConnect = vi.fn().mockResolvedValue(false);
+    ImapFlow.mockImplementation(function () {
+      const c = new EventEmitter();
+      c.connect = vi.fn(async () => {}); c.logout = vi.fn(async () => {}); c.close = vi.fn(); c.usable = true;
+      lastClient = c;
+      return c;
+    });
+    let finishSync;
+    mgr.syncFolders = vi.fn(() => new Promise(resolve => { finishSync = resolve; }));
+    const connecting = mgr.connectAccount(acct);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(finishSync).toBeTypeOf('function');
+    await mgr.disconnectAccount(acct.id);
+    finishSync({});
+    expect(await connecting).toBe(false);
+    expect(mgr.connections.has(acct.id)).toBe(false);
+    expect(mgr.syncIntervals.has(acct.id)).toBe(false);
+    expect(lastClient.close).toHaveBeenCalled();
+  });
+
+  it('still connects when nothing disconnected it', async () => {
+    const mgr = manager();
+    mgr._shouldAutoBackfillOnConnect = vi.fn().mockResolvedValue(false);
+    ImapFlow.mockImplementation(function () {
+      const c = new EventEmitter();
+      c.connect = vi.fn(async () => {}); c.logout = vi.fn(async () => {}); c.close = vi.fn(); c.usable = true;
+      return c;
+    });
+    expect(await mgr.connectAccount(acct)).toBe(true);
+    expect(mgr.connections.has(acct.id)).toBe(true);
+    expect(mgr.syncIntervals.has(acct.id)).toBe(true);
+    await mgr.disconnectAccount(acct.id);
+  });
+});
