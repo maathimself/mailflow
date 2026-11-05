@@ -2415,5 +2415,20 @@
     "formNote": "Gmail 和 Google Workspace 邮箱可以使用 Google 登录，而不必使用应用专用密码。",
     "appPasswordNote": "Gmail 需要应用专用密码，而不是你的常用密码。请为 Google 帐号开启两步验证，然后创建应用专用密码并填入密码栏。",
     "createAppPassword": "创建应用专用密码"
+  },
+  "tags": {
+    "title": "标签",
+    "header": {
+      "hide": "隐藏标签",
+      "none": "尚未定义标签。请在设置中创建。"
+    },
+    "settings": {
+      "note": "标签仅保存在 MailFlow 中，不会写入您的邮件服务器。",
+      "name": "名称",
+      "color": "颜色",
+      "confirmDelete": "删除标签“{{name}}”并将其从所有邮件中移除？",
+      "add": "添加标签",
+      "create": "创建"
+    }
   }
 }

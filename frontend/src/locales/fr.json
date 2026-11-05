@@ -2415,5 +2415,20 @@
     "formNote": "Les boîtes Gmail et Google Workspace peuvent se connecter avec Google au lieu d'un mot de passe d'application.",
     "appPasswordNote": "Gmail demande un mot de passe d'application, pas votre mot de passe habituel. Activez la validation en deux étapes de votre compte Google, puis créez un mot de passe d'application et saisissez-le dans le champ du mot de passe.",
     "createAppPassword": "Créer un mot de passe d'application"
+  },
+  "tags": {
+    "title": "Tags",
+    "header": {
+      "hide": "Masquer les tags",
+      "none": "Aucun tag défini. Créez-en dans les réglages."
+    },
+    "settings": {
+      "note": "Les tags sont stockés dans MailFlow uniquement ; rien n'est écrit sur vos serveurs de messagerie.",
+      "name": "Nom",
+      "color": "Couleur",
+      "confirmDelete": "Supprimer le tag « {{name}} » et le retirer de tous les messages ?",
+      "add": "Ajouter un tag",
+      "create": "Créer"
+    }
   }
 }
