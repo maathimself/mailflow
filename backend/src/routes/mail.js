@@ -1213,9 +1213,32 @@ router.post('/mark-all-read', async (req, res) => {
   if (!isValidFolderName(folder)) return res.status(400).json({ error: 'Invalid folder name' });
   const account = await findOwnedAccount(req.session.userId, accountId);
   if (!account) return res.status(404).json({ error: 'Account not found' });
-  await query('UPDATE messages SET is_read = true, read_changed_at = NOW() WHERE account_id = $1 AND folder = $2', [accountId, folder]);
+  // Every row is stamped, read ones too, so a flag pull racing the IMAP write can't take them
+  // back; was_read (the row before the update) picks out the ones this actually changed.
+  const marked = await query(`
+    UPDATE messages m SET is_read = true, read_changed_at = NOW()
+      FROM (SELECT id, is_read AS was_read FROM messages WHERE account_id = $1 AND folder = $2) o
+     WHERE m.id = o.id
+     RETURNING m.id, m.uid, m.message_id, o.was_read`, [accountId, folder]);
   await query('UPDATE folders SET unread_count = 0 WHERE account_id = $1 AND path = $2', [accountId, folder])
     .catch(err => console.error('Folder count update failed:', err.message));
+  // As bulk-read does: the same message's copies in label folders (GTD) are read too, and on a
+  // server that keeps them as separate messages their \Seen is written as well.
+  const changed = (marked?.rows || []).filter(r => !r.was_read);
+  if (changed.length && await accountMaintainsLabelSiblings(accountId)) {
+    const siblings = await fanOutBulkReadToSiblings(changed.map(r => r.id), true) || [];
+    if (siblings.length && !imapManager.isLabelStore(account)) {
+      (async () => {
+        const acted = changed.map(r => ({ ...r, account_id: accountId, folder }));
+        const flipped = new Set(siblings.map(r => r.id));
+        const targets = [];
+        for (const mid of new Set(siblings.map(r => r.message_id).filter(Boolean))) {
+          targets.push(...await readCopyTargets(accountId, mid, acted));
+        }
+        await pushSeen(imapManager, account, accountId, targets.filter(r => flipped.has(r.id)), true);
+      })().catch(err => console.warn('Mark-all-read copy push failed:', err.message));
+    }
+  }
   // Also update IMAP so the change survives the next sync (non-fatal if it fails). Not awaited: a
   // large folder is written in chunks. The count refresh waits for it, though, because it asks
   // the server for UNSEEN, and one started beside the write found the folder still unread.

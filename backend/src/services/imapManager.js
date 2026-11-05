@@ -2892,10 +2892,12 @@ export class ImapManager {
     this._expungeDebounceTimers = new Map(); // accountId -> debounce timer for expunge reconciles
     this._pendingFlagSync = new Set(); // accountId — flag sync was skipped because a full sync was running; drain after sync
     this._pendingNewMail = new Set(); // accountId — new mail (EXISTS) arrived while a sync was running; sync again after it
-    // accountId -> Map<`${messageId}:${flag}`, { messageId, flag, attempts }>: local read/star
-    // changes whose IMAP push failed and must be retried until the server confirms them.
     // `${accountId}\n${folder}` -> how many mark-all-reads of it are still writing to the server.
     this._markingAllRead = new Map();
+    // Pauses before each retry of a mark-all-read whose \Seen write failed (tests shorten them).
+    this._markAllReadRetryMs = [5000, 30000];
+    // accountId -> Map<`${messageId}:${flag}`, { messageId, flag, attempts }>: local read/star
+    // changes whose IMAP push failed and must be retried until the server confirms them.
     this._pendingFlagPush = new Map();
     // Tracks UIDs that are actively being moved by inboxRules so reconcileDeletes
     // does not delete the DB row if an EXPUNGE arrives before the DB update completes,
@@ -7715,24 +7717,33 @@ export class ImapManager {
 
   async markAllReadImap(account, folder) {
     // While this runs, the integrity pass leaves the folder's read state alone (see its repair).
+    // That includes the retries: a write given up on leaves the server unread, and the repair
+    // then takes the folder back to unread, which is the server's state.
     const marking = `${account.id}\n${folder}`;
     this._markingAllRead.set(marking, (this._markingAllRead.get(marking) || 0) + 1);
     try {
-      return await withFreshClient(account, async (client) => {
-        const lock = await client.getMailboxLock(folder);
+      for (let attempt = 0; ; attempt++) {
         try {
-          if (!client.mailbox || client.mailbox.exists === 0) return;
-          // Chunked so a single STORE +FLAGS \Seen over a large folder can't get throttled
-          // into a whole-operation failure (which would leave the DB read but the server
-          // unread, and the next flag-sync would flip those rows back to unread).
-          await this._markSeenInFolder(client, folder);
+          return await withFreshClient(account, async (client) => {
+            const lock = await client.getMailboxLock(folder);
+            try {
+              if (!client.mailbox || client.mailbox.exists === 0) return;
+              // Chunked so a single STORE +FLAGS \Seen over a large folder can't get throttled
+              // into a whole-operation failure.
+              await this._markSeenInFolder(client, folder);
+            } finally {
+              lock.release();
+            }
+          });
         } catch (err) {
-          console.warn(`markAllRead IMAP warning for ${folder}:`, err.message);
-          // Non-fatal — DB is already updated; the next sync reconciles any residual unread.
-        } finally {
-          lock.release();
+          const wait = this._markAllReadRetryMs[attempt];
+          // A dropped connection or a throttled STORE used to be the end of it: the DB said read,
+          // the server unread, and the next pass put the folder back to unread.
+          if (wait === undefined) throw err;
+          console.warn(`markAllRead IMAP warning for ${folder}, retrying:`, err.message);
+          await new Promise(resolve => setTimeout(resolve, wait));
         }
-      });
+      }
     } finally {
       const left = (this._markingAllRead.get(marking) || 1) - 1;
       if (left > 0) this._markingAllRead.set(marking, left); else this._markingAllRead.delete(marking);
