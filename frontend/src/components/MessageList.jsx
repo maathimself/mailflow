@@ -1115,7 +1115,7 @@ function MailboxList() {
           body: ids.length > 1 ? t('messageList.bulkDeleted.failBody', { count: ids.length }) : t('messageList.deleted.failBody'),
         });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     pendingDeleteTimers.current.set(key, { timer, message: visibleMessage, ids });
     addNotification({
       title: ids.length > 1 ? t('messageList.bulkDeleted.title', { count: ids.length }) : t('messageList.deleted.title'),
@@ -1213,7 +1213,7 @@ function MailboxList() {
       // concurrent IMAP IDLE update, can desync the local counters.
       api.getUnreadCounts().then(c => useStore.getState().setUnreadCounts(c)).catch(() => {});
       api.getFolders(accountId).then(f => useStore.getState().setFolders(accountId, f)).catch(() => {});
-    }, 4500));
+    }, UNDO_COMMIT_DELAY_MS));
 
     addNotification({
       title: label === 'spam'
@@ -1585,12 +1585,15 @@ function MailboxList() {
       if (useStore.getState().searchQuery.trim()) {
         setSearchReloadToken(token => token + 1);
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     pendingDeleteTimers.current.set(key, { timer, message: msgs[0], ids: deleteIds });
     addNotification({
       title: t('messageList.bulkDeleted.title', { count: deleteIds.length }),
       body: t('messageList.bulkDeleted.body'),
       onUndo: () => {
+        // Already sent (the page went away and came back from the back-forward cache, or the
+        // screen locked): nothing to undo.
+        if (!pendingDeleteTimers.current.has(key)) return;
         undone = true;
         clearTimeout(timer);
         pendingDeleteTimers.current.delete(key);
@@ -1643,7 +1646,7 @@ function MailboxList() {
         useStore.getState().restoreMessages(msgs);
         addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: moveIds.length }) });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     addNotification({
       title: t('messageList.bulkMoved.title', { count: moveIds.length }),
       body: folder,
@@ -2401,7 +2404,7 @@ function MailboxList() {
             if (!moved.is_read) incrementUnread(moved.account_id);
             addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
           }
-        }, 4500);
+        }, UNDO_COMMIT_DELAY_MS);
         addNotification({
           title: t('message.moved.title'),
           body: folder,

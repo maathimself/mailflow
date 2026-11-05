@@ -66,7 +66,7 @@ import FolderIcon from './FolderIcon.jsx';
 import TodoistTaskModal from './TodoistTaskModal.jsx';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import ContextMenu from './ContextMenu.jsx';
-import { holdUndoable, releaseUndoable } from '../utils/undoableAction.js';
+import { holdUndoable, releaseUndoable, UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
 
 function linkifyText(text) {
   const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -206,7 +206,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           body: err.message || t(label === 'spam' ? 'spam.failBody' : 'spam.failHamBody'),
         });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     addNotification({
       title: label === 'spam' ? t('spam.movedToSpam') : t('spam.movedToInbox'),
       body: message.subject || t('common.noSubject'),
@@ -868,7 +868,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         if (!moved.is_read) incrementUnread(moved.account_id);
         addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     addNotification({
       title: t('message.moved.title'),
       body: folder,
@@ -987,7 +987,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         if (!deleted.is_read) incrementUnread(deleted.account_id);
         addNotification({ type: 'error', title: t('messageList.deleted.failTitle'), body: t('messageList.deleted.failBody') });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     addNotification({
       title: t('messageList.deleted.title'),
       body: t('messageList.deleted.body'),
@@ -1020,7 +1020,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         console.error('Archive failed:', err);
         addNotification({ title: t('message.archived.failTitle'), body: t('message.archived.failBody') });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     addNotification({
       title: t('message.archived.title'),
       body: archived.subject || t('common.noSubject'),

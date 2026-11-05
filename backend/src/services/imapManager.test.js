@@ -16,7 +16,7 @@ vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }
 
 import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, contentLocationFromMimeHeader, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, pairMovedCopies, computeThreadId, noteDraftsChanged } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
-import { ensureFreshToken, clearChangedSinceIgnored } from './imapManager.js';
+import { ensureFreshToken, clearChangedSinceIgnored, isServerLimitFailure } from './imapManager.js';
 import { clearCarries, hasCarries, rememberDroppedRows } from './movedRowCarry.js';
 import { clearRefreshFailure, noteFreshToken, noteRefreshFailure, refreshFailureFor } from './accountErrorCode.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
@@ -7299,5 +7299,24 @@ describe('prefetchBodyVerdict', () => {
   it('says never for a one-connection pool (Yahoo), even with that connection free', () => {
     const m = manager();
     expect(m.prefetchBodyVerdict(acct('imap.mail.yahoo.com'))).toBe('never');
+  });
+});
+
+// What ends a backfill run without counting toward writing the message off: the server limiting
+// us or in trouble. A dropped connection or a NO for that message counts.
+describe('isServerLimitFailure', () => {
+  it('knows the providers\' limit and trouble replies', () => {
+    for (const reply of [
+      'NO [LIMIT] UID FETCH Rate limit hit', 'NO [THROTTLED] Account exceeded command or bandwidth limits',
+      'NO [OVERQUOTA] Account exceeded bandwidth limits', 'Too many simultaneous connections',
+      'NO Request is throttled', 'NO [UNAVAILABLE] Temporary System Error', 'NO Temporary failure, try again',
+      'NO [AUTHENTICATIONFAILED] Invalid credentials',
+    ]) expect(isServerLimitFailure(reply), reply).toBe(true);
+  });
+  it('leaves message failures and dropped connections to count', () => {
+    for (const reply of [
+      'Some messages could not be FETCHed (Failure)', 'NO [SERVERBUG] Internal error occurred. Refer to server log for more information.',
+      'Connection not available', 'Connection closed',
+    ]) expect(isServerLimitFailure(reply), reply).toBe(false);
   });
 });

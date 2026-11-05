@@ -268,14 +268,15 @@ export function isConnectionRefusal(detail) {
   return /\[LIMIT\]|connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout/i.test(String(detail || ''));
 }
 
-// A FETCH failure that is the server limiting us, not the message the FETCH named: throttling,
-// a rate or connection limit, a quota, a rejected login. A dropped connection is not one: the
+// A FETCH failure that is the server limiting us or having trouble, not the message the FETCH
+// named: throttling, a rate or connection limit, a quota, a rejected login, a temporary failure
+// ([UNAVAILABLE], RFC 5530). A dropped connection is not one: the
 // backfill logs in again before each retry, so a FETCH of one UID that keeps dropping a fresh,
 // working connection is that message (Dovecot's default for a corrupt one, imap_fetch_failure
 // disconnect-immediately, closes the connection without a tagged NO).
 export function isServerLimitFailure(detail) {
   return isAuthFailure(detail)
-    || /\[LIMIT\]|throttl|rate.?limit|too many|maximum number|number of connections|connection limit|over ?quota|bandwidth|temporarily|try again/i.test(String(detail || ''));
+    || /\[LIMIT\]|\[UNAVAILABLE\]|throttl|rate.?limit|too many|maximum number|number of connections|connection limit|over ?quota|bandwidth|temporar|try again/i.test(String(detail || ''));
 }
 
 // Stamp an account's last successful sync. Shared by both exits of syncMessages so they cannot

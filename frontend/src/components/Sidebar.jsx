@@ -27,7 +27,7 @@ import { SNOOZED_FOLDER } from '../utils/snoozeActions.js';
 import { SCHEDULED_VIEW } from '../utils/scheduledCompose.js';
 import { SendLaterIcon } from './SendLater.jsx';
 import { describeAccountError, needsSignIn } from '../utils/accountErrors.js';
-import { holdUndoable, releaseUndoable } from '../utils/undoableAction.js';
+import { holdUndoable, releaseUndoable, UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
 
 const ICONS = {
   snoozed: (
@@ -410,7 +410,7 @@ export default function Sidebar() {
         msgs.forEach(m => { if (!m.is_read) s.incrementUnread(m.account_id); });
         s.addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: movedIds.length }) });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     state.addNotification({
       title: t('messageList.bulkMoved.title', { count: msgs.length }),
       body: targetFolder,

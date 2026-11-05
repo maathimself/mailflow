@@ -4,7 +4,7 @@ import { normalizeConversation, newestConversationMessage } from './conversation
 import { conversationActionIds, conversationSpamTargets, newestSnoozeTarget, keepDraftsApart } from './conversationActions.js';
 import { setPendingDelete, setCompletedDelete, clearDeleteGuard, clearPendingDelete } from './pendingDeletes.js';
 import { archiveTargetsForFolder } from './threadedArchive.js';
-import { holdUndoable, releaseUndoable } from './undoableAction.js';
+import { holdUndoable, releaseUndoable, UNDO_COMMIT_DELAY_MS } from './undoableAction.js';
 
 // Which messages a thread-wide action should actually operate on.
 //
@@ -76,7 +76,6 @@ export async function resolveThreadMessages({ message, isThreadRow, cached, fetc
 // only when one did. beforeRemove runs once there is something to take, before anything leaves the
 // list: that is when the pane opens what takes the conversation's place.
 
-const UNDO_WINDOW_MS = 4500;
 
 export function runThreadAction({ messages, commit, resolve, notification, addNotification, beforeRemove, onRemove, onRestore }) {
   const targets = normalizeConversation(messages);
@@ -116,7 +115,7 @@ export function runThreadAction({ messages, commit, resolve, notification, addNo
         body: err.message || notification.failBody,
       });
     }
-  }, UNDO_WINDOW_MS);
+  }, UNDO_COMMIT_DELAY_MS);
 
   addNotification({
     title: notification.title,

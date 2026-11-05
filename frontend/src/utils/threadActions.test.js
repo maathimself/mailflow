@@ -63,7 +63,8 @@ const addNotification = n => notifications.push(n);
 
 const ids = () => useStore.getState().messages.map(m => m.id).sort();
 const tick = (ms = 0) => new Promise(r => setTimeout(r, ms));
-const UNDO_WINDOW = 4500;
+// The request goes out when the undo window has passed, a little after the toast closes.
+const UNDO_WINDOW = 4750;
 
 beforeEach(() => {
   requests = [];
