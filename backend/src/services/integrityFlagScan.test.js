@@ -307,6 +307,15 @@ describe('telling a server that ignores changedSince', () => {
     expect(flagScanLowUid(acct, 30000)).toBe(25001);
   });
 
+  it("is not cleared by a small folder's answer, which a server that ignores changedSince gives in full anyway", () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fresh();
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 29000, exists: 30000 }); // INBOX
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 200, exists: 200 });     // Sent, in full
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 29000, exists: 30000 }); // INBOX again
+    expect(flagScanLowUid(acct, 30000)).toBe(25001);
+  });
+
   it('takes one such answer for a real mass change, cleared by an ordinary one after it', () => {
     fresh();
     noteChangedSinceScan(acct, { lowUid: 1, returned: 29000, exists: 30000 }); // all marked read elsewhere
@@ -400,7 +409,7 @@ describe('repairing read state from the server', () => {
     const { run, mgr, searches } = healing({
       rows: [{ uid: 1, is_read: true }, { uid: 2, is_read: true }], unseen: 2, unseenOnServer: [1, 2],
     });
-    mgr._markingAllRead = new Set([`${acct.id}\nINBOX`]);
+    mgr._markingAllRead = new Map([[`${acct.id}\nINBOX`, 1]]);
     await run();
     expect(searches.some(c => c.seen === false)).toBe(false);
     expect(heal()).toBeUndefined();

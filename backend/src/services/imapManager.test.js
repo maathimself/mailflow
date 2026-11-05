@@ -3918,6 +3918,36 @@ describe('Gmail label memberships (#418)', () => {
   });
   // Throttling or a dropped connection says nothing about the message a FETCH named: it must not
   // count toward writing that message off, and a run that cannot get through ends instead.
+  // Dovecot's default for a corrupt message (imap_fetch_failure disconnect-immediately) drops the
+  // connection instead of answering NO. Every retry logs in again first, so a FETCH of one UID that
+  // keeps dropping a working connection is that message: it counts toward the write-off.
+  it('writes off a message whose FETCH drops the connection every time, and backfills the rest', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    serverUids = Array.from({ length: 30 }, (_, k) => k + 1);
+    ImapFlow.mockImplementation(function () {
+      const client = clientFor('INBOX');
+      const fetchAll = client.fetch;
+      client.fetch = vi.fn(function (range, ...rest) {
+        if (!range.includes(':') && range.split(',').map(Number).includes(17)) {
+          return (async function* () {
+            if (range) throw new Error('Connection not available');
+            yield null;
+          })();
+        }
+        return fetchAll(range, ...rest);
+      });
+      return client;
+    });
+    const pending = ImapManager.prototype.backfillMessages.call(manager(), acct, 'INBOX');
+    await vi.runAllTimersAsync();
+    await pending;
+    const written = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO unfetchable_uids'));
+    expect(written.some(([, params]) => params[2].map(Number).includes(17))).toBe(true);
+    expect(rows.filter(r => r.folder === 'INBOX').map(r => r.uid).sort((a, b) => a - b))
+      .toEqual(serverUids.filter(uid => uid !== 17));
+  });
+
   it('writes nothing off when the failures are throttling, and ends the run', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});

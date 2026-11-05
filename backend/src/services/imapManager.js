@@ -268,12 +268,14 @@ export function isConnectionRefusal(detail) {
   return /\[LIMIT\]|connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout/i.test(String(detail || ''));
 }
 
-// A FETCH failure that says nothing about the message it named: the connection or session went
-// (dropped, timed out, closed under us), or the server is limiting us. Only other failures, a
-// NO the server gives for that message, count toward writing a UID off as unfetchable.
-export function isTransientFetchError(detail) {
-  return isConnectionRefusal(detail) || isAuthFailure(detail)
-    || /timed? ?out|timeout|socket|connection|closed|reset|ECONN|EPIPE|ETIMEDOUT|EHOSTUNREACH|ENOTFOUND|unavailable|bandwidth|overquota|\[ALERT\]|BYE/i.test(String(detail || ''));
+// A FETCH failure that is the server limiting us, not the message the FETCH named: throttling,
+// a rate or connection limit, a quota, a rejected login. A dropped connection is not one: the
+// backfill logs in again before each retry, so a FETCH of one UID that keeps dropping a fresh,
+// working connection is that message (Dovecot's default for a corrupt one, imap_fetch_failure
+// disconnect-immediately, closes the connection without a tagged NO).
+export function isServerLimitFailure(detail) {
+  return isAuthFailure(detail)
+    || /\[LIMIT\]|throttl|rate.?limit|too many|maximum number|number of connections|connection limit|over ?quota|bandwidth|temporarily|try again/i.test(String(detail || ''));
 }
 
 // Stamp an account's last successful sync. Shared by both exits of syncMessages so they cannot
@@ -465,7 +467,7 @@ const FLAG_SCAN_TIMED_OUT = Symbol('flagScanTimedOut');
 // doing the same is windowed too, until the process restarts: a full-range scan that answers with
 // nearly every message of a large mailbox, or runs past its budget, is a strike, and two in a row
 // make the call. One alone may be a real mass change (mark all read elsewhere) or throttling, and
-// an ordinary answer in between clears it.
+// an ordinary answer from a large folder in between clears it.
 const DELTA_SCAN_UID_WINDOW = 5000;
 const changedSinceIgnoredAccounts = new Set();
 const changedSinceStrikes = new Map();
@@ -483,7 +485,9 @@ export function noteChangedSinceScan(account, { lowUid, returned = 0, exists = 0
   if (lowUid !== 1 || changedSinceIgnoredAccounts.has(account.id)) return;
   const answeredEverything = returned > DELTA_SCAN_UID_WINDOW && returned >= exists * 0.9;
   if (!answeredEverything && !(timedOut && exists > DELTA_SCAN_UID_WINDOW)) {
-    if (!timedOut) changedSinceStrikes.delete(account.id);
+    // Only a large folder's ordinary answer clears a strike: a small folder's says nothing,
+    // since a server that ignores changedSince answers it in full within the window anyway.
+    if (!timedOut && exists > DELTA_SCAN_UID_WINDOW) changedSinceStrikes.delete(account.id);
     return;
   }
   const strikes = (changedSinceStrikes.get(account.id) || 0) + 1;
@@ -2889,8 +2893,8 @@ export class ImapManager {
     this._pendingNewMail = new Set(); // accountId — new mail (EXISTS) arrived while a sync was running; sync again after it
     // accountId -> Map<`${messageId}:${flag}`, { messageId, flag, attempts }>: local read/star
     // changes whose IMAP push failed and must be retried until the server confirms them.
-    // `${accountId}\n${folder}` of each mark-all-read still writing to the server.
-    this._markingAllRead = new Set();
+    // `${accountId}\n${folder}` -> how many mark-all-reads of it are still writing to the server.
+    this._markingAllRead = new Map();
     this._pendingFlagPush = new Map();
     // Tracks UIDs that are actively being moved by inboxRules so reconcileDeletes
     // does not delete the DB row if an EXPUNGE arrives before the DB update completes,
@@ -5933,10 +5937,10 @@ export class ImapManager {
           if (bfClient) { try { bfClient.close(); } catch { /* already disconnected */ } bfClient = null; }
           batchesOnConn = cfg.batchesPerConn; // force reconnect
 
-          if (consecutiveErrors >= 3 && cfg.batchSize === 1 && isTransientFetchError(detail)) {
-            // Down to one message and still failing, but in a way that says nothing about it
-            // (throttled, connection dropped): not a reason to write it off. The run ends and the
-            // folder check finds the gap again later.
+          if (consecutiveErrors >= 3 && cfg.batchSize === 1 && isServerLimitFailure(detail)) {
+            // Down to one message and still failing, but because the server is limiting us
+            // (throttled, a quota, a refused login): not a reason to write it off. The run ends
+            // and the folder check finds the gap again later.
             throw new Error(`backfill stopped: ${detail}`, { cause: err });
           } else if (consecutiveErrors >= 3 && cfg.batchSize === 1) {
             // One message the server will not hand over: a FETCH that names it fails as a whole
@@ -7711,7 +7715,7 @@ export class ImapManager {
   async markAllReadImap(account, folder) {
     // While this runs, the integrity pass leaves the folder's read state alone (see its repair).
     const marking = `${account.id}\n${folder}`;
-    this._markingAllRead.add(marking);
+    this._markingAllRead.set(marking, (this._markingAllRead.get(marking) || 0) + 1);
     try {
       return await withFreshClient(account, async (client) => {
         const lock = await client.getMailboxLock(folder);
@@ -7729,7 +7733,8 @@ export class ImapManager {
         }
       });
     } finally {
-      this._markingAllRead.delete(marking);
+      const left = (this._markingAllRead.get(marking) || 1) - 1;
+      if (left > 0) this._markingAllRead.set(marking, left); else this._markingAllRead.delete(marking);
     }
   }
 
