@@ -307,7 +307,7 @@ export default function Sidebar() {
     accountsReady,
     sidebarWidth,
     isSidebarResizing,
-    showContacts, setShowContacts, showCalendar, setShowCalendar,
+    showContacts, setShowContacts, showCalendar, setShowCalendar, setCalendarRailSlot,
   } = useStore();
 
   const isMobile = useMobile();
@@ -951,8 +951,12 @@ export default function Sidebar() {
         </button>
       </div>
 
+      {showCalendar && !isMobile && (
+        <div ref={setCalendarRailSlot} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }} />
+      )}
+
       {/* Compose button */}
-      <div style={{ padding: '12px 10px' }}>
+      <div style={{ padding: '12px 10px', display: showCalendar && !isMobile ? 'none' : undefined }}>
         <button
           onClick={() => openCompose({})}
           className="btn-press"
@@ -973,7 +977,7 @@ export default function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav data-mailbox-sidebar="" style={{ flex: 1, overflow: 'hidden auto', padding: '4px 8px' }}>
+      <nav data-mailbox-sidebar="" style={{ flex: 1, overflow: 'hidden auto', padding: '4px 8px', display: showCalendar && !isMobile ? 'none' : undefined }}>
         {/* Unified Inbox — only shown with 2+ enabled accounts */}
         {accounts.filter(a => a.enabled).length >= 2 && (
           <NavItem

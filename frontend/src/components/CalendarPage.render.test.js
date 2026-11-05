@@ -134,6 +134,27 @@ afterEach(async () => {
   document.body.innerHTML = '<div id="root"></div>';
 });
 
+describe('inside the sidebar', () => {
+  test('draws the rail and the new-event button in the slot, then shrinks with the sidebar', async () => {
+    const slot = document.createElement('div');
+    document.body.appendChild(slot);
+    useStore.setState({ calendarRailSlot: slot, sidebarCollapsed: false });
+    try {
+      await mount();
+      assert.ok(slot.querySelector('button[aria-label="calendar.newEvent"]'), 'new event, where Compose was');
+      assert.ok(slot.textContent.includes('calendar.newEvent'));
+      assert.ok(slot.textContent.includes('calendar.rail.manage'));
+      await React.act(async () => { useStore.setState({ sidebarCollapsed: true }); });
+      assert.ok(slot.querySelector('button[aria-label="calendar.newEvent"]'), 'still reachable when collapsed');
+      assert.ok(!slot.textContent.includes('calendar.newEvent'), 'an icon only');
+      assert.ok(slot.querySelector('button[aria-label="calendar.rail.manage"]'));
+    } finally {
+      useStore.setState({ calendarRailSlot: null, sidebarCollapsed: false });
+      slot.remove();
+    }
+  });
+});
+
 describe('without an account', () => {
   test('explains the connection and opens the add form', async () => {
     answers.accounts = [];

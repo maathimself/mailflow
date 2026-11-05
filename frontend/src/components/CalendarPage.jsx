@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.js';
 import { useStore } from '../store/index.js';
@@ -58,6 +59,8 @@ function EmptyState({ onConnect }) {
 function CalendarShell({ active }) {
   const { t } = useTranslation();
   const setShowCalendar = useStore(s => s.setShowCalendar);
+  const railSlot = useStore(s => s.calendarRailSlot);
+  const sidebarCollapsed = useStore(s => s.sidebarCollapsed);
   const isMobile = useMobile();
   const locale = appLocale();
   const firstDay = firstDayOfWeek(locale);
@@ -219,9 +222,9 @@ function CalendarShell({ active }) {
   const onPreview = (occ, times) => setPreview(times ? { id: occ.id, ...times } : null);
 
   const rangeInfo = { first: range.first, endDay: range.endDay };
-  const rail = (compact) => (
+  const rail = (compact, sidebar) => (
     <CalendarRail
-      compact={compact} anchor={anchor} today={today} firstDay={firstDay} locale={locale} range={rangeInfo} calendars={calendars}
+      compact={compact} sidebar={sidebar} collapsed={sidebar && sidebarCollapsed} anchor={anchor} today={today} firstDay={firstDay} locale={locale} range={rangeInfo} calendars={calendars}
       onPick={pickDay} onToggle={toggleCalendar} onColor={colorCalendar} onNew={createNew}
       onAddAccount={() => { setRailOpen(false); setAccountsOpen(true); }} onManage={() => { setRailOpen(false); setAccountsOpen(true); }}
     />
@@ -289,7 +292,13 @@ function CalendarShell({ active }) {
 
   return (
     <div style={{ display: 'flex', flex: 1, minWidth: 0, height: '100%', overflow: 'hidden', background: 'var(--bg-primary)', position: 'relative' }}>
-      {!isMobile && (
+      {!isMobile && active && railSlot && createPortal(
+        <aside aria-label={t('calendar.calendars')} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {rail(false, true)}
+        </aside>,
+        railSlot,
+      )}
+      {!isMobile && !railSlot && (
         <aside aria-label={t('calendar.calendars')} style={{ width: 244, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)', background: 'var(--bg-secondary)', minHeight: 0 }}>
           {rail(false)}
         </aside>

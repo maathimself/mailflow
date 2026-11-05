@@ -99,9 +99,40 @@ function CalendarRow({ cal, onToggle, onColor }) {
 }
 
 export default function CalendarRail({
-  anchor, today, firstDay, locale, range, calendars, onPick, onToggle, onColor, onNew, onAddAccount, onManage, compact,
+  anchor, today, firstDay, locale, range, calendars, onPick, onToggle, onColor, onNew, onAddAccount, onManage, compact, sidebar, collapsed,
 }) {
   const { t } = useTranslation();
+  // Same place, size and look as the sidebar's Compose button, which this one stands in for.
+  const newButton = sidebar && (
+    <div style={{ padding: '12px 10px', flexShrink: 0 }}>
+      <button type="button" onClick={onNew} className="btn-press" aria-label={t('calendar.newEvent')} title={collapsed ? t('calendar.newEvent') : undefined} style={{
+        width: '100%', padding: collapsed ? '10px' : '10px 14px', background: 'var(--accent)', border: 'none', borderRadius: 8,
+        color: 'var(--accent-text)', fontSize: 13, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center',
+        justifyContent: collapsed ? 'center' : 'flex-start', gap: 8,
+      }}>
+        <Icon name="plus" size={15} />
+        {!collapsed && t('calendar.newEvent')}
+      </button>
+    </div>
+  );
+  if (collapsed) {
+    return (
+      <>
+        {newButton}
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '4px 0' }}>
+          {calendars.map(cal => (
+            <button key={cal.id} type="button" onClick={() => onToggle(cal)} title={cal.name} aria-label={cal.name} aria-pressed={cal.visible} style={{
+              width: 32, height: 32, flexShrink: 0, border: 'none', background: 'none', cursor: 'pointer', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+            }}>
+              <Check checked={cal.visible} color={cal.color} />
+            </button>
+          ))}
+          <span style={{ flex: 1 }} />
+          <IconBtn label={t('calendar.rail.manage')} icon="gear" size={32} iconSize={15} onClick={onManage} />
+        </div>
+      </>
+    );
+  }
   const groups = [];
   for (const cal of calendars) {
     let g = groups.find(x => x.id === cal.accountId);
@@ -109,8 +140,10 @@ export default function CalendarRail({
     g.items.push(cal);
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: compact ? '0 4px 8px' : '14px 12px', minHeight: 0, overflow: 'hidden auto', flex: 1 }}>
-      {!compact && (
+    <>
+    {newButton}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: compact ? '0 4px 8px' : sidebar ? '2px 10px 10px' : '14px 12px', minHeight: 0, overflow: 'hidden auto', flex: 1 }}>
+      {!compact && !sidebar && (
         <Btn kind="primary" onClick={onNew} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 12px', fontSize: 13 }}>
           <Icon name="plus" size={14} /> {t('calendar.newEvent')}
         </Btn>
@@ -133,5 +166,6 @@ export default function CalendarRail({
         </Btn>
       </div>
     </div>
+    </>
   );
 }
