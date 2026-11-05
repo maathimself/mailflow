@@ -660,7 +660,8 @@
     "scheduledAttention": "Precisam de atenção: {{n}}",
     "favorites": "Favoritos",
     "reorderFolder": "Arraste para reordenar a pasta",
-    "draftsTotal": "Rascunhos: {{n}}"
+    "draftsTotal": "Rascunhos: {{n}}",
+    "mail": "E-mails"
   },
   "scheduled": {
     "refresh": "Atualizar",

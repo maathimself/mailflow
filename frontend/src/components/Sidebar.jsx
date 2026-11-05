@@ -1924,6 +1924,22 @@ export default function Sidebar() {
         <>
           <div style={{ padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4, flexDirection: sidebarCollapsed ? 'column' : 'row', justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
             <button
+              onClick={() => { setShowContacts(false); setShowCalendar(false); }}
+              title={t('sidebar.mail')}
+              aria-label={t('sidebar.mail')}
+              aria-pressed={!showContacts && !showCalendar}
+              style={{
+                width: 28, height: 28, borderRadius: 7,
+                border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: !showContacts && !showCalendar ? 'var(--bg-hover)' : 'transparent',
+                color: !showContacts && !showCalendar ? 'var(--accent)' : 'var(--text-tertiary)',
+                transition: 'background 0.1s, color 0.1s',
+              }}
+            >
+              {ICONS.inbox}
+            </button>
+            <button
               onClick={() => { setShowContacts(!showContacts); if (isMobile) setMobileSidebarOpen(false); }}
               title={t('contacts.title')}
               style={{

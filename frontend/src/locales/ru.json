@@ -660,7 +660,8 @@
     "scheduledAttention": "Требуют внимания: {{n}}",
     "favorites": "Избранное",
     "reorderFolder": "Перетащите, чтобы изменить порядок папки",
-    "draftsTotal": "Черновики: {{n}}"
+    "draftsTotal": "Черновики: {{n}}",
+    "mail": "Почта"
   },
   "scheduled": {
     "refresh": "Обновить",

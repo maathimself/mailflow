@@ -660,7 +660,8 @@
     "scheduledAttention": "À vérifier : {{n}}",
     "favorites": "Favoris",
     "reorderFolder": "Faites glisser pour réorganiser le dossier",
-    "draftsTotal": "Brouillons : {{n}}"
+    "draftsTotal": "Brouillons : {{n}}",
+    "mail": "Mails"
   },
   "scheduled": {
     "refresh": "Actualiser",

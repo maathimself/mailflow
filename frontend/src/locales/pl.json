@@ -676,7 +676,8 @@
     "scheduledAttention": "Wymaga uwagi: {{n}}",
     "favorites": "Ulubione",
     "reorderFolder": "Przeciągnij, aby zmienić kolejność folderu",
-    "draftsTotal": "Szkice: {{n}}"
+    "draftsTotal": "Szkice: {{n}}",
+    "mail": "Poczta"
   },
   "scheduled": {
     "refresh": "Odśwież",

@@ -660,7 +660,8 @@
     "scheduledAttention": "확인 필요: {{n}}",
     "favorites": "즐겨찾기",
     "reorderFolder": "끌어서 폴더 순서 변경",
-    "draftsTotal": "임시보관함: {{n}}"
+    "draftsTotal": "임시보관함: {{n}}",
+    "mail": "메일"
   },
   "scheduled": {
     "refresh": "새로 고침",

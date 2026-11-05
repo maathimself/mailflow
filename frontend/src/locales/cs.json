@@ -170,7 +170,8 @@
     "scheduledAttention": "Vyžaduje pozornost: {{n}}",
     "favorites": "Oblíbené",
     "reorderFolder": "Přetažením změníte pořadí složky",
-    "draftsTotal": "Koncepty: {{n}}"
+    "draftsTotal": "Koncepty: {{n}}",
+    "mail": "E-maily"
   },
   "scheduled": {
     "refresh": "Obnovit",

@@ -660,7 +660,8 @@
     "scheduledAttention": "Richiedono attenzione: {{n}}",
     "favorites": "Preferiti",
     "reorderFolder": "Trascina per riordinare la cartella",
-    "draftsTotal": "Bozze: {{n}}"
+    "draftsTotal": "Bozze: {{n}}",
+    "mail": "Posta"
   },
   "scheduled": {
     "refresh": "Aggiorna",

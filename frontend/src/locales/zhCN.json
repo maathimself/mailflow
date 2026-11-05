@@ -660,7 +660,8 @@
     "scheduledAttention": "需要处理：{{n}}",
     "favorites": "收藏夹",
     "reorderFolder": "拖动以调整文件夹顺序",
-    "draftsTotal": "草稿：{{n}}"
+    "draftsTotal": "草稿：{{n}}",
+    "mail": "邮件"
   },
   "scheduled": {
     "refresh": "刷新",

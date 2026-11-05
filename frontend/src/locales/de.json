@@ -660,7 +660,8 @@
     "scheduledAttention": "Brauchen Aufmerksamkeit: {{n}}",
     "favorites": "Favoriten",
     "reorderFolder": "Ziehen, um den Ordner zu verschieben",
-    "draftsTotal": "Entwürfe: {{n}}"
+    "draftsTotal": "Entwürfe: {{n}}",
+    "mail": "E-Mails"
   },
   "scheduled": {
     "refresh": "Aktualisieren",

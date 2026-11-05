@@ -660,7 +660,8 @@
     "scheduledAttention": "Need attention: {{n}}",
     "favorites": "Favorites",
     "reorderFolder": "Drag to reorder folder",
-    "draftsTotal": "Drafts: {{n}}"
+    "draftsTotal": "Drafts: {{n}}",
+    "mail": "Mail"
   },
   "scheduled": {
     "refresh": "Refresh",
