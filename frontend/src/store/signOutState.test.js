@@ -177,3 +177,28 @@ test('Sign out clears what the shared sign-out clears, and the lock once the ser
   assert.equal(s().isLocked, false);
   for (const k of keys) assert.equal(localStorage.getItem(k), null, k);
 });
+
+// Locking sends what is still in its undo window (flushUndoables) before the lock request, which
+// the server would otherwise answer first, refusing the rest.
+test('locking sends actions still in their undo window before the lock request', async () => {
+  const { holdUndoable } = await import('../utils/undoableAction.js');
+  const sent = [];
+  const realLock = api.lock;
+  const realArchive = api.bulkArchive;
+  api.lock = async () => { sent.push('lock'); };
+  api.bulkArchive = async () => { sent.push('archive'); return { archived: [] }; };
+  // What MailApp does on mailflow:will-lock.
+  const { flushUndoables } = await import('../utils/undoableAction.js');
+  window.addEventListener('mailflow:will-lock', flushUndoables);
+  try {
+    holdUndoable(async () => { await Promise.resolve(); await api.bulkArchive(['m1']); }, 60000);
+    s().lockScreen();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.deepEqual(sent, ['archive', 'lock']);
+  } finally {
+    window.removeEventListener('mailflow:will-lock', flushUndoables);
+    api.lock = realLock;
+    api.bulkArchive = realArchive;
+    s().setLocked(false);
+  }
+});

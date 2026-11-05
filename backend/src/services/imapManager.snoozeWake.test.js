@@ -26,6 +26,7 @@ import { resolveForConnection } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { query } from './db.js';
 import { adjustFolderCounts } from '../utils/mailUtils.js';
+import { takeCarry } from './movedRowCarry.js';
 
 const HOUR = 3_600_000;
 const ACCOUNT = { id: 'acct-1', user_id: 'u1', imap_host: 'imap.example.com', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'enc' };
@@ -33,6 +34,10 @@ const ACCOUNT = { id: 'acct-1', user_id: 'u1', imap_host: 'imap.example.com', im
 // The snooze records and the messages they point at, as the database holds them now. Messages
 // are a list, since two of them can carry one Message-ID.
 let snoozes, messages;
+// The account's folders, as the folder sync last listed them.
+let folders;
+// Folders the server lists as \\Noselect.
+let noSelect;
 const snooze = (id, { until = -HOUR, uid = 10, isRead = false, mid = `<${id}@x>` } = {}) => {
   snoozes.set(id, { id, user_id: 'u1', account_id: 'acct-1', message_id_header: mid, original_folder: 'INBOX', snoozed_folder: 'Snoozed', snooze_until: Date.now() + until });
   messages.push({ mid, folder: 'Snoozed', uid, is_read: isRead });
@@ -56,18 +61,38 @@ function fakeQuery(sql, params = []) {
     return { rows: live.map(sm => rowRead(sm.id)) };
   }
   if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [ACCOUNT] };
+  if (sql.startsWith('SELECT 1 FROM folders')) return { rows: folders.has(params[1]) && !(sql.includes('NOT no_select') && noSelect.has(params[1])) ? [{ '?column?': 1 }] : [] };
+  if (sql.startsWith('SELECT id FROM messages')) {
+    const m = messages.find(m => m.folder === params[1] && m.uid === params[2]);
+    return { rows: m ? [{ id: `row-${m.mid}-${m.folder}` }] : [] };
+  }
+  if (sql.startsWith('SELECT * FROM messages')) {
+    const m = messages.find(m => m.folder === params[1] && m.uid === params[2] && m.mid === params[3]);
+    return { rows: m ? [{ account_id: params[0], message_id: m.mid, folder: m.folder, uid: m.uid, date: '2026-11-04T10:00:00Z', category: m.category ?? null }] : [] };
+  }
   if (sql.startsWith('UPDATE messages SET folder')) {
-    const where = { mid: params[2], folder: sql.includes('uid = $4') ? params[4] : params[3], uid: params[params.length - 1] };
-    for (const m of messages.filter(m => matches(sql, m, where))) {
+    // The repoint stands down when the destination already holds a row at the new uid.
+    const cond = sql.replace(/\s+AND NOT EXISTS[\s\S]*$/, '');
+    if (cond !== sql && messages.some(m => m.folder === params[0] && m.uid === params[3])) return { rows: [], rowCount: 0 };
+    const where = { mid: params[2], folder: sql.includes('uid = $4') ? params[4] : params[3], uid: params[5] ?? params[params.length - 1] };
+    const hit = messages.filter(m => matches(cond, m, where));
+    for (const m of hit) {
       m.folder = params[0];
       if (sql.includes('uid = $4')) m.uid = params[3];
+      if (sql.includes('is_read = false')) m.is_read = false;
     }
-    return { rows: [] };
+    return { rows: [], rowCount: hit.length };
+  }
+  if (sql.startsWith('UPDATE messages SET is_read = false')) {
+    for (const m of messages.filter(m => m.folder === params[1] && m.uid === params[2])) m.is_read = false;
+    return { rows: [], rowCount: 1 };
   }
   if (sql.startsWith('DELETE FROM messages')) {
     const where = { mid: params[1], folder: params[2], uid: params[3] };
-    messages = messages.filter(m => !matches(sql, m, where));
-    return { rows: [] };
+    const cond = sql.replace(/\s+RETURNING \*$/, '');
+    const gone = messages.filter(m => matches(cond, m, where));
+    messages = messages.filter(m => !gone.includes(m));
+    return { rows: gone.map(m => ({ account_id: params[0], message_id: m.mid, uid: m.uid, folder: m.folder, category: m.category ?? null })) };
   }
   if (sql.startsWith('DELETE FROM snoozed_messages WHERE id')) { snoozes.delete(params[0]); return { rows: [] }; }
   return { rows: [] };
@@ -78,6 +103,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   snoozes = new Map();
   messages = [];
+  folders = new Set(['INBOX', 'Snoozed', 'Projects']);
+  noSelect = new Set();
   query.mockImplementation(async (sql, params) => fakeQuery(sql, params));
   mgr = new ImapManager(null);
   mgr.broadcast = vi.fn();
@@ -155,12 +182,15 @@ describe('the sweep', () => {
 describe('waking a snooze whose move names no new uid', () => {
   it('drops the row and pulls the folder, rather than keep the row on its Snoozed uid', async () => {
     snooze('a');
+    byMid('<a@x>').category = 'promotions';
     mgr.moveMessageGetNewUid = vi.fn(async () => null);
     expect(await mgr.wakeSnoozed(rowRead('a'), { markUnread: false })).toBe(true);
     expect(byMid('<a@x>')).toBeUndefined();
     expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(ACCOUNT, 'INBOX');
     expect(snoozes.size).toBe(0);
     expect(adjustFolderCounts.mock.calls).toEqual([['acct-1', 'Snoozed', -1, -1]]);
+    // The inbox's sync files it again with what MailFlow knew, not as new mail.
+    expect(takeCarry('acct-1', 'INBOX', '<a@x>', null)).toEqual({ category: 'promotions' });
   });
 });
 
@@ -228,5 +258,90 @@ describe('marking a woken message unread without its new uid', () => {
     expect(await mgr.wakeSnoozed(rowRead('a'))).toBe(true);
     expect(unflagged).toEqual([]);
     evictPool(ACCOUNT.id);
+  });
+});
+
+// The move announces the message to INBOX, whose sync can file it under its new uid before the
+// wake repoints the row. That row is then the message: the wake drops its own, and nothing ends
+// up in both INBOX and Snoozed or treated as new mail.
+describe('waking a snooze while the destination sync files the message first', () => {
+  it('keeps the row the sync filed, unread, and drops its own', async () => {
+    snooze('a', { uid: 10, isRead: true });
+    mgr.moveMessageGetNewUid = vi.fn(async () => {
+      messages.push({ mid: '<a@x>', folder: 'INBOX', uid: 500, is_read: true }); // the sync, first
+      return 500;
+    });
+    expect(await mgr.wakeSnoozed(rowRead('a'))).toBe(true);
+    expect(messages).toEqual([{ mid: '<a@x>', folder: 'INBOX', uid: 500, is_read: false }]);
+    expect(snoozes.has('a')).toBe(false);
+    expect(mgr.setFlag).toHaveBeenCalledWith(ACCOUNT, 500, 'INBOX', '\\Seen', false);
+    // Out of Snoozed only: the sync counted it into INBOX.
+    expect(adjustFolderCounts).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the sync this row's state to take, and only until the wake is done", async () => {
+    snooze('a');
+    let carried;
+    mgr.moveMessageGetNewUid = vi.fn(async () => {
+      carried = takeCarry('acct-1', 'INBOX', '<a@x>', '2026-11-04T10:00:00Z');
+      return 500;
+    });
+    await mgr.wakeSnoozed(rowRead('a'));
+    expect(carried).not.toBeNull();
+    snooze('b');
+    mgr.moveMessageGetNewUid = vi.fn(async () => 501);
+    await mgr.wakeSnoozed(rowRead('b'));
+    expect(takeCarry('acct-1', 'INBOX', '<b@x>', '2026-11-04T10:00:00Z')).toBeNull();
+  });
+
+  it('still brings the message back when the server refuses to mark it unread, and retries the flag', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    snooze('a');
+    mgr.setFlag = vi.fn(async () => { throw new Error('NO [UNAVAILABLE]'); });
+    mgr._enqueueFlagPush = vi.fn();
+    expect(await mgr.wakeSnoozed(rowRead('a'))).toBe(true);
+    expect(byMid('<a@x>')).toMatchObject({ folder: 'INBOX', uid: 500, is_read: false });
+    expect(snoozes.has('a')).toBe(false);
+    // Queued, so the read state is not read back from the server over it meanwhile.
+    expect(mgr._enqueueFlagPush).toHaveBeenCalledWith('acct-1', 'row-<a@x>-INBOX', '\\Seen', false);
+  });
+
+  it('does not take a Snoozed row that went elsewhere for a row the sync filed', async () => {
+    snooze('a');
+    mgr.moveMessageGetNewUid = vi.fn(async () => {
+      messages = messages.filter(m => m.mid !== '<a@x>'); // moved out of Snoozed by another path
+      return 500;
+    });
+    expect(await mgr.wakeSnoozed(rowRead('a'))).toBe(true);
+    // Nothing at INBOX/500 to mark unread, and INBOX is counted as usual.
+    expect(adjustFolderCounts).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('waking a snooze whose folder is gone', () => {
+  it('brings the message back to the Inbox instead of failing on every sweep', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    snooze('a');
+    snoozes.get('a').original_folder = 'Old project';
+    expect(await mgr.wakeSnoozed(rowRead('a'))).toBe(true);
+    expect(mgr.moveMessageGetNewUid).toHaveBeenCalledWith(ACCOUNT, 10, 'Snoozed', 'INBOX');
+    expect(byMid('<a@x>')).toMatchObject({ folder: 'INBOX', uid: 500 });
+    expect(snoozes.has('a')).toBe(false);
+  });
+
+  it('treats a folder the server lists as \\Noselect as gone', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    snooze('a');
+    snoozes.get('a').original_folder = 'Projects';
+    noSelect.add('Projects');
+    expect(await mgr.wakeSnoozed(rowRead('a'))).toBe(true);
+    expect(mgr.moveMessageGetNewUid).toHaveBeenCalledWith(ACCOUNT, 10, 'Snoozed', 'INBOX');
+  });
+
+  it('still goes back to a folder that exists', async () => {
+    snooze('a');
+    snoozes.get('a').original_folder = 'Projects';
+    expect(await mgr.wakeSnoozed(rowRead('a'))).toBe(true);
+    expect(mgr.moveMessageGetNewUid).toHaveBeenCalledWith(ACCOUNT, 10, 'Snoozed', 'Projects');
   });
 });

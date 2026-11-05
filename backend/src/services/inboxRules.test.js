@@ -21,7 +21,7 @@ const {
   adjustFolderCounts,
 } = await import('../utils/mailUtils.js');
 const { forwardRuleMessage } = await import('./ruleForwarder.js');
-import { applyInboxRules, newMailAlerts } from './inboxRules.js';
+import { applyInboxRules, newMailAlerts, newMailPushPayload } from './inboxRules.js';
 
 const account = { id: 'acc-1', user_id: 'user-1', folder_mappings: {} };
 
@@ -502,7 +502,7 @@ describe('applyInboxRules — UID update after move', () => {
 
     expect(result.remaining).toHaveLength(0);
     const sqls = query.mock.calls.map(([sql, params]) => [sql.replace(/\s+/g, ' ').trim(), params]);
-    expect(sqls).toContainEqual(['DELETE FROM messages WHERE id = $1', ['msg-1']]);
+    expect(sqls).toContainEqual(['DELETE FROM messages WHERE id = $1 RETURNING *', ['msg-1']]);
     expect(sqls.filter(([sql]) => sql.startsWith('UPDATE messages SET folder'))).toEqual([]);
     expect(mockImap.syncFolderOnDemand).toHaveBeenCalledWith(account, destination);
     expect(mockImap.setFlag).not.toHaveBeenCalled();
@@ -980,5 +980,29 @@ describe('newMailAlerts', () => {
   });
   it('still lists silenced inbox mail, without an alert', () => {
     expect(newMailAlerts({ remaining: [a], mutedIds: new Set(['a']) })).toEqual({ alertMessages: [], alertCount: 0, send: true });
+  });
+});
+
+describe('newMailPushPayload', () => {
+  const a = { id: '11111111-1111-4111-8111-111111111111', fromName: 'Ann', fromEmail: 'ann@x', subject: 'Hi' };
+  const b = { id: '22222222-2222-4222-8222-222222222222', fromName: '', fromEmail: 'bob@x', subject: '' };
+
+  it('names the one message a single alert is about, so its card can act on it', () => {
+    expect(newMailPushPayload([a], 1)).toEqual({
+      title: 'Ann', body: 'Hi', icon: '/icon-512.png', badge: '/badge-96.png',
+      url: `/?m=${a.id}`, messageId: a.id,
+    });
+  });
+
+  it('leaves the id out of a card that summarizes several messages', () => {
+    const payload = newMailPushPayload([a, b], 2);
+    expect(payload).toMatchObject({ title: 'bob@x', body: '2 new messages', url: `/?m=${b.id}` });
+    expect(payload).not.toHaveProperty('messageId');
+  });
+
+  it('falls back to the inbox without an id', () => {
+    const payload = newMailPushPayload([{ subject: '' }], 1);
+    expect(payload).toMatchObject({ title: 'New mail', body: '(no subject)', url: '/' });
+    expect(payload).not.toHaveProperty('messageId');
   });
 });

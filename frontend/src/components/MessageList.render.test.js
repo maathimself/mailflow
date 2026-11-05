@@ -942,6 +942,20 @@ describe('MessageList — a refresh during a load runs when the load finishes (#
   });
 });
 
+// A refresh that arrives while a search is shown used to be dropped, and clearing the search did
+// not reload the folder, so it came back as it was before the search.
+describe('MessageList: a refresh during a search runs when the search is cleared', () => {
+  test('the folder shows mail that arrived while searching', async () => {
+    const M2 = { ...MESSAGE, id: 'msg-during-search', uid: 3, message_id: '<during@example.com>', subject: 'Arrived while searching' };
+    await mount({ rows: [MESSAGE], threadedView: false });
+    await React.act(async () => { useStore.setState({ searchQuery: 'invoice' }); await new Promise(r => setTimeout(r, 400)); });
+    SERVED = [M2, MESSAGE];
+    await React.act(async () => { window.dispatchEvent(new dom.window.CustomEvent('mailflow:refresh')); });
+    await React.act(async () => { useStore.setState({ searchQuery: '' }); await new Promise(r => setTimeout(r, 30)); });
+    assert.ok(container.querySelector('[data-msgid="msg-during-search"]'), 'the folder was reloaded');
+  });
+});
+
 // A read still in flight (from opening a message) and a manual read state set over it: its reply
 // or failure must not undo what the user chose, and a refresh in the meantime keeps the row as
 // the user left it.
