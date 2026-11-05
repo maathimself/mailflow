@@ -22,6 +22,11 @@ describe('new mail Web Push', () => {
       title: 'Alice', body: '2 new messages', icon: '/icon-512.png', badge: '/badge-96.png', url: '/?m=m', unreadCount: 7,
     });
   });
+  it('preserves upstream quick actions for a single-message notification', async () => {
+    notifyNewMail({ userId: 'u', alertMessages: [{ id: 'm', subject: 'Hello' }], alertCount: 1 });
+    await settle();
+    expect(sendPushToUser).toHaveBeenCalledWith('u', expect.objectContaining({ messageId: 'm', url: '/?m=m' }));
+  });
   it('still sends when badge lookup fails, preserving fallbacks', async () => {
     query.mockRejectedValue(new Error('database unavailable'));
     notifyNewMail({ userId: 'u', alertMessages: [{}], alertCount: 1 });
