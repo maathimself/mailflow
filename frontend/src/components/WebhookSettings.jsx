@@ -63,6 +63,16 @@ export function UserWebhookSettings() {
     } catch (err) { setError(err); }
     finally { setBusy(false); }
   }
+  async function remove() {
+    setBusy(true); setError(''); setMessage('');
+    try {
+      await api.webhooks.remove();
+      setUrl(''); setToken(''); setClearToken(false); setDirty(false);
+      setConfig(c => ({ ...c, enabled: false, urlConfigured: false, tokenConfigured: false, failures: 0, lastError: null }));
+      setMessage(t('webhooks.removed'));
+    } catch (err) { setError(err); }
+    finally { setBusy(false); }
+  }
   async function test() {
     setBusy(true); setError(''); setMessage('');
     try { await api.webhooks.test(); setMessage(t('webhooks.testSent')); }
@@ -97,8 +107,9 @@ export function UserWebhookSettings() {
           <Check label={t('webhooks.subject')} checked={!!config.includeSubject} onChange={v => edit('includeSubject', v)} />
           <p style={helpStyle}>{t('webhooks.testHelp')}</p>
         </>}
-        {(config.enabled || dirty) && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <ActionButton primary disabled={busy || !dirty || (config.enabled && !url && !config.urlConfigured)} onClick={save}>{busy ? t('common.saving') : t('common.save')}</ActionButton>
+        {(config.enabled || dirty || config.urlConfigured) && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {(config.enabled || dirty) && <ActionButton primary disabled={busy || !dirty || (config.enabled && !url && !config.urlConfigured)} onClick={save}>{busy ? t('common.saving') : t('common.save')}</ActionButton>}
+          {config.urlConfigured && <ActionButton disabled={busy} onClick={remove}>{t('webhooks.remove')}</ActionButton>}
           {config.enabled && <ActionButton disabled={busy || dirty || !config.urlConfigured} onClick={test}>{t('webhooks.test')}</ActionButton>}
         </div>}
       </fieldset>

@@ -191,6 +191,7 @@ export const api = {
     get: () => request('GET', '/webhooks'),
     save: data => request('PUT', '/webhooks', data),
     test: () => request('POST', '/webhooks/test'),
+    remove: () => request('DELETE', '/webhooks'),
     getAdmin: () => request('GET', '/webhooks/admin'),
     saveAdmin: data => request('PUT', '/webhooks/admin', data),
   },

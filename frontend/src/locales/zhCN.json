@@ -2416,6 +2416,8 @@
     "createAppPassword": "创建应用专用密码"
   },
   "webhooks": {
+    "remove": "删除已保存的地址和令牌",
+    "removed": "已删除保存的地址和令牌。",
     "errors": {
       "url": "请输入有效的通知地址。",
       "urlScheme": "请使用 HTTP 或 HTTPS 地址，且不要包含用户名、密码或片段标识（#）。",

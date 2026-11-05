@@ -2416,6 +2416,8 @@
     "createAppPassword": "앱 비밀번호 만들기"
   },
   "webhooks": {
+    "remove": "저장된 URL 및 토큰 삭제",
+    "removed": "저장된 URL과 토큰이 삭제되었습니다.",
     "errors": {
       "url": "올바른 알림 URL을 입력하세요.",
       "urlScheme": "사용자 이름, 비밀번호 또는 프래그먼트가 없는 HTTP 또는 HTTPS URL을 사용하세요.",

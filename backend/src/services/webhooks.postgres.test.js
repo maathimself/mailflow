@@ -11,7 +11,7 @@ import { query } from './db.js';
 import { redisClient } from './redis.js';
 import { safeFetch } from './safeFetch.js';
 import { decrypt, isEncrypted } from './encryption.js';
-import { getWebhook, saveWebhook, saveWebhookAdminSettings, notifyWebhook } from './webhooks.js';
+import { getWebhook, removeWebhook, saveWebhook, saveWebhookAdminSettings, notifyWebhook } from './webhooks.js';
 
 // Explicit opt-in databases only. A unique schema and random user IDs isolate this suite;
 // cleanup removes only that schema and those users' Redis keys.
@@ -68,6 +68,14 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL || !process.env.MAILFLOW
     expect(JSON.stringify(await getWebhook(userId))).not.toMatch(/secret-topic|secret-token|enc:v1/);
     await saveWebhook(userId, { token: '' });
     expect((await stored()).token).toBeNull();
+  });
+  it('removes saved credentials and stops further delivery', async () => {
+    await removeWebhook(userId);
+    expect(await stored()).toBeUndefined();
+    expect(await getWebhook(userId)).toMatchObject({ enabled: false, urlConfigured: false, tokenConfigured: false });
+    expect(await send()).toEqual({ skipped: 'disabled' });
+    expect(safeFetch).not.toHaveBeenCalled();
+    await removeWebhook(userId);
   });
   it('keeps tokens within one origin and clears them for a different host, scheme or port', async () => {
     await saveWebhook(userId, { url: 'https://NOTIFY.example:443/another-topic' });
