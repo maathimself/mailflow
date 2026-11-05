@@ -28,6 +28,13 @@ const MAX_ATTACHMENT_BYTES = 26_214_400;
 
 const VALID_PRIORITIES = new Set(['high', 'normal', 'low']);
 
+// How long a send waits for its Sent copy's APPEND. It stays short: without Undo send the browser
+// waits on it, and the proxy gives the request 60 s.
+const SENT_APPEND_TIMEOUT_MS = 20000;
+// When to pull the Sent folder after an APPEND that did not answer in time, for a copy that lands
+// late. A large attachment on a slow upload can land well after the first pull.
+const SENT_APPEND_FALLBACK_SYNC_MS = [8000, 60000];
+
 // A problem with the message itself (bad input, a missing account or forwarded message, an SMTP
 // configuration the account cannot send with), answered with `status` and `message` as is.
 export class SendError extends Error {
@@ -692,11 +699,14 @@ export async function deliverAndRecord(
         // the abandoned append can at worst still save the single copy. On failure, warn
         // the user and schedule a fallback sync in case the append landed late. Audit [2].
         sentCopySaved = false;
+        let appendTimer;
         try {
           const { uid } = await Promise.race([
             imapManager.appendToSent(account, sentFolder, rawMessage),
-            new Promise((_, rej) => setTimeout(() => rej(new Error('Sent APPEND timed out')), 20000)),
-          ]);
+            new Promise((_, rej) => {
+              appendTimer = setTimeout(() => rej(new Error('Sent APPEND timed out')), SENT_APPEND_TIMEOUT_MS);
+            }),
+          ]).finally(() => clearTimeout(appendTimer));
           sentCopySaved = true;
           if (uid && sentMeta) {
             await imapManager.upsertSentMessageRecord(account, sentFolder, uid, sentMeta)
@@ -717,10 +727,13 @@ export async function deliverAndRecord(
           console.error(`IMAP append to Sent failed for ${redactEmail(account.email_address)}/${sentFolder}: ${appendErr.message}`);
           // The append may still have landed (or land shortly), so pull the folder: a
           // late-completing append then self-corrects the DB rather than staying invisible.
-          setTimeout(() => {
-            imapManager.syncFolderOnDemand(account, sentFolder)
-              .catch(e => console.error(`Post-append fallback sync failed: ${e.message}`));
-          }, 8000);
+          // Twice, since an upload still going when the wait ran out can take a while yet.
+          for (const delay of SENT_APPEND_FALLBACK_SYNC_MS) {
+            setTimeout(() => {
+              imapManager.syncFolderOnDemand(account, sentFolder)
+                .catch(e => console.error(`Post-append fallback sync failed: ${e.message}`));
+            }, delay);
+          }
         }
       } else {
         // Server auto-saves via SMTP; seed metadata once the Sent copy is searchable.
