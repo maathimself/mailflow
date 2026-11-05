@@ -68,9 +68,14 @@ export async function saveWebhook(userId, input) {
   const format = input.format ?? existing?.format ?? 'generic';
   if (format === 'generic' && input.token) throw bad('Tokens are only supported by the ntfy and Gotify presets');
   let url;
+  let originChanged = false;
   if (own(input, 'url')) {
     const parsed = parseWebhookUrl(input.url);
     if (parsed.protocol !== 'https:' && !admin.allowedOrigins.includes(parsed.origin)) throw bad('Public webhook URLs must use HTTPS');
+    if (existing?.url) {
+      try { originChanged = parseWebhookUrl(decrypt(existing.url)).origin !== parsed.origin; }
+      catch { originChanged = true; }
+    }
     url = encryptSecret(parsed.href);
   }
   if (input.enabled && !url) {
@@ -82,13 +87,13 @@ export async function saveWebhook(userId, input) {
     ON CONFLICT (user_id) DO UPDATE SET
       enabled = COALESCE($2, notification_webhooks.enabled), format = COALESCE($3, notification_webhooks.format),
       url = COALESCE($4, notification_webhooks.url),
-      token = CASE WHEN COALESCE($3, notification_webhooks.format) = 'generic' THEN NULL WHEN $8 THEN $5 ELSE notification_webhooks.token END,
+      token = CASE WHEN COALESCE($3, notification_webhooks.format) = 'generic' THEN NULL WHEN $8 THEN $5 WHEN $9 OR notification_webhooks.url IS DISTINCT FROM $10 THEN NULL ELSE notification_webhooks.token END,
       include_sender = COALESCE($6, notification_webhooks.include_sender), include_subject = COALESCE($7, notification_webhooks.include_subject),
       failures = CASE WHEN $2 = true THEN 0 ELSE notification_webhooks.failures END,
       last_error = CASE WHEN $2 = true THEN NULL ELSE notification_webhooks.last_error END,
       revision = gen_random_uuid()
     RETURNING *`, [userId, input.enabled ?? null, input.format ?? null, url ?? null,
-    own(input, 'token') && input.token ? encryptSecret(input.token) : null, input.includeSender ?? null, input.includeSubject ?? null, own(input, 'token')]);
+    own(input, 'token') && input.token ? encryptSecret(input.token) : null, input.includeSender ?? null, input.includeSubject ?? null, own(input, 'token'), originChanged, existing?.url ?? null]);
   return publicWebhook(result.rows[0], admin.enabled);
 }
 
