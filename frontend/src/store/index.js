@@ -266,9 +266,11 @@ export const useStore = create((set, get) => ({
   // Lock now: tell the server (it then 423s the API until unlocked), then drop into
   // the lock overlay locally. Lock the UI even if the server call fails (#235).
   lockScreen: () => {
-    // Lock the UI immediately (never block on the network), then enforce server-side.
+    // Lock the UI immediately (never block on the network), then enforce server-side. The lock
+    // request waits for the next task: what locking sends first (actions still in their undo
+    // window, see flushUndoables) must reach the server before it, or it is refused.
     get().setLocked(true);
-    api.lock().catch(() => {});
+    setTimeout(() => { api.lock().catch(() => {}); }, 0);
   },
   autoLockMinutes: 0,
   setAutoLockMinutes: (m) => {
@@ -599,9 +601,12 @@ export const useStore = create((set, get) => ({
   // The open composer's current state, kept across the lock screen (see setLocked).
   keepComposeForLock: (session, data) => set(state =>
     state.composing && state.composeSession === session ? { composeData: data } : {}),
-  updateComposePersistedKey: (session, persistedKey) => set(state =>
+  // `draft` ({ draftUid, draftFolder, draftAccountId }): the copy the save wrote. A save that
+  // answers after the composer was put away for the lock screen (keepComposeForLock) points the
+  // composer that reopens at it, rather than at the copy it replaced.
+  updateComposePersistedKey: (session, persistedKey, draft = {}) => set(state =>
     state.composing && state.composeSession === session
-      ? { composeData: { ...state.composeData, persistedKey } } : {}),
+      ? { composeData: { ...state.composeData, persistedKey, ...draft } } : {}),
   openCompose: (data = null, { preparedSession } = {}) => {
     const initial = get();
     if (initial.composing && data?.persistedKey && data.persistedKey === initial.composeData?.persistedKey) return true;

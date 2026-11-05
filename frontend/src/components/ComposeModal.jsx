@@ -436,6 +436,17 @@ export default function ComposeModal() {
   // Prevents the signature from being reset by a store refresh (same fromValue, accounts updated).
   const signatureInitializedRef = useRef(false);
   const prevFromValueRef = useRef(fromValue);
+  // The accounts can arrive after the composer: one reopened on unlock mounts before the accounts
+  // are loaded again (locking clears them), and with none to check against no From is chosen.
+  // Choose it once they are here, as on opening: the signature below takes it as the initial From,
+  // not a change, so a reopened message keeps the signature it had.
+  useEffect(() => {
+    if (fromValue || unsupportedSenderRef.current || !accounts.length) return;
+    const value = initialFromValue();
+    if (!value) return;
+    prevFromValueRef.current = value;
+    setFromValue(value);
+  }, [accounts]); // eslint-disable-line react-hooks/exhaustive-deps -- only the accounts arriving re-runs it; fromValue set here or by the user ends it
 
   // Edit/save timestamps driving the autosave rule. Refs, not state: they are written from the
   // editor's onUpdate on every keystroke and must never cause a render. Both are seeded at mount
@@ -1720,7 +1731,8 @@ export default function ComposeModal() {
       if (result.uid != null) {
         draftPointerRef.current = { uid: result.uid, folder: result.folder, accountId };
         setDraftUid(result.uid);
-        updateComposePersistedKey(composeSession, `${accountId}:${result.folder}:${result.uid}:${result.messageId || ""}:${composeData?.draftUidValidity || ""}`);
+        updateComposePersistedKey(composeSession, `${accountId}:${result.folder}:${result.uid}:${result.messageId || ""}:${composeData?.draftUidValidity || ""}`,
+          useStore.getState().composeData?.restored ? { draftUid: result.uid, draftFolder: result.folder, draftAccountId: accountId } : {});
       }
       unsavedRestoreRef.current = false;
       const before = useStore.getState().replyDraftRevision;

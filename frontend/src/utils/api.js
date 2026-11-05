@@ -558,7 +558,12 @@ export const api = {
       const res = await fetch(`${BASE}/mail/scheduled/${encodeURIComponent(id)}/attachments/${Number(index)}`, {
         credentials: 'include', headers: { [CSRF_HEADER]: CSRF_VALUE },
       });
-      if (!res.ok) throw Object.assign(new Error('Attachment not found'), { status: res.status });
+      if (!res.ok) {
+        // As request() does: a lock or an expired session shows its screen.
+        if (res.status === 423) window.dispatchEvent(new CustomEvent('mailflow:locked'));
+        if (res.status === 401) window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
+        throw Object.assign(new Error('Attachment not found'), { status: res.status });
+      }
       const bytes = new Uint8Array(await res.arrayBuffer());
       let binary = '';
       for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));

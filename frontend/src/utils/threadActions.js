@@ -96,12 +96,16 @@ export function runThreadAction({ messages, commit, resolve, notification, addNo
     onRestore?.(targets);
   };
 
+  // Read now as well, for a flush (the tab closing, the screen locking), which cannot wait on a
+  // request of its own before the action's.
+  const early = resolve ? Promise.resolve().then(() => resolve(targets)).catch(() => null) : null;
   let undone = false;
-  const timer = holdUndoable(async () => {
+  const timer = holdUndoable(async ({ flushing = false } = {}) => {
     if (undone) return;
     try {
       // Resolve last, so a message that arrived during the undo window is included.
-      const live = resolve ? normalizeConversation(await resolve(targets)) : targets;
+      const resolved = resolve ? ((flushing && await early) || await resolve(targets)) : null;
+      const live = resolve ? normalizeConversation(resolved) : targets;
       await commit(live.length ? live : targets);
     } catch (err) {
       console.error('Thread action failed:', err);

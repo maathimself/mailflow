@@ -1171,7 +1171,7 @@ function MailboxList() {
     let settled = false;
     const undo = () => {
       settled = true;
-      timers.forEach(timer => clearTimeout(timer));
+      timers.forEach(timer => releaseUndoable(timer));
       timers.clear();
       // Restore the messages in their original position (re-sort by date).
       useStore.getState().restoreMessages(messages);
@@ -1259,21 +1259,31 @@ function MailboxList() {
   // Navigating away during the 4.5s undo window should still delete the message —
   // cancelling the timer would silently leave it on the server.
   // (Page refresh is handled by the beforeunload listener above which clears the map first.)
-  useEffect(() => () => {
-    pendingDeleteTimers.current.forEach(({ timer, message, ids }) => {
-      clearTimeout(timer);
-      const deleteIds = ids?.length ? ids : [message.id];
-      const deletePromise =
-        deleteIds.length > 1
-          ? api.bulkDelete(deleteIds)
-          : api.deleteMessage(deleteIds[0]);
-      deletePromise
-        .then(result => {
-          const actuallyDeleted = new Set(result?.deleted ?? deleteIds);
-          deleteIds.forEach(id => (actuallyDeleted.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
-        })
-        .catch(() => { deleteIds.forEach((id) => clearDeleteGuard(id)); });
-    });
+  // Locking fires them too, before the lock reaches the server: the unmount that follows the
+  // lock would send them after it, and they would be refused.
+  useEffect(() => {
+    const flushDeletes = () => {
+      pendingDeleteTimers.current.forEach(({ timer, message, ids }) => {
+        clearTimeout(timer);
+        const deleteIds = ids?.length ? ids : [message.id];
+        const deletePromise =
+          deleteIds.length > 1
+            ? api.bulkDelete(deleteIds)
+            : api.deleteMessage(deleteIds[0]);
+        deletePromise
+          .then(result => {
+            const actuallyDeleted = new Set(result?.deleted ?? deleteIds);
+            deleteIds.forEach(id => (actuallyDeleted.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
+          })
+          .catch(() => { deleteIds.forEach((id) => clearDeleteGuard(id)); });
+      });
+      pendingDeleteTimers.current.clear();
+    };
+    window.addEventListener('mailflow:will-lock', flushDeletes);
+    return () => {
+      window.removeEventListener('mailflow:will-lock', flushDeletes);
+      flushDeletes();
+    };
   }, []);
 
   const handleDelete = (e, message) => {
@@ -1315,11 +1325,13 @@ function MailboxList() {
       ? aggregateUnread
       : (message.is_read ? 0 : 1);
     if (optimisticUnread > 0) decrementUnread(message.account_id, optimisticUnread, { undoable: true });
+    // The conversation read now as well, for a flush that cannot wait to read it (see flushUndoables).
+    const early = threadRow ? resolveMessagesForThreadAction(message).catch(() => null) : null;
     const archiveAction = createUndoableCommit({
       delayMs: UNDO_COMMIT_DELAY_MS,
-      commit: async () => {
+      commit: async ({ flushing = false } = {}) => {
         guards.forEach(clearDeleteGuard);
-        await archiveMessage(message, { alreadyRemoved: true, viewKey });
+        await archiveMessage(message, { alreadyRemoved: true, viewKey, ...(flushing ? { resolved: early } : {}) });
       },
       undo: () => {
         guards.forEach(clearDeleteGuard);
@@ -1335,7 +1347,7 @@ function MailboxList() {
   }, [
     isThreadListRow, selectedAccountId, selectedFolder, expandedThreadId,
     removeMessage, setExpandedThreadId, decrementUnread, incrementUnread,
-    addNotification, t,
+    addNotification, t, resolveMessagesForThreadAction,
   ]);
 
   const handleSwipeStar = useCallback((message) => {
@@ -1698,15 +1710,18 @@ function MailboxList() {
     setSelectedIds(new Set());
     setSelectionModeActive(false);
     setShowFolderPicker(false);
+    // Conversations read now as well, for a flush that cannot wait to read them (see flushUndoables).
+    const early = new Map(msgs.filter(isThreadListRow)
+      .map(message => [message.id, resolveMessagesForThreadAction(message).catch(() => null)]));
     const archiveAction = createUndoableCommit({
       delayMs: UNDO_COMMIT_DELAY_MS,
-      commit: async () => {
+      commit: async ({ flushing = false } = {}) => {
         let groups;
         let targets;
         try {
           groups = await archiveTargetGroupsForRows(
             msgs,
-            message => resolveMessagesForThreadAction(message),
+            async message => (flushing && await early.get(message.id)) || resolveMessagesForThreadAction(message),
             activeFolder,
             isThreadListRow,
             selectedAccountId,
@@ -1787,9 +1802,12 @@ function MailboxList() {
     addNotification, t,
   ]);
 
+  // `resolved`: the conversation as read when the action was taken, for a flush that cannot
+  // wait to read it again (see flushUndoables).
   const archiveVisibleMessage = useCallback(async (message, {
     alreadyRemoved = false,
     viewKey: actionViewKey = archiveViewKeyRef.current,
+    resolved: resolvedEarly = null,
   } = {}) => {
     const threadRow = isThreadListRow(message);
     const threadId = message.thread_id || message.id;
@@ -1818,7 +1836,7 @@ function MailboxList() {
 
     let targets;
     try {
-      const resolved = await resolveMessagesForThreadAction(message);
+      const resolved = (resolvedEarly && await resolvedEarly) || await resolveMessagesForThreadAction(message);
       targets = archiveTargetsForFolder(message, resolved, activeFolder, threadRow, selectedAccountId);
 
       const resolvedUnreadByAccount = unreadCountsByAccount(targets);
@@ -2289,11 +2307,13 @@ function MailboxList() {
           ? aggregateUnread
           : (archived.is_read ? 0 : 1);
         if (optimisticUnread > 0) decrementUnread(archived.account_id, optimisticUnread, { undoable: true });
+        // The conversation read now as well, for a flush that cannot wait to read it (see flushUndoables).
+        const early = threadRow ? resolveMessagesForThreadAction(archived).catch(() => null) : null;
         const archiveAction = createUndoableCommit({
           delayMs: UNDO_COMMIT_DELAY_MS,
-          commit: async () => {
+          commit: async ({ flushing = false } = {}) => {
             guards.forEach(clearDeleteGuard);
-            await archiveMessage(archived, { alreadyRemoved: true, viewKey });
+            await archiveMessage(archived, { alreadyRemoved: true, viewKey, ...(flushing ? { resolved: early } : {}) });
           },
           undo: () => {
             guards.forEach(clearDeleteGuard);

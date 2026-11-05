@@ -592,3 +592,22 @@ describe('withScheduledAttachments', () => {
     assert.equal(reopened.attachments[0].data, 's1-1');
   });
 });
+
+// Once the cancel has gone through, the message will not be sent whatever fails after it. The user
+// is pointed to the Scheduled view to restore it, not told the undo failed.
+describe('undoSchedule after the cancel went through', () => {
+  test('a failure bringing back the attachments offers to open it from Scheduled', async () => {
+    const notes = [];
+    const ok = await undoSchedule({ id: 's1', restoreData: { externalAttachments: [{}] } }, {
+      cancel: async () => {},
+      reopen: () => assert.fail('nothing to reopen'),
+      notify: n => notes.push(n),
+      openView: () => {},
+      t: k => k,
+      loadAttachments: async () => { throw Object.assign(new Error('Attachment not found'), { status: 404 }); },
+    });
+    assert.equal(ok, false);
+    assert.equal(notes[0].title, 'compose.scheduleSend.undoFailedOpen');
+    assert.equal(typeof notes[0].onAction, 'function');
+  });
+});

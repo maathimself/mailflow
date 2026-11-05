@@ -91,7 +91,9 @@ export async function undoSchedule({ id, restoreData }, { cancel, reopen, notify
       if (e?.status === 409 || e?.status === 404) break;
     }
   }
-  if (err?.status === 409 || err?.status === 404) {
+  // Once cancelled, the message will not go out, whatever failed after: it is in the Scheduled
+  // view to restore, so the user is pointed there rather than told the undo failed.
+  if (!cancelled && (err?.status === 409 || err?.status === 404)) {
     notify({ type: 'error', title: t('compose.scheduleSend.undoFailed'), body: err.message, allowWrap: true, persistent: true });
   } else {
     notify({

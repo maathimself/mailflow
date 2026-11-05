@@ -98,3 +98,16 @@ describe('flushUndoables', () => {
     assert.deepEqual(ran, ['archive']);
   });
 });
+
+// A flush tells the action it is one, so an action that would read something first (a
+// conversation) uses what it read when it was taken.
+describe('a flushed createUndoableCommit', () => {
+  it('is told it is flushing; its own timer is not', async () => {
+    const seen = [];
+    undoableAction.createUndoableCommit({ delayMs: 60000, commit: async (o) => { seen.push(o?.flushing ?? false); }, undo() {} });
+    undoableAction.flushUndoables();
+    undoableAction.createUndoableCommit({ delayMs: 1, commit: async (o) => { seen.push(o?.flushing ?? false); }, undo() {} });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.deepEqual(seen, [true, false]);
+  });
+});

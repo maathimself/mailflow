@@ -71,7 +71,16 @@ export default function MailApp() {
   // closes or reloads (keepalive, so the request outlives the page), and before the screen locks,
   // rather than never. pageshow undoes the flag for a page restored from the back-forward cache.
   useEffect(() => {
-    const onHide = () => { setPageClosing(true); flushUndoables(); };
+    const onHide = (event) => {
+      setPageClosing(true);
+      flushUndoables();
+      // Kept in the back-forward cache, the page can come back with the Undo toasts of actions
+      // just sent; their Undo would only put the mail back on screen. Ones with their own window
+      // (a held send, a schedule) are not in the flush and keep theirs.
+      if (event?.persisted) {
+        useStore.setState(state => ({ notifications: state.notifications.filter(n => !n.onUndo || n.undoMs != null) }));
+      }
+    };
     const onShow = () => setPageClosing(false);
     window.addEventListener('pagehide', onHide);
     window.addEventListener('pageshow', onShow);
