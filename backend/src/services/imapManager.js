@@ -268,6 +268,14 @@ export function isConnectionRefusal(detail) {
   return /\[LIMIT\]|connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout/i.test(String(detail || ''));
 }
 
+// A FETCH failure that says nothing about the message it named: the connection or session went
+// (dropped, timed out, closed under us), or the server is limiting us. Only other failures, a
+// NO the server gives for that message, count toward writing a UID off as unfetchable.
+export function isTransientFetchError(detail) {
+  return isConnectionRefusal(detail) || isAuthFailure(detail)
+    || /timed? ?out|timeout|socket|connection|closed|reset|ECONN|EPIPE|ETIMEDOUT|EHOSTUNREACH|ENOTFOUND|unavailable|bandwidth|overquota|\[ALERT\]|BYE/i.test(String(detail || ''));
+}
+
 // Stamp an account's last successful sync. Shared by both exits of syncMessages so they cannot
 // drift: a folder that turned out to be empty is still a SUCCESSFUL sync and must be stamped.
 // Without this a brand-new account that has never received mail keeps last_sync = NULL forever,
@@ -453,11 +461,14 @@ const FLAG_SCAN_TIMED_OUT = Symbol('flagScanTimedOut');
 //
 // iCloud advertises CONDSTORE but IGNORES changedSince and returns every message in the range, so
 // for it the scans keep a recent UID window: with uid+flags that is a cheap fetch (~a second) per
-// tick instead of the whole mailbox, at the cost of the old-mail gap there. Any other server
-// caught doing the same, answering a full-range scan with more than the window could hold or
-// running past the scan's budget, is windowed from then on, until the process restarts.
+// tick instead of the whole mailbox, at the cost of the old-mail gap there. Another server caught
+// doing the same is windowed too, until the process restarts: a full-range scan that answers with
+// nearly every message of a large mailbox, or runs past its budget, is a strike, and two in a row
+// make the call. One alone may be a real mass change (mark all read elsewhere) or throttling, and
+// an ordinary answer in between clears it.
 const DELTA_SCAN_UID_WINDOW = 5000;
 const changedSinceIgnoredAccounts = new Set();
+const changedSinceStrikes = new Map();
 
 // The lowest UID a flag scan asks for, given the highest UID it needs to cover.
 export function flagScanLowUid(account, topUid) {
@@ -471,14 +482,21 @@ export function flagScanLowUid(account, topUid) {
 export function noteChangedSinceScan(account, { lowUid, returned = 0, exists = 0, timedOut = false }) {
   if (lowUid !== 1 || changedSinceIgnoredAccounts.has(account.id)) return;
   const answeredEverything = returned > DELTA_SCAN_UID_WINDOW && returned >= exists * 0.9;
-  if (!answeredEverything && !(timedOut && exists > DELTA_SCAN_UID_WINDOW)) return;
+  if (!answeredEverything && !(timedOut && exists > DELTA_SCAN_UID_WINDOW)) {
+    if (!timedOut) changedSinceStrikes.delete(account.id);
+    return;
+  }
+  const strikes = (changedSinceStrikes.get(account.id) || 0) + 1;
+  if (strikes < 2) { changedSinceStrikes.set(account.id, strikes); return; }
+  changedSinceStrikes.delete(account.id);
   changedSinceIgnoredAccounts.add(account.id);
-  console.warn(`Flag scans for ${logAccount(account)} now cover the last ${DELTA_SCAN_UID_WINDOW} UIDs: the server ${timedOut ? 'did not finish a changedSince scan in time' : `answered changedSince with ${returned} of ${exists} messages`}`);
+  console.warn(`Flag scans for ${logAccount(account)} now cover the last ${DELTA_SCAN_UID_WINDOW} UIDs: the server ${timedOut ? 'did not finish a changedSince scan in time' : `answered changedSince with ${returned} of ${exists} messages`}, twice in a row`);
 }
 
 // For tests.
 export function clearChangedSinceIgnored() {
   changedSinceIgnoredAccounts.clear();
+  changedSinceStrikes.clear();
 }
 
 // How long (ms) user must be idle before background IMAP jobs (snippet indexer, folder
@@ -2871,6 +2889,8 @@ export class ImapManager {
     this._pendingNewMail = new Set(); // accountId — new mail (EXISTS) arrived while a sync was running; sync again after it
     // accountId -> Map<`${messageId}:${flag}`, { messageId, flag, attempts }>: local read/star
     // changes whose IMAP push failed and must be retried until the server confirms them.
+    // `${accountId}\n${folder}` of each mark-all-read still writing to the server.
+    this._markingAllRead = new Set();
     this._pendingFlagPush = new Map();
     // Tracks UIDs that are actively being moved by inboxRules so reconcileDeletes
     // does not delete the DB row if an EXPUNGE arrives before the DB update completes,
@@ -3636,7 +3656,10 @@ export class ImapManager {
     const host = (account.imap_host || '').toLowerCase();
     let client = null;
     let slotHeld = false;
+    let disconnectAfter = false;
     try {
+      // Settings and tokens as they are now, as on a persistent connection's tick.
+      if (!(await this._refreshLiveAccount(account))) { disconnectAfter = true; return; }
       await this._bgConnSem.acquire(host);
       slotHeld = true;
       const fresh = await raceTimeout(ensureFreshToken(account), 15000, 'Poll-only token refresh');
@@ -3686,6 +3709,10 @@ export class ImapManager {
       if (client) { try { client.close(); } catch { /* already closed */ } }
       if (slotHeld) this._bgConnSem.release(host);
       this.syncingAccounts.delete(account.id);
+      if (disconnectAfter) {
+        console.log(`Disconnecting ${logAccount(account)}: the account was removed or disabled`);
+        await this.disconnectAccount(account.id);
+      }
     }
   }
 
@@ -3910,9 +3937,8 @@ export class ImapManager {
     let syncResult;
     try {
       activeClient = this.connections.get(account.id);
-      // syncAccount tracks the freshest account data available — updated to freshAccount
-      // on reconnect so that IDLE listeners, provider detection, and flag syncs all use
-      // current credentials and config rather than the stale closure-captured object.
+      // The account this tick syncs with: the object the interval and the IDLE listeners share,
+      // kept current by _refreshLiveAccount below and by a reconnect writing into it.
       let syncAccount = account;
       if (!activeClient) {
         // Respect the connection-refusal cooldown — the 60s sync interval must NOT hammer a
@@ -4539,16 +4565,11 @@ export class ImapManager {
               if (fetched.size !== client.mailbox.exists) throw new Error('Incomplete folder flag snapshot');
             }
           } else if (plan === 'changedsince') {
-            // Same sub-budget as the full scan. CHANGEDSINCE is only cheap if the server
-            // honors it, and advertising CONDSTORE is not a promise that it will: iCloud
-            // advertises CONDSTORE and returns the entire mailbox regardless of the modseq
-            // asked for (measured: all 22,904 messages for a 5-modseq window). It happens to
-            // be fast enough that this does not bite there, but a server that both ignores
-            // CHANGEDSINCE and is slow would re-enter the unbounded fetch this pass exists
-            // to avoid. Never leave a fetch unbounded inside a budgeted operation.
-            // Covers the whole mailbox unless the server ignores changedSince (see
-            // flagScanLowUid): a sub-budget alone bounds the wait, not the work, and on such a
-            // server only the window bounds the work.
+            // Same sub-budget as the full scan: CHANGEDSINCE is only cheap if the server honors
+            // it, and advertising CONDSTORE is not a promise that it will (iCloud returns the
+            // entire mailbox, measured 22,904 messages for a 5-modseq window). It covers the
+            // whole mailbox, or a recent UID window on a server that ignores changedSince (see
+            // flagScanLowUid): a sub-budget alone bounds the wait, not the work.
             const uidNext = Number(client.mailbox?.uidNext) || 0;
             const deltaLow = flagScanLowUid(account, uidNext - 1);
             const delta = (async () => {
@@ -4618,7 +4639,7 @@ export class ImapManager {
           }
           if (expired) throw new Error('Folder integrity sync expired');
           let changed = await this._applyFlagUpdates(account, path, flags);
-          const { rows } = await query('SELECT uid, synced_at, is_read FROM messages WHERE account_id=$1 AND folder=$2', [account.id, path]);
+          const { rows } = await query('SELECT uid, synced_at, is_read, is_deleted FROM messages WHERE account_id=$1 AND folder=$2', [account.id, path]);
           const local = new Set(rows.map(r => Number(r.uid)));
           // Read state the flag scans never pulled (a change elsewhere that their range or
           // watermark skipped) shows up as an unread count that differs from the server's, and
@@ -4626,13 +4647,16 @@ export class ImapManager {
           // server lists whose read state disagrees with it are set to the server's, except a
           // change made here in the last 30 s (still being pushed) or a uid a move is using.
           // Only uids in the membership snapshot are touched, so mail arriving after it is not.
-          const localUnread = rows.reduce((n, r) => n + (r.is_read ? 0 : 1), 0);
-          if (Number.isSafeInteger(observed.unseen) && observed.unseen !== localUnread) {
+          const localUnread = rows.reduce((n, r) => n + (!r.is_read && !r.is_deleted && server.has(Number(r.uid)) ? 1 : 0), 0);
+          // Not while a mark-all-read is still writing \Seen to the server in chunks: the rows
+          // not reached yet would be set back to unread once its 30 s window lapsed.
+          if (Number.isSafeInteger(observed.unseen) && observed.unseen !== localUnread
+              && !this._markingAllRead?.has(`${account.id}\n${path}`)) {
             if (expired) throw new Error('Folder integrity sync expired');
             const unseen = await client.search({ seen: false }, { uid: true });
             if (Array.isArray(unseen)) {
               const unseenSet = new Set(unseen);
-              const disagree = rows.filter(r => server.has(Number(r.uid))
+              const disagree = rows.filter(r => server.has(Number(r.uid)) && !r.is_deleted
                 && Boolean(r.is_read) === unseenSet.has(Number(r.uid))
                 && !this._isMoveUidGuarded(account.id, path, Number(r.uid))).map(r => Number(r.uid));
               if (disagree.length) {
@@ -5887,6 +5911,9 @@ export class ImapManager {
           batchesOnConn++;
           consecutiveErrors = 0;
           skippedInRow = 0;
+          // Back toward full size after a streak of failures shrank it: a passing problem
+          // (throttling, a dropped connection) must not leave the rest of the run crawling.
+          if (cfg.batchSize < fullBatchSize) cfg.batchSize = Math.min(fullBatchSize, cfg.batchSize * 2);
 
           // Log progress every 10 batches to avoid log spam
           if (batchesOnConn % 10 === 1 || i >= missingUids.length) {
@@ -5906,7 +5933,12 @@ export class ImapManager {
           if (bfClient) { try { bfClient.close(); } catch { /* already disconnected */ } bfClient = null; }
           batchesOnConn = cfg.batchesPerConn; // force reconnect
 
-          if (consecutiveErrors >= 3 && cfg.batchSize === 1) {
+          if (consecutiveErrors >= 3 && cfg.batchSize === 1 && isTransientFetchError(detail)) {
+            // Down to one message and still failing, but in a way that says nothing about it
+            // (throttled, connection dropped): not a reason to write it off. The run ends and the
+            // folder check finds the gap again later.
+            throw new Error(`backfill stopped: ${detail}`, { cause: err });
+          } else if (consecutiveErrors >= 3 && cfg.batchSize === 1) {
             // One message the server will not hand over: a FETCH that names it fails as a whole
             // (Gmail's "Some messages could not be FETCHed", Dovecot's SERVERBUG on a corrupt
             // one). Retrying the batch would loop forever, a login every half minute, holding
@@ -5925,7 +5957,8 @@ export class ImapManager {
             await new Promise(r => setTimeout(r, cfg.batchDelay));
           } else if (consecutiveErrors >= 3) {
             // Persistent failures: halve the batch, down to the one message a failing FETCH
-            // may be about, rather than skipping a whole batch (which would leave gaps).
+            // may be about, rather than skipping a whole batch (which would leave gaps). A
+            // success grows it back (above).
             const oldSize = cfg.batchSize;
             cfg.batchSize = Math.max(1, Math.floor(cfg.batchSize / 2));
             console.warn(`Backfill reducing batch size for ${logAccount(account)}: ${oldSize} → ${cfg.batchSize} after 3 failures (${detail})`);
@@ -7676,21 +7709,28 @@ export class ImapManager {
   }
 
   async markAllReadImap(account, folder) {
-    return withFreshClient(account, async (client) => {
-      const lock = await client.getMailboxLock(folder);
-      try {
-        if (!client.mailbox || client.mailbox.exists === 0) return;
-        // Chunked so a single STORE +FLAGS \Seen over a large folder can't get throttled
-        // into a whole-operation failure (which would leave the DB read but the server
-        // unread, and the next flag-sync would flip those rows back to unread).
-        await this._markSeenInFolder(client, folder);
-      } catch (err) {
-        console.warn(`markAllRead IMAP warning for ${folder}:`, err.message);
-        // Non-fatal — DB is already updated; the next sync reconciles any residual unread.
-      } finally {
-        lock.release();
-      }
-    });
+    // While this runs, the integrity pass leaves the folder's read state alone (see its repair).
+    const marking = `${account.id}\n${folder}`;
+    this._markingAllRead.add(marking);
+    try {
+      return await withFreshClient(account, async (client) => {
+        const lock = await client.getMailboxLock(folder);
+        try {
+          if (!client.mailbox || client.mailbox.exists === 0) return;
+          // Chunked so a single STORE +FLAGS \Seen over a large folder can't get throttled
+          // into a whole-operation failure (which would leave the DB read but the server
+          // unread, and the next flag-sync would flip those rows back to unread).
+          await this._markSeenInFolder(client, folder);
+        } catch (err) {
+          console.warn(`markAllRead IMAP warning for ${folder}:`, err.message);
+          // Non-fatal — DB is already updated; the next sync reconciles any residual unread.
+        } finally {
+          lock.release();
+        }
+      });
+    } finally {
+      this._markingAllRead.delete(marking);
+    }
   }
 
   async moveMessage(account, uid, fromFolder, toFolder) {
@@ -8250,7 +8290,8 @@ export class ImapManager {
       // Gmail label removed): the move would fail on every sweep, and Unsnooze with it, leaving
       // the message in Snoozed for good. It comes back to the Inbox instead.
       if (row.original_folder !== 'INBOX') {
-        const { rows: [folder] } = await query('SELECT 1 FROM folders WHERE account_id = $1 AND path = $2', [row.account_id, row.original_folder]);
+        // A \Noselect folder (a deleted parent some servers keep for its children) cannot take it either.
+        const { rows: [folder] } = await query('SELECT 1 FROM folders WHERE account_id = $1 AND path = $2 AND NOT no_select', [row.account_id, row.original_folder]);
         if (!folder) {
           console.log(`Snooze wakeup: ${row.original_folder} no longer exists, bringing ${row.message_id_header} back to INBOX`);
           row = { ...row, original_folder: 'INBOX' };
@@ -8286,41 +8327,53 @@ export class ImapManager {
         }
 
         if (newUid != null) {
-          // Repoint the row, unless the sync already filed the message under newUid: then that
-          // row is the message (it took this one's state) and this one goes. Unread on its own
-          // wake-up either way, in the database first, so the server's \Seen read by a sync in
-          // between cannot leave it read.
-          const unread = markUnread ? ', is_read = false, read_changed_at = NOW()' : '';
-          let repointed = 0;
           try {
-            ({ rowCount: repointed } = await query(
-              `UPDATE messages SET folder = $1, uid = $4${unread} WHERE account_id = $2 AND message_id = $3 AND folder = $5 AND uid = $6
-                 AND NOT EXISTS (SELECT 1 FROM messages d WHERE d.account_id = $2 AND d.folder = $1 AND d.uid = $4)`,
-              [row.original_folder, row.account_id, row.message_id_header, newUid, row.snoozed_folder, row.uid]
-            ));
-          } catch (err) {
-            if (err?.code !== '23505') throw err; // the sync's insert landed in between
-          }
-          if (repointed) {
-            // Not needed any more, and a later copy of the message must not pick it up.
-            if (snoozedRow) takeCarry(row.account_id, row.original_folder, row.message_id_header, snoozedRow.date);
-          } else {
-            filedBySync = true;
-            await query('DELETE FROM messages WHERE account_id = $1 AND message_id = $2 AND folder = $3 AND uid = $4',
-              [row.account_id, row.message_id_header, row.snoozed_folder, row.uid]);
-            if (markUnread) {
-              await query(`UPDATE messages SET is_read = false, read_changed_at = NOW() WHERE account_id = $1 AND folder = $2 AND uid = $3`,
-                [row.account_id, row.original_folder, newUid]);
-            }
-          }
-          // Mark as unread on the server so the user notices it (not when the reader asked for it
-          // back). The message is already back, so a refused flag is logged, not a failed wake.
-          if (markUnread) {
+            // Repoint the row, unless the sync already filed the message under newUid: then that
+            // row is the message (it took this one's state) and this one goes. Unread on its own
+            // wake-up either way, in the database first, so the server's \Seen read by a sync in
+            // between cannot leave it read.
+            const unread = markUnread ? ', is_read = false, read_changed_at = NOW()' : '';
+            let repointed = 0;
             try {
-              await this.setFlag(account, newUid, row.original_folder, '\\Seen', false);
+              ({ rowCount: repointed } = await query(
+                `UPDATE messages SET folder = $1, uid = $4${unread} WHERE account_id = $2 AND message_id = $3 AND folder = $5 AND uid = $6
+                   AND NOT EXISTS (SELECT 1 FROM messages d WHERE d.account_id = $2 AND d.folder = $1 AND d.uid = $4)`,
+                [row.original_folder, row.account_id, row.message_id_header, newUid, row.snoozed_folder, row.uid]
+              ));
             } catch (err) {
-              console.warn(`Snooze wakeup: could not mark message unread on server: ${err.message}`);
+              if (err?.code !== '23505') throw err; // the sync's insert landed in between
             }
+            // Whose row the message now is. Not inferred from a repoint that changed nothing: that
+            // can also be the Snoozed row having gone (moved by another path) under this wake.
+            const { rows: [destRow] } = await query(
+              'SELECT id FROM messages WHERE account_id = $1 AND folder = $2 AND uid = $3',
+              [row.account_id, row.original_folder, newUid]);
+            if (!repointed && destRow) {
+              filedBySync = true;
+              await query('DELETE FROM messages WHERE account_id = $1 AND message_id = $2 AND folder = $3 AND uid = $4',
+                [row.account_id, row.message_id_header, row.snoozed_folder, row.uid]);
+              if (markUnread) {
+                await query(`UPDATE messages SET is_read = false, read_changed_at = NOW() WHERE account_id = $1 AND folder = $2 AND uid = $3`,
+                  [row.account_id, row.original_folder, newUid]);
+              }
+            }
+            // Mark as unread on the server so the user notices it (not when the reader asked for it
+            // back). The message is already back, so a refused flag is not a failed wake: it goes to
+            // the flag push queue, which retries it and keeps the local state from being read back
+            // over it meanwhile.
+            if (markUnread) {
+              try {
+                await this.setFlag(account, newUid, row.original_folder, '\\Seen', false);
+              } catch (err) {
+                console.warn(`Snooze wakeup: could not mark message unread on server, queued for retry: ${err.message}`);
+                if (destRow) this._enqueueFlagPush(row.account_id, destRow.id, '\\Seen', false);
+              }
+            }
+          } finally {
+            // The move named its uid. Unless the destination's sync filed the message, which takes
+            // what was kept (it may not have yet: it inserts, then takes), nothing needs it any more,
+            // and a later copy of the message must not pick it up.
+            if (snoozedRow && !filedBySync) takeCarry(row.account_id, row.original_folder, row.message_id_header, snoozedRow.date);
           }
         } else {
           if (markUnread && row.message_id_header) {

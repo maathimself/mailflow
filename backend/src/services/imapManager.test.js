@@ -3916,6 +3916,62 @@ describe('Gmail label memberships (#418)', () => {
     const written = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO unfetchable_uids'));
     expect(written.some(([, params]) => params[2].map(Number).includes(17))).toBe(true);
   });
+  // Throttling or a dropped connection says nothing about the message a FETCH named: it must not
+  // count toward writing that message off, and a run that cannot get through ends instead.
+  it('writes nothing off when the failures are throttling, and ends the run', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    serverUids = Array.from({ length: 30 }, (_, k) => k + 1);
+    ImapFlow.mockImplementation(function () {
+      const client = clientFor('INBOX');
+      const fetchAll = client.fetch;
+      client.fetch = vi.fn(function (range, ...rest) {
+        if (!range.includes(':') && range.split(',').map(Number).includes(17)) {
+          return (async function* () {
+            if (range) throw new Error('NO [THROTTLED] Account exceeded command or bandwidth limits');
+            yield null;
+          })();
+        }
+        return fetchAll(range, ...rest);
+      });
+      return client;
+    });
+    const pending = ImapManager.prototype.backfillMessages.call(manager(), acct, 'INBOX');
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT INTO unfetchable_uids'))).toBe(false);
+    // Newest first: 30 down to 18 came in, and the run ended at 17 instead of writing it off.
+    expect(rows.filter(r => r.folder === 'INBOX').map(r => r.uid).sort((a, b) => a - b))
+      .toEqual(Array.from({ length: 13 }, (_, k) => k + 18));
+  });
+
+  it('grows the batch back after a failure streak passes', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    serverUids = Array.from({ length: 600 }, (_, k) => k + 1);
+    let failures = 3;
+    const sizes = [];
+    ImapFlow.mockImplementation(function () {
+      const client = clientFor('INBOX');
+      const fetchAll = client.fetch;
+      client.fetch = vi.fn(function (range, ...rest) {
+        if (!range.includes(':')) {
+          sizes.push(range.split(',').length);
+          if (failures-- > 0) {
+            return (async function* () { if (range) throw new Error('Connection not available'); yield null; })();
+          }
+        }
+        return fetchAll(range, ...rest);
+      });
+      return client;
+    });
+    const pending = ImapManager.prototype.backfillMessages.call(manager(), acct, 'INBOX');
+    await vi.runAllTimersAsync();
+    await pending;
+    // Three failures at 500, halved to 250, which passes; back to 500, which takes the other 350.
+    expect(sizes).toEqual([500, 500, 500, 250, 350]);
+  });
+
   it('repairs an older INBOX hole even when cached counts and maximum UID look complete', async () => {
     serverUids = [1, 2];
     rows = [{ folder: 'INBOX', uid: 2 }, { folder: 'INBOX', uid: 3 },

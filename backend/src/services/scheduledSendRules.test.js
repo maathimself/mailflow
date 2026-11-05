@@ -56,6 +56,7 @@ describe('classifySendError', () => {
     ['token endpoint unreachable', 'prepare', new Error('fetch failed'), 'retry', 'transient'],
     // What Node's fetch actually throws: a TypeError, with the network error as its cause.
     ['token endpoint unreachable (fetch TypeError)', 'prepare', new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo ENOTFOUND login.microsoftonline.com'), { code: 'ENOTFOUND' }) }), 'retry', 'transient'],
+    ['token endpoint connection dropped mid-response', 'prepare', new TypeError('terminated', { cause: Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' }) }), 'retry', 'transient'],
     ['message builder given unusable input', 'prepare', new TypeError("Cannot read properties of undefined (reading 'filename')"), 'failed', 'invalid_message'],
     ['SMTP host refused by the connection policy', 'prepare', Object.assign(new Error('Host resolves to a private or reserved IP address'), { hostRefused: true }), 'failed', 'config'],
     ['corrupted credential', 'prepare', sendError('SendError', 502), 'failed', 'config'],

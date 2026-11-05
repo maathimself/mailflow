@@ -42,8 +42,10 @@ const failed = code => ({ outcome: 'failed', code });
 const paused = (pauseReason, code) => ({ outcome: 'paused', pauseReason, code });
 const uncertain = code => ({ outcome: 'uncertain', code });
 
-// Node's fetch reports a network failure as TypeError('fetch failed'), the reason in its cause.
-const isFetchFailure = err => err?.message === 'fetch failed' && err.cause != null;
+// Node's fetch (undici) reports a network failure as a TypeError with the reason in its cause:
+// 'fetch failed' when the request could not be made (DNS, refused, reset), 'terminated' when the
+// connection dropped while the response body was being read.
+const isFetchFailure = err => (err?.message === 'fetch failed' || err?.message === 'terminated') && err.cause != null;
 
 // How an error ends an attempt. `phase` is 'prepare' for anything before the message was handed
 // to the transport (building it, refreshing a token, opening the transport), and 'send' for a
@@ -62,9 +64,8 @@ export function classifySendError(err, { phase }) {
     // SendError: 400 is input that no longer passes the send checks, anything else an SMTP
     // configuration the account cannot send with (a corrupted credential, plain-text SMTP).
     if (err?.name === 'SendError') return failed(err.status === 400 ? 'invalid_message' : 'config');
-    // A TypeError is input the message builder cannot use, except fetch's own: Node's fetch
-    // (undici) rejects with TypeError('fetch failed') when the token endpoint cannot be reached
-    // (DNS, refused, reset), which is the transient case below.
+    // A TypeError is input the message builder cannot use, except fetch's own network failures
+    // (see isFetchFailure) reaching the token endpoint, which are the transient case below.
     if (err instanceof TypeError && !isFetchFailure(err)) return failed('invalid_message');
     // The connection policy refused the SMTP host (private or reserved address): no retry
     // changes that, only the account's settings or the admin's policy.

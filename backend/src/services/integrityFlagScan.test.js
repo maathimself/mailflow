@@ -275,13 +275,12 @@ describe('the delta flag fetch', () => {
     expect(calls[0].range).toBe('1:*');
   });
 
-  it('windows a server from then on once it answers changedSince with the whole mailbox', async () => {
+  it('windows a server from then on once it answers changedSince with the whole mailbox twice', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const mailbox = { exists: 6000, uidValidity: 8n, highestModseq: 999n, uidNext: 40000 };
     const { mgr, calls } = managerCapturing(mailbox, 6000);
-    await mgr._refreshObservedFolder(acct, 'INBOX', observed);
-    await mgr._refreshObservedFolder(acct, 'INBOX', observed);
-    expect(calls.map(c => c.range)).toEqual(['1:*', '35000:*']);
+    for (let n = 0; n < 3; n++) await mgr._refreshObservedFolder(acct, 'INBOX', observed);
+    expect(calls.map(c => c.range)).toEqual(['1:*', '1:*', '35000:*']);
   });
 });
 
@@ -295,13 +294,25 @@ describe('telling a server that ignores changedSince', () => {
     expect(flagScanLowUid(acct, 30000)).toBe(1);
   });
 
-  it('windows after an answer of nearly every message, or a scan that ran out of time', () => {
+  it('windows after two answers of nearly every message, or two scans that ran out of time', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
     fresh();
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 29000, exists: 30000 });
+    expect(flagScanLowUid(acct, 30000)).toBe(1);
     noteChangedSinceScan(acct, { lowUid: 1, returned: 29000, exists: 30000 });
     expect(flagScanLowUid(acct, 30000)).toBe(25001);
     fresh();
     noteChangedSinceScan(acct, { lowUid: 1, exists: 30000, timedOut: true });
+    noteChangedSinceScan(acct, { lowUid: 1, exists: 30000, timedOut: true });
     expect(flagScanLowUid(acct, 30000)).toBe(25001);
+  });
+
+  it('takes one such answer for a real mass change, cleared by an ordinary one after it', () => {
+    fresh();
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 29000, exists: 30000 }); // all marked read elsewhere
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 3, exists: 30000 });
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 29000, exists: 30000 }); // and once more, later
+    expect(flagScanLowUid(acct, 30000)).toBe(1);
   });
 
   it('ignores small mailboxes and scans that were already windowed', () => {
@@ -366,6 +377,33 @@ describe('repairing read state from the server', () => {
     expect(params[3]).toEqual([2, 3]);
     expect(sql).toMatch(/read_changed_at IS NULL OR NOW\(\) - read_changed_at >= interval '30 seconds'/);
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'flags_synced', accountId: acct.id }, acct.user_id);
+  });
+
+  it('counts only unread rows the server still lists', async () => {
+    // Uid 9 is a stale unread row (gone from the server, not pruned on a cheap pass). Counted,
+    // it would make every pass search UNSEEN and repair nothing.
+    const { run, searches } = healing({
+      rows: [{ uid: 1, is_read: false }, { uid: 2, is_read: true }], unseen: 1, unseenOnServer: [1],
+    });
+    query.mockImplementation(async (sql) => {
+      if (sql.includes('status_synced_modseq FROM folders')) return { rows: [{ status_synced_modseq: '999' }] };
+      if (sql.includes('FROM messages') && sql.startsWith('SELECT')) {
+        return { rows: [{ uid: '1', is_read: false }, { uid: '2', is_read: true }, { uid: '9', is_read: false }].map(r => ({ ...r, synced_at: null })) };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    await run();
+    expect(searches.some(c => c.seen === false)).toBe(false);
+  });
+
+  it('leaves the folder alone while a mark-all-read is still writing to the server', async () => {
+    const { run, mgr, searches } = healing({
+      rows: [{ uid: 1, is_read: true }, { uid: 2, is_read: true }], unseen: 2, unseenOnServer: [1, 2],
+    });
+    mgr._markingAllRead = new Set([`${acct.id}\nINBOX`]);
+    await run();
+    expect(searches.some(c => c.seen === false)).toBe(false);
+    expect(heal()).toBeUndefined();
   });
 
   it('does not search when the unread counts already agree', async () => {
