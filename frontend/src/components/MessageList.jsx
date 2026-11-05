@@ -348,6 +348,9 @@ function MailboxList() {
   // Bumped by every new search, by clearing the query, and by a change of account or folder, so a
   // response (or a page of more results) that arrives after any of them is dropped (#592).
   const searchSeq = useRef(0);
+  // Bumped whenever the list is replaced by a fresh first page (folder, filter or page change).
+  // A next page still in flight from before belongs to the old list and is dropped.
+  const listGenRef = useRef(0);
   const isSearching = useStore(s => s.isSearching);
   const refreshRequestRef = useRef(null);
   if (refreshRequestRef.current === null) refreshRequestRef.current = createLatestRequest();
@@ -445,6 +448,7 @@ function MailboxList() {
       // resolves, finds no account IDs, and returns empty — causing the blank
       // "All Inboxes" on first load.
       if (!accountsReady) return;
+      listGenRef.current += 1;
       setLoadingMessages(true);
       setMessagesOffset(0);
       setHasMoreMessages(true);
@@ -503,6 +507,7 @@ function MailboxList() {
   // Load next page (called by scroll or button)
   const loadMore = useCallback(async () => {
     if (loadingMessages || !hasMoreMessages) return;
+    const gen = listGenRef.current;
     setLoadingMessages(true);
     try {
       // Read current offset directly from store to avoid stale closure
@@ -514,13 +519,15 @@ function MailboxList() {
       if (useStore.getState().threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       const data = await api.getMessages(params);
+      if (listGenRef.current !== gen) return;
       appendMessages(applyReadGuard(data.messages));
       setMessagesOffset(currentOffset + data.messages.length);
       setHasMoreMessages(currentOffset + data.messages.length < data.total);
     } catch (err) {
       console.error('Failed to load more messages:', err);
     } finally {
-      setLoadingMessages(false);
+      // The new list's own load owns the flag once the list was replaced.
+      if (listGenRef.current === gen) setLoadingMessages(false);
     }
   }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset]);
 
@@ -717,6 +724,7 @@ function MailboxList() {
   // Load a specific page (paginated mode)
   const loadPage = useCallback(async (pageNum) => {
     if (loadingMessages) return;
+    listGenRef.current += 1;
     setLoadingMessages(true);
     setCurrentPage(pageNum);
     try {

@@ -1369,3 +1369,42 @@ describe('MessageList — category totals (#597)', () => {
     ROUTES = {};
   });
 });
+
+describe('MessageList: the next page', () => {
+  test('a page still loading when the folder changes is not added to the new folder', async () => {
+    const plain = globalThis.fetch;
+    const ARCHIVED = { ...MESSAGE, id: 'msg-arch', folder: 'Archive', subject: 'Archived subject' };
+    const LATE = { ...MESSAGE, id: 'msg-late', subject: 'Second inbox page' };
+    let releasePage;
+    globalThis.fetch = async (url, opts) => {
+      const path = String(url);
+      if (path.includes('/mail/messages?') && /offset=1(&|$)/.test(path)) {
+        await new Promise(r => { releasePage = r; });
+        return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ messages: [LATE], total: 2 }), text: async () => '' };
+      }
+      if (path.includes('/mail/messages?')) {
+        const archive = path.includes('folder=Archive');
+        const body = archive ? { messages: [ARCHIVED], total: 1 } : { messages: [MESSAGE], total: 2 };
+        return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => body, text: async () => '' };
+      }
+      return plain(url, opts);
+    };
+    try {
+      await mount({ rows: [MESSAGE], threadedView: false });
+      const more = [...container.querySelectorAll('button')].find(b => b.textContent === 'messageList.loadMore');
+      assert.ok(more, 'the inbox offers a next page');
+      await React.act(async () => { more.click(); await new Promise(r => setTimeout(r, 0)); });
+      assert.ok(releasePage, 'the next page was requested');
+      await React.act(async () => {
+        useStore.setState({ selectedFolder: 'Archive' });
+        await new Promise(r => setTimeout(r, 0));
+      });
+      assert.ok(container.querySelector('[data-msgid="msg-arch"]'), 'the archive is listed');
+      await React.act(async () => { releasePage(); await new Promise(r => setTimeout(r, 0)); });
+      assert.equal(container.querySelector('[data-msgid="msg-late"]'), null, 'the inbox page stays out of the archive');
+      assert.deepEqual(useStore.getState().messages.map(m => m.id), ['msg-arch']);
+    } finally {
+      globalThis.fetch = plain;
+    }
+  });
+});
