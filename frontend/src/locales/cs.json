@@ -2435,6 +2435,8 @@
     "createAppPassword": "Vytvořit heslo aplikace"
   },
   "webhooks": {
+    "remove": "Odstranit uloženou adresu URL a token",
+    "removed": "Uložená adresa URL a token byly odstraněny.",
     "errors": {
       "url": "Zadejte platnou adresu URL oznámení.",
       "urlScheme": "Použijte adresu HTTP nebo HTTPS bez uživatelského jména, hesla a fragmentu.",

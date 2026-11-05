@@ -2435,6 +2435,8 @@
     "createAppPassword": "Utwórz hasło aplikacji"
   },
   "webhooks": {
+    "remove": "Usuń zapisany adres URL i token",
+    "removed": "Zapisany adres URL i token zostały usunięte.",
     "errors": {
       "url": "Wpisz prawidłowy adres URL powiadomień.",
       "urlScheme": "Użyj adresu HTTP lub HTTPS bez nazwy użytkownika, hasła ani fragmentu.",

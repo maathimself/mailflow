@@ -2416,6 +2416,8 @@
     "createAppPassword": "Crea una password per le app"
   },
   "webhooks": {
+    "remove": "Rimuovi URL e token salvati",
+    "removed": "URL e token salvati rimossi.",
     "errors": {
       "url": "Inserisci un URL di notifica valido.",
       "urlScheme": "Usa un URL HTTP o HTTPS senza nome utente, password o frammento.",

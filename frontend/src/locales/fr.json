@@ -2416,6 +2416,8 @@
     "createAppPassword": "Créer un mot de passe d'application"
   },
   "webhooks": {
+    "remove": "Supprimer l’URL et le jeton enregistrés",
+    "removed": "L’URL et le jeton enregistrés ont été supprimés.",
     "errors": {
       "url": "Saisissez une URL de notification valide.",
       "urlScheme": "Utilisez une URL HTTP ou HTTPS sans identifiant, mot de passe ni fragment.",

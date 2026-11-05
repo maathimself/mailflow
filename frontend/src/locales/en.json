@@ -2416,6 +2416,8 @@
     "createAppPassword": "Create an app password"
   },
   "webhooks": {
+    "remove": "Remove saved URL and token",
+    "removed": "Saved URL and token removed.",
     "errors": {
       "url": "Enter a valid notification URL.",
       "urlScheme": "Use an HTTP or HTTPS URL without a username, password, or fragment.",

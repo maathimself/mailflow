@@ -60,6 +60,7 @@ globalThis.fetch = async (url, init) => {
     if (init.method === 'PUT') admin = body;
     return json(admin);
   }
+  if (init.method === 'DELETE') { config = { ...config, enabled: false, urlConfigured: false, tokenConfigured: false, failures: 0, lastError: null }; return new Response(null, { status: 204 }); }
   if (url.endsWith('/test')) return json({ ok: true });
   if (init.method === 'PUT') config = { ...config, ...body, urlConfigured: !!body.url || config.urlConfigured, tokenConfigured: body.token === '' ? false : !!body.token || config.tokenConfigured };
   return json(config);
@@ -178,6 +179,28 @@ describe('webhook settings', () => {
     await click(checkbox('webhooks.enable'));
     assert.ok(host.querySelector('select'));
     assert.ok(checkbox('webhooks.sender'));
+  });
+  test('removes saved URL and token even while personal notifications are disabled', async () => {
+    config.enabled = false;
+    await mount();
+    await click(button('webhooks.remove'));
+    assert.equal(calls.filter(c => c.method === 'DELETE').length, 1);
+    assert.ok(!button('webhooks.remove'));
+    assert.ok(host.textContent.includes('webhooks.removed'));
+    await click(checkbox('webhooks.enable'));
+    assert.equal(button('common.save').disabled, true);
+    assert.equal(button('webhooks.test').disabled, true);
+    assert.ok(!checkbox('webhooks.clearToken'));
+  });
+  test('keeps the saved configuration visible when removal fails', async () => {
+    await mount();
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () => json({ error: 'Request failed' }, 500);
+      await click(button('webhooks.remove'));
+      assert.ok(button('webhooks.remove'));
+      assert.ok(host.querySelector('[role="alert"]'));
+    } finally { globalThis.fetch = originalFetch; }
   });
   test('global disable shows only the disabled notice', async () => {
     config.available = false;

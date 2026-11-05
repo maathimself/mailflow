@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
-import { getWebhook, saveWebhook, webhookAdminSettings, saveWebhookAdminSettings, notifyWebhook } from '../services/webhooks.js';
+import { getWebhook, removeWebhook, saveWebhook, webhookAdminSettings, saveWebhookAdminSettings, notifyWebhook } from '../services/webhooks.js';
 import { query } from '../services/db.js';
 
 const router = Router();
@@ -23,6 +23,7 @@ router.get('/admin', requireAdmin, handle(async (_req, res) => res.json(await we
 router.put('/admin', requireAdmin, handle(async (req, res) => res.json(await saveWebhookAdminSettings(req.body))));
 router.get('/', handle(async (req, res) => res.json(await visibleResult(req, await getWebhook(req.session.userId)))));
 router.put('/', handle(async (req, res) => res.json(await visibleResult(req, await saveWebhook(req.session.userId, req.body)))));
+router.delete('/', handle(async (req, res) => { await removeWebhook(req.session.userId); res.sendStatus(204); }));
 router.post('/test', handle(async (req, res) => {
   const result = await notifyWebhook({ userId: req.session.userId, accountName: 'MailFlow test', count: 1,
     latest: { fromName: 'Test sender', subject: 'Test notification' } });

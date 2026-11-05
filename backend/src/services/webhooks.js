@@ -57,6 +57,10 @@ export async function getWebhook(userId) {
   return publicWebhook(result.rows[0], config.enabled);
 }
 
+export async function removeWebhook(userId) {
+  await query('DELETE FROM notification_webhooks WHERE user_id = $1', [userId]);
+}
+
 export async function saveWebhook(userId, input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw bad('Invalid webhook settings');
   for (const key of Object.keys(input)) if (!['enabled', 'format', 'url', 'token', 'includeSender', 'includeSubject'].includes(key)) throw bad('Unknown webhook setting');
