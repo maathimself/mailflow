@@ -103,6 +103,21 @@ describe('a hung LOGOUT in _pollOnlyTick', () => {
   });
 });
 
+describe('a poll-only tick for an account removed or disabled meanwhile', () => {
+  it('disconnects it instead of logging in', async () => {
+    const mgr = manager();
+    for (const rows of [[], [{ ...acct, enabled: false }]]) {
+      query.mockResolvedValue({ rows });
+      mgr.syncIntervals.set(acct.id, setInterval(() => {}, 60000));
+      lastClient = null;
+      await mgr._pollOnlyTick(acct);
+      expect(lastClient).toBeNull();
+      expect(mgr.syncIntervals.has(acct.id)).toBe(false);
+      expect(mgr.syncingAccounts.has(acct.id)).toBe(false);
+    }
+  });
+});
+
 describe('a hung LOGOUT in syncNow', () => {
   it('does not hold the sync guard for the account', async () => {
     const mgr = manager();

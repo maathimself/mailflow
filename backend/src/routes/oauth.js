@@ -550,10 +550,13 @@ async function doRefreshMicrosoftToken(account) {
     console.warn(`Microsoft token refresh for account ${account.id} not saved: the account was signed in again through another client meanwhile`);
   }
 
-  // Return plaintext tokens so callers can use them immediately without decrypting
+  // Return plaintext tokens so callers can use them immediately without decrypting (decrypt passes
+  // plaintext through). The refresh token too: Microsoft rotates it on each refresh, and a caller
+  // that keeps the account object (a sync interval) must refresh with the new one next time.
   return {
     ...account,
     oauth_access_token: access_token,
+    ...(refresh_token ? { oauth_refresh_token: refresh_token } : {}),
     oauth_token_expiry: expiry,
     oauth_public_client: isPublic,
     oauth_client_id: account.oauth_client_id || clientId,
@@ -820,7 +823,7 @@ async function doRefreshGoogleToken(account) {
     WHERE id = $4
   `, [encrypt(access_token), refresh_token ? encrypt(refresh_token) : null, expiry, account.id]);
 
-  return { ...account, oauth_access_token: access_token, oauth_token_expiry: expiry };
+  return { ...account, oauth_access_token: access_token, ...(refresh_token ? { oauth_refresh_token: refresh_token } : {}), oauth_token_expiry: expiry };
 }
 
 export default router;

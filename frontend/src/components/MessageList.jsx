@@ -62,7 +62,7 @@ import {
   isCurrentThreadLoad,
   unreadCountsByAccount,
 } from '../utils/threadedArchive.js';
-import { createUndoableCommit, UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
+import { createUndoableCommit, holdUndoable, releaseUndoable, UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
 import { resolveConversationSelection, selectListedMessage } from '../utils/conversation.js';
 
 // Folder icon for move picker
@@ -567,7 +567,9 @@ function MailboxList() {
     };
 
     const handler = () => {
-      if (searchQuery.trim()) return;
+      // Search results are their own list. The refresh is held, not dropped: clearing the search
+      // hands it over (below), or the folder would come back as it was before the search.
+      if (searchQuery.trim()) { trailingRefreshRef.current.request(true); return; }
       if (trailingRefreshRef.current.request(useStore.getState().loadingMessages)) {
         const delayMs = Math.max(0, recentMessageOpenUntilRef.current - Date.now());
         clearTimeout(deferredRefreshTimerRef.current);
@@ -603,6 +605,8 @@ function MailboxList() {
       setSearchHasMore(false);
       setSearchError(null);
       searchFetchedOffsetRef.current = 0;
+      // A refresh held while searching (new mail, a resume, another device's change) runs now.
+      if (trailingRefreshRef.current.settle()) window.dispatchEvent(new CustomEvent('mailflow:refresh'));
       return;
     }
     setIsSearching(true);
@@ -1111,7 +1115,7 @@ function MailboxList() {
           body: ids.length > 1 ? t('messageList.bulkDeleted.failBody', { count: ids.length }) : t('messageList.deleted.failBody'),
         });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     pendingDeleteTimers.current.set(key, { timer, message: visibleMessage, ids });
     addNotification({
       title: ids.length > 1 ? t('messageList.bulkDeleted.title', { count: ids.length }) : t('messageList.deleted.title'),
@@ -1166,8 +1170,10 @@ function MailboxList() {
     const timers = new Map();
     let settled = false;
     const undo = () => {
+      // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+      if (!releaseUndoable(timers.get('__call__'))) return;
       settled = true;
-      timers.forEach(timer => clearTimeout(timer));
+      timers.forEach(timer => releaseUndoable(timer));
       timers.clear();
       // Restore the messages in their original position (re-sort by date).
       useStore.getState().restoreMessages(messages);
@@ -1179,7 +1185,7 @@ function MailboxList() {
       return fn(id).catch(err => ({ __failed: true, id, message: err.message }));
     };
 
-    timers.set('__call__', setTimeout(async () => {
+    timers.set('__call__', holdUndoable(async () => {
       if (settled) return;
       timers.delete('__call__');
       const results = await Promise.allSettled(ids.map(performCall));
@@ -1207,7 +1213,7 @@ function MailboxList() {
       // concurrent IMAP IDLE update, can desync the local counters.
       api.getUnreadCounts().then(c => useStore.getState().setUnreadCounts(c)).catch(() => {});
       api.getFolders(accountId).then(f => useStore.getState().setFolders(accountId, f)).catch(() => {});
-    }, 4500));
+    }, UNDO_COMMIT_DELAY_MS));
 
     addNotification({
       title: label === 'spam'
@@ -1255,21 +1261,31 @@ function MailboxList() {
   // Navigating away during the 4.5s undo window should still delete the message —
   // cancelling the timer would silently leave it on the server.
   // (Page refresh is handled by the beforeunload listener above which clears the map first.)
-  useEffect(() => () => {
-    pendingDeleteTimers.current.forEach(({ timer, message, ids }) => {
-      clearTimeout(timer);
-      const deleteIds = ids?.length ? ids : [message.id];
-      const deletePromise =
-        deleteIds.length > 1
-          ? api.bulkDelete(deleteIds)
-          : api.deleteMessage(deleteIds[0]);
-      deletePromise
-        .then(result => {
-          const actuallyDeleted = new Set(result?.deleted ?? deleteIds);
-          deleteIds.forEach(id => (actuallyDeleted.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
-        })
-        .catch(() => { deleteIds.forEach((id) => clearDeleteGuard(id)); });
-    });
+  // Locking fires them too, before the lock reaches the server: the unmount that follows the
+  // lock would send them after it, and they would be refused.
+  useEffect(() => {
+    const flushDeletes = () => {
+      pendingDeleteTimers.current.forEach(({ timer, message, ids }) => {
+        clearTimeout(timer);
+        const deleteIds = ids?.length ? ids : [message.id];
+        const deletePromise =
+          deleteIds.length > 1
+            ? api.bulkDelete(deleteIds)
+            : api.deleteMessage(deleteIds[0]);
+        deletePromise
+          .then(result => {
+            const actuallyDeleted = new Set(result?.deleted ?? deleteIds);
+            deleteIds.forEach(id => (actuallyDeleted.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
+          })
+          .catch(() => { deleteIds.forEach((id) => clearDeleteGuard(id)); });
+      });
+      pendingDeleteTimers.current.clear();
+    };
+    window.addEventListener('mailflow:will-lock', flushDeletes);
+    return () => {
+      window.removeEventListener('mailflow:will-lock', flushDeletes);
+      flushDeletes();
+    };
   }, []);
 
   const handleDelete = (e, message) => {
@@ -1311,11 +1327,13 @@ function MailboxList() {
       ? aggregateUnread
       : (message.is_read ? 0 : 1);
     if (optimisticUnread > 0) decrementUnread(message.account_id, optimisticUnread, { undoable: true });
+    // The conversation read now as well, for a flush that cannot wait to read it (see flushUndoables).
+    const early = threadRow ? resolveMessagesForThreadAction(message).catch(() => null) : null;
     const archiveAction = createUndoableCommit({
       delayMs: UNDO_COMMIT_DELAY_MS,
-      commit: async () => {
+      commit: async ({ flushing = false } = {}) => {
         guards.forEach(clearDeleteGuard);
-        await archiveMessage(message, { alreadyRemoved: true, viewKey });
+        await archiveMessage(message, { alreadyRemoved: true, viewKey, ...(flushing ? { resolved: early } : {}) });
       },
       undo: () => {
         guards.forEach(clearDeleteGuard);
@@ -1331,7 +1349,7 @@ function MailboxList() {
   }, [
     isThreadListRow, selectedAccountId, selectedFolder, expandedThreadId,
     removeMessage, setExpandedThreadId, decrementUnread, incrementUnread,
-    addNotification, t,
+    addNotification, t, resolveMessagesForThreadAction,
   ]);
 
   const handleSwipeStar = useCallback((message) => {
@@ -1567,12 +1585,15 @@ function MailboxList() {
       if (useStore.getState().searchQuery.trim()) {
         setSearchReloadToken(token => token + 1);
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     pendingDeleteTimers.current.set(key, { timer, message: msgs[0], ids: deleteIds });
     addNotification({
       title: t('messageList.bulkDeleted.title', { count: deleteIds.length }),
       body: t('messageList.bulkDeleted.body'),
       onUndo: () => {
+        // Already sent (the page went away and came back from the back-forward cache, or the
+        // screen locked): nothing to undo.
+        if (!pendingDeleteTimers.current.has(key)) return;
         undone = true;
         clearTimeout(timer);
         pendingDeleteTimers.current.delete(key);
@@ -1607,7 +1628,7 @@ function MailboxList() {
     setSelectionModeActive(false);
     setShowFolderPicker(false);
     let undone = false;
-    const timer = setTimeout(async () => {
+    const timer = holdUndoable(async () => {
       if (undone) return;
       try {
         const result = await api.bulkMove(moveIds, folder);
@@ -1625,13 +1646,14 @@ function MailboxList() {
         useStore.getState().restoreMessages(msgs);
         addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: moveIds.length }) });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     addNotification({
       title: t('messageList.bulkMoved.title', { count: moveIds.length }),
       body: folder,
       onUndo: () => {
+        // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+        if (!releaseUndoable(timer)) return;
         undone = true;
-        clearTimeout(timer);
         useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
@@ -1694,15 +1716,26 @@ function MailboxList() {
     setSelectedIds(new Set());
     setSelectionModeActive(false);
     setShowFolderPicker(false);
+    // Conversations read now as well, for a flush that cannot wait to read them (see flushUndoables).
+    // Eight at a time, as the commit reads them.
+    const early = new Map();
+    const threadRows = msgs.filter(isThreadListRow);
+    let previous = Promise.resolve();
+    for (let offset = 0; offset < threadRows.length; offset += 8) {
+      const batch = threadRows.slice(offset, offset + 8);
+      const read = previous.then(() => Promise.all(batch.map(message => resolveMessagesForThreadAction(message).catch(() => null))));
+      batch.forEach((message, k) => early.set(message.id, read.then(results => results[k])));
+      previous = read;
+    }
     const archiveAction = createUndoableCommit({
       delayMs: UNDO_COMMIT_DELAY_MS,
-      commit: async () => {
+      commit: async ({ flushing = false } = {}) => {
         let groups;
         let targets;
         try {
           groups = await archiveTargetGroupsForRows(
             msgs,
-            message => resolveMessagesForThreadAction(message),
+            async message => (flushing && await early.get(message.id)) || resolveMessagesForThreadAction(message),
             activeFolder,
             isThreadListRow,
             selectedAccountId,
@@ -1783,9 +1816,12 @@ function MailboxList() {
     addNotification, t,
   ]);
 
+  // `resolved`: the conversation as read when the action was taken, for a flush that cannot
+  // wait to read it again (see flushUndoables).
   const archiveVisibleMessage = useCallback(async (message, {
     alreadyRemoved = false,
     viewKey: actionViewKey = archiveViewKeyRef.current,
+    resolved: resolvedEarly = null,
   } = {}) => {
     const threadRow = isThreadListRow(message);
     const threadId = message.thread_id || message.id;
@@ -1814,7 +1850,7 @@ function MailboxList() {
 
     let targets;
     try {
-      const resolved = await resolveMessagesForThreadAction(message);
+      const resolved = (resolvedEarly && await resolvedEarly) || await resolveMessagesForThreadAction(message);
       targets = archiveTargetsForFolder(message, resolved, activeFolder, threadRow, selectedAccountId);
 
       const resolvedUnreadByAccount = unreadCountsByAccount(targets);
@@ -2285,11 +2321,13 @@ function MailboxList() {
           ? aggregateUnread
           : (archived.is_read ? 0 : 1);
         if (optimisticUnread > 0) decrementUnread(archived.account_id, optimisticUnread, { undoable: true });
+        // The conversation read now as well, for a flush that cannot wait to read it (see flushUndoables).
+        const early = threadRow ? resolveMessagesForThreadAction(archived).catch(() => null) : null;
         const archiveAction = createUndoableCommit({
           delayMs: UNDO_COMMIT_DELAY_MS,
-          commit: async () => {
+          commit: async ({ flushing = false } = {}) => {
             guards.forEach(clearDeleteGuard);
-            await archiveMessage(archived, { alreadyRemoved: true, viewKey });
+            await archiveMessage(archived, { alreadyRemoved: true, viewKey, ...(flushing ? { resolved: early } : {}) });
           },
           undo: () => {
             guards.forEach(clearDeleteGuard);
@@ -2342,7 +2380,7 @@ function MailboxList() {
           if (next.size === 0) setSelectionModeActive(false);
         }
         let moveUndone = false;
-        const moveTimer = setTimeout(async () => {
+        const moveTimer = holdUndoable(async () => {
           if (moveUndone) return;
           try {
             const result = await api.bulkMove(moveIds, folder);
@@ -2366,13 +2404,14 @@ function MailboxList() {
             if (!moved.is_read) incrementUnread(moved.account_id);
             addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
           }
-        }, 4500);
+        }, UNDO_COMMIT_DELAY_MS);
         addNotification({
           title: t('message.moved.title'),
           body: folder,
           onUndo: () => {
+            // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+            if (!releaseUndoable(moveTimer)) return;
             moveUndone = true;
-            clearTimeout(moveTimer);
             useStore.getState().restoreMessages([moved]);
             if (!moved.is_read) incrementUnread(moved.account_id);
           },

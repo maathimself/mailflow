@@ -229,6 +229,9 @@ export const useStore = create((set, get) => ({
   isLocked: localStorage.getItem('mailflow_locked') === '1',
   setLocked: (locked) => {
     if (locked) {
+      // The lock screen replaces the mail view, and with it an open composer: this lets the
+      // composer hand what it holds to keepComposeForLock first, so it reopens with it on unlock.
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('mailflow:will-lock'));
       const { selectedMessageId } = get();
       if (selectedMessageId) localStorage.setItem('mailflow_locked_message', selectedMessageId);
       localStorage.setItem('mailflow_locked', '1');
@@ -263,9 +266,15 @@ export const useStore = create((set, get) => ({
   // Lock now: tell the server (it then 423s the API until unlocked), then drop into
   // the lock overlay locally. Lock the UI even if the server call fails (#235).
   lockScreen: () => {
-    // Lock the UI immediately (never block on the network), then enforce server-side.
+    // Lock the UI immediately (never block on the network), then enforce server-side. The lock
+    // request waits for the next task: what locking sends first (actions still in their undo
+    // window, see flushUndoables) must reach the server before it, or it is refused.
     get().setLocked(true);
-    api.lock().catch(() => {});
+    // The next task, not a timer: auto-lock fires in a hidden tab, where timers are throttled
+    // to once a minute and the server would stay unlocked that long.
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => { channel.port1.close(); api.lock().catch(() => {}); };
+    channel.port2.postMessage(null);
   },
   autoLockMinutes: 0,
   setAutoLockMinutes: (m) => {
@@ -593,9 +602,15 @@ export const useStore = create((set, get) => ({
   composeSession: 0,
   prepareComposeSwitch: null,
   setPrepareComposeSwitch: prepare => set({ prepareComposeSwitch: prepare }),
-  updateComposePersistedKey: (session, persistedKey) => set(state =>
+  // The open composer's current state, kept across the lock screen (see setLocked).
+  keepComposeForLock: (session, data) => set(state =>
+    state.composing && state.composeSession === session ? { composeData: data } : {}),
+  // `draft` ({ draftUid, draftFolder, draftAccountId }): the copy the save wrote. A save that
+  // answers after the composer was put away for the lock screen (keepComposeForLock) points the
+  // composer that reopens at it, rather than at the copy it replaced.
+  updateComposePersistedKey: (session, persistedKey, draft = {}) => set(state =>
     state.composing && state.composeSession === session
-      ? { composeData: { ...state.composeData, persistedKey } } : {}),
+      ? { composeData: { ...state.composeData, persistedKey, ...draft } } : {}),
   openCompose: (data = null, { preparedSession } = {}) => {
     const initial = get();
     if (initial.composing && data?.persistedKey && data.persistedKey === initial.composeData?.persistedKey) return true;

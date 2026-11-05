@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { REPAIR_FLAG, signInResultNotice, trustedWrongAccount } from '../utils/accountErrors.js';
 import InboxReplyDraftObserver from './InboxReplyDraftObserver.js';
 import { useStore } from '../store/index.js';
-import { api } from '../utils/api.js';
+import { api, setPageClosing } from '../utils/api.js';
+import { flushUndoables } from '../utils/undoableAction.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { LAYOUTS } from '../layouts.js';
@@ -65,6 +66,24 @@ export default function MailApp() {
   const syncInterval = useStore(s => s.syncInterval);
   const autoLockMinutes = useStore(s => s.autoLockMinutes);
   const lockScreen = useStore(s => s.lockScreen);
+
+  // An archive, move or other action still in its undo window goes to the server when the tab
+  // closes or reloads (keepalive, so the request outlives the page), and before the screen locks,
+  // rather than never. pageshow undoes the flag for a page restored from the back-forward cache.
+  useEffect(() => {
+    // A page kept in the back-forward cache comes back with the Undo toasts of the actions just
+    // sent; their Undo refuses (releaseUndoable says they are no longer pending).
+    const onHide = () => { setPageClosing(true); flushUndoables(); };
+    const onShow = () => setPageClosing(false);
+    window.addEventListener('pagehide', onHide);
+    window.addEventListener('pageshow', onShow);
+    window.addEventListener('mailflow:will-lock', flushUndoables);
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      window.removeEventListener('pageshow', onShow);
+      window.removeEventListener('mailflow:will-lock', flushUndoables);
+    };
+  }, []);
 
   // Auto-lock after inactivity (#235). MailApp only mounts while unlocked, so this
   // timer runs only when unlocked; hitting the timeout locks and unmounts this tree.

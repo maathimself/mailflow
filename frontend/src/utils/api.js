@@ -12,11 +12,20 @@ const messageBodyRequests = new Map();
 // Hover prefetches of bodies under way (prefetchMessageBody), by the same keys.
 const prefetchRequests = new Map();
 
+// Set while the page is being hidden for good (pagehide): a request sent then is keepalive, so
+// the browser completes it after the page is gone. Cleared on pageshow, because keepalive bodies
+// share a 64 KB budget that an attachment upload would exceed.
+let pageClosing = false;
+export function setPageClosing(closing) {
+  pageClosing = Boolean(closing);
+}
+
 async function request(method, path, body, extraHeaders) {
   const opts = {
     method,
     credentials: 'include',
     headers: { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) },
+    ...(pageClosing ? { keepalive: true } : {}),
   };
   if (body) {
     opts.headers['Content-Type'] = 'application/json';
@@ -544,6 +553,22 @@ export const api = {
     release: (id, editToken, { keepPaused = false } = {}) =>
       request('POST', `/mail/scheduled/${encodeURIComponent(id)}/release`, { editToken, ...(keepPaused ? { keepPaused: true } : {}) }),
     cancel:  (id)              => request('POST', `/mail/scheduled/${encodeURIComponent(id)}/cancel`),
+    // One attachment's content, base64, as the composer holds an upload.
+    attachmentBase64: async (id, index) => {
+      const res = await fetch(`${BASE}/mail/scheduled/${encodeURIComponent(id)}/attachments/${Number(index)}`, {
+        credentials: 'include', headers: { [CSRF_HEADER]: CSRF_VALUE },
+      });
+      if (!res.ok) {
+        // As request() does: a lock or an expired session shows its screen.
+        if (res.status === 423) window.dispatchEvent(new CustomEvent('mailflow:locked'));
+        if (res.status === 401) window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
+        throw Object.assign(new Error('Attachment not found'), { status: res.status });
+      }
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      let binary = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return btoa(binary);
+    },
     // editToken: send a message this composer holds for editing, in the same request.
     sendNow: (id, confirm, editToken) => request('POST', `/mail/scheduled/${encodeURIComponent(id)}/send-now`,
       { ...(confirm ? { confirm: true } : {}), ...(editToken ? { editToken } : {}) }),

@@ -77,19 +77,23 @@ export function once(fn) {
 // a dropped connection) is tried once more. A refusal is said in the server's words. One that
 // still fails points to the Scheduled view, where a cancelled message can be restored for
 // minutes. Resolves whether the message came back.
-export async function undoSchedule({ id, restoreData }, { cancel, reopen, notify, openView, t }) {
+export async function undoSchedule({ id, restoreData }, { cancel, reopen, notify, openView, t, loadAttachments }) {
   let err = null;
+  let cancelled = false;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      await cancel(id);
-      reopen(restoreData);
+      if (!cancelled) await cancel(id);
+      cancelled = true;
+      reopen(loadAttachments ? await loadAttachments(restoreData) : restoreData);
       return true;
     } catch (e) {
       err = e;
       if (e?.status === 409 || e?.status === 404) break;
     }
   }
-  if (err?.status === 409 || err?.status === 404) {
+  // Once cancelled, the message will not go out, whatever failed after: it is in the Scheduled
+  // view to restore, so the user is pointed there rather than told the undo failed.
+  if (!cancelled && (err?.status === 409 || err?.status === 404)) {
     notify({ type: 'error', title: t('compose.scheduleSend.undoFailed'), body: err.message, allowWrap: true, persistent: true });
   } else {
     notify({
@@ -325,4 +329,25 @@ export function scheduleErrorText(err, t, { now = Date.now(), locale } = {}) {
     default:
       return err?.message || t('compose.scheduleSend.errors.failed');
   }
+}
+
+// A draft with attachments (saved by another client: MailFlow saves drafts without them) sends
+// them from its own parts, and scheduling it deletes the draft (design 2.2). Undo would reopen a
+// composer pointing at parts of a message that is gone, which can be neither sent nor saved. The
+// scheduled copy holds those parts, so they come back from it as ordinary attachments. Messages
+// forwarded as attachments point at messages that still exist and stay as they are.
+export async function withScheduledAttachments(restoreData, id, { get, attachmentBase64 }) {
+  if (!restoreData?.externalAttachments?.length) return restoreData;
+  const { attachments = [] } = await get(id);
+  const parts = attachments.filter(a => a?.kind === 'forwarded');
+  const files = await Promise.all(parts.map(async a => ({
+    name: a.filename, size: a.size, type: a.contentType, data: await attachmentBase64(id, a.index),
+  })));
+  return {
+    ...restoreData,
+    attachments: [...(restoreData.attachments || []), ...files],
+    forwardedAttachments: (restoreData.forwardedAttachments || []).filter(a => a.asMessage),
+    externalAttachments: [],
+    unresolvedExternalAttachments: false,
+  };
 }

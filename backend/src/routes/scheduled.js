@@ -399,7 +399,9 @@ router.get('/scheduled/:id/attachments/:index', validId, async (req, res) => {
   if (!/^\d{1,3}$/.test(req.params.index)) return fail(res, 404, 'Attachment not found');
   const index = Number(req.params.index);
   const row = await findOwnedScheduledMessage(req.session.userId, req.params.id);
-  if (!row || row.status === 'cancelled') return fail(res, 404, 'Attachment not found');
+  // A cancelled message's attachments while it can still be restored, as for the message itself:
+  // Undo of a schedule reopens the composer with them, its draft having gone when it was scheduled.
+  if (!row || (row.status === 'cancelled' && !restorable(row))) return fail(res, 404, 'Attachment not found');
   let att;
   try {
     [att] = await readAttachments({ query }, row, { only: index });

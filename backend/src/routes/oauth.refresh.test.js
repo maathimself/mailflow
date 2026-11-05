@@ -59,6 +59,17 @@ describe('Microsoft token refresh — public (device-code) vs confidential (auth
     expect(bodyOf(fetchMock.mock.calls[0]).has('client_secret')).toBe(false);
   });
 
+  // Microsoft rotates the refresh token on each refresh. A caller that keeps the account object
+  // (a sync interval) must refresh with the new one next time, so it comes back with the result.
+  it('returns the rotated refresh token with the new access token, and keeps the old one when none came', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(res(true, OK_TOKENS)));
+    const rotated = await refreshMicrosoftToken({ id: 'a5', oauth_refresh_token: 'stored-rt', oauth_public_client: true });
+    expect(rotated).toMatchObject({ oauth_access_token: 'new-access', oauth_refresh_token: 'new-refresh' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(res(true, { access_token: 'new-access', expires_in: 3600 })));
+    const kept = await refreshMicrosoftToken({ id: 'a6', oauth_refresh_token: 'stored-rt', oauth_public_client: true });
+    expect(kept.oauth_refresh_token).toBe('stored-rt');
+  });
+
   it('self-heals: retries without the secret on AADSTS90023 and records the account as public', async () => {
     process.env.MS_CLIENT_SECRET = 'secret-xyz';
     const fetchMock = vi.fn()

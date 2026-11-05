@@ -4,6 +4,7 @@ import { normalizeConversation, newestConversationMessage } from './conversation
 import { conversationActionIds, conversationSpamTargets, newestSnoozeTarget, keepDraftsApart } from './conversationActions.js';
 import { setPendingDelete, setCompletedDelete, clearDeleteGuard, clearPendingDelete } from './pendingDeletes.js';
 import { archiveTargetsForFolder } from './threadedArchive.js';
+import { holdUndoable, releaseUndoable, UNDO_COMMIT_DELAY_MS } from './undoableAction.js';
 
 // Which messages a thread-wide action should actually operate on.
 //
@@ -75,7 +76,6 @@ export async function resolveThreadMessages({ message, isThreadRow, cached, fetc
 // only when one did. beforeRemove runs once there is something to take, before anything leaves the
 // list: that is when the pane opens what takes the conversation's place.
 
-const UNDO_WINDOW_MS = 4500;
 
 export function runThreadAction({ messages, commit, resolve, notification, addNotification, beforeRemove, onRemove, onRestore }) {
   const targets = normalizeConversation(messages);
@@ -95,12 +95,16 @@ export function runThreadAction({ messages, commit, resolve, notification, addNo
     onRestore?.(targets);
   };
 
+  // Read now as well, for a flush (the tab closing, the screen locking), which cannot wait on a
+  // request of its own before the action's.
+  const early = resolve ? Promise.resolve().then(() => resolve(targets)).catch(() => null) : null;
   let undone = false;
-  const timer = setTimeout(async () => {
+  const timer = holdUndoable(async ({ flushing = false } = {}) => {
     if (undone) return;
     try {
       // Resolve last, so a message that arrived during the undo window is included.
-      const live = resolve ? normalizeConversation(await resolve(targets)) : targets;
+      const resolved = resolve ? ((flushing && await early) || await resolve(targets)) : null;
+      const live = resolve ? normalizeConversation(resolved) : targets;
       await commit(live.length ? live : targets);
     } catch (err) {
       console.error('Thread action failed:', err);
@@ -111,14 +115,15 @@ export function runThreadAction({ messages, commit, resolve, notification, addNo
         body: err.message || notification.failBody,
       });
     }
-  }, UNDO_WINDOW_MS);
+  }, UNDO_COMMIT_DELAY_MS);
 
   addNotification({
     title: notification.title,
     body: notification.body,
     onUndo: () => {
+      // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+      if (!releaseUndoable(timer)) return;
       undone = true;
-      clearTimeout(timer);
       restore();
     },
   });

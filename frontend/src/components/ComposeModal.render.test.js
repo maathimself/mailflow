@@ -1564,3 +1564,65 @@ describe('pasting into the signature and the quoted message', () => {
     assertNoCopiedColor(await pasteAndSend({ phone: true }));
   });
 });
+
+// Locking swaps the mail view for the lock screen, which unmounts the composer. It reopens on
+// unlock from the store, so it has to leave its current state there, not what it was opened with.
+describe('locking the screen while composing', () => {
+  test('reopens with the text and the draft written since it was opened', async () => {
+    const accounts = useStore.getState().accounts;
+    const close = await openDraft({ plaintextEmail: false, body: GMAIL_DRAFT });
+    let editor = document.querySelector('.ProseMirror').editor;
+    await React.act(async () => { editor.commands.insertContent(' Saved part.'); });
+    await hideTab();
+    assert.equal(saved.at(-1).existingUid, 7, 'precondition: the autosave replaced the opened draft');
+    await React.act(async () => { editor.commands.insertContent(' Typed after the autosave.'); });
+
+    await React.act(async () => { useStore.getState().setLocked(true); });
+    await close();
+    const kept = useStore.getState().composeData;
+    assert.equal(useStore.getState().composing, true, 'the composer reopens after unlock');
+    assert.match(kept.body, /Typed after the autosave\./);
+    assert.equal(kept.draftUid, 8, 'it keeps saving into the draft the autosave wrote');
+    assert.equal(kept.restored, true);
+
+    // As in the browser: unlock remounts the composer at once, and the accounts (cleared by the
+    // lock) load again after it.
+    await React.act(async () => { useStore.getState().setLocked(false); });
+    assert.deepEqual(useStore.getState().accounts, [], 'precondition: no accounts when it mounts');
+    saved.length = 0;
+    const root = createRoot(document.getElementById('root'));
+    await React.act(async () => { root.render(React.createElement(ComposeModal)); });
+    await React.act(async () => {});
+    await React.act(async () => { useStore.setState({ accounts }); });
+    await React.act(async () => {});
+    editor = document.querySelector('.ProseMirror').editor;
+    assert.match(editor.getHTML(), /Typed after the autosave\./);
+    await hideTab();
+    assert.equal(saved.length, 1, 'the unsaved part is saved, rather than dropped');
+    assert.equal(saved[0].existingUid, 8, 'into the same draft, not a second one');
+    assert.equal(saved[0].accountId, 'acct', 'from the account it was written from');
+    await React.act(async () => root.unmount());
+    useStore.setState({ composing: false, composeData: null });
+  });
+
+  test('an autosave that answers after the lock points the reopened composer at its copy', async () => {
+    const close = await openDraft({ plaintextEmail: false, body: GMAIL_DRAFT });
+    const editor = document.querySelector('.ProseMirror').editor;
+    await React.act(async () => { editor.commands.insertContent(' Saving as it locks.'); });
+    let answer;
+    const realSave = api.saveDraft;
+    api.saveDraft = () => new Promise(resolve => { answer = resolve; });
+    try {
+      await hideTab(); // the autosave is out
+      assert.ok(answer, 'precondition: an autosave in flight');
+      await React.act(async () => { useStore.getState().setLocked(true); });
+      await close();
+      await React.act(async () => { answer({ uid: 9, folder: 'Drafts' }); await new Promise(r => setTimeout(r, 0)); });
+      assert.equal(useStore.getState().composeData.draftUid, 9, 'the copy the late save wrote');
+    } finally {
+      api.saveDraft = realSave;
+      useStore.getState().setLocked(false);
+      useStore.setState({ composing: false, composeData: null, accounts: [{ id: 'acct', enabled: true, email_address: 'me@example.invalid', name: 'Me', color: '#fff' }] });
+    }
+  });
+});

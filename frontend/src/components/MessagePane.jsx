@@ -66,6 +66,7 @@ import FolderIcon from './FolderIcon.jsx';
 import TodoistTaskModal from './TodoistTaskModal.jsx';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import ContextMenu from './ContextMenu.jsx';
+import { holdUndoable, releaseUndoable, UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
 
 function linkifyText(text) {
   const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -183,12 +184,15 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     closeWindowIfWindowed();
     if (wasUnread) decrementUnread(message.account_id, 1, { undoable: true });
     let settled = false;
+    let timer;
     const undo = () => {
+      // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+      if (!releaseUndoable(timer)) return;
       settled = true;
       useStore.getState().restoreMessages([message]);
       if (wasUnread) incrementUnread(message.account_id);
     };
-    setTimeout(async () => {
+    timer = holdUndoable(async () => {
       if (settled) return;
       try {
         const fn = label === 'spam' ? api.markSpam : api.markHam;
@@ -202,7 +206,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           body: err.message || t(label === 'spam' ? 'spam.failBody' : 'spam.failHamBody'),
         });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     addNotification({
       title: label === 'spam' ? t('spam.movedToSpam') : t('spam.movedToInbox'),
       body: message.subject || t('common.noSubject'),
@@ -853,7 +857,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     closeWindowIfWindowed();
     if (!moved.is_read) decrementUnread(moved.account_id, 1, { undoable: true });
     let undone = false;
-    const timer = setTimeout(async () => {
+    const timer = holdUndoable(async () => {
       if (undone) return;
       try {
         await api.bulkMove([moved.id], folder);
@@ -864,13 +868,14 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         if (!moved.is_read) incrementUnread(moved.account_id);
         addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     addNotification({
       title: t('message.moved.title'),
       body: folder,
       onUndo: () => {
+        // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+        if (!releaseUndoable(timer)) return;
         undone = true;
-        clearTimeout(timer);
         useStore.getState().restoreMessages([moved]);
         if (!moved.is_read) incrementUnread(moved.account_id);
       },
@@ -971,7 +976,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     closeWindowIfWindowed();
     if (!deleted.is_read) decrementUnread(deleted.account_id, 1, { undoable: true });
     let undone = false;
-    const timer = setTimeout(async () => {
+    const timer = holdUndoable(async () => {
       if (undone) return;
       try {
         await api.deleteMessage(deleted.id);
@@ -982,13 +987,14 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         if (!deleted.is_read) incrementUnread(deleted.account_id);
         addNotification({ type: 'error', title: t('messageList.deleted.failTitle'), body: t('messageList.deleted.failBody') });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     addNotification({
       title: t('messageList.deleted.title'),
       body: t('messageList.deleted.body'),
       onUndo: () => {
+        // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+        if (!releaseUndoable(timer)) return;
         undone = true;
-        clearTimeout(timer);
         clearPendingDelete(deleted.id);
         useStore.getState().restoreMessages([deleted]);
         if (!deleted.is_read) incrementUnread(deleted.account_id);
@@ -1003,7 +1009,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     closeWindowIfWindowed();
     if (!archived.is_read) decrementUnread(archived.account_id, 1, { undoable: true });
     let undone = false;
-    const timer = setTimeout(async () => {
+    const timer = holdUndoable(async () => {
       if (undone) return;
       try {
         const result = await api.bulkArchive([archived.id]);
@@ -1014,13 +1020,14 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         console.error('Archive failed:', err);
         addNotification({ title: t('message.archived.failTitle'), body: t('message.archived.failBody') });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     addNotification({
       title: t('message.archived.title'),
       body: archived.subject || t('common.noSubject'),
       onUndo: () => {
+        // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+        if (!releaseUndoable(timer)) return;
         undone = true;
-        clearTimeout(timer);
         // Back into the list it left, not into one opened since (#630).
         useStore.getState().restoreMessages([archived]);
         if (!archived.is_read) incrementUnread(archived.account_id);
