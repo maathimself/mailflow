@@ -16,7 +16,7 @@ vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }
 
 import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, contentLocationFromMimeHeader, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, pairMovedCopies, computeThreadId, noteDraftsChanged } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
-import { ensureFreshToken } from './imapManager.js';
+import { ensureFreshToken, clearChangedSinceIgnored } from './imapManager.js';
 import { clearCarries, hasCarries, rememberDroppedRows } from './movedRowCarry.js';
 import { clearRefreshFailure, noteFreshToken, noteRefreshFailure, refreshFailureFor } from './accountErrorCode.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
@@ -1444,6 +1444,48 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
       { uid: true }
     );
     expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE folders SET highest_modseq'))).toBe(false);
+  });
+
+  // A read or star set elsewhere on old mail is pulled too: CHANGEDSINCE keeps the answer to what
+  // changed, so the scan covers the whole mailbox, except on a server that ignores it (iCloud).
+  describe('the flag delta scan', () => {
+    const deltaScanFor = async (account) => {
+      clearChangedSinceIgnored();
+      const client = {
+        noop: vi.fn(async () => true),
+        getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+        mailbox: { exists: 9000, uidValidity: 100, highestModseq: 500n },
+        fetch: vi.fn(async function* () {}),
+      };
+      query.mockImplementation((sql) => {
+        if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) {
+          return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '400' }] });
+        }
+        if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return Promise.resolve({ rows: [{ n: 0 }] });
+        if (sql.includes('COALESCE(MAX(uid), 0)')) return Promise.resolve({ rows: [{ max_uid: 9000 }] });
+        if (sql.includes('SELECT gtd_enabled, gtd_folders FROM email_accounts')) {
+          return Promise.resolve({ rows: [{ gtd_enabled: false, gtd_folders: {} }] });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+      const mgr = { _applyFlagUpdates: vi.fn(async () => 0), broadcast: vi.fn() };
+      await ImapManager.prototype.syncMessages.call(mgr, account, client, 'Archive', 50, false, true);
+      return client.fetch.mock.calls.find(([, fields]) => fields.flags && !fields.envelope);
+    };
+    const base = {
+      user_id: 'user-1', email_address: 'me@example.com', gtd_enabled: false, categorization_enabled: false,
+    };
+
+    it('asks for every UID changed since the watermark, not only recent ones', async () => {
+      const call = await deltaScanFor({ ...base, id: 'acct-delta-gmail', imap_host: 'imap.gmail.com' });
+      expect(call[0]).toBe('1:*');
+      expect(call[2]).toEqual({ uid: true, changedSince: 400n });
+    });
+
+    it('keeps a recent window on iCloud, which ignores changedSince', async () => {
+      const call = await deltaScanFor({ ...base, id: 'acct-delta-icloud', imap_host: 'imap.mail.me.com' });
+      expect(call[0]).toBe('4001:*');
+    });
   });
 
   it('hands a newly-inserted INBOX row to the inboxIngest hook when a plugin is active', async () => {

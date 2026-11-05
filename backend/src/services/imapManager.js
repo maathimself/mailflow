@@ -445,17 +445,41 @@ const FLAG_SCAN_TIMED_OUT = Symbol('flagScanTimedOut');
 // account on that host, or stops a single account syncing, until the process restarts.
 // _syncTick and withFreshLogin already did this; the rest of the file now matches.
 
-// Upper bound on how far back the delta flag scan looks. iCloud advertises CONDSTORE (so we take
-// the delta path) but IGNORES the changedSince fetch modifier — it returns EVERY message in the
-// requested range. Since the scan only pulls uid+flags (cheap), this window mainly caps that
-// worst case so a huge mailbox doesn't fetch tens of thousands of records per tick. Recent
-// messages are the ones whose flags change, and the reactive IDLE flag path (_syncFlagsForRange)
-// already covers live read/star events, so the window is a generous backstop. A flag change on a
-// message older than this window won't be caught by the periodic scan, but that gap already
-// exists (the IDLE path only looks at the last 200) and matters only for cross-device changes to
-// very old mail. Servers that honor changedSince (PurelyMail, Gmail) return only what changed
-// regardless of the window.
+// The flag scans ask for messages changed since a modseq (CHANGEDSINCE). A server that honors
+// it answers with only those, so the scan covers the whole mailbox: a read or star set on another
+// device on a months-old message is pulled like any other. Scanning only recent UIDs (as before)
+// skipped those changes while the watermark moved past them, so they were never applied, and the
+// unread count left behind kept the integrity pass re-running every cycle.
+//
+// iCloud advertises CONDSTORE but IGNORES changedSince and returns every message in the range, so
+// for it the scans keep a recent UID window: with uid+flags that is a cheap fetch (~a second) per
+// tick instead of the whole mailbox, at the cost of the old-mail gap there. Any other server
+// caught doing the same, answering a full-range scan with more than the window could hold or
+// running past the scan's budget, is windowed from then on, until the process restarts.
 const DELTA_SCAN_UID_WINDOW = 5000;
+const changedSinceIgnoredAccounts = new Set();
+
+// The lowest UID a flag scan asks for, given the highest UID it needs to cover.
+export function flagScanLowUid(account, topUid) {
+  const windowed = providerProfile(account).ignoresChangedSince || changedSinceIgnoredAccounts.has(account.id);
+  return windowed && topUid > DELTA_SCAN_UID_WINDOW ? topUid - DELTA_SCAN_UID_WINDOW + 1 : 1;
+}
+
+// Called after a full-range (lowUid 1) CHANGEDSINCE scan: `returned` records out of `exists`, or
+// timedOut. A server that honors changedSince returns what changed, rarely most of a large
+// mailbox; one that ignores it returns all of it, or is still fetching when the budget ends.
+export function noteChangedSinceScan(account, { lowUid, returned = 0, exists = 0, timedOut = false }) {
+  if (lowUid !== 1 || changedSinceIgnoredAccounts.has(account.id)) return;
+  const answeredEverything = returned > DELTA_SCAN_UID_WINDOW && returned >= exists * 0.9;
+  if (!answeredEverything && !(timedOut && exists > DELTA_SCAN_UID_WINDOW)) return;
+  changedSinceIgnoredAccounts.add(account.id);
+  console.warn(`Flag scans for ${logAccount(account)} now cover the last ${DELTA_SCAN_UID_WINDOW} UIDs: the server ${timedOut ? 'did not finish a changedSince scan in time' : `answered changedSince with ${returned} of ${exists} messages`}`);
+}
+
+// For tests.
+export function clearChangedSinceIgnored() {
+  changedSinceIgnoredAccounts.clear();
+}
 
 // How long (ms) user must be idle before background IMAP jobs (snippet indexer, folder
 // body prefetch) resume after a live body fetch. Keeps click-time fetches snappy by
@@ -1432,6 +1456,8 @@ export const PROVIDERS = {
   },
   apple: {
     // iCloud is permissive — large batches, short delay.
+    // Advertises CONDSTORE but returns every message in a changedSince fetch's range.
+    ignoresChangedSince: true,
     batchSize: 200, batchDelay: 1000, errorDelay: 10000, batchesPerConn: 20,
     fetchBody: false,
     pushesFlags: true,
@@ -4487,15 +4513,11 @@ export class ImapManager {
             // be fast enough that this does not bite there, but a server that both ignores
             // CHANGEDSINCE and is slow would re-enter the unbounded fetch this pass exists
             // to avoid. Never leave a fetch unbounded inside a budgeted operation.
-            // Windowed the same way the sync delta scan is, and for the same documented
-            // reason: iCloud advertises CONDSTORE but ignores changedSince and returns the
-            // whole requested range. A sub-budget alone bounds the wait, not the work; the
-            // window bounds the work. Recent UIDs are the ones whose flags change, and the
-            // reactive IDLE path covers live events, so this is a backstop rather than the
-            // primary flag mechanism. Servers that honor changedSince return only what
-            // changed regardless of the window.
+            // Covers the whole mailbox unless the server ignores changedSince (see
+            // flagScanLowUid): a sub-budget alone bounds the wait, not the work, and on such a
+            // server only the window bounds the work.
             const uidNext = Number(client.mailbox?.uidNext) || 0;
-            const deltaLow = uidNext > DELTA_SCAN_UID_WINDOW ? uidNext - DELTA_SCAN_UID_WINDOW : 1;
+            const deltaLow = flagScanLowUid(account, uidNext - 1);
             const delta = (async () => {
               for await (const m of client.fetch(`${deltaLow}:*`, { uid: true, flags: true }, { uid: true, changedSince: BigInt(storedFlagModseq) })) {
                 flags.push({ uid: m.uid, isRead: m.flags.has('\\Seen'), isStarred: m.flags.has('\\Flagged') });
@@ -4506,10 +4528,14 @@ export class ImapManager {
               delta,
               new Promise(res => setTimeout(() => res(FLAG_SCAN_TIMED_OUT), FLAG_SCAN_TIMEOUT_MS)),
             ]);
+            const deltaExists = Number(client.mailbox?.exists) || 0;
             if (deltaOutcome === FLAG_SCAN_TIMED_OUT) {
+              noteChangedSinceScan(account, { lowUid: deltaLow, exists: deltaExists, timedOut: true });
               flags.length = 0;
               fullScanDeferred = true;
               console.warn(`Integrity delta flag scan deferred for ${logAccount(account)}/${path}: over ${FLAG_SCAN_TIMEOUT_MS}ms`);
+            } else {
+              noteChangedSinceScan(account, { lowUid: deltaLow, returned: flags.length, exists: deltaExists });
             }
           }
 
@@ -4558,9 +4584,39 @@ export class ImapManager {
             throw new Error('Folder membership changed during integrity sync');
           }
           if (expired) throw new Error('Folder integrity sync expired');
-          const changed = await this._applyFlagUpdates(account, path, flags);
-          const { rows } = await query('SELECT uid, synced_at FROM messages WHERE account_id=$1 AND folder=$2', [account.id, path]);
+          let changed = await this._applyFlagUpdates(account, path, flags);
+          const { rows } = await query('SELECT uid, synced_at, is_read FROM messages WHERE account_id=$1 AND folder=$2', [account.id, path]);
           const local = new Set(rows.map(r => Number(r.uid)));
+          // Read state the flag scans never pulled (a change elsewhere that their range or
+          // watermark skipped) shows up as an unread count that differs from the server's, and
+          // nothing above repairs it. One UNSEEN search does, cheaply and server-side: rows the
+          // server lists whose read state disagrees with it are set to the server's, except a
+          // change made here in the last 30 s (still being pushed) or a uid a move is using.
+          // Only uids in the membership snapshot are touched, so mail arriving after it is not.
+          const localUnread = rows.reduce((n, r) => n + (r.is_read ? 0 : 1), 0);
+          if (Number.isSafeInteger(observed.unseen) && observed.unseen !== localUnread) {
+            if (expired) throw new Error('Folder integrity sync expired');
+            const unseen = await client.search({ seen: false }, { uid: true });
+            if (Array.isArray(unseen)) {
+              const unseenSet = new Set(unseen);
+              const disagree = rows.filter(r => server.has(Number(r.uid))
+                && Boolean(r.is_read) === unseenSet.has(Number(r.uid))
+                && !this._isMoveUidGuarded(account.id, path, Number(r.uid))).map(r => Number(r.uid));
+              if (disagree.length) {
+                const healed = await query(
+                  `UPDATE messages SET is_read = NOT (uid = ANY($3::bigint[]))
+                   WHERE account_id=$1 AND folder=$2 AND uid = ANY($4::bigint[])
+                     AND is_read = (uid = ANY($3::bigint[]))
+                     AND (read_changed_at IS NULL OR NOW() - read_changed_at >= interval '30 seconds')`,
+                  [account.id, path, unseen, disagree]
+                );
+                if (healed.rowCount) {
+                  changed += healed.rowCount;
+                  console.log(`Integrity pass for ${logAccount(account)}/${path}: read state of ${healed.rowCount} message(s) set to the server's (unread ${localUnread} here, ${observed.unseen} on the server)`);
+                }
+              }
+            }
+          }
           // UIDs the server lists but has repeatedly refused to hand over do not count as a
           // gap. Without this the pair (integrity check, backfill) loops forever on them:
           // the check finds them missing, the backfill asks and gets nothing, and the next
@@ -5093,13 +5149,12 @@ export class ImapManager {
         let flagScanComplete = true;
         if (plan === 'delta') {
           // Flag-only scan. The only thing that changes on an EXISTING message is its flags
-          // (read/star) — new mail is the UID phase's job — so fetch just uid+flags over a recent
-          // UID window and bulk-apply. Deliberately lightweight: iCloud advertises CONDSTORE (so
-          // we land here) but IGNORES changedSince and returns the WHOLE window; with uid+flags
-          // that is a cheap fetch + one bulk UPDATE (~a second) instead of thousands of full-
-          // envelope fetches and upserts. changedSince still trims the set on servers that honor
-          // it (PurelyMail, Gmail). A tiny mailbox clamps to 1:* anyway.
-          const deltaLow = Math.max(1, maxKnownUid - DELTA_SCAN_UID_WINDOW + 1);
+          // (read/star) — new mail is the UID phase's job — so fetch just uid+flags and
+          // bulk-apply. changedSince keeps it to what changed, over the whole mailbox; on a
+          // server that ignores changedSince (iCloud) it covers a recent UID window instead,
+          // which with uid+flags is one cheap fetch + one bulk UPDATE. See flagScanLowUid.
+          const deltaLow = flagScanLowUid(account, maxKnownUid);
+          const scanExists = Number(client.mailbox?.exists) || 0;
           const deltaStartedAt = Date.now();
           const flagsToUpdate = [];
           try {
@@ -5117,6 +5172,7 @@ export class ImapManager {
               new Promise(res => setTimeout(() => res(FLAG_SCAN_TIMED_OUT), FLAG_SCAN_TIMEOUT_MS)),
             ]);
             if (outcome === FLAG_SCAN_TIMED_OUT) {
+              noteChangedSinceScan(account, { lowUid: deltaLow, exists: scanExists, timedOut: true });
               flagScanComplete = false;
               console.warn(`Delta flag scan deferred for ${logAccount(account)}/${folder}: over ${FLAG_SCAN_TIMEOUT_MS}ms (provider throttling) — retrying next tick`);
             }
@@ -5131,6 +5187,7 @@ export class ImapManager {
           // so the next tick redoes it. A flag change has no new_messages event of its own, so a
           // flags_synced nudge lets a read-elsewhere reflect live instead of staying stale.
           if (flagScanComplete) {
+            noteChangedSinceScan(account, { lowUid: deltaLow, returned: flagsToUpdate.length, exists: scanExists });
             const changed = await this._applyFlagUpdates(account, folder, flagsToUpdate);
             logger.debug(`Delta flag scan OK for ${logAccount(account)}/${folder}: ${flagsToUpdate.length} fetched, ${changed} changed in ${Date.now() - deltaStartedAt}ms (uid>=${deltaLow}), modseq ${storedModseq}->${serverModseq}`);
             if (changed > 0) {
