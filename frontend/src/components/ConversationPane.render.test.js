@@ -912,6 +912,27 @@ describe('a conversation another account also received', () => {
   // The titles of the notices on screen; the i18n stub renders each as its key.
   const notices = () => useStore.getState().notifications.map(n => n.title);
 
+  // A conversation row stands for its newest message: a reply that arrives gives the row a new id,
+  // and the conversation the reader had open used to close under them.
+  test('a reply that arrives keeps the conversation open, and comes in closed and unread', async () => {
+    await open();
+    assert.deepEqual(openIds(), ['m3']);
+    const M4 = { ...THREAD[2], id: 'm4', message_id: '<4@x>', thread_id: '<1@x>', date: '2026-01-04T10:00:00Z', is_read: false, snippet: 'arrived while open' };
+    served['<1@x>'] = [...THREAD, B3, M4];
+    requests.length = 0;
+    try {
+      await React.act(async () => {
+        useStore.setState({ messages: [{ ...ROW, id: 'm4', date: M4.date, message_count: 3, unread_count: 1 }] });
+      });
+      await wait(50);
+      assert.ok(cardIds().includes('m4'), 'the reply is in the open conversation');
+      assert.deepEqual(openIds(), ['m3'], 'the card the reader had open stays open, the reply stays closed');
+      assert.ok(!sentIds(/bulk-read/).includes('m4'), 'and the reply is not marked read');
+    } finally {
+      delete served['<1@x>'];
+    }
+  });
+
   test('opening it marks the row account\'s copy read, not the other account\'s', async () => {
     await open();
     const read = requests.filter(r => r.url.includes('/bulk-read')).flatMap(r => r.body.ids);
