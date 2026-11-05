@@ -202,7 +202,9 @@ router.get('/events', async (req, res) => {
     [req.session.userId, new Date(fromMs), new Date(toMs)],
   );
   const events = [];
-  for (const row of r.rows) {
+  for (const [i, row] of r.rows.entries()) {
+    // This process also runs the mail engine: a large calendar must not hold it up.
+    if (i % 25 === 24) await new Promise(setImmediate);
     try {
       for (const occ of expandResource(row.ical, fromMs, toMs, { floatingTz })) {
         events.push({

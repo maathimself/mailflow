@@ -68,12 +68,27 @@ function toUtcMs(time, tzid, zones) {
   return Date.UTC(time.year, time.month - 1, time.day, time.hour, time.minute, time.second);
 }
 
+// An ICAL.Timezone works out its transitions from the definition's start, often 1601, and keeps
+// them on the instance. Every event of a server repeats the same VTIMEZONE, so instances are shared
+// by definition: one per event took 50 ms each and blocked the process on a large calendar.
+const sharedZones = new Map();
+function sharedZone(vtz, tzid) {
+  const key = JSON.stringify(vtz.toJSON());
+  let zone = sharedZones.get(key);
+  if (!zone) {
+    if (sharedZones.size >= 200) sharedZones.clear();
+    zone = new ICAL.Timezone({ component: vtz, tzid });
+    sharedZones.set(key, zone);
+  }
+  return zone;
+}
+
 function zonesOf(root, floatingTz) {
   const zones = new Map();
   zones.floatingTz = isIana(floatingTz) ? floatingTz : null;
   for (const vtz of root.getAllSubcomponents('vtimezone')) {
     const tzid = vtz.getFirstPropertyValue('tzid');
-    if (tzid) zones.set(tzid, new ICAL.Timezone({ component: vtz, tzid }));
+    if (tzid) zones.set(tzid, sharedZone(vtz, tzid));
   }
   return zones;
 }

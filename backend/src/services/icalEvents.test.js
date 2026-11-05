@@ -55,6 +55,17 @@ describe('expandResource', () => {
     expect(expandResource(ics, ...range('2026-07-01T00:00:00Z', '2026-07-02T00:00:00Z'))[0].start).toBe('2026-07-01T08:00:00.000Z');
   });
 
+  it('keeps two different definitions of one zone name apart', () => {
+    const define = offset => cal('BEGIN:VTIMEZONE', 'TZID:Paris, Madrid',
+      'BEGIN:STANDARD', 'DTSTART:16010101T000000', `TZOFFSETFROM:${offset}`, `TZOFFSETTO:${offset}`, 'END:STANDARD', 'END:VTIMEZONE',
+      'BEGIN:VEVENT', 'UID:o', 'DTSTAMP:20260101T000000Z', 'DTSTART;TZID="Paris, Madrid":20260701T100000',
+      'DTEND;TZID="Paris, Madrid":20260701T110000', 'END:VEVENT');
+    const start = ics => expandResource(ics, ...range('2026-07-01T00:00:00Z', '2026-07-02T00:00:00Z'))[0].start;
+    expect(start(define('+0100'))).toBe('2026-07-01T09:00:00.000Z');
+    expect(start(define('+0300'))).toBe('2026-07-01T07:00:00.000Z');
+    expect(start(define('+0100'))).toBe('2026-07-01T09:00:00.000Z');
+  });
+
   it('drops EXDATEs, including one written in another zone, and shows a moved override once', () => {
     const ics = cal(
       'BEGIN:VEVENT', 'UID:s', 'DTSTAMP:20260101T000000Z', 'SUMMARY:Daily',
