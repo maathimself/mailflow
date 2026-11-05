@@ -3398,6 +3398,18 @@ describe('ensureFreshToken: a refresh that cannot succeed is remembered, not swa
     expect(refreshFailureFor('ms-9')).toBeNull();
   });
 
+  it('writes a refreshed token into the account object its caller keeps', async () => {
+    const later = new Date(Date.now() + 3600 * 1000).toISOString();
+    refreshMicrosoftToken.mockImplementationOnce(async (a) => ({
+      ...a, oauth_access_token: 'new', oauth_refresh_token: 'rotated', oauth_token_expiry: later,
+    }));
+    const held = account();
+    await ensureFreshToken(held);
+    expect(held).toMatchObject({ oauth_access_token: 'new', oauth_refresh_token: 'rotated', oauth_token_expiry: later });
+    await ensureFreshToken(held);
+    expect(refreshMicrosoftToken).toHaveBeenCalledOnce();
+  });
+
   it('forgets the failure once a refresh succeeds', async () => {
     noteRefreshFailure('ms-9', { code: 'oauth_reauth', detail: 'old' });
     refreshMicrosoftToken.mockImplementationOnce(async (a) => ({ ...a, oauth_access_token: 'new' }));
@@ -3660,7 +3672,9 @@ describe('hung IMAP transport recovery', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     query.mockReset();
-    query.mockResolvedValue({ rows: [] });
+    // The tick re-reads the account it holds: a live, enabled one here.
+    query.mockImplementation(async (sql) => (sql.startsWith('SELECT * FROM email_accounts')
+      ? { rows: [{ ...acct, enabled: true }] } : { rows: [] }));
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
   afterEach(() => {
@@ -3698,6 +3712,30 @@ describe('hung IMAP transport recovery', () => {
     expect(successor.close).not.toHaveBeenCalled();
     expect(mgr.connections.get(acct.id)).toBe(successor);
     expect(client.logout).not.toHaveBeenCalled();
+  });
+  it('applies a settings change made while connected on the next tick', async () => {
+    const { mgr } = setup();
+    const held = { ...acct, antispam_enabled: false };
+    query.mockImplementation(async (sql) => (sql.startsWith('SELECT * FROM email_accounts')
+      ? { rows: [{ ...acct, enabled: true, antispam_enabled: true }] } : { rows: [] }));
+    mgr.syncMessages = vi.fn(async (account) => { expect(account.antispam_enabled).toBe(true); return {}; });
+    await mgr._syncTick(held);
+    expect(mgr.syncMessages).toHaveBeenCalledOnce();
+    expect(held.antispam_enabled).toBe(true);
+  });
+  it('disconnects an account removed or disabled while connected, instead of syncing it', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    for (const rows of [[], [{ ...acct, enabled: false }]]) {
+      const { mgr, client } = setup();
+      query.mockImplementation(async () => ({ rows }));
+      mgr.syncIntervals.set(acct.id, setInterval(() => {}, 60000));
+      mgr.syncMessages = vi.fn();
+      await mgr._syncTick(acct);
+      expect(mgr.syncMessages).not.toHaveBeenCalled();
+      expect(client.close).toHaveBeenCalledOnce();
+      expect(mgr.connections.has(acct.id)).toBe(false);
+      expect(mgr.syncIntervals.has(acct.id)).toBe(false);
+    }
   });
   it('disconnect completes even when graceful logout would never settle', async () => {
     const { mgr, client } = setup();

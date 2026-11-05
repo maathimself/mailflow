@@ -2026,7 +2026,10 @@ export async function ensureFreshToken(account) {
   if (expiry - now < 5 * 60 * 1000) {
     console.log(`Refreshing ${account.oauth_provider} token for ${logAccount(account)}`);
     try {
-      account = await refresh(account);
+      // Into the caller's object as well: an interval or IDLE listener keeps it, and with the
+      // old expiry every later caller would refresh again, with a refresh token Microsoft has
+      // since rotated away.
+      account = Object.assign(account, await refresh(account));
       clearRefreshFailure(account.id);
       noteFreshToken(account.id);
     } catch (err) {
@@ -3903,6 +3906,7 @@ export class ImapManager {
     this.syncStartedAt.set(account.id, Date.now());
     let activeClient = null;
     let usedFreshSyncClient = false;
+    let disconnectAfter = false;
     let syncResult;
     try {
       activeClient = this.connections.get(account.id);
@@ -3946,9 +3950,10 @@ export class ImapManager {
           pendingClient = await connectImapClient(setup.freshAccount, setup.resolved,
             { enableIdle: providerProfile(setup.freshAccount).usesIdle !== false, policy: setup.policy, idleKeepaliveMs: providerProfile(setup.freshAccount).idleKeepaliveMs },
             30000, 'Reconnect');
-          const reconnected = { client: pendingClient, account: setup.freshAccount };
-          activeClient = reconnected.client;
-          syncAccount = reconnected.account;
+          activeClient = pendingClient;
+          // Into the object this interval holds, so later ticks and the IDLE listeners below
+          // share the reconnect's account data (see _refreshLiveAccount).
+          syncAccount = Object.assign(account, setup.freshAccount);
           activeClient.on('close', () => {
             if (this.connections.get(account.id) === activeClient) {
               this.connections.delete(account.id);
@@ -3978,6 +3983,11 @@ export class ImapManager {
         } finally {
           this.connectingAccounts.delete(account.id);
         }
+      } else if (!(await this._refreshLiveAccount(account))) {
+        // Deleted or disabled while connected, or connected by a connect that finished after
+        // the disconnect did: nothing else tears this connection and its timer down.
+        disconnectAfter = true;
+        return;
       }
       // Honor the connection-refusal cooldown on the sync path itself, not just on reconnect.
       // freshInboxSync providers (PurelyMail) keep the persistent connection open and sync via
@@ -4101,7 +4111,12 @@ export class ImapManager {
     } finally {
       this.syncingAccounts.delete(account.id);
       this.syncStartedAt.delete(account.id);
-      this._syncAgainIfMailArrived(account);
+      if (disconnectAfter) {
+        console.log(`Disconnecting ${logAccount(account)}: the account was removed or disabled`);
+        await this.disconnectAccount(account.id);
+      } else {
+        this._syncAgainIfMailArrived(account);
+      }
     }
   }
 
@@ -4222,6 +4237,24 @@ export class ImapManager {
     } catch (err) {
       console.warn(`Flag range sync error for ${logAccount(account)}:`, err.message);
     }
+  }
+
+  // The account object a connection was given holds its settings and tokens, and the sync
+  // interval and the IDLE listeners keep it for as long as the connection lives: a settings change
+  // reconnects only for credentials and hosts. Each tick re-reads the row into it, so a change to
+  // spam filtering or categorization applies on the next tick, and a pool connection grown from a
+  // tick refreshes an OAuth token with the current refresh token, not a rotated-away one. Resolves
+  // false when the account is gone or disabled. A failed read keeps what it has.
+  async _refreshLiveAccount(account) {
+    let row;
+    try {
+      ({ rows: [row] } = await query('SELECT * FROM email_accounts WHERE id = $1', [account.id]));
+    } catch {
+      return true;
+    }
+    if (!row || !row.enabled) return false;
+    Object.assign(account, row);
+    return true;
   }
 
   _startSyncInterval(account, ms) {
