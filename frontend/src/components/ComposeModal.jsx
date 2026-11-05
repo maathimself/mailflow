@@ -1182,6 +1182,22 @@ export default function ComposeModal() {
     aiReply: undefined,
   });
 
+  // Locking replaces the mail view, and this composer with it, so hand what it holds to the store
+  // first: the composer that opens after unlock then has the text since the last autosave, the
+  // attachments, and the draft it saves into, rather than what it was opened with. A scheduled
+  // message being edited keeps its own state, and a send in flight closes the composer anyway.
+  const keepForLockRef = useRef(null);
+  keepForLockRef.current = () => {
+    if (scheduledEdit || sendingRef.current) return;
+    const { accountId, aliasId } = resolveFrom(fromValue);
+    useStore.getState().keepComposeForLock(composeSession, buildRestoreData(buildSendPayload(accountId, aliasId)));
+  };
+  useEffect(() => {
+    const keep = () => keepForLockRef.current?.();
+    window.addEventListener('mailflow:will-lock', keep);
+    return () => window.removeEventListener('mailflow:will-lock', keep);
+  }, []);
+
   const handleSend = async (opts = {}) => {
     // A scheduled message being edited is saved, not sent (Ctrl+Enter is Update there).
     if (scheduledEdit) return updateRef.current(opts);

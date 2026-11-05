@@ -229,6 +229,9 @@ export const useStore = create((set, get) => ({
   isLocked: localStorage.getItem('mailflow_locked') === '1',
   setLocked: (locked) => {
     if (locked) {
+      // The lock screen replaces the mail view, and with it an open composer: this lets the
+      // composer hand what it holds to keepComposeForLock first, so it reopens with it on unlock.
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('mailflow:will-lock'));
       const { selectedMessageId } = get();
       if (selectedMessageId) localStorage.setItem('mailflow_locked_message', selectedMessageId);
       localStorage.setItem('mailflow_locked', '1');
@@ -593,6 +596,9 @@ export const useStore = create((set, get) => ({
   composeSession: 0,
   prepareComposeSwitch: null,
   setPrepareComposeSwitch: prepare => set({ prepareComposeSwitch: prepare }),
+  // The open composer's current state, kept across the lock screen (see setLocked).
+  keepComposeForLock: (session, data) => set(state =>
+    state.composing && state.composeSession === session ? { composeData: data } : {}),
   updateComposePersistedKey: (session, persistedKey) => set(state =>
     state.composing && state.composeSession === session
       ? { composeData: { ...state.composeData, persistedKey } } : {}),
