@@ -567,7 +567,9 @@ function MailboxList() {
     };
 
     const handler = () => {
-      if (searchQuery.trim()) return;
+      // Search results are their own list. The refresh is held, not dropped: clearing the search
+      // hands it over (below), or the folder would come back as it was before the search.
+      if (searchQuery.trim()) { trailingRefreshRef.current.request(true); return; }
       if (trailingRefreshRef.current.request(useStore.getState().loadingMessages)) {
         const delayMs = Math.max(0, recentMessageOpenUntilRef.current - Date.now());
         clearTimeout(deferredRefreshTimerRef.current);
@@ -603,6 +605,8 @@ function MailboxList() {
       setSearchHasMore(false);
       setSearchError(null);
       searchFetchedOffsetRef.current = 0;
+      // A refresh held while searching (new mail, a resume, another device's change) runs now.
+      if (trailingRefreshRef.current.settle()) window.dispatchEvent(new CustomEvent('mailflow:refresh'));
       return;
     }
     setIsSearching(true);
