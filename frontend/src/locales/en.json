@@ -2414,5 +2414,147 @@
     "formNote": "Gmail and Google Workspace mailboxes can sign in with Google instead of an app password.",
     "appPasswordNote": "Gmail needs an app password, not your regular password. Turn on 2-Step Verification for your Google account, then create an app password and enter it in the password field.",
     "createAppPassword": "Create an app password"
+  },
+  "calendar": {
+    "title": "Calendar",
+    "today": "Today",
+    "previous": "Previous",
+    "next": "Next",
+    "calendars": "Calendars",
+    "newEvent": "New event",
+    "allDay": "All day",
+    "more": "+{{count}} more",
+    "showLess": "Show less",
+    "nothingToday": "Nothing planned. Click to add an event.",
+    "agendaEmpty": "No events in this period.",
+    "views": {
+      "label": "Calendar view",
+      "month": "Month",
+      "week": "Week",
+      "day": "Day",
+      "agenda": "Agenda"
+    },
+    "rail": {
+      "addAccount": "Add account",
+      "manage": "Manage accounts",
+      "color": "Color of {{name}}",
+      "customColor": "Custom color"
+    },
+    "empty": {
+      "title": "Bring your calendars into MailFlow",
+      "body": "Connect a CalDAV calendar, such as Nextcloud, Fastmail, iCloud or Radicale. Events sync both ways and stay on your own server, next to your mail.",
+      "connect": "Connect a calendar"
+    },
+    "detail": {
+      "label": "Event details",
+      "organizer": "Organizer",
+      "attendees": "Attendees ({{n}})",
+      "readOnly": "This calendar is read-only.",
+      "deleteConfirm": "Delete this event?"
+    },
+    "status": {
+      "tentative": "Tentative",
+      "cancelled": "Cancelled"
+    },
+    "attendee": {
+      "accepted": "Accepted",
+      "declined": "Declined",
+      "tentative": "Maybe",
+      "pending": "No reply"
+    },
+    "scope": {
+      "editTitle": "Edit recurring event",
+      "moveTitle": "Move recurring event",
+      "deleteTitle": "Delete recurring event",
+      "thisOne": "This occurrence only",
+      "editAll": "Whole series",
+      "moveAll": "Whole series",
+      "deleteAll": "Whole series"
+    },
+    "form": {
+      "newTitle": "New event",
+      "editTitle": "Edit event",
+      "title": "Title",
+      "calendar": "Calendar",
+      "start": "Start",
+      "end": "End",
+      "location": "Location",
+      "description": "Description",
+      "repeat": "Repeat",
+      "interval": "Every",
+      "ends": "Ends",
+      "endsNever": "Never",
+      "endsOn": "On date",
+      "endsAfter": "After a number of times",
+      "count": "Times",
+      "reminder": "Reminder",
+      "titleRequired": "Give the event a title.",
+      "calendarRequired": "Choose a calendar.",
+      "timeRequired": "Enter a valid start and end.",
+      "endBeforeStart": "The end must not be before the start.",
+      "untilBeforeStart": "The repeat end date must not be before the start.",
+      "countInvalid": "Enter how many times the event repeats (at least 1).",
+      "noWritable": "No writable calendar is available for this event.",
+      "customHint": "This series has a custom repeat rule. It is kept as it is."
+    },
+    "recurrence": {
+      "none": "Does not repeat",
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "monthly": "Monthly",
+      "yearly": "Yearly",
+      "custom": "Custom",
+      "interval": "every {{n}}",
+      "afterCount": "{{n}} times",
+      "untilDate": "until {{date}}"
+    },
+    "reminder": {
+      "none": "No reminder",
+      "atStart": "At start",
+      "min10": "10 minutes before",
+      "min30": "30 minutes before",
+      "hour1": "1 hour before",
+      "day1": "1 day before",
+      "custom": "{{n}} minutes before"
+    },
+    "errors": {
+      "conflict": "This event was changed on the server while you were editing. The calendar has been reloaded; review it and try again.",
+      "busy": "The calendar is busy syncing. Try again in a moment.",
+      "readOnly": "This calendar is read-only, so nothing was changed.",
+      "server": "The calendar server refused the change or is unreachable, so nothing was changed: {{message}}",
+      "generic": "Something went wrong: {{message}}",
+      "load": "Could not load calendar data: {{message}}",
+      "noWritable": "None of your calendars accepts new events. Add a calendar that is not read-only."
+    },
+    "accounts": {
+      "title": "Calendar accounts",
+      "addTitle": "Add an account",
+      "name": "Name (optional)",
+      "serverUrl": "Server URL",
+      "username": "Username",
+      "password": "Password",
+      "appPasswordHint": "Use an app password if your provider offers them, rather than your main password.",
+      "googleHint": "Google Calendar needs OAuth and is not supported yet.",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "lastSync": "Last synced {{when}}.",
+      "neverSynced": "Never synced.",
+      "firstSync": "First sync in progress…",
+      "firstSyncBanner": "Syncing {{name}} for the first time. Events appear as they arrive.",
+      "counts": "Calendars: {{calendars}}, events: {{events}}.",
+      "syncNow": "Sync now",
+      "syncing": "Syncing…",
+      "synced": "Synced.",
+      "syncRunning": "A sync is already running for this account.",
+      "syncFailed": "Sync failed",
+      "bannerTitle": "{{name}} is not syncing.",
+      "manage": "Manage",
+      "interval": "Sync interval",
+      "everyMinutes": "Every {{n}} minutes",
+      "changePassword": "Change password",
+      "newPassword": "New password",
+      "passwordSaved": "Password updated.",
+      "removeConfirm": "Remove {{name}} from MailFlow? Its calendars and events are deleted here only; nothing is deleted on the server."
+    }
   }
 }

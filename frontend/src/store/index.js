@@ -338,6 +338,7 @@ export const useStore = create((set, get) => ({
         expandedThreadId: null,
         threadMessages: {},
         showContacts: false,
+        showCalendar: false,
         ...(navChanged && wasScopedSearch ? { searchQuery: '' } : {}),
       };
     });
@@ -732,7 +733,10 @@ export const useStore = create((set, get) => ({
 
   // Contacts view
   showContacts: false,
-  setShowContacts: (v) => set({ showContacts: v }),
+  setShowContacts: (v) => set(v ? { showContacts: true, showCalendar: false } : { showContacts: false }),
+  // Calendar view; replaces the mail panes like Contacts, and the two exclude each other.
+  showCalendar: false,
+  setShowCalendar: (v) => set(v ? { showCalendar: true, showContacts: false } : { showCalendar: false }),
   rulesPreFill: null, // { fromEmail, fromName, subject } — transient, set by context menu
   setRulesPreFill: (v) => set({ rulesPreFill: v }),
 

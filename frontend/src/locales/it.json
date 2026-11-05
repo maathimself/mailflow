@@ -2414,5 +2414,147 @@
     "formNote": "Le caselle Gmail e Google Workspace possono accedere con Google invece di usare una password per le app.",
     "appPasswordNote": "Gmail richiede una password per le app, non la tua password abituale. Attiva la verifica in due passaggi per il tuo account Google, poi crea una password per le app e inseriscila nel campo della password.",
     "createAppPassword": "Crea una password per le app"
+  },
+  "calendar": {
+    "title": "Calendario",
+    "today": "Oggi",
+    "previous": "Precedente",
+    "next": "Successivo",
+    "calendars": "Calendari",
+    "newEvent": "Nuovo evento",
+    "allDay": "Tutto il giorno",
+    "more": "+{{count}} altri",
+    "showLess": "Mostra meno",
+    "nothingToday": "Niente in programma. Fai clic per aggiungere un evento.",
+    "agendaEmpty": "Nessun evento in questo periodo.",
+    "views": {
+      "label": "Vista del calendario",
+      "month": "Mese",
+      "week": "Settimana",
+      "day": "Giorno",
+      "agenda": "Agenda"
+    },
+    "rail": {
+      "addAccount": "Aggiungi account",
+      "manage": "Gestisci account",
+      "color": "Colore di {{name}}",
+      "customColor": "Colore personalizzato"
+    },
+    "empty": {
+      "title": "Porta i tuoi calendari in MailFlow",
+      "body": "Collega un calendario CalDAV, come Nextcloud, Fastmail, iCloud o Radicale. Gli eventi si sincronizzano in entrambe le direzioni e restano sul tuo server, accanto alla tua posta.",
+      "connect": "Collega un calendario"
+    },
+    "detail": {
+      "label": "Dettagli evento",
+      "organizer": "Organizzatore",
+      "attendees": "Partecipanti ({{n}})",
+      "readOnly": "Questo calendario è di sola lettura.",
+      "deleteConfirm": "Eliminare questo evento?"
+    },
+    "status": {
+      "tentative": "Provvisorio",
+      "cancelled": "Annullato"
+    },
+    "attendee": {
+      "accepted": "Accettato",
+      "declined": "Rifiutato",
+      "tentative": "Forse",
+      "pending": "Nessuna risposta"
+    },
+    "scope": {
+      "editTitle": "Modifica evento ricorrente",
+      "moveTitle": "Sposta evento ricorrente",
+      "deleteTitle": "Elimina evento ricorrente",
+      "thisOne": "Solo questa occorrenza",
+      "editAll": "Tutta la serie",
+      "moveAll": "Tutta la serie",
+      "deleteAll": "Tutta la serie"
+    },
+    "form": {
+      "newTitle": "Nuovo evento",
+      "editTitle": "Modifica evento",
+      "title": "Titolo",
+      "calendar": "Calendario",
+      "start": "Inizio",
+      "end": "Fine",
+      "location": "Luogo",
+      "description": "Descrizione",
+      "repeat": "Ripeti",
+      "interval": "Ogni",
+      "ends": "Termina",
+      "endsNever": "Mai",
+      "endsOn": "In una data",
+      "endsAfter": "Dopo un numero di volte",
+      "count": "Volte",
+      "reminder": "Promemoria",
+      "titleRequired": "Dai un titolo all'evento.",
+      "calendarRequired": "Scegli un calendario.",
+      "timeRequired": "Inserisci un inizio e una fine validi.",
+      "endBeforeStart": "La fine non può precedere l'inizio.",
+      "untilBeforeStart": "La data di fine della ripetizione non può precedere l'inizio.",
+      "countInvalid": "Indica quante volte si ripete l'evento (almeno 1).",
+      "noWritable": "Nessun calendario modificabile è disponibile per questo evento.",
+      "customHint": "Questa serie ha una regola di ripetizione personalizzata. Viene mantenuta così com'è."
+    },
+    "recurrence": {
+      "none": "Non si ripete",
+      "daily": "Ogni giorno",
+      "weekly": "Ogni settimana",
+      "monthly": "Ogni mese",
+      "yearly": "Ogni anno",
+      "custom": "Personalizzata",
+      "interval": "ogni {{n}}",
+      "afterCount": "{{n}} volte",
+      "untilDate": "fino al {{date}}"
+    },
+    "reminder": {
+      "none": "Nessun promemoria",
+      "atStart": "All'inizio",
+      "min10": "10 minuti prima",
+      "min30": "30 minuti prima",
+      "hour1": "1 ora prima",
+      "day1": "1 giorno prima",
+      "custom": "{{n}} minuti prima"
+    },
+    "errors": {
+      "conflict": "Questo evento è stato modificato sul server mentre lo modificavi. Il calendario è stato ricaricato; controllalo e riprova.",
+      "busy": "Il calendario è in sincronizzazione. Riprova tra un attimo.",
+      "readOnly": "Questo calendario è di sola lettura, quindi non è stato modificato nulla.",
+      "server": "Il server del calendario ha rifiutato la modifica o non è raggiungibile, quindi non è stato modificato nulla: {{message}}",
+      "generic": "Qualcosa è andato storto: {{message}}",
+      "load": "Impossibile caricare i dati del calendario: {{message}}",
+      "noWritable": "Nessuno dei tuoi calendari accetta nuovi eventi. Aggiungi un calendario che non sia di sola lettura."
+    },
+    "accounts": {
+      "title": "Account calendario",
+      "addTitle": "Aggiungi un account",
+      "name": "Nome (facoltativo)",
+      "serverUrl": "URL del server",
+      "username": "Nome utente",
+      "password": "Password",
+      "appPasswordHint": "Usa una password per le app, se il tuo provider le offre, invece della password principale.",
+      "googleHint": "Google Calendar richiede OAuth e non è ancora supportato.",
+      "connect": "Collega",
+      "connecting": "Connessione…",
+      "lastSync": "Ultima sincronizzazione: {{when}}.",
+      "neverSynced": "Mai sincronizzato.",
+      "firstSync": "Prima sincronizzazione in corso…",
+      "firstSyncBanner": "Prima sincronizzazione di {{name}}. Gli eventi compaiono man mano che arrivano.",
+      "counts": "Calendari: {{calendars}}, eventi: {{events}}.",
+      "syncNow": "Sincronizza ora",
+      "syncing": "Sincronizzazione…",
+      "synced": "Sincronizzato.",
+      "syncRunning": "Per questo account è già in corso una sincronizzazione.",
+      "syncFailed": "Sincronizzazione non riuscita",
+      "bannerTitle": "{{name}} non si sincronizza.",
+      "manage": "Gestisci",
+      "interval": "Intervallo di sincronizzazione",
+      "everyMinutes": "Ogni {{n}} minuti",
+      "changePassword": "Cambia password",
+      "newPassword": "Nuova password",
+      "passwordSaved": "Password aggiornata.",
+      "removeConfirm": "Rimuovere {{name}} da MailFlow? I suoi calendari ed eventi vengono eliminati solo qui; sul server non viene cancellato nulla."
+    }
   }
 }

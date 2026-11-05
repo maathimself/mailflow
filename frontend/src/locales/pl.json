@@ -2433,5 +2433,147 @@
     "formNote": "Skrzynki Gmail i Google Workspace mogą logować się przez Google zamiast hasłem aplikacji.",
     "appPasswordNote": "Gmail wymaga hasła aplikacji, a nie zwykłego hasła. Włącz weryfikację dwuetapową na koncie Google, utwórz hasło aplikacji i wpisz je w polu hasła.",
     "createAppPassword": "Utwórz hasło aplikacji"
+  },
+  "calendar": {
+    "title": "Kalendarz",
+    "today": "Dzisiaj",
+    "previous": "Poprzedni",
+    "next": "Następny",
+    "calendars": "Kalendarze",
+    "newEvent": "Nowe wydarzenie",
+    "allDay": "Cały dzień",
+    "more": "+{{count}} więcej",
+    "showLess": "Pokaż mniej",
+    "nothingToday": "Nic nie zaplanowano. Kliknij, aby dodać wydarzenie.",
+    "agendaEmpty": "Brak wydarzeń w tym okresie.",
+    "views": {
+      "label": "Widok kalendarza",
+      "month": "Miesiąc",
+      "week": "Tydzień",
+      "day": "Dzień",
+      "agenda": "Plan"
+    },
+    "rail": {
+      "addAccount": "Dodaj konto",
+      "manage": "Zarządzaj kontami",
+      "color": "Kolor kalendarza {{name}}",
+      "customColor": "Własny kolor"
+    },
+    "empty": {
+      "title": "Przenieś swoje kalendarze do MailFlow",
+      "body": "Połącz kalendarz CalDAV, na przykład Nextcloud, Fastmail, iCloud lub Radicale. Wydarzenia synchronizują się w obie strony i zostają na Twoim serwerze, obok poczty.",
+      "connect": "Połącz kalendarz"
+    },
+    "detail": {
+      "label": "Szczegóły wydarzenia",
+      "organizer": "Organizator",
+      "attendees": "Uczestnicy ({{n}})",
+      "readOnly": "Ten kalendarz jest tylko do odczytu.",
+      "deleteConfirm": "Usunąć to wydarzenie?"
+    },
+    "status": {
+      "tentative": "Wstępne",
+      "cancelled": "Odwołane"
+    },
+    "attendee": {
+      "accepted": "Zaakceptowano",
+      "declined": "Odrzucono",
+      "tentative": "Być może",
+      "pending": "Brak odpowiedzi"
+    },
+    "scope": {
+      "editTitle": "Edytuj wydarzenie cykliczne",
+      "moveTitle": "Przenieś wydarzenie cykliczne",
+      "deleteTitle": "Usuń wydarzenie cykliczne",
+      "thisOne": "Tylko to wystąpienie",
+      "editAll": "Cała seria",
+      "moveAll": "Cała seria",
+      "deleteAll": "Cała seria"
+    },
+    "form": {
+      "newTitle": "Nowe wydarzenie",
+      "editTitle": "Edytuj wydarzenie",
+      "title": "Tytuł",
+      "calendar": "Kalendarz",
+      "start": "Początek",
+      "end": "Koniec",
+      "location": "Miejsce",
+      "description": "Opis",
+      "repeat": "Powtarzanie",
+      "interval": "Co",
+      "ends": "Koniec powtarzania",
+      "endsNever": "Nigdy",
+      "endsOn": "W dniu",
+      "endsAfter": "Po określonej liczbie razy",
+      "count": "Razy",
+      "reminder": "Przypomnienie",
+      "titleRequired": "Nadaj wydarzeniu tytuł.",
+      "calendarRequired": "Wybierz kalendarz.",
+      "timeRequired": "Podaj prawidłowy początek i koniec.",
+      "endBeforeStart": "Koniec nie może być przed początkiem.",
+      "untilBeforeStart": "Data końca powtarzania nie może być przed początkiem.",
+      "countInvalid": "Podaj, ile razy wydarzenie się powtarza (co najmniej 1).",
+      "noWritable": "Brak kalendarza z możliwością zapisu dla tego wydarzenia.",
+      "customHint": "Ta seria ma niestandardową regułę powtarzania. Zostanie zachowana bez zmian."
+    },
+    "recurrence": {
+      "none": "Nie powtarza się",
+      "daily": "Codziennie",
+      "weekly": "Co tydzień",
+      "monthly": "Co miesiąc",
+      "yearly": "Co rok",
+      "custom": "Niestandardowe",
+      "interval": "co {{n}}",
+      "afterCount": "{{n}} razy",
+      "untilDate": "do {{date}}"
+    },
+    "reminder": {
+      "none": "Bez przypomnienia",
+      "atStart": "Na początku",
+      "min10": "10 minut wcześniej",
+      "min30": "30 minut wcześniej",
+      "hour1": "1 godzinę wcześniej",
+      "day1": "1 dzień wcześniej",
+      "custom": "{{n}} min wcześniej"
+    },
+    "errors": {
+      "conflict": "To wydarzenie zostało zmienione na serwerze w trakcie edycji. Kalendarz został wczytany ponownie; sprawdź go i spróbuj jeszcze raz.",
+      "busy": "Kalendarz jest właśnie synchronizowany. Spróbuj ponownie za chwilę.",
+      "readOnly": "Ten kalendarz jest tylko do odczytu, więc nic nie zmieniono.",
+      "server": "Serwer kalendarza odrzucił zmianę lub jest niedostępny, więc nic nie zmieniono: {{message}}",
+      "generic": "Coś poszło nie tak: {{message}}",
+      "load": "Nie udało się wczytać danych kalendarza: {{message}}",
+      "noWritable": "Żaden z Twoich kalendarzy nie przyjmuje nowych wydarzeń. Dodaj kalendarz, który nie jest tylko do odczytu."
+    },
+    "accounts": {
+      "title": "Konta kalendarza",
+      "addTitle": "Dodaj konto",
+      "name": "Nazwa (opcjonalnie)",
+      "serverUrl": "Adres serwera",
+      "username": "Nazwa użytkownika",
+      "password": "Hasło",
+      "appPasswordHint": "Jeśli dostawca je oferuje, użyj hasła aplikacji zamiast hasła głównego.",
+      "googleHint": "Kalendarz Google wymaga OAuth i nie jest jeszcze obsługiwany.",
+      "connect": "Połącz",
+      "connecting": "Łączenie…",
+      "lastSync": "Ostatnia synchronizacja: {{when}}.",
+      "neverSynced": "Nigdy nie synchronizowano.",
+      "firstSync": "Trwa pierwsza synchronizacja…",
+      "firstSyncBanner": "Pierwsza synchronizacja konta {{name}}. Wydarzenia pojawiają się w miarę ich pobierania.",
+      "counts": "Kalendarze: {{calendars}}, wydarzenia: {{events}}.",
+      "syncNow": "Synchronizuj teraz",
+      "syncing": "Synchronizacja…",
+      "synced": "Zsynchronizowano.",
+      "syncRunning": "Dla tego konta trwa już synchronizacja.",
+      "syncFailed": "Synchronizacja nie powiodła się",
+      "bannerTitle": "{{name}} nie synchronizuje się.",
+      "manage": "Zarządzaj",
+      "interval": "Częstotliwość synchronizacji",
+      "everyMinutes": "Co {{n}} min",
+      "changePassword": "Zmień hasło",
+      "newPassword": "Nowe hasło",
+      "passwordSaved": "Hasło zostało zaktualizowane.",
+      "removeConfirm": "Usunąć {{name}} z MailFlow? Jego kalendarze i wydarzenia zostaną usunięte tylko tutaj; na serwerze nic nie zostanie skasowane."
+    }
   }
 }

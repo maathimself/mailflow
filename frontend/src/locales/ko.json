@@ -2414,5 +2414,147 @@
     "formNote": "Gmail 및 Google Workspace 사서함은 앱 비밀번호 대신 Google로 로그인할 수 있습니다.",
     "appPasswordNote": "Gmail에는 일반 비밀번호가 아닌 앱 비밀번호가 필요합니다. Google 계정에서 2단계 인증을 켠 다음 앱 비밀번호를 만들어 비밀번호 칸에 입력하세요.",
     "createAppPassword": "앱 비밀번호 만들기"
+  },
+  "calendar": {
+    "title": "캘린더",
+    "today": "오늘",
+    "previous": "이전",
+    "next": "다음",
+    "calendars": "캘린더 목록",
+    "newEvent": "새 일정",
+    "allDay": "종일",
+    "more": "+{{count}}개 더보기",
+    "showLess": "간략히 보기",
+    "nothingToday": "예정된 일정이 없습니다. 클릭하여 일정을 추가하세요.",
+    "agendaEmpty": "이 기간에는 일정이 없습니다.",
+    "views": {
+      "label": "캘린더 보기",
+      "month": "월",
+      "week": "주",
+      "day": "일",
+      "agenda": "목록"
+    },
+    "rail": {
+      "addAccount": "계정 추가",
+      "manage": "계정 관리",
+      "color": "{{name}} 색상",
+      "customColor": "사용자 지정 색상"
+    },
+    "empty": {
+      "title": "캘린더를 MailFlow로 가져오세요",
+      "body": "Nextcloud, Fastmail, iCloud, Radicale 같은 CalDAV 캘린더를 연결하세요. 일정은 양방향으로 동기화되며 메일 옆의 내 서버에 그대로 남습니다.",
+      "connect": "캘린더 연결"
+    },
+    "detail": {
+      "label": "일정 상세",
+      "organizer": "주최자",
+      "attendees": "참석자 ({{n}})",
+      "readOnly": "이 캘린더는 읽기 전용입니다.",
+      "deleteConfirm": "이 일정을 삭제할까요?"
+    },
+    "status": {
+      "tentative": "미정",
+      "cancelled": "취소됨"
+    },
+    "attendee": {
+      "accepted": "수락함",
+      "declined": "거절함",
+      "tentative": "미정",
+      "pending": "응답 없음"
+    },
+    "scope": {
+      "editTitle": "반복 일정 편집",
+      "moveTitle": "반복 일정 이동",
+      "deleteTitle": "반복 일정 삭제",
+      "thisOne": "이 일정만",
+      "editAll": "전체 반복 일정",
+      "moveAll": "전체 반복 일정",
+      "deleteAll": "전체 반복 일정"
+    },
+    "form": {
+      "newTitle": "새 일정",
+      "editTitle": "일정 편집",
+      "title": "제목",
+      "calendar": "캘린더",
+      "start": "시작",
+      "end": "종료",
+      "location": "장소",
+      "description": "설명",
+      "repeat": "반복",
+      "interval": "간격",
+      "ends": "종료 조건",
+      "endsNever": "없음",
+      "endsOn": "날짜에",
+      "endsAfter": "지정한 횟수 후",
+      "count": "횟수",
+      "reminder": "알림",
+      "titleRequired": "일정 제목을 입력하세요.",
+      "calendarRequired": "캘린더를 선택하세요.",
+      "timeRequired": "올바른 시작 및 종료 시간을 입력하세요.",
+      "endBeforeStart": "종료는 시작보다 앞설 수 없습니다.",
+      "untilBeforeStart": "반복 종료일은 시작일보다 앞설 수 없습니다.",
+      "countInvalid": "일정이 반복되는 횟수를 입력하세요(최소 1).",
+      "noWritable": "이 일정에 사용할 수 있는 쓰기 가능 캘린더가 없습니다.",
+      "customHint": "이 반복 일정에는 사용자 지정 규칙이 있으며 그대로 유지됩니다."
+    },
+    "recurrence": {
+      "none": "반복 안 함",
+      "daily": "매일",
+      "weekly": "매주",
+      "monthly": "매월",
+      "yearly": "매년",
+      "custom": "사용자 지정",
+      "interval": "{{n}}회 간격",
+      "afterCount": "{{n}}회",
+      "untilDate": "{{date}}까지"
+    },
+    "reminder": {
+      "none": "알림 없음",
+      "atStart": "시작 시",
+      "min10": "10분 전",
+      "min30": "30분 전",
+      "hour1": "1시간 전",
+      "day1": "1일 전",
+      "custom": "{{n}}분 전"
+    },
+    "errors": {
+      "conflict": "편집하는 동안 서버에서 이 일정이 변경되었습니다. 캘린더를 다시 불러왔으니 확인한 후 다시 시도하세요.",
+      "busy": "캘린더를 동기화하는 중입니다. 잠시 후 다시 시도하세요.",
+      "readOnly": "이 캘린더는 읽기 전용이므로 아무것도 변경되지 않았습니다.",
+      "server": "캘린더 서버가 변경을 거부했거나 연결할 수 없어 아무것도 변경되지 않았습니다: {{message}}",
+      "generic": "문제가 발생했습니다: {{message}}",
+      "load": "캘린더 데이터를 불러오지 못했습니다: {{message}}",
+      "noWritable": "새 일정을 추가할 수 있는 캘린더가 없습니다. 읽기 전용이 아닌 캘린더를 추가하세요."
+    },
+    "accounts": {
+      "title": "캘린더 계정",
+      "addTitle": "계정 추가",
+      "name": "이름(선택)",
+      "serverUrl": "서버 URL",
+      "username": "사용자 이름",
+      "password": "비밀번호",
+      "appPasswordHint": "제공업체가 앱 비밀번호를 지원한다면 기본 비밀번호 대신 앱 비밀번호를 사용하세요.",
+      "googleHint": "Google 캘린더는 OAuth가 필요하며 아직 지원되지 않습니다.",
+      "connect": "연결",
+      "connecting": "연결 중…",
+      "lastSync": "마지막 동기화: {{when}}.",
+      "neverSynced": "동기화된 적 없음.",
+      "firstSync": "첫 동기화 진행 중…",
+      "firstSyncBanner": "{{name}}을(를) 처음 동기화하는 중입니다. 일정이 도착하는 대로 표시됩니다.",
+      "counts": "캘린더 {{calendars}}개, 일정 {{events}}개.",
+      "syncNow": "지금 동기화",
+      "syncing": "동기화 중…",
+      "synced": "동기화되었습니다.",
+      "syncRunning": "이 계정은 이미 동기화 중입니다.",
+      "syncFailed": "동기화 실패",
+      "bannerTitle": "{{name}}이(가) 동기화되지 않습니다.",
+      "manage": "관리",
+      "interval": "동기화 주기",
+      "everyMinutes": "{{n}}분마다",
+      "changePassword": "비밀번호 변경",
+      "newPassword": "새 비밀번호",
+      "passwordSaved": "비밀번호가 업데이트되었습니다.",
+      "removeConfirm": "MailFlow에서 {{name}}을(를) 제거할까요? 캘린더와 일정은 여기서만 삭제되며 서버의 데이터는 삭제되지 않습니다."
+    }
   }
 }

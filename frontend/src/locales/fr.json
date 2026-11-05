@@ -2414,5 +2414,147 @@
     "formNote": "Les boîtes Gmail et Google Workspace peuvent se connecter avec Google au lieu d'un mot de passe d'application.",
     "appPasswordNote": "Gmail demande un mot de passe d'application, pas votre mot de passe habituel. Activez la validation en deux étapes de votre compte Google, puis créez un mot de passe d'application et saisissez-le dans le champ du mot de passe.",
     "createAppPassword": "Créer un mot de passe d'application"
+  },
+  "calendar": {
+    "title": "Calendrier",
+    "today": "Aujourd'hui",
+    "previous": "Précédent",
+    "next": "Suivant",
+    "calendars": "Agendas",
+    "newEvent": "Nouvel événement",
+    "allDay": "Toute la journée",
+    "more": "+{{count}} de plus",
+    "showLess": "Réduire",
+    "nothingToday": "Rien de prévu. Cliquez pour ajouter un événement.",
+    "agendaEmpty": "Aucun événement sur cette période.",
+    "views": {
+      "label": "Vue du calendrier",
+      "month": "Mois",
+      "week": "Semaine",
+      "day": "Jour",
+      "agenda": "Liste"
+    },
+    "rail": {
+      "addAccount": "Ajouter un compte",
+      "manage": "Gérer les comptes",
+      "color": "Couleur de {{name}}",
+      "customColor": "Couleur personnalisée"
+    },
+    "empty": {
+      "title": "Retrouvez vos agendas dans MailFlow",
+      "body": "Connectez un agenda CalDAV, par exemple Nextcloud, Fastmail, iCloud ou Radicale. Les événements se synchronisent dans les deux sens et restent sur votre propre serveur, à côté de votre messagerie.",
+      "connect": "Connecter un agenda"
+    },
+    "detail": {
+      "label": "Détails de l'événement",
+      "organizer": "Organisateur",
+      "attendees": "Participants ({{n}})",
+      "readOnly": "Cet agenda est en lecture seule.",
+      "deleteConfirm": "Supprimer cet événement ?"
+    },
+    "status": {
+      "tentative": "Provisoire",
+      "cancelled": "Annulé"
+    },
+    "attendee": {
+      "accepted": "Accepté",
+      "declined": "Refusé",
+      "tentative": "Peut-être",
+      "pending": "Sans réponse"
+    },
+    "scope": {
+      "editTitle": "Modifier un événement récurrent",
+      "moveTitle": "Déplacer un événement récurrent",
+      "deleteTitle": "Supprimer un événement récurrent",
+      "thisOne": "Cette occurrence uniquement",
+      "editAll": "Toute la série",
+      "moveAll": "Toute la série",
+      "deleteAll": "Toute la série"
+    },
+    "form": {
+      "newTitle": "Nouvel événement",
+      "editTitle": "Modifier l'événement",
+      "title": "Titre",
+      "calendar": "Agenda",
+      "start": "Début",
+      "end": "Fin",
+      "location": "Lieu",
+      "description": "Description",
+      "repeat": "Répétition",
+      "interval": "Tous les",
+      "ends": "Fin de la répétition",
+      "endsNever": "Jamais",
+      "endsOn": "À une date",
+      "endsAfter": "Après un nombre de fois",
+      "count": "Fois",
+      "reminder": "Rappel",
+      "titleRequired": "Donnez un titre à l'événement.",
+      "calendarRequired": "Choisissez un agenda.",
+      "timeRequired": "Saisissez un début et une fin valides.",
+      "endBeforeStart": "La fin ne peut pas précéder le début.",
+      "untilBeforeStart": "La date de fin de répétition ne peut pas précéder le début.",
+      "countInvalid": "Indiquez le nombre de répétitions (1 au minimum).",
+      "noWritable": "Aucun agenda modifiable n'est disponible pour cet événement.",
+      "customHint": "Cette série a une règle de répétition personnalisée. Elle est conservée telle quelle."
+    },
+    "recurrence": {
+      "none": "Ne se répète pas",
+      "daily": "Tous les jours",
+      "weekly": "Toutes les semaines",
+      "monthly": "Tous les mois",
+      "yearly": "Tous les ans",
+      "custom": "Personnalisée",
+      "interval": "tous les {{n}}",
+      "afterCount": "{{n}} fois",
+      "untilDate": "jusqu'au {{date}}"
+    },
+    "reminder": {
+      "none": "Aucun rappel",
+      "atStart": "Au début",
+      "min10": "10 minutes avant",
+      "min30": "30 minutes avant",
+      "hour1": "1 heure avant",
+      "day1": "1 jour avant",
+      "custom": "{{n}} minutes avant"
+    },
+    "errors": {
+      "conflict": "Cet événement a été modifié sur le serveur pendant votre édition. L'agenda a été rechargé ; vérifiez-le puis réessayez.",
+      "busy": "L'agenda est en cours de synchronisation. Réessayez dans un instant.",
+      "readOnly": "Cet agenda est en lecture seule, rien n'a été modifié.",
+      "server": "Le serveur d'agenda a refusé la modification ou est injoignable, rien n'a été modifié : {{message}}",
+      "generic": "Une erreur est survenue : {{message}}",
+      "load": "Impossible de charger les données de l'agenda : {{message}}",
+      "noWritable": "Aucun de vos agendas n'accepte de nouveaux événements. Ajoutez un agenda qui n'est pas en lecture seule."
+    },
+    "accounts": {
+      "title": "Comptes d'agenda",
+      "addTitle": "Ajouter un compte",
+      "name": "Nom (facultatif)",
+      "serverUrl": "URL du serveur",
+      "username": "Identifiant",
+      "password": "Mot de passe",
+      "appPasswordHint": "Utilisez un mot de passe d'application si votre fournisseur en propose, plutôt que votre mot de passe principal.",
+      "googleHint": "Google Agenda nécessite OAuth et n'est pas encore pris en charge.",
+      "connect": "Connecter",
+      "connecting": "Connexion…",
+      "lastSync": "Dernière synchronisation : {{when}}.",
+      "neverSynced": "Jamais synchronisé.",
+      "firstSync": "Première synchronisation en cours…",
+      "firstSyncBanner": "Première synchronisation de {{name}}. Les événements apparaissent au fur et à mesure.",
+      "counts": "Agendas : {{calendars}}, événements : {{events}}.",
+      "syncNow": "Synchroniser",
+      "syncing": "Synchronisation…",
+      "synced": "Synchronisé.",
+      "syncRunning": "Une synchronisation est déjà en cours pour ce compte.",
+      "syncFailed": "Échec de la synchronisation",
+      "bannerTitle": "{{name}} ne se synchronise pas.",
+      "manage": "Gérer",
+      "interval": "Fréquence",
+      "everyMinutes": "Toutes les {{n}} minutes",
+      "changePassword": "Changer le mot de passe",
+      "newPassword": "Nouveau mot de passe",
+      "passwordSaved": "Mot de passe mis à jour.",
+      "removeConfirm": "Retirer {{name}} de MailFlow ? Ses agendas et événements sont supprimés ici uniquement ; rien n'est supprimé sur le serveur."
+    }
   }
 }

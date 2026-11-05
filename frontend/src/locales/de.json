@@ -2414,5 +2414,147 @@
     "formNote": "Postfächer von Gmail und Google Workspace können sich statt mit einem App-Passwort mit Google anmelden.",
     "appPasswordNote": "Gmail braucht ein App-Passwort, nicht Ihr normales Passwort. Schalten Sie die Bestätigung in zwei Schritten für Ihr Google-Konto ein, erstellen Sie dann ein App-Passwort und geben Sie es im Passwortfeld ein.",
     "createAppPassword": "App-Passwort erstellen"
+  },
+  "calendar": {
+    "title": "Kalender",
+    "today": "Heute",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "calendars": "Kalender",
+    "newEvent": "Neuer Termin",
+    "allDay": "Ganztägig",
+    "more": "+{{count}} weitere",
+    "showLess": "Weniger anzeigen",
+    "nothingToday": "Nichts geplant. Klicken, um einen Termin hinzuzufügen.",
+    "agendaEmpty": "Keine Termine in diesem Zeitraum.",
+    "views": {
+      "label": "Kalenderansicht",
+      "month": "Monat",
+      "week": "Woche",
+      "day": "Tag",
+      "agenda": "Agenda"
+    },
+    "rail": {
+      "addAccount": "Konto hinzufügen",
+      "manage": "Konten verwalten",
+      "color": "Farbe von {{name}}",
+      "customColor": "Eigene Farbe"
+    },
+    "empty": {
+      "title": "Holen Sie Ihre Kalender in MailFlow",
+      "body": "Verbinden Sie einen CalDAV-Kalender, etwa Nextcloud, Fastmail, iCloud oder Radicale. Termine werden in beide Richtungen synchronisiert und bleiben auf Ihrem eigenen Server, neben Ihrer Post.",
+      "connect": "Kalender verbinden"
+    },
+    "detail": {
+      "label": "Termindetails",
+      "organizer": "Organisator",
+      "attendees": "Teilnehmer ({{n}})",
+      "readOnly": "Dieser Kalender ist schreibgeschützt.",
+      "deleteConfirm": "Diesen Termin löschen?"
+    },
+    "status": {
+      "tentative": "Vorläufig",
+      "cancelled": "Abgesagt"
+    },
+    "attendee": {
+      "accepted": "Zugesagt",
+      "declined": "Abgelehnt",
+      "tentative": "Vielleicht",
+      "pending": "Keine Antwort"
+    },
+    "scope": {
+      "editTitle": "Wiederkehrenden Termin bearbeiten",
+      "moveTitle": "Wiederkehrenden Termin verschieben",
+      "deleteTitle": "Wiederkehrenden Termin löschen",
+      "thisOne": "Nur dieser Termin",
+      "editAll": "Ganze Serie",
+      "moveAll": "Ganze Serie",
+      "deleteAll": "Ganze Serie"
+    },
+    "form": {
+      "newTitle": "Neuer Termin",
+      "editTitle": "Termin bearbeiten",
+      "title": "Titel",
+      "calendar": "Kalender",
+      "start": "Beginn",
+      "end": "Ende",
+      "location": "Ort",
+      "description": "Beschreibung",
+      "repeat": "Wiederholung",
+      "interval": "Alle",
+      "ends": "Endet",
+      "endsNever": "Nie",
+      "endsOn": "Am Datum",
+      "endsAfter": "Nach einer Anzahl von Malen",
+      "count": "Anzahl",
+      "reminder": "Erinnerung",
+      "titleRequired": "Geben Sie dem Termin einen Titel.",
+      "calendarRequired": "Wählen Sie einen Kalender.",
+      "timeRequired": "Geben Sie einen gültigen Beginn und ein gültiges Ende ein.",
+      "endBeforeStart": "Das Ende darf nicht vor dem Beginn liegen.",
+      "untilBeforeStart": "Das Enddatum der Wiederholung darf nicht vor dem Beginn liegen.",
+      "countInvalid": "Geben Sie an, wie oft der Termin wiederholt wird (mindestens 1).",
+      "noWritable": "Für diesen Termin ist kein beschreibbarer Kalender verfügbar.",
+      "customHint": "Diese Serie hat eine benutzerdefinierte Wiederholungsregel. Sie bleibt unverändert."
+    },
+    "recurrence": {
+      "none": "Keine Wiederholung",
+      "daily": "Täglich",
+      "weekly": "Wöchentlich",
+      "monthly": "Monatlich",
+      "yearly": "Jährlich",
+      "custom": "Benutzerdefiniert",
+      "interval": "alle {{n}}",
+      "afterCount": "{{n}} Mal",
+      "untilDate": "bis {{date}}"
+    },
+    "reminder": {
+      "none": "Keine Erinnerung",
+      "atStart": "Zum Beginn",
+      "min10": "10 Minuten vorher",
+      "min30": "30 Minuten vorher",
+      "hour1": "1 Stunde vorher",
+      "day1": "1 Tag vorher",
+      "custom": "{{n}} Minuten vorher"
+    },
+    "errors": {
+      "conflict": "Dieser Termin wurde auf dem Server geändert, während Sie ihn bearbeitet haben. Der Kalender wurde neu geladen; prüfen Sie ihn und versuchen Sie es erneut.",
+      "busy": "Der Kalender wird gerade synchronisiert. Versuchen Sie es gleich noch einmal.",
+      "readOnly": "Dieser Kalender ist schreibgeschützt, es wurde nichts geändert.",
+      "server": "Der Kalenderserver hat die Änderung abgelehnt oder ist nicht erreichbar, es wurde nichts geändert: {{message}}",
+      "generic": "Es ist ein Fehler aufgetreten: {{message}}",
+      "load": "Kalenderdaten konnten nicht geladen werden: {{message}}",
+      "noWritable": "Keiner Ihrer Kalender nimmt neue Termine an. Fügen Sie einen Kalender hinzu, der nicht schreibgeschützt ist."
+    },
+    "accounts": {
+      "title": "Kalenderkonten",
+      "addTitle": "Konto hinzufügen",
+      "name": "Name (optional)",
+      "serverUrl": "Server-URL",
+      "username": "Benutzername",
+      "password": "Passwort",
+      "appPasswordHint": "Verwenden Sie ein App-Passwort, falls Ihr Anbieter dies anbietet, statt Ihres Hauptpassworts.",
+      "googleHint": "Google Kalender benötigt OAuth und wird noch nicht unterstützt.",
+      "connect": "Verbinden",
+      "connecting": "Verbindung wird hergestellt…",
+      "lastSync": "Zuletzt synchronisiert: {{when}}.",
+      "neverSynced": "Noch nie synchronisiert.",
+      "firstSync": "Erste Synchronisierung läuft…",
+      "firstSyncBanner": "{{name}} wird zum ersten Mal synchronisiert. Termine erscheinen, sobald sie ankommen.",
+      "counts": "Kalender: {{calendars}}, Termine: {{events}}.",
+      "syncNow": "Jetzt synchronisieren",
+      "syncing": "Synchronisierung…",
+      "synced": "Synchronisiert.",
+      "syncRunning": "Für dieses Konto läuft bereits eine Synchronisierung.",
+      "syncFailed": "Synchronisierung fehlgeschlagen",
+      "bannerTitle": "{{name}} wird nicht synchronisiert.",
+      "manage": "Verwalten",
+      "interval": "Synchronisierungsintervall",
+      "everyMinutes": "Alle {{n}} Minuten",
+      "changePassword": "Passwort ändern",
+      "newPassword": "Neues Passwort",
+      "passwordSaved": "Passwort aktualisiert.",
+      "removeConfirm": "{{name}} aus MailFlow entfernen? Kalender und Termine werden nur hier gelöscht; auf dem Server wird nichts gelöscht."
+    }
   }
 }

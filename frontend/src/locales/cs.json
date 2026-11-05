@@ -2433,5 +2433,147 @@
     "formNote": "Schránky Gmail a Google Workspace se mohou místo hesla aplikace přihlásit přes Google.",
     "appPasswordNote": "Gmail vyžaduje heslo aplikace, ne vaše běžné heslo. Zapněte pro účet Google dvoufázové ověření, vytvořte heslo aplikace a zadejte ho do pole pro heslo.",
     "createAppPassword": "Vytvořit heslo aplikace"
+  },
+  "calendar": {
+    "title": "Kalendář",
+    "today": "Dnes",
+    "previous": "Předchozí",
+    "next": "Další",
+    "calendars": "Kalendáře",
+    "newEvent": "Nová událost",
+    "allDay": "Celý den",
+    "more": "+{{count}} další",
+    "showLess": "Zobrazit méně",
+    "nothingToday": "Nic není naplánováno. Kliknutím přidáte událost.",
+    "agendaEmpty": "V tomto období nejsou žádné události.",
+    "views": {
+      "label": "Zobrazení kalendáře",
+      "month": "Měsíc",
+      "week": "Týden",
+      "day": "Den",
+      "agenda": "Přehled"
+    },
+    "rail": {
+      "addAccount": "Přidat účet",
+      "manage": "Spravovat účty",
+      "color": "Barva kalendáře {{name}}",
+      "customColor": "Vlastní barva"
+    },
+    "empty": {
+      "title": "Přeneste své kalendáře do MailFlow",
+      "body": "Připojte kalendář CalDAV, například Nextcloud, Fastmail, iCloud nebo Radicale. Události se synchronizují oběma směry a zůstávají na vašem vlastním serveru vedle vaší pošty.",
+      "connect": "Připojit kalendář"
+    },
+    "detail": {
+      "label": "Podrobnosti události",
+      "organizer": "Organizátor",
+      "attendees": "Účastníci ({{n}})",
+      "readOnly": "Tento kalendář je jen pro čtení.",
+      "deleteConfirm": "Smazat tuto událost?"
+    },
+    "status": {
+      "tentative": "Předběžná",
+      "cancelled": "Zrušeno"
+    },
+    "attendee": {
+      "accepted": "Přijal",
+      "declined": "Odmítl",
+      "tentative": "Možná",
+      "pending": "Bez odpovědi"
+    },
+    "scope": {
+      "editTitle": "Upravit opakující se událost",
+      "moveTitle": "Přesunout opakující se událost",
+      "deleteTitle": "Smazat opakující se událost",
+      "thisOne": "Pouze tento výskyt",
+      "editAll": "Celá série",
+      "moveAll": "Celá série",
+      "deleteAll": "Celá série"
+    },
+    "form": {
+      "newTitle": "Nová událost",
+      "editTitle": "Upravit událost",
+      "title": "Název",
+      "calendar": "Kalendář",
+      "start": "Začátek",
+      "end": "Konec",
+      "location": "Místo",
+      "description": "Popis",
+      "repeat": "Opakování",
+      "interval": "Každých",
+      "ends": "Konec opakování",
+      "endsNever": "Nikdy",
+      "endsOn": "K datu",
+      "endsAfter": "Po určitém počtu opakování",
+      "count": "Počet",
+      "reminder": "Připomenutí",
+      "titleRequired": "Zadejte název události.",
+      "calendarRequired": "Vyberte kalendář.",
+      "timeRequired": "Zadejte platný začátek a konec.",
+      "endBeforeStart": "Konec nesmí být před začátkem.",
+      "untilBeforeStart": "Datum konce opakování nesmí být před začátkem.",
+      "countInvalid": "Zadejte, kolikrát se událost opakuje (alespoň 1).",
+      "noWritable": "Pro tuto událost není k dispozici žádný upravitelný kalendář.",
+      "customHint": "Tato série má vlastní pravidlo opakování. Zůstane beze změny."
+    },
+    "recurrence": {
+      "none": "Neopakuje se",
+      "daily": "Denně",
+      "weekly": "Týdně",
+      "monthly": "Měsíčně",
+      "yearly": "Ročně",
+      "custom": "Vlastní",
+      "interval": "každých {{n}}",
+      "afterCount": "{{n}}×",
+      "untilDate": "do {{date}}"
+    },
+    "reminder": {
+      "none": "Bez připomenutí",
+      "atStart": "Na začátku",
+      "min10": "10 minut předem",
+      "min30": "30 minut předem",
+      "hour1": "1 hodinu předem",
+      "day1": "1 den předem",
+      "custom": "{{n}} min předem"
+    },
+    "errors": {
+      "conflict": "Tato událost byla na serveru změněna během úprav. Kalendář byl znovu načten; zkontrolujte ho a zkuste to znovu.",
+      "busy": "Kalendář se právě synchronizuje. Zkuste to za chvíli znovu.",
+      "readOnly": "Tento kalendář je jen pro čtení, nic se nezměnilo.",
+      "server": "Kalendářový server změnu odmítl nebo je nedostupný, nic se nezměnilo: {{message}}",
+      "generic": "Něco se nepodařilo: {{message}}",
+      "load": "Data kalendáře se nepodařilo načíst: {{message}}",
+      "noWritable": "Žádný z vašich kalendářů nepřijímá nové události. Přidejte kalendář, který není jen pro čtení."
+    },
+    "accounts": {
+      "title": "Kalendářové účty",
+      "addTitle": "Přidat účet",
+      "name": "Název (volitelné)",
+      "serverUrl": "Adresa serveru",
+      "username": "Uživatelské jméno",
+      "password": "Heslo",
+      "appPasswordHint": "Pokud je váš poskytovatel nabízí, použijte heslo aplikace místo hlavního hesla.",
+      "googleHint": "Google Kalendář vyžaduje OAuth a zatím není podporován.",
+      "connect": "Připojit",
+      "connecting": "Připojování…",
+      "lastSync": "Naposledy synchronizováno: {{when}}.",
+      "neverSynced": "Dosud nesynchronizováno.",
+      "firstSync": "Probíhá první synchronizace…",
+      "firstSyncBanner": "{{name}} se synchronizuje poprvé. Události se zobrazují postupně.",
+      "counts": "Kalendáře: {{calendars}}, události: {{events}}.",
+      "syncNow": "Synchronizovat",
+      "syncing": "Synchronizace…",
+      "synced": "Synchronizováno.",
+      "syncRunning": "Pro tento účet již synchronizace probíhá.",
+      "syncFailed": "Synchronizace selhala",
+      "bannerTitle": "{{name}} se nesynchronizuje.",
+      "manage": "Spravovat",
+      "interval": "Interval synchronizace",
+      "everyMinutes": "Každých {{n}} minut",
+      "changePassword": "Změnit heslo",
+      "newPassword": "Nové heslo",
+      "passwordSaved": "Heslo bylo aktualizováno.",
+      "removeConfirm": "Odebrat {{name}} z MailFlow? Jeho kalendáře a události se smažou jen zde; na serveru se nic nesmaže."
+    }
   }
 }

@@ -37,6 +37,7 @@ function openScheduledMessage(id) {
 }
 
 const ContactsPage = lazy(() => import('./ContactsPage.jsx'));
+const CalendarPage = lazy(() => import('./CalendarPage.jsx'));
 const WindowLayer  = lazy(() => import('./WindowLayer.jsx'));
 
 const ComposeModal = lazy(() => import('./ComposeModal.jsx'));
@@ -63,7 +64,7 @@ export default function MailApp() {
     mobileSidebarOpen, setMobileSidebarOpen, addNotification,
     fontSize, showAppBadge, showFaviconBadge,
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
-    showContacts, setTodoistConnected,
+    showContacts, showCalendar, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     rightSidebarHidden, toggleRightSidebarHidden,
   } = useStore();
@@ -890,14 +891,17 @@ export default function MailApp() {
           >
             <Sidebar />
           </div>
-          {/* Keep all three mounted so scroll/state survive navigation. */}
+          {/* Keep all of them mounted so scroll/state survive navigation. */}
           <div style={{ flex: 1, overflow: 'hidden', height: '100%', display: showContacts ? 'flex' : 'none' }}>
             <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
           </div>
-          <div style={{ flex: 1, display: !showContacts && !selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+          <div style={{ flex: 1, overflow: 'hidden', height: '100%', display: showCalendar ? 'flex' : 'none' }}>
+            <Suspense fallback={lazyFallback}><CalendarPage /></Suspense>
+          </div>
+          <div style={{ flex: 1, display: !showContacts && !showCalendar && !selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <MessageList />
           </div>
-          <div style={{ flex: 1, display: !showContacts && selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+          <div style={{ flex: 1, display: !showContacts && !showCalendar && selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <ReadingPane />
           </div>
         </>
@@ -928,7 +932,10 @@ export default function MailApp() {
             <div style={{ display: showContacts ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
               <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
             </div>
-            <div style={{ display: showContacts ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
+            <div style={{ display: showCalendar ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+              <Suspense fallback={lazyFallback}><CalendarPage /></Suspense>
+            </div>
+            <div style={{ display: showContacts || showCalendar ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
               {listFirst ? (
                 <>
                   {/* Both stay mounted, as on a phone, so the list keeps its place behind a message. */}

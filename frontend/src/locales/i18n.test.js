@@ -595,6 +595,40 @@ const SAME_VALUE_ALLOWED = {
   'admin.apiTokens.title':     [['es', 'ptBR'], ['cs', 'pl']],
   'admin.apiTokens.nameLabel': [['it', 'ptBR']],
   'admin.apiTokens.copied':    [['es', 'ptBR']],
+
+  // ── Calendar: words the Romance and Germanic languages spell alike ──────────
+  'calendar.title': [['es', 'it']],
+  'calendar.previous': [['es', 'ptBR']],
+  'calendar.showLess': [['es', 'ptBR']],
+  'calendar.views.label': [['es', 'it']],
+  'calendar.views.week': [['es', 'ptBR']],
+  'calendar.views.agenda': [['de', 'en', 'es', 'it']], // "Agenda"
+  'calendar.accounts.name': [['de', 'en']], // "Name (optional)"
+  'calendar.accounts.password': [['en', 'it']],
+  'calendar.accounts.connect': [['es', 'ptBR']],
+  'calendar.accounts.connecting': [['es', 'ptBR']],
+  'calendar.accounts.neverSynced': [['es', 'ptBR']],
+  'calendar.accounts.synced': [['es', 'ptBR']],
+  'calendar.accounts.syncing': [['es', 'ptBR']],
+  'calendar.detail.organizer': [['es', 'ptBR']],
+  'calendar.status.cancelled': [['es', 'ptBR']],
+  'calendar.form.calendar': [['es', 'it']],
+  'calendar.form.description': [['en', 'fr']],
+  'calendar.form.editTitle': [['es', 'ptBR']],
+  'calendar.form.end': [['es', 'fr']],
+  'calendar.form.ends': [['es', 'it', 'ptBR']], // "Termina"
+  'calendar.form.endsNever': [['es', 'ptBR']],
+  'calendar.form.repeat': [['es', 'ptBR']],
+  'calendar.form.title': [['es', 'ptBR']],
+  'calendar.recurrence.custom': [['es', 'ptBR']],
+  'calendar.recurrence.daily': [['es', 'ptBR']],
+  'calendar.recurrence.weekly': [['es', 'ptBR']],
+  'calendar.recurrence.yearly': [['es', 'ptBR']],
+  'calendar.recurrence.untilDate': [['cs', 'pl']], // "do {{date}}"
+  'calendar.reminder.custom': [['es', 'ptBR']],
+  'calendar.reminder.hour1': [['es', 'ptBR']],
+  'calendar.reminder.min10': [['es', 'ptBR']],
+  'calendar.reminder.min30': [['es', 'ptBR']],
 };
 
 // Locale-specific plural forms are allowed per locale. A locale may add forms
