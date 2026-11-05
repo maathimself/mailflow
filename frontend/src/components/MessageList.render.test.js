@@ -1408,3 +1408,43 @@ describe('MessageList: the next page', () => {
     }
   });
 });
+
+describe('MessageList: a manual sync', () => {
+  // The sync runs after the request answers, and only the socket says when it is done. Without it
+  // (a phone back from the background, still reconnecting) the list stayed as it was.
+  const syncButton = () => container.querySelector('button[title="messageList.syncAccount"]');
+  const refreshesDuring = async (t, during) => {
+    let refreshes = 0;
+    const count = () => { refreshes += 1; };
+    window.addEventListener('mailflow:refresh', count);
+    try {
+      await mount({ rows: [MESSAGE], threadedView: false });
+      t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+      await React.act(async () => { syncButton().click(); });
+      await React.act(async () => { await Promise.resolve(); });
+      await during(() => refreshes);
+    } finally {
+      window.removeEventListener('mailflow:refresh', count);
+      t.mock.timers.reset();
+    }
+  };
+
+  test('reloads the list when the socket does not say the sync finished', async (t) => {
+    await refreshesDuring(t, async (refreshes) => {
+      assert.ok(syncButton().disabled, 'the sync is running');
+      await React.act(async () => { t.mock.timers.tick(5000); });
+      assert.equal(refreshes(), 1);
+      await React.act(async () => { t.mock.timers.tick(10000); });
+      assert.equal(refreshes(), 2);
+      assert.equal(syncButton().disabled, false, 'and the spinner stops');
+    });
+  });
+
+  test('leaves it to the socket when it answers', async (t) => {
+    await refreshesDuring(t, async (refreshes) => {
+      await React.act(async () => { window.dispatchEvent(new CustomEvent('mailflow:sync_done')); });
+      await React.act(async () => { t.mock.timers.tick(15000); });
+      assert.equal(refreshes(), 0);
+    });
+  });
+});
