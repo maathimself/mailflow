@@ -49,6 +49,10 @@ const lazyFallback = (
   </div>
 );
 
+// Waits before each new try of a failed account load: quick for a server that is restarting,
+// then once a minute.
+const ACCOUNTS_RETRY_MS = [2000, 5000, 15000, 30000, 60000];
+
 export default function MailApp() {
   const { t } = useTranslation();
   const {
@@ -446,16 +450,28 @@ export default function MailApp() {
   }, [openCompose]);
 
   useEffect(() => {
-    // Load accounts
-    api.getAccounts()
-      .then(accounts => {
-        setAccounts(accounts); // also sets accountsReady:true in the store
-      })
-      .catch(err => {
-        console.error(err);
-        // Even on error, mark accounts as ready so MessageList doesn't hang
-        useStore.setState({ accountsReady: true });
-      });
+    // Load accounts. A failed load (the server restarting, a dropped connection) used to leave
+    // the app with no accounts until a reload: it is tried again, sooner at first, and on a resume.
+    let accountsLoaded = false;
+    let accountsRetry = null;
+    let accountsAttempt = 0;
+    const loadAccounts = () => {
+      clearTimeout(accountsRetry);
+      return api.getAccounts()
+        .then(accounts => {
+          accountsLoaded = true;
+          setAccounts(accounts); // also sets accountsReady:true in the store
+        })
+        .catch(err => {
+          console.error(err);
+          // Even on error, mark accounts as ready so MessageList doesn't hang
+          useStore.setState({ accountsReady: true });
+          if (err?.status === 401) return; // signed out: the session handler takes over
+          const delay = ACCOUNTS_RETRY_MS[Math.min(accountsAttempt++, ACCOUNTS_RETRY_MS.length - 1)];
+          accountsRetry = setTimeout(loadAccounts, delay);
+        });
+    };
+    loadAccounts();
 
     // Sync Todoist connection state — localStorage alone isn't enough across devices/sessions
     api.todoist.status().then(({ connected }) => setTodoistConnected(connected)).catch(() => {});
@@ -495,6 +511,7 @@ export default function MailApp() {
       // fail on their own without saying so, and when the network is not back yet, all of them
       // do. Its failure has installResumeRefresh run the resync again.
       onResync: () => {
+        if (!accountsLoaded) loadAccounts();
         refreshFolders();
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
         return api.getUnreadCounts().then(setUnreadCounts);
@@ -504,6 +521,7 @@ export default function MailApp() {
     window.addEventListener('mailflow:counts_refresh', refreshCounts);
     return () => {
       clearInterval(interval);
+      clearTimeout(accountsRetry);
       stopResume();
       window.removeEventListener('mailflow:counts_refresh', refreshCounts);
     };
