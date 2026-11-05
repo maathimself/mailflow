@@ -2414,5 +2414,20 @@
     "formNote": "Gmail 및 Google Workspace 사서함은 앱 비밀번호 대신 Google로 로그인할 수 있습니다.",
     "appPasswordNote": "Gmail에는 일반 비밀번호가 아닌 앱 비밀번호가 필요합니다. Google 계정에서 2단계 인증을 켠 다음 앱 비밀번호를 만들어 비밀번호 칸에 입력하세요.",
     "createAppPassword": "앱 비밀번호 만들기"
+  },
+  "tags": {
+    "title": "태그",
+    "header": {
+      "hide": "태그 숨기기",
+      "none": "아직 정의된 태그가 없습니다. 설정에서 만들어 보세요."
+    },
+    "settings": {
+      "note": "태그는 MailFlow에만 저장되며 메일 서버에는 아무것도 기록되지 않습니다.",
+      "name": "이름",
+      "color": "색상",
+      "confirmDelete": "\"{{name}}\" 태그를 삭제하고 모든 메시지에서 제거할까요?",
+      "add": "태그 추가",
+      "create": "만들기"
+    }
   }
 }

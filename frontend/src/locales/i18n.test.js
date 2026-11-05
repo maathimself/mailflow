@@ -310,6 +310,13 @@ const SAME_VALUE_ALLOWED = {
   // "Tema" — "Theme" translates identically in es and it
   'admin.tabs.theme': [['es', 'it', 'ptBR']],
 
+  // ── Tags ───────────────────────────────────────────────────────────────────
+  // "Tags" — the same loanword in de, en, fr and ptBR
+  'tags.title': [['de', 'en', 'fr', 'ptBR']],
+  // "Name" / "Color" — plain cognates
+  'tags.settings.name':  [['de', 'en'], ['it', 'ptBR']],
+  'tags.settings.color': [['en', 'es']],
+
   // "Administration" — same spelling in de, en, fr
   'admin.tabs.groupAdmin': [['de', 'en', 'fr']],
 

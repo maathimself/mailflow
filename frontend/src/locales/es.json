@@ -2414,5 +2414,20 @@
     "formNote": "Los buzones de Gmail y Google Workspace pueden iniciar sesión con Google en lugar de usar una contraseña de aplicación.",
     "appPasswordNote": "Gmail necesita una contraseña de aplicación, no tu contraseña habitual. Activa la verificación en dos pasos de tu cuenta de Google, crea una contraseña de aplicación y escríbela en el campo de contraseña.",
     "createAppPassword": "Crear una contraseña de aplicación"
+  },
+  "tags": {
+    "title": "Etiquetas",
+    "header": {
+      "hide": "Ocultar etiquetas",
+      "none": "Aún no hay etiquetas. Crea algunas en Ajustes."
+    },
+    "settings": {
+      "note": "Las etiquetas se guardan solo en MailFlow; no se escribe nada en tus servidores de correo.",
+      "name": "Nombre",
+      "color": "Color",
+      "confirmDelete": "¿Eliminar la etiqueta «{{name}}» y quitarla de todos los mensajes?",
+      "add": "Añadir una etiqueta",
+      "create": "Crear"
+    }
   }
 }

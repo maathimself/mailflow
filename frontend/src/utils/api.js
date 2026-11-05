@@ -644,6 +644,14 @@ export const api = {
   gtdDone: (id, states) => request('POST', '/gtd/done', { id, states }),
   gtdEnsureFolders: (accountId, folders) => request('POST', '/gtd/folders/ensure', { accountId, folders }),
 
+  // Tags: definitions, and the tags on messages.
+  tagDefinitions: () => request('GET', '/tags/definitions'),
+  tagCreate: (body) => request('POST', '/tags/definitions', body),
+  tagUpdate: (id, patch) => request('PATCH', `/tags/definitions/${id}`, patch),
+  tagDelete: (id) => request('DELETE', `/tags/definitions/${id}`),
+  tagsForMessages: (ids) => request('GET', `/tags/messages?ids=${ids.join(',')}`),
+  tagSet: (messageId, tagId, applied) => request('PUT', `/tags/messages/${messageId}/tags/${tagId}`, { applied }),
+
   // GTD — Inbox-Zero pet. Import uploads your own pet (pet.json text + a base64 spritesheet)
   // and caches it server-side; meta returns the animation descriptor; the sheet URL is used
   // directly as an <img>/background src (authenticated same-origin, cookies ride along).

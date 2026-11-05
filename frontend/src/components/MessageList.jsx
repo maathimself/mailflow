@@ -47,6 +47,7 @@ import ReplyDraftIndicator from './ReplyDraftIndicator.jsx';
 import { PluginSlot } from '../plugins/PluginSlot.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
+import { RowTagPills } from '../tags/TagPills.jsx';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { refreshListWindow, createTrailingRefresh } from '../utils/listRefresh.js';
 import { applyReadGuard as guardReads, clearReadGuard, failMarkRead, setPending, settleMarkRead } from '../utils/pendingReads.js';
@@ -4753,6 +4754,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             <PluginSlot name="message-row-meta" ctx={{ message }} />
             <ReplyDraftIndicator message={message} listRow />
             <SpamBadge message={message} onClick={onExplainSpam} />
+            <RowTagPills message={message} />
           </div>
           {/* Row 3: snippet */}
           {showMessagePreviews && (
@@ -5083,6 +5085,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           <PluginSlot name="message-row-meta" ctx={{ message }} />
           <ReplyDraftIndicator message={message} listRow />
           <SpamBadge message={message} onClick={onExplainSpam} />
+          <RowTagPills message={message} />
         </div>
 
         {/* Row 3: Snippet */}
