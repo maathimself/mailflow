@@ -42,6 +42,9 @@ const failed = code => ({ outcome: 'failed', code });
 const paused = (pauseReason, code) => ({ outcome: 'paused', pauseReason, code });
 const uncertain = code => ({ outcome: 'uncertain', code });
 
+// Node's fetch reports a network failure as TypeError('fetch failed'), the reason in its cause.
+const isFetchFailure = err => err?.message === 'fetch failed' && err.cause != null;
+
 // How an error ends an attempt. `phase` is 'prepare' for anything before the message was handed
 // to the transport (building it, refreshing a token, opening the transport), and 'send' for a
 // rejection of deliverAndRecord, whose cause is the SMTP error and carries the stage the attempt
@@ -59,7 +62,10 @@ export function classifySendError(err, { phase }) {
     // SendError: 400 is input that no longer passes the send checks, anything else an SMTP
     // configuration the account cannot send with (a corrupted credential, plain-text SMTP).
     if (err?.name === 'SendError') return failed(err.status === 400 ? 'invalid_message' : 'config');
-    if (err instanceof TypeError) return failed('invalid_message');
+    // A TypeError is input the message builder cannot use, except fetch's own: Node's fetch
+    // (undici) rejects with TypeError('fetch failed') when the token endpoint cannot be reached
+    // (DNS, refused, reset), which is the transient case below.
+    if (err instanceof TypeError && !isFetchFailure(err)) return failed('invalid_message');
     // The connection policy refused the SMTP host (private or reserved address): no retry
     // changes that, only the account's settings or the admin's policy.
     if (err?.hostRefused) return failed('config');
