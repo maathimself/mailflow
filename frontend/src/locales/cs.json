@@ -2435,7 +2435,9 @@
     "createAppPassword": "Vytvořit heslo aplikace"
   },
   "webhooks": {
-    "remove": "Odstranit uloženou adresu URL a token",
+    "useToken": "Použít ověřovací token",
+    "removeConfirm": "Smazat toto nastavení? Oznámení se vypnou a uložená adresa URL i token se odstraní.",
+    "remove": "Smazat nastavení oznámení",
     "removed": "Uložená adresa URL a token byly odstraněny.",
     "errors": {
       "url": "Zadejte platnou adresu URL oznámení.",
@@ -2468,7 +2470,6 @@
     "url": "URL cíle oznámení",
     "token": "Volitelný ověřovací token",
     "secretKept": "Nastaveno •••••••• — ponechte prázdné pro zachování",
-    "clearToken": "Odstranit uložený token",
     "sender": "Odesílat odesílatele do cíle",
     "subject": "Odesílat předmět do cíle",
     "testHelp": "Před testem uložte změny. Testy používají uloženou konfiguraci a sdílejí limit 10 pokusů za minutu.",
