@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../utils/api.js';
 import { formatMessageDateTime } from '../../utils/formatDate.js';
@@ -117,6 +117,51 @@ function AccountCard({ account, onChanged }) {
   );
 }
 
+function MailAccounts({ onAdded }) {
+  const { t } = useTranslation();
+  const [mail, setMail] = useState([]);
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let live = true;
+    api.calendar.mailAccounts().then(list => { if (live) setMail(list); }).catch(err => { if (live) setError(err.message); });
+    return () => { live = false; };
+  }, []);
+
+  const connect = async (account) => {
+    setBusy(account.id);
+    setError(null);
+    try {
+      await api.calendar.addFromMail(account.id);
+      setMail(list => list.map(m => (m.id === account.id ? { ...m, connected: true } : m)));
+      await onAdded();
+    } catch (err) {
+      setError(err.code === 'no_caldav' ? t('calendar.accounts.fromMailNone', { host: account.host, error: err.message }) : err.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const open = mail.filter(m => !m.connected);
+  if (!open.length && !error) return null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <h3 style={{ margin: '4px 0 0', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{t('calendar.accounts.fromMailTitle')}</h3>
+      <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: 'var(--text-tertiary)' }}>{t('calendar.accounts.fromMailHint')}</p>
+      {open.map(m => (
+        <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--text-primary)', wordBreak: 'break-all' }}>{m.email}</div>
+          <Btn kind="primary" disabled={busy !== null} onClick={() => connect(m)}>
+            {busy === m.id ? t('calendar.accounts.connecting') : t('calendar.accounts.connect')}
+          </Btn>
+        </div>
+      ))}
+      {error && <ErrorBox>{error}</ErrorBox>}
+    </div>
+  );
+}
+
 function AddForm({ onAdded, first }) {
   const { t } = useTranslation();
   const [form, setForm] = useState({ name: '', serverUrl: '', username: '', password: '' });
@@ -186,6 +231,7 @@ export default function AccountsModal({ accounts, isMobile, onClose, onChanged }
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {list.map(a => <AccountCard key={a.id} account={a} onChanged={onChanged} />)}
         {list.length > 0 && <div style={{ borderTop: '1px solid var(--border-subtle)' }} />}
+        <MailAccounts onAdded={onChanged} />
         <AddForm first={list.length === 0} onAdded={async () => { await onChanged(); if (list.length === 0) onClose(); }} />
       </div>
     </Modal>

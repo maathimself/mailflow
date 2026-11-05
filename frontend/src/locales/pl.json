@@ -2573,7 +2573,10 @@
       "changePassword": "Zmień hasło",
       "newPassword": "Nowe hasło",
       "passwordSaved": "Hasło zostało zaktualizowane.",
-      "removeConfirm": "Usunąć {{name}} z MailFlow? Jego kalendarze i wydarzenia zostaną usunięte tylko tutaj; na serwerze nic nie zostanie skasowane."
+      "removeConfirm": "Usunąć {{name}} z MailFlow? Jego kalendarze i wydarzenia zostaną usunięte tylko tutaj; na serwerze nic nie zostanie skasowane.",
+      "fromMailTitle": "Użyj konta pocztowego",
+      "fromMailHint": "Próbuje serwera i hasła konta pocztowego. Nic nie jest wysyłane na inne serwery.",
+      "fromMailNone": "Nie znaleziono serwera kalendarza na {{host}}: {{error}}"
     }
   }
 }

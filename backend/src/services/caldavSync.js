@@ -6,7 +6,7 @@
 import { query } from './db.js';
 import { decrypt } from './encryption.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
-import { discoverCalendars, listEvents, fetchEvents } from './caldavClient.js';
+import { discoverCalendars, listEvents, fetchEvents, hrefKey } from './caldavClient.js';
 import { resourceInfo } from './icalEvents.js';
 
 const TICK_MS = 60 * 1000;
@@ -38,17 +38,17 @@ async function upsertEvent(calendar, ev, startedAt) {
 
 async function syncCalendar(calendar, remote, creds, startedAt) {
   const local = await query('SELECT href, etag FROM calendar_events WHERE calendar_id = $1', [calendar.id]);
-  const known = new Map(local.rows.map(r => [r.href, r.etag]));
+  const known = new Map(local.rows.map(r => [hrefKey(r.href), r.etag]));
   const listing = await listEvents(calendar.url, creds);
-  const seen = new Set(listing.map(e => e.url));
-  const stale = [...known.keys()].filter(href => !seen.has(href));
+  const seen = new Set(listing.map(e => hrefKey(e.url)));
+  const stale = local.rows.map(r => r.href).filter(href => !seen.has(hrefKey(href)));
   if (stale.length) {
     await query(
       'DELETE FROM calendar_events WHERE calendar_id = $1 AND href = ANY($2::text[]) AND updated_at < $3',
       [calendar.id, stale, startedAt],
     );
   }
-  const changed = listing.filter(e => !e.etag || known.get(e.url) !== e.etag).map(e => e.rawHref);
+  const changed = listing.filter(e => !e.etag || known.get(hrefKey(e.url)) !== e.etag).map(e => e.rawHref);
   let unreadable = 0;
   for (const ev of await fetchEvents(calendar.url, changed, creds)) {
     if (!ev.ical) continue;

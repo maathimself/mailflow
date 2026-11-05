@@ -2554,7 +2554,10 @@
       "changePassword": "Change password",
       "newPassword": "New password",
       "passwordSaved": "Password updated.",
-      "removeConfirm": "Remove {{name}} from MailFlow? Its calendars and events are deleted here only; nothing is deleted on the server."
+      "removeConfirm": "Remove {{name}} from MailFlow? Its calendars and events are deleted here only; nothing is deleted on the server.",
+      "fromMailTitle": "Use a mail account",
+      "fromMailHint": "Tries the mail account's own server and password. Nothing is sent to any other host.",
+      "fromMailNone": "No calendar server was found on {{host}}: {{error}}"
     }
   }
 }

@@ -2554,7 +2554,10 @@
       "changePassword": "Changer le mot de passe",
       "newPassword": "Nouveau mot de passe",
       "passwordSaved": "Mot de passe mis à jour.",
-      "removeConfirm": "Retirer {{name}} de MailFlow ? Ses agendas et événements sont supprimés ici uniquement ; rien n'est supprimé sur le serveur."
+      "removeConfirm": "Retirer {{name}} de MailFlow ? Ses agendas et événements sont supprimés ici uniquement ; rien n'est supprimé sur le serveur.",
+      "fromMailTitle": "Utiliser un compte mail",
+      "fromMailHint": "Essaie le serveur et le mot de passe du compte mail. Rien n'est envoyé à un autre serveur.",
+      "fromMailNone": "Aucun serveur d'agenda trouvé sur {{host}} : {{error}}"
     }
   }
 }

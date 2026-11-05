@@ -2554,7 +2554,10 @@
       "changePassword": "Passwort ändern",
       "newPassword": "Neues Passwort",
       "passwordSaved": "Passwort aktualisiert.",
-      "removeConfirm": "{{name}} aus MailFlow entfernen? Kalender und Termine werden nur hier gelöscht; auf dem Server wird nichts gelöscht."
+      "removeConfirm": "{{name}} aus MailFlow entfernen? Kalender und Termine werden nur hier gelöscht; auf dem Server wird nichts gelöscht.",
+      "fromMailTitle": "E-Mail-Konto verwenden",
+      "fromMailHint": "Versucht es mit dem Server und Passwort des E-Mail-Kontos. An andere Server wird nichts gesendet.",
+      "fromMailNone": "Auf {{host}} wurde kein Kalenderserver gefunden: {{error}}"
     }
   }
 }

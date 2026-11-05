@@ -5,10 +5,11 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { encrypt } from '../services/encryption.js';
+import { decrypt, encrypt } from '../services/encryption.js';
+import { findOwnedAccount } from '../services/ownership.js';
 import { validateHost } from '../services/hostValidation.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
-import { discoverCalendars, getEvent, putEvent, deleteEvent } from '../services/caldavClient.js';
+import { discoverCalendars, findCalDavServer, getEvent, putEvent, deleteEvent } from '../services/caldavClient.js';
 import { syncAccount, credentialsFor, isSyncing } from '../services/caldavSync.js';
 import { applyEdit, buildEvent, expandResource, removeOccurrence, resourceInfo } from '../services/icalEvents.js';
 
@@ -69,6 +70,18 @@ async function serverUrlError(serverUrl, policy) {
   return validateHost(parsed.hostname, { allowPrivate: policy.allowPrivateHosts });
 }
 
+async function saveAccount(userId, { name, serverUrl, username, password, intervalMin }) {
+  const r = await query(
+    `INSERT INTO caldav_accounts (user_id, name, server_url, username, password, interval_min)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (user_id, server_url, username) DO UPDATE SET password = EXCLUDED.password, name = EXCLUDED.name, last_error = NULL
+     RETURNING *`,
+    [userId, name, serverUrl, username, encrypt(password), clampInterval(intervalMin)],
+  );
+  syncAccount(r.rows[0].id).catch(err => console.warn(`Calendar: first sync failed: ${err.message}`));
+  return publicAccount(r.rows[0]);
+}
+
 router.get('/accounts', async (req, res) => {
   const r = await query(`${ACCOUNT_SELECT} WHERE a.user_id = $1 ORDER BY a.created_at`, [req.session.userId]);
   res.json(r.rows.map(publicAccount));
@@ -89,15 +102,41 @@ router.post('/accounts', async (req, res) => {
     return badRequest(res, err.message);
   }
   const label = name?.trim().slice(0, 100) || new URL(serverUrl).hostname;
+  res.json(await saveAccount(req.session.userId, { name: label, serverUrl, username, password, intervalMin }));
+});
+
+// Mail accounts whose password may also open a calendar on the same server.
+router.get('/mail-accounts', async (req, res) => {
   const r = await query(
-    `INSERT INTO caldav_accounts (user_id, name, server_url, username, password, interval_min)
-     VALUES ($1,$2,$3,$4,$5,$6)
-     ON CONFLICT (user_id, server_url, username) DO UPDATE SET password = EXCLUDED.password, name = EXCLUDED.name, last_error = NULL
-     RETURNING *`,
-    [req.session.userId, label, serverUrl, username, encrypt(password), clampInterval(intervalMin)],
+    `SELECT m.id, m.email_address, m.imap_host,
+       EXISTS (SELECT 1 FROM caldav_accounts c
+               WHERE c.user_id = m.user_id AND c.username = m.auth_user AND c.server_url IN ('https://' || m.imap_host || '/', 'https://' || m.smtp_host || '/')) AS connected
+     FROM email_accounts m
+     WHERE m.user_id = $1 AND m.enabled AND m.protocol = 'imap' AND m.auth_pass IS NOT NULL AND m.oauth_provider IS NULL
+     ORDER BY m.sort_order, m.email_address`,
+    [req.session.userId],
   );
-  syncAccount(r.rows[0].id).catch(err => console.warn(`Calendar: first sync failed: ${err.message}`));
-  res.json(publicAccount(r.rows[0]));
+  res.json(r.rows.map(m => ({ id: m.id, email: m.email_address, host: m.imap_host, connected: m.connected })));
+});
+
+router.post('/accounts/from-mail', async (req, res) => {
+  const { accountId } = req.body || {};
+  if (!UUID_RE.test(accountId || '')) return res.status(404).json({ error: 'Not found' });
+  const mail = await findOwnedAccount(req.session.userId, accountId, {
+    columns: 'email_address, imap_host, smtp_host, auth_user, auth_pass, oauth_provider',
+  });
+  if (!mail) return res.status(404).json({ error: 'Not found' });
+  if (mail.oauth_provider || !mail.auth_pass) return badRequest(res, 'This mail account has no password to connect with');
+  const username = mail.auth_user;
+  const password = decrypt(mail.auth_pass);
+  const policy = await getConnectionPolicy();
+  let found;
+  try {
+    found = await findCalDavServer([mail.imap_host, mail.smtp_host], { username, password, allowPrivate: policy.allowPrivateHosts });
+  } catch (err) {
+    return res.status(400).json({ error: err.message, code: 'no_caldav' });
+  }
+  res.json(await saveAccount(req.session.userId, { name: mail.email_address, serverUrl: found.serverUrl, username, password }));
 });
 
 router.patch('/accounts/:id', async (req, res) => {
@@ -155,6 +194,7 @@ router.get('/events', async (req, res) => {
   const toMs = Date.parse(req.query.to);
   if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) return badRequest(res, 'Invalid date range');
   if (toMs - fromMs > MAX_WINDOW_MS) return badRequest(res, 'Date range too large');
+  const floatingTz = typeof req.query.tz === 'string' && req.query.tz.length < 100 ? req.query.tz : null;
   const r = await query(
     `SELECT e.id, e.calendar_id, e.ical, c.read_only
      FROM calendar_events e JOIN calendars c ON c.id = e.calendar_id
@@ -164,7 +204,7 @@ router.get('/events', async (req, res) => {
   const events = [];
   for (const row of r.rows) {
     try {
-      for (const occ of expandResource(row.ical, fromMs, toMs)) {
+      for (const occ of expandResource(row.ical, fromMs, toMs, { floatingTz })) {
         events.push({
           ...occ, id: `${row.id}:${occ.recurrenceId || ''}`, eventId: row.id,
           calendarId: row.calendar_id, readOnly: row.read_only,
@@ -278,6 +318,8 @@ async function storeFromServer(calendarId, userId, href, ical, creds) {
   return r.rows[0].id;
 }
 
+const readOnlyError = res => res.status(403).json({ error: 'This calendar is read-only', code: 'read_only' });
+
 // A conflict waits for the server's newer version to sync, so the client's refetch shows it.
 async function sendWriteError(res, err, accountId) {
   if (err.conflict) {
@@ -285,11 +327,10 @@ async function sendWriteError(res, err, accountId) {
     return res.status(409).json({ error: 'This event changed on the server', code: 'conflict' });
   }
   if (err.notFound) return res.status(404).json({ error: err.message });
+  if (err.forbidden) return readOnlyError(res);
   console.warn(`Calendar: write failed: ${err.message}`);
   return res.status(502).json({ error: err.message });
 }
-
-const readOnlyError = res => res.status(403).json({ error: 'This calendar is read-only', code: 'read_only' });
 
 router.post('/events', async (req, res) => {
   const calendar = await loadCalendar(req.session.userId, req.body?.calendarId);
@@ -301,8 +342,8 @@ router.post('/events', async (req, res) => {
   const href = new URL(`${encodeURIComponent(uid)}.ics`, calendar.url.endsWith('/') ? calendar.url : `${calendar.url}/`).href;
   try {
     const creds = await credentialsFor(calendar);
-    await putEvent(href, ical, creds, { create: true });
-    const eventId = await storeFromServer(calendar.id, calendar.user_id, href, ical, creds);
+    const { url } = await putEvent(href, ical, creds, { create: true });
+    const eventId = await storeFromServer(calendar.id, calendar.user_id, url, ical, creds);
     res.json({ ok: true, eventId });
   } catch (err) {
     await sendWriteError(res, err, calendar.account_id);
@@ -337,10 +378,9 @@ router.patch('/events/:eventId', async (req, res) => {
     const creds = await credentialsFor(event);
     if (target) {
       const base = target.url.endsWith('/') ? target.url : `${target.url}/`;
-      const name = `${encodeURIComponent(event.uid || crypto.randomUUID())}.ics`;
-      const href = new URL(name, base).href;
-      await putEvent(href, ical, creds, { create: true });
-      await storeFromServer(target.id, target.user_id, href, ical, creds);
+      const href = new URL(`${crypto.randomUUID()}.ics`, base).href;
+      const { url } = await putEvent(href, ical, creds, { create: true });
+      await storeFromServer(target.id, target.user_id, url, ical, creds);
       await deleteEvent(event.href, creds, { etag: event.etag });
       await query('DELETE FROM calendar_events WHERE id = $1', [event.id]);
     } else {

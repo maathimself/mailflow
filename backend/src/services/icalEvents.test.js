@@ -70,6 +70,19 @@ describe('expandResource', () => {
     expect(occ.find(o => o.summary === 'Moved').recurrenceId).toBe('2026-11-04T09:00:00');
   });
 
+  it('reads a floating time in the viewer\'s zone', () => {
+    const ics = cal('BEGIN:VEVENT', 'UID:f', 'DTSTAMP:20260101T000000Z', 'DTSTART:20261105T100000', 'DTEND:20261105T110000', 'END:VEVENT');
+    const [occ] = expandResource(ics, ...range('2026-11-01T00:00:00Z', '2026-11-30T00:00:00Z'), { floatingTz: 'Europe/Zurich' });
+    expect(occ.start).toBe('2026-11-05T09:00:00.000Z');
+  });
+
+  it('understands an IANA zone behind a vendor prefix', () => {
+    const ics = cal('BEGIN:VEVENT', 'UID:p', 'DTSTAMP:20260101T000000Z',
+      'DTSTART;TZID=/freeassociation.sourceforge.net/Europe/Zurich:20261105T100000',
+      'DTEND;TZID=/freeassociation.sourceforge.net/Europe/Zurich:20261105T110000', 'END:VEVENT');
+    expect(expandResource(ics, ...range('2026-11-01T00:00:00Z', '2026-11-30T00:00:00Z'))[0].start).toBe('2026-11-05T09:00:00.000Z');
+  });
+
   it('expands a series that began long before the window', () => {
     const ics = cal('BEGIN:VEVENT', 'UID:o', 'DTSTAMP:20100101T000000Z', 'DTSTART:20100101T080000Z', 'DTEND:20100101T090000Z', 'RRULE:FREQ=DAILY', 'END:VEVENT');
     expect(expandResource(ics, ...range('2026-11-01T00:00:00Z', '2026-11-08T00:00:00Z'))).toHaveLength(7);

@@ -2554,7 +2554,10 @@
       "changePassword": "修改密码",
       "newPassword": "新密码",
       "passwordSaved": "密码已更新。",
-      "removeConfirm": "要从 MailFlow 中移除 {{name}} 吗？其日历和日程仅在此处删除，服务器上的数据不会受到影响。"
+      "removeConfirm": "要从 MailFlow 中移除 {{name}} 吗？其日历和日程仅在此处删除，服务器上的数据不会受到影响。",
+      "fromMailTitle": "使用邮件账户",
+      "fromMailHint": "尝试使用邮件账户的服务器和密码。不会向其他服务器发送任何内容。",
+      "fromMailNone": "在 {{host}} 上未找到日历服务器：{{error}}"
     }
   }
 }

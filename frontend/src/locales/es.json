@@ -2554,7 +2554,10 @@
       "changePassword": "Cambiar contraseña",
       "newPassword": "Nueva contraseña",
       "passwordSaved": "Contraseña actualizada.",
-      "removeConfirm": "¿Quitar {{name}} de MailFlow? Sus calendarios y eventos se eliminan solo aquí; no se borra nada en el servidor."
+      "removeConfirm": "¿Quitar {{name}} de MailFlow? Sus calendarios y eventos se eliminan solo aquí; no se borra nada en el servidor.",
+      "fromMailTitle": "Usar una cuenta de correo",
+      "fromMailHint": "Prueba el servidor y la contraseña de la cuenta de correo. No se envía nada a ningún otro servidor.",
+      "fromMailNone": "No se encontró ningún servidor de calendario en {{host}}: {{error}}"
     }
   }
 }

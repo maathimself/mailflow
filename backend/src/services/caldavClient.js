@@ -1,6 +1,8 @@
 // CalDAV client. Discovers calendars and reads and writes events over WebDAV with HTTP Basic auth.
 // Every request goes through safeFetch and the host policy, as server-provided hrefs are attacker-influenced.
 
+import crypto from 'node:crypto';
+import dns from 'node:dns/promises';
 import { XMLParser } from 'fast-xml-parser';
 import { validateHost } from './hostValidation.js';
 import { safeFetch } from './safeFetch.js';
@@ -41,23 +43,73 @@ function propsOf(response) {
   return merged;
 }
 
-async function request(method, url, creds, { depth, body, headers = {}, contentType = 'application/xml; charset=utf-8' } = {}) {
+const MAX_REDIRECTS = 5;
+const WELL_KNOWN_PATHS = ['/.well-known/caldav', '/dav/', '/caldav/', '/remote.php/dav/', '/dav.php/', '/cal.php/', '/SOGo/dav/', '/webdav/caldav/'];
+
+// Pure. The Authorization header answering an RFC 7616 Digest challenge, or null for a challenge
+// that is not Digest or uses an algorithm unknown here.
+export function digestHeader(challenge, { username, password, method, url, cnonce = crypto.randomBytes(8).toString('hex') }) {
+  const at = challenge.search(/digest\s/i);
+  if (at < 0) return null;
+  const params = {};
+  for (const m of challenge.slice(at + 7).matchAll(/([a-zA-Z-]+)=(?:"([^"]*)"|([^\s,]+))/g)) {
+    const key = m[1].toLowerCase();
+    if (!(key in params)) params[key] = m[2] ?? m[3];
+  }
+  const algorithm = (params.algorithm || 'MD5').toUpperCase();
+  const hashName = { MD5: 'md5', 'SHA-256': 'sha256' }[algorithm];
+  if (!hashName || !params.nonce) return null;
+  const hash = str => crypto.createHash(hashName).update(str).digest('hex');
+  const uri = new URL(url).pathname + new URL(url).search;
+  const ha1 = hash(`${username}:${params.realm ?? ''}:${password}`);
+  const ha2 = hash(`${method}:${uri}`);
+  const qop = (params.qop || '').split(',').map(q => q.trim()).includes('auth') ? 'auth' : null;
+  const nc = '00000001';
+  const response = qop ? hash(`${ha1}:${params.nonce}:${nc}:${cnonce}:${qop}:${ha2}`) : hash(`${ha1}:${params.nonce}:${ha2}`);
+  const quote = str => String(str).replace(/["\\]/g, '\\$&');
+  return [
+    `Digest username="${quote(username)}"`, `realm="${quote(params.realm ?? '')}"`, `nonce="${quote(params.nonce)}"`,
+    `uri="${quote(uri)}"`, `algorithm=${algorithm}`, `response="${response}"`,
+    ...(params.opaque != null ? [`opaque="${quote(params.opaque)}"`] : []),
+    ...(qop ? [`qop=${qop}`, `nc=${nc}`, `cnonce="${cnonce}"`] : []),
+  ].join(', ');
+}
+
+// Redirects are followed here rather than by fetch, which would drop Authorization on a move to
+// another host and change the verb. Well-known discovery commonly moves hosts (iCloud), and the
+// account's server is trusted as far as it is when it names a calendar home on another host.
+async function request(method, url, creds, { depth, body, headers = {}, contentType = 'application/xml; charset=utf-8' } = {}, hops = 0) {
   const { username, password, allowPrivate = false } = creds;
   let hostname;
   try { hostname = new URL(url).hostname; } catch { throw new Error('Invalid server URL'); }
   const hostErr = await validateHost(hostname, { allowPrivate });
   if (hostErr) throw new Error(hostErr);
   const all = { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`, ...headers };
-  if (body != null) all['Content-Type'] = contentType;
+  if (body) all['Content-Type'] = contentType;
   if (depth != null) all.Depth = String(depth);
-  let res;
-  try {
-    res = await safeFetch(url, { method, headers: all, body, redirect: 'follow', signal: AbortSignal.timeout(30000) }, { allowPrivate });
-  } catch (err) {
-    if (err.name === 'TimeoutError') throw new Error('CalDAV server did not respond (timed out)', { cause: err });
-    throw new Error(`Could not reach the CalDAV server: ${err.message}`, { cause: err });
+  const send = async () => {
+    try {
+      return await safeFetch(url, { method, headers: all, body, redirect: 'manual', signal: AbortSignal.timeout(30000) }, { allowPrivate });
+    } catch (err) {
+      if (err.name === 'TimeoutError') throw new Error('CalDAV server did not respond (timed out)', { cause: err });
+      throw new Error(`Could not reach the CalDAV server: ${err.message}`, { cause: err });
+    }
+  };
+  let res = await send();
+  if (res.status === 401) {
+    const digest = digestHeader(res.headers.get('www-authenticate') || '', { username, password, method, url });
+    if (digest) {
+      await res.body?.cancel();
+      all.Authorization = digest;
+      res = await send();
+    }
   }
   if (res.status === 401) throw Object.assign(new Error('Authentication failed — check the username and app password'), { status: 401 });
+  if ([301, 302, 303, 307, 308].includes(res.status) && res.headers.get('location')) {
+    if (hops >= MAX_REDIRECTS) throw new Error('The CalDAV server redirected too many times');
+    await res.body?.cancel();
+    return request(method, new URL(res.headers.get('location'), url).href, creds, { depth, body, headers, contentType }, hops + 1);
+  }
   return res;
 }
 
@@ -84,20 +136,49 @@ async function propfindHref(url, prop, key, creds) {
   return parseHref(await dav('PROPFIND', url, creds, { depth: 0, body }), key, url);
 }
 
+// RFC 6764: a domain can name its CalDAV host and path in DNS.
+async function srvCandidate(hostname) {
+  try {
+    const [srv] = await dns.resolveSrv(`_caldavs._tcp.${hostname}`);
+    if (!srv?.name) return null;
+    const txt = await dns.resolveTxt(`_caldavs._tcp.${hostname}`).catch(() => []);
+    const path = txt.flat().find(t => t.startsWith('path='))?.slice(5) || '/';
+    return `https://${srv.name}:${srv.port}${path}`;
+  } catch {
+    return null;
+  }
+}
+
+// The URL the user gave, then the standard and the common locations on that server. A server
+// that answers but names no principal may still hold the calendars at the URL itself.
 async function resolvePrincipal(serverUrl, creds) {
-  const origin = new URL(serverUrl).origin;
+  const { origin, hostname } = new URL(serverUrl);
+  const candidates = [serverUrl, ...WELL_KNOWN_PATHS.map(path => `${origin}${path}`)];
+  const srv = await srvCandidate(hostname);
+  if (srv) candidates.splice(1, 0, srv);
+  let answered = false;
   let lastErr;
-  for (const base of [serverUrl, `${origin}/.well-known/caldav`]) {
+  for (const base of candidates) {
     try {
       const principal = await propfindHref(base, '<current-user-principal/>', 'current-user-principal', creds);
       if (principal) return principal;
+      if (base === serverUrl) answered = true;
     } catch (err) {
       if (err.status === 401) throw err;
       lastErr = err;
     }
   }
-  if (lastErr) throw lastErr;
-  return serverUrl;
+  if (answered || !lastErr) return serverUrl;
+  throw lastErr;
+}
+
+async function calendarHome(principal, creds) {
+  try {
+    return await propfindHref(principal, '<C:calendar-home-set/>', 'calendar-home-set', creds) || principal;
+  } catch (err) {
+    if (err.status === 401) throw err;
+    return principal;
+  }
 }
 
 // Writable unless the server lists privileges and write is not among them. No list says nothing.
@@ -138,7 +219,7 @@ export function parseCalendars(xmlText, baseUrl) {
 export async function discoverCalendars({ serverUrl, username, password, allowPrivate = false }) {
   const creds = { username, password, allowPrivate };
   const principal = await resolvePrincipal(serverUrl, creds);
-  const home = await propfindHref(principal, '<C:calendar-home-set/>', 'calendar-home-set', creds) || principal;
+  const home = await calendarHome(principal, creds);
   const body = `<?xml version="1.0" encoding="utf-8"?>
 <propfind xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:CS="http://calendarserver.org/ns/" xmlns:A="http://apple.com/ns/ical/"><prop>
   <resourcetype/><displayname/><current-user-privilege-set/><CS:getctag/><A:calendar-color/><C:supported-calendar-component-set/>
@@ -146,6 +227,34 @@ export async function discoverCalendars({ serverUrl, username, password, allowPr
   const calendars = parseCalendars(await dav('PROPFIND', home, creds, { depth: 1, body }), home);
   if (!calendars.length) throw new Error('No calendars found for this account');
   return calendars;
+}
+
+// The first of these hosts that serves CalDAV with these credentials. Credentials only ever go to
+// the hosts given: a mail password is not offered to whatever a domain name happens to point at.
+export async function findCalDavServer(hosts, { username, password, allowPrivate = false }) {
+  let lastErr;
+  for (const host of [...new Set(hosts.filter(Boolean))]) {
+    const serverUrl = `https://${host}/`;
+    try {
+      const calendars = await discoverCalendars({ serverUrl, username, password, allowPrivate });
+      return { serverUrl, calendars };
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('No CalDAV server found');
+}
+
+// Servers spell one href several ways (%40 or @, %7B or {), so hrefs compare through this.
+export function hrefKey(url) {
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname.split('/').map((seg) => {
+      try { return decodeURIComponent(seg); } catch { return seg; }
+    }).join('/')}`;
+  } catch {
+    return url;
+  }
 }
 
 // Pure. A listing or multiget. A 507 anywhere means the server cut the answer short, which must not
@@ -222,15 +331,18 @@ export async function putEvent(url, ical, creds, { etag, create = false } = {}) 
   const res = await request('PUT', url, creds, { body: ical, headers, contentType: 'text/calendar; charset=utf-8' });
   if (res.status === 412) throw Object.assign(new Error('Event changed on the server'), { conflict: true });
   if (!res.ok) {
-    throw Object.assign(new Error(`The CalDAV server refused the event (${res.status} ${res.statusText})`), { status: res.status });
+    throw Object.assign(new Error(`The CalDAV server refused the event (${res.status} ${res.statusText})`), { status: res.status, forbidden: res.status === 403 });
   }
+  const location = res.headers.get('location');
+  return { url: location ? new URL(location, url).href : url };
 }
 
 export async function deleteEvent(url, creds, { etag } = {}) {
-  const res = await request('DELETE', url, creds, { headers: etag ? { 'If-Match': etag } : {} });
+  // The empty body sends Content-Length: 0, which MDaemon answers 411 without.
+  const res = await request('DELETE', url, creds, { body: '', headers: etag ? { 'If-Match': etag } : {} });
   if (res.status === 412) throw Object.assign(new Error('Event changed on the server'), { conflict: true });
   if (res.status === 404 || res.status === 410) return;
   if (!res.ok) {
-    throw Object.assign(new Error(`The CalDAV server refused the deletion (${res.status} ${res.statusText})`), { status: res.status });
+    throw Object.assign(new Error(`The CalDAV server refused the deletion (${res.status} ${res.statusText})`), { status: res.status, forbidden: res.status === 403 });
   }
 }

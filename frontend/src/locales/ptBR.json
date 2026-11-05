@@ -2554,7 +2554,10 @@
       "changePassword": "Alterar senha",
       "newPassword": "Nova senha",
       "passwordSaved": "Senha atualizada.",
-      "removeConfirm": "Remover {{name}} do MailFlow? Os calendários e eventos são excluídos apenas aqui; nada é apagado no servidor."
+      "removeConfirm": "Remover {{name}} do MailFlow? Os calendários e eventos são excluídos apenas aqui; nada é apagado no servidor.",
+      "fromMailTitle": "Usar uma conta de e-mail",
+      "fromMailHint": "Tenta o servidor e a senha da conta de e-mail. Nada é enviado a outros servidores.",
+      "fromMailNone": "Nenhum servidor de calendário encontrado em {{host}}: {{error}}"
     }
   }
 }

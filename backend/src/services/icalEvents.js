@@ -15,12 +15,18 @@ const formatters = new Map();
 function formatterFor(tz) {
   if (formatters.has(tz)) return formatters.get(tz);
   let formatter = null;
-  try {
-    formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric',
-      hour: 'numeric', minute: 'numeric', second: 'numeric',
-    });
-  } catch { /* not a zone Intl knows */ }
+  // Some clients prefix the IANA name, as in /freeassociation.sourceforge.net/Europe/Zurich.
+  const segments = tz.split('/').filter(Boolean);
+  const names = [tz, ...segments.slice(1).map((_, i) => segments.slice(i + 1).join('/'))];
+  for (const timeZone of names) {
+    try {
+      formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric',
+        hour: 'numeric', minute: 'numeric', second: 'numeric',
+      });
+      break;
+    } catch { /* not a zone Intl knows */ }
+  }
   if (formatters.size > 500) formatters.clear();
   formatters.set(tz, formatter);
   return formatter;
@@ -48,7 +54,7 @@ function wallToUtc(t, tz) {
 
 // Date-times are resolved through Intl for real IANA zones and through the resource's own
 // VTIMEZONE otherwise (Outlook's "Romance Standard Time"). A floating time, or an unknown zone with
-// no definition, is read as UTC.
+// no definition, is read in the viewer's zone when known, else as UTC.
 function toUtcMs(time, tzid, zones) {
   if (time.zone === ICAL.Timezone.utcTimezone) return time.toUnixTime() * 1000;
   if (isIana(tzid)) return wallToUtc(time, tzid);
@@ -58,11 +64,13 @@ function toUtcMs(time, tzid, zones) {
     copy.zone = zone;
     return copy.toUnixTime() * 1000;
   }
+  if (zones?.floatingTz) return wallToUtc(time, zones.floatingTz);
   return Date.UTC(time.year, time.month - 1, time.day, time.hour, time.minute, time.second);
 }
 
-function zonesOf(root) {
+function zonesOf(root, floatingTz) {
   const zones = new Map();
+  zones.floatingTz = isIana(floatingTz) ? floatingTz : null;
   for (const vtz of root.getAllSubcomponents('vtimezone')) {
     const tzid = vtz.getFirstPropertyValue('tzid');
     if (tzid) zones.set(tzid, new ICAL.Timezone({ component: vtz, tzid }));
@@ -227,9 +235,9 @@ function describe(vevent, b, startMs, extra) {
 
 // The occurrences of one resource that overlap [fromMs, toMs). Times come back as UTC ISO instants,
 // all-day dates as plain dates with an exclusive end.
-export function expandResource(ics, fromMs, toMs) {
+export function expandResource(ics, fromMs, toMs, { floatingTz } = {}) {
   const root = parseRoot(ics);
-  const zones = zonesOf(root);
+  const zones = zonesOf(root, floatingTz);
   const { master, overrides } = masterAndOverrides(root);
   const out = [];
   const overlaps = (startMs, endMs, allDay) => {
@@ -613,7 +621,7 @@ function editSeries(root, input, recurrenceId, zones) {
 
 export function applyEdit(ics, input, { scope = 'all', recurrenceId } = {}) {
   const root = parseRoot(ics);
-  const zones = zonesOf(root);
+  const zones = zonesOf(root, input.timezone);
   if (scope === 'this') editOccurrence(root, input, recurrenceId, zones);
   else editSeries(root, input, recurrenceId, zones);
   return root.toString();

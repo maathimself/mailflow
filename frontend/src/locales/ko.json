@@ -2554,7 +2554,10 @@
       "changePassword": "비밀번호 변경",
       "newPassword": "새 비밀번호",
       "passwordSaved": "비밀번호가 업데이트되었습니다.",
-      "removeConfirm": "MailFlow에서 {{name}}을(를) 제거할까요? 캘린더와 일정은 여기서만 삭제되며 서버의 데이터는 삭제되지 않습니다."
+      "removeConfirm": "MailFlow에서 {{name}}을(를) 제거할까요? 캘린더와 일정은 여기서만 삭제되며 서버의 데이터는 삭제되지 않습니다.",
+      "fromMailTitle": "메일 계정 사용",
+      "fromMailHint": "메일 계정의 서버와 비밀번호로 시도합니다. 다른 서버로는 아무것도 보내지 않습니다.",
+      "fromMailNone": "{{host}}에서 캘린더 서버를 찾을 수 없습니다: {{error}}"
     }
   }
 }

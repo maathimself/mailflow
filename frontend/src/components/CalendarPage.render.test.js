@@ -93,7 +93,7 @@ const callsTo = (name) => calls.filter(c => c[0] === name);
 const refusal = (status, code, message = 'server words') => Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
 
 before(() => {
-  for (const name of ['accounts', 'addAccount', 'updateAccount', 'syncAccount', 'removeAccount', 'calendars', 'updateCalendar', 'events', 'createEvent', 'updateEvent', 'deleteEvent']) {
+  for (const name of ['accounts', 'mailAccounts', 'addFromMail', 'addAccount', 'updateAccount', 'syncAccount', 'removeAccount', 'calendars', 'updateCalendar', 'events', 'createEvent', 'updateEvent', 'deleteEvent']) {
     api.calendar[name] = (...a) => answer(name, a);
   }
 });
@@ -102,6 +102,7 @@ beforeEach(() => {
   localStorage.clear();
   answers = {
     accounts: () => structuredClone([ACCOUNT]),
+    mailAccounts: () => [],
     calendars: () => structuredClone(CALS),
     events: () => ({ events: structuredClone(EVENTS) }),
     updateCalendar: (id, data) => ({ id, ...data }),

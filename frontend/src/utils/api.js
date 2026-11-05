@@ -522,12 +522,14 @@ export const api = {
   calendar: {
     accounts:      ()           => request('GET',    '/calendar/accounts'),
     addAccount:    (data)       => request('POST',   '/calendar/accounts', data),
+    mailAccounts:  ()           => request('GET',    '/calendar/mail-accounts'),
+    addFromMail:   (accountId)  => request('POST',   '/calendar/accounts/from-mail', { accountId }),
     updateAccount: (id, data)   => request('PATCH',  `/calendar/accounts/${encodeURIComponent(id)}`, data),
     syncAccount:   (id)         => request('POST',   `/calendar/accounts/${encodeURIComponent(id)}/sync`),
     removeAccount: (id)         => request('DELETE', `/calendar/accounts/${encodeURIComponent(id)}`),
     calendars:     ()           => request('GET',    '/calendar/calendars'),
     updateCalendar: (id, data)  => request('PATCH',  `/calendar/calendars/${encodeURIComponent(id)}`, data),
-    events:        (from, to)   => request('GET',    `/calendar/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+    events:        (from, to)   => request('GET',    `/calendar/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`),
     createEvent:   (data)       => request('POST',   '/calendar/events', data),
     updateEvent:   (id, data)   => request('PATCH',  `/calendar/events/${encodeURIComponent(id)}`, data),
     // scope 'this' names one occurrence of a series by its recurrenceId.

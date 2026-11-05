@@ -2573,7 +2573,10 @@
       "changePassword": "Změnit heslo",
       "newPassword": "Nové heslo",
       "passwordSaved": "Heslo bylo aktualizováno.",
-      "removeConfirm": "Odebrat {{name}} z MailFlow? Jeho kalendáře a události se smažou jen zde; na serveru se nic nesmaže."
+      "removeConfirm": "Odebrat {{name}} z MailFlow? Jeho kalendáře a události se smažou jen zde; na serveru se nic nesmaže.",
+      "fromMailTitle": "Použít e-mailový účet",
+      "fromMailHint": "Zkusí server a heslo e-mailového účtu. Na jiné servery se nic neodesílá.",
+      "fromMailNone": "Na {{host}} nebyl nalezen žádný kalendářový server: {{error}}"
     }
   }
 }
