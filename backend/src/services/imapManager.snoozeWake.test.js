@@ -34,6 +34,8 @@ const ACCOUNT = { id: 'acct-1', user_id: 'u1', imap_host: 'imap.example.com', im
 // The snooze records and the messages they point at, as the database holds them now. Messages
 // are a list, since two of them can carry one Message-ID.
 let snoozes, messages;
+// The account's folders, as the folder sync last listed them.
+let folders;
 const snooze = (id, { until = -HOUR, uid = 10, isRead = false, mid = `<${id}@x>` } = {}) => {
   snoozes.set(id, { id, user_id: 'u1', account_id: 'acct-1', message_id_header: mid, original_folder: 'INBOX', snoozed_folder: 'Snoozed', snooze_until: Date.now() + until });
   messages.push({ mid, folder: 'Snoozed', uid, is_read: isRead });
@@ -57,6 +59,7 @@ function fakeQuery(sql, params = []) {
     return { rows: live.map(sm => rowRead(sm.id)) };
   }
   if (sql.startsWith('SELECT * FROM email_accounts')) return { rows: [ACCOUNT] };
+  if (sql.startsWith('SELECT 1 FROM folders')) return { rows: folders.has(params[1]) ? [{ '?column?': 1 }] : [] };
   if (sql.startsWith('SELECT * FROM messages')) {
     const m = messages.find(m => m.folder === params[1] && m.uid === params[2] && m.mid === params[3]);
     return { rows: m ? [{ account_id: params[0], message_id: m.mid, folder: m.folder, uid: m.uid, date: '2026-11-04T10:00:00Z', category: m.category ?? null }] : [] };
@@ -94,6 +97,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   snoozes = new Map();
   messages = [];
+  folders = new Set(['INBOX', 'Snoozed', 'Projects']);
   query.mockImplementation(async (sql, params) => fakeQuery(sql, params));
   mgr = new ImapManager(null);
   mgr.broadcast = vi.fn();
@@ -290,5 +294,24 @@ describe('waking a snooze while the destination sync files the message first', (
     expect(await mgr.wakeSnoozed(rowRead('a'))).toBe(true);
     expect(byMid('<a@x>')).toMatchObject({ folder: 'INBOX', uid: 500, is_read: false });
     expect(snoozes.has('a')).toBe(false);
+  });
+});
+
+describe('waking a snooze whose folder is gone', () => {
+  it('brings the message back to the Inbox instead of failing on every sweep', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    snooze('a');
+    snoozes.get('a').original_folder = 'Old project';
+    expect(await mgr.wakeSnoozed(rowRead('a'))).toBe(true);
+    expect(mgr.moveMessageGetNewUid).toHaveBeenCalledWith(ACCOUNT, 10, 'Snoozed', 'INBOX');
+    expect(byMid('<a@x>')).toMatchObject({ folder: 'INBOX', uid: 500 });
+    expect(snoozes.has('a')).toBe(false);
+  });
+
+  it('still goes back to a folder that exists', async () => {
+    snooze('a');
+    snoozes.get('a').original_folder = 'Projects';
+    expect(await mgr.wakeSnoozed(rowRead('a'))).toBe(true);
+    expect(mgr.moveMessageGetNewUid).toHaveBeenCalledWith(ACCOUNT, 10, 'Snoozed', 'Projects');
   });
 });

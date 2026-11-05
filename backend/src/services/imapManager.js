@@ -8225,6 +8225,17 @@ export class ImapManager {
       if (!accountResult.rows.length) return false;
       const account = accountResult.rows[0];
 
+      // The folder it was snoozed from can be gone since (deleted here or in another client, or a
+      // Gmail label removed): the move would fail on every sweep, and Unsnooze with it, leaving
+      // the message in Snoozed for good. It comes back to the Inbox instead.
+      if (row.original_folder !== 'INBOX') {
+        const { rows: [folder] } = await query('SELECT 1 FROM folders WHERE account_id = $1 AND path = $2', [row.account_id, row.original_folder]);
+        if (!folder) {
+          console.log(`Snooze wakeup: ${row.original_folder} no longer exists, bringing ${row.message_id_header} back to INBOX`);
+          row = { ...row, original_folder: 'INBOX' };
+        }
+      }
+
       // Guard source UID before the IMAP move so reconcileDeletes cannot delete
       // the DB row if an EXPUNGE arrives from the Snoozed folder while the move
       // is in flight.
