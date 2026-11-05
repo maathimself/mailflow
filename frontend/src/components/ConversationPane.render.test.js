@@ -233,6 +233,34 @@ describe('conversation pane', () => {
     assert.deepEqual(opened().sort(), ['m1', 'm3'], 'a message picked on its own still opens beside the newest');
   });
 
+  test('a reply that lands while the conversation is open is added, and stays closed until opened', async () => {
+    const opened = () => [...openCards()].map(c => c.closest('[data-message-id]')?.dataset.messageId);
+    const row = { id: 'm3', thread_id: '<1@x>', account_id: 'acct', folder: 'INBOX', message_count: 3, date: THREAD[2].date, is_read: false };
+    useStore.setState({ messages: [row], searchQuery: '' });
+    await React.act(async () => {
+      root.render(React.createElement(ConversationPane, {
+        key: 'live-reply', threadId: '<1@x>', folder: 'INBOX', accountId: 'acct', selectedMessageId: 'm3', openedFromRow: true,
+      }));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    assert.equal(cards().length, 3);
+    const reads = bulkReads.length;
+    const reply = { id: 'm4', account_id: 'acct', folder: 'INBOX', message_id: '<4@x>', subject: 'Re: Welcome', from_email: 'a@x.z', from_name: 'Ana', date: '2026-01-04T10:00:00Z', is_read: false, snippet: 'arrived while open' };
+    THREAD.push(reply);
+    try {
+      await React.act(async () => {
+        useStore.setState({ messages: [{ ...row, id: 'm4', message_count: 4, date: reply.date }] });
+        await new Promise(r => setTimeout(r, 50));
+      });
+      assert.equal(cards().length, 4, 'the new reply is in the conversation');
+      assert.deepEqual(opened(), ['m3'], 'the card the reader had open stays open, the new one stays closed');
+      assert.ok(!bulkReads.slice(reads).some(b => JSON.stringify(b).includes('m4')), 'the new reply is not marked read');
+    } finally {
+      THREAD.pop();
+      useStore.setState({ messages: [] });
+    }
+  });
+
   test('collapsing and reopening does not refetch', async () => {
     const before = bodyRequests.length;
     const open = document.querySelector(`${CARD_TOGGLE.slice(0, -1)}="true"]`);
