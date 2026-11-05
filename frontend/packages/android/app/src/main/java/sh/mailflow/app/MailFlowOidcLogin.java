@@ -5,6 +5,7 @@ import android.graphics.Bitmap;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.view.ViewGroup;
+import android.webkit.ClientCertRequest;
 import android.webkit.CookieManager;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebResourceError;
@@ -119,6 +120,11 @@ final class MailFlowOidcLogin {
                 dialog.dismiss();
                 appView.loadUrl(url);
                 return true;
+            }
+
+            @Override
+            public void onReceivedClientCertRequest(WebView view, ClientCertRequest request) {
+                MailFlowClientCertificate.handle(activity, request, host);
             }
 
             @Override

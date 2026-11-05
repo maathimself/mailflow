@@ -11,6 +11,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import javax.net.ssl.SSLSocketFactory;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -42,14 +43,15 @@ public class MailFlowBackgroundWorker extends Worker {
         if (cookie == null || cookie.trim().isEmpty()) return Result.success();
 
         try {
-            JSONObject counts = getJson(host + "/api/mail/unread-counts", cookie);
+            SSLSocketFactory socketFactory = MailFlowClientCertificate.socketFactory(context, host);
+            JSONObject counts = getJson(host + "/api/mail/unread-counts", cookie, socketFactory);
             int unreadTotal = counts.optInt("total", 0);
 
             SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
             int lastUnreadTotal = prefs.getInt(PREF_LAST_UNREAD_TOTAL, -1);
 
             if (lastUnreadTotal >= 0 && unreadTotal > lastUnreadTotal) {
-                JSONObject latest = getLatestUnreadMessage(host, cookie);
+                JSONObject latest = getLatestUnreadMessage(host, cookie, socketFactory);
                 int delta = unreadTotal - lastUnreadTotal;
                 String title = latest.optString("from_name", latest.optString("from_email", "New mail"));
                 String body = latest.optString("subject", delta == 1 ? "You have new mail." : delta + " new messages");
@@ -75,15 +77,16 @@ public class MailFlowBackgroundWorker extends Worker {
         }
     }
 
-    private static JSONObject getLatestUnreadMessage(String host, String cookie) throws Exception {
-        JSONObject result = getJson(host + "/api/mail/messages?folder=INBOX&limit=1&unreadOnly=true", cookie);
+    private static JSONObject getLatestUnreadMessage(String host, String cookie, SSLSocketFactory socketFactory) throws Exception {
+        JSONObject result = getJson(host + "/api/mail/messages?folder=INBOX&limit=1&unreadOnly=true", cookie, socketFactory);
         JSONArray messages = result.optJSONArray("messages");
         if (messages == null || messages.length() == 0) return new JSONObject();
         return messages.optJSONObject(0) == null ? new JSONObject() : messages.optJSONObject(0);
     }
 
-    private static JSONObject getJson(String url, String cookie) throws Exception {
+    private static JSONObject getJson(String url, String cookie, SSLSocketFactory socketFactory) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        MailFlowClientCertificate.use(connection, socketFactory);
         connection.setRequestMethod("GET");
         connection.setConnectTimeout(15000);
         connection.setReadTimeout(15000);

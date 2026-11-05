@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.webkit.ClientCertRequest;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -50,6 +51,11 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
         }
 
         return super.shouldOverrideUrlLoading(view, url);
+    }
+
+    @Override
+    public void onReceivedClientCertRequest(WebView view, ClientCertRequest request) {
+        MailFlowClientCertificate.handle(activity, request, MailFlowNativePlugin.getSavedHost(context));
     }
 
     @Override
