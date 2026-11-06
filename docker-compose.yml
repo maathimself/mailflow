@@ -56,7 +56,6 @@ services:
       DB_NAME: ${DB_NAME:-mailflow}
       DB_USER: ${DB_USER:-mailflow}
       DB_PASSWORD: ${DB_PASSWORD}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
@@ -81,8 +80,6 @@ services:
       - image_cache:/var/cache/mailflow/images
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
@@ -117,24 +114,6 @@ services:
     networks:
       - mailflow
 
-  # ── Redis (sessions + caching) ───────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: mailflow-redis
-    restart: unless-stopped
-    user: "${PUID:-0}:${PGID:-0}"
-    command: redis-server --save 60 1 --loglevel warning
-    volumes:
-      - ${REDIS_DATA:-redis_data}:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
-    networks:
-      - mailflow
-
   # ── Caddy (automatic HTTPS via Let's Encrypt — production only) ──────────────
   # Use docker-compose.https.yml to avoid the port conflict with the frontend:
   #   docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d --build
@@ -162,7 +141,6 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
   image_cache:
   caddy_data:
   caddy_config:

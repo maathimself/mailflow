@@ -4,13 +4,13 @@ import http from 'node:http';
 
 // The whole /api chain as index.js mounts it (mountApiAuth), with a real express-session on a
 // MemoryStore, the real body parsers, CSRF check, screen lock, token guards and requireAuth, and
-// stub routers in index.js's places. The rate limiter runs for real on this in-memory Redis.
+// stub routers in index.js's places. The rate limiter runs for real on this in-memory key store.
 const { rs, db } = vi.hoisted(() => ({
   rs: { store: new Map() },
   db: { enabled: true, tokens: new Map(), users: new Set(), events: [], used: [], failLookup: false, sources: [], folders: {}, messages: [] },
 }));
-vi.mock('../services/redis.js', () => ({
-  redisClient: {
+vi.mock('../services/kvStore.js', () => ({
+  kv: {
     async incr(k)        { const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v++; rs.store.set(k, e); return e.v; },
     async decr(k)        { const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v--; rs.store.set(k, e); return e.v; },
     async pExpire(k, ms) { const e = rs.store.get(k); if (e) e.exp = Date.now() + ms; return true; },

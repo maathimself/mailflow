@@ -269,9 +269,9 @@ describe('getSenderFavicon', () => {
     expect(cache.set.mock.calls[0][2]).toEqual({ EX: 300 });
   });
 
-  it('fails closed without fetching when Redis read fails', async () => {
+  it('fails closed without fetching when the cache read fails', async () => {
     const cache = cacheDouble();
-    cache.get.mockRejectedValue(new Error('redis unavailable'));
+    cache.get.mockRejectedValue(new Error('cache unavailable'));
     const fetchImpl = vi.fn();
     await expect(getSenderFavicon('example.com', { cache, fetchImpl })).resolves.toEqual({
       kind: 'miss', reason: 'cache-unavailable',
@@ -315,9 +315,9 @@ describe('getSenderFavicon', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it('returns the current validated image when Redis write fails', async () => {
+  it('returns the current validated image when the cache write fails', async () => {
     const cache = cacheDouble();
-    cache.set.mockRejectedValue(new Error('redis unavailable'));
+    cache.set.mockRejectedValue(new Error('cache unavailable'));
     const bytes = png(32);
     const result = await getSenderFavicon('example.com', {
       cache,

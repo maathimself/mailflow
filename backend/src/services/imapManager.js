@@ -8534,7 +8534,7 @@ export class ImapManager {
   // A socket is authenticated once, at upgrade, so ending its session does not stop the
   // broadcasts above reaching it. The userId guard matters: a socket still authenticating
   // has no userId either, and would match a missing one. The close waits a turn: an upgrade
-  // whose session lookup was answered in the same read from Redis as the write that ended
+  // whose session lookup was answered in the same read from the store as the write that ended
   // the session authenticates a microtask after that write's callback, and would be missed.
   closeSockets(userId, { sessionId = null, exceptSessionId = null, reason = 'Unauthorized' } = {}) {
     if (!userId) return;

@@ -5,9 +5,9 @@ import cors from 'cors';
 import { corsExceptDav } from './middleware/corsExceptDav.js';
 import { createServer } from 'http';
 import { readFileSync } from 'fs';
-import RedisStore from 'connect-redis';
 import 'dotenv/config';
-import { redisClient } from './services/redis.js';
+import { PgSessionStore } from './services/sessionStore.js';
+import { startExpirySweep, stopExpirySweep } from './services/kvStore.js';
 import { parseTrustProxyHops } from './utils/trustProxy.js';
 import { buildSessionOptions } from './utils/sessionConfig.js';
 import { mountApiAuth } from './middleware/apiChain.js';
@@ -77,9 +77,6 @@ app.set('trust proxy', trustProxyHops);
 const httpServer = createServer(app);
 const wss = createWebSocketServer(httpServer);
 
-// Redis — connect the shared client before any route or session middleware uses it.
-await redisClient.connect();
-
 // Fail fast if required secrets are missing
 if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
   console.error('FATAL: SESSION_SECRET must be set and at least 32 characters. Exiting.');
@@ -103,7 +100,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.APP_URL) {
 
 // Session — options live in utils/sessionConfig.js so they can be exercised by tests.
 const sessionMiddleware = session(
-  buildSessionOptions(new RedisStore({ client: redisClient }), process.env.SESSION_SECRET)
+  buildSessionOptions(new PgSessionStore(), process.env.SESSION_SECRET)
 );
 
 // Not for /carddav, whose own OPTIONS answer tells contact apps it serves address books.
@@ -216,6 +213,7 @@ setupWebSocket(wss, sessionMiddleware, imapManager);
 
 // Run pending schema migrations then start
 await runMigrations();
+startExpirySweep();
 
 // One-time backfill: populate photo_data from existing vcard column for contacts
 // that were synced before CardDAV PUT started persisting photo_data.
@@ -293,7 +291,7 @@ function exitAfterClose(code, { wsCode = 1001, wsReason = 'Shutting down' } = {}
     code,
     httpServer,
     closeClients: () => closeWebSocketClients(wss, wsCode, wsReason),
-    quit: () => redisClient.quit(),
+    quit: () => stopExpirySweep(),
     exit: c => process.exit(c),
   });
 }

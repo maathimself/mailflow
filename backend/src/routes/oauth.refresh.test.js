@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // oauth.js imports imapManager from ../index.js, which has heavy load-time side
-// effects (Redis connect, migrations). Mock it so importing oauth.js is inert.
+// effects (migrations). Mock it so importing oauth.js is inert.
 vi.mock('../index.js', () => ({ imapManager: {} }));
 vi.mock('../services/db.js', () => ({ query: vi.fn(), withTransaction: vi.fn() }));
 vi.mock('../services/encryption.js', () => ({ encrypt: (v) => v, decrypt: (v) => v }));

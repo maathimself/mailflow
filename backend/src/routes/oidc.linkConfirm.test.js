@@ -5,10 +5,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 // through single sign-on with the rule in services/apiTokenReauth.js, and records in the session a
 // confirmation that the link start spends (oidc.link.test.js). GET /identities says which of the
 // three the form has to ask for. The real router, requireAuth and the rule, over an in-memory
-// database and Redis.
+// database and key store.
 const { rs, db, session } = vi.hoisted(() => ({ rs: { store: new Map() }, db: {}, session: { extra: {}, last: null } }));
-vi.mock('../services/redis.js', () => ({
-  redisClient: {
+vi.mock('../services/kvStore.js', () => ({
+  kv: {
     async incr(k)        { const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v++; rs.store.set(k, e); return e.v; },
     async decr(k)        { const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v--; rs.store.set(k, e); return e.v; },
     async pExpire(k, ms) { const e = rs.store.get(k); if (e) e.exp = Date.now() + ms; return true; },

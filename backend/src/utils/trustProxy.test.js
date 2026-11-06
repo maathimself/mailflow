@@ -7,7 +7,7 @@ import { parseTrustProxyHops } from './trustProxy.js';
 // the https profile that is Caddy, which has already set the header to the client's address.
 const CADDY = '172.18.0.5';
 
-// Sets 'trust proxy' the way index.js does (index.js connects to Redis as soon as it loads, so
+// Sets 'trust proxy' the way index.js does (index.js starts the server as soon as it loads, so
 // it is not imported here). The assertions are on the req.ip Express derives, not on the parsed
 // number, because req.ip is what the login rate limit is keyed on.
 async function seenAs(setting, forwardedFor) {

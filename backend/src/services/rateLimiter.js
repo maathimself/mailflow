@@ -1,11 +1,11 @@
-// Fixed-window rate limiter backed by Redis, so counters are shared across
-// backend replicas and survive within the window (they still reset on the window
-// elapsing, which is the intended behaviour). Falls back to a per-process in-memory
-// window if Redis is unavailable, so auth never hard-fails on a Redis hiccup.
+// Fixed-window rate limiter backed by the database (kvStore.js), so counters survive a
+// restart within the window (they still reset on the window elapsing, which is the
+// intended behaviour). Falls back to a per-process in-memory window if the database is
+// unavailable, so auth never hard-fails on a database hiccup.
 
-import { redisClient } from './redis.js';
+import { kv } from './kvStore.js';
 
-// Fallback store, pruned periodically. Only used when Redis errors.
+// Fallback store, pruned periodically. Only used when the database errors.
 const memory = new Map();
 const pruneTimer = setInterval(() => {
   const now = Date.now();
@@ -18,13 +18,13 @@ pruneTimer.unref?.();
 export async function consume(key, max, windowMs) {
   const rk = `rl:${key}`;
   try {
-    const count = await redisClient.incr(rk);
+    const count = await kv.incr(rk);
     if (count === 1) {
-      await redisClient.pExpire(rk, windowMs);
+      await kv.pExpire(rk, windowMs);
       return { limited: max < 1, resetMs: windowMs };
     }
-    let ttl = await redisClient.pTTL(rk);
-    if (ttl < 0) { await redisClient.pExpire(rk, windowMs); ttl = windowMs; } // key without TTL — re-arm
+    let ttl = await kv.pTTL(rk);
+    if (ttl < 0) { await kv.pExpire(rk, windowMs); ttl = windowMs; } // key without TTL — re-arm
     return { limited: count > max, resetMs: ttl };
   } catch {
     const now = Date.now();
@@ -40,7 +40,7 @@ export async function consume(key, max, windowMs) {
 
 // Clear a key's counter (e.g. after a successful login).
 export async function reset(key) {
-  try { await redisClient.del(`rl:${key}`); } catch { /* best effort */ }
+  try { await kv.del(`rl:${key}`); } catch { /* best effort */ }
   memory.delete(key);
 }
 
@@ -48,9 +48,9 @@ export async function reset(key) {
 export async function release(key) {
   const rk = `rl:${key}`;
   try {
-    const count = await redisClient.decr(rk);
+    const count = await kv.decr(rk);
     // DECR on a key that expired mid-request recreates it at -1, which is a free extra hit.
-    if (count < 0) await redisClient.del(rk);
+    if (count < 0) await kv.del(rk);
   } catch {
     const b = memory.get(key);
     if (b && b.count > 0) b.count--;

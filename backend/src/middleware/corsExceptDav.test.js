@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mounted as index.js mounts it: cors() for the app, the CardDAV router behind it. The real
-// rateLimiter runs against an in-memory Redis, as in routes/carddav.auth.test.js.
+// rateLimiter runs against an in-memory key store, as in routes/carddav.auth.test.js.
 const { rs } = vi.hoisted(() => ({ rs: { store: new Map() } }));
-vi.mock('../services/redis.js', () => ({
-  redisClient: {
+vi.mock('../services/kvStore.js', () => ({
+  kv: {
     async incr(k)        { const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v++; rs.store.set(k, e); return e.v; },
     async decr(k)        { const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v--; rs.store.set(k, e); return e.v; },
     async pExpire(k, ms) { const e = rs.store.get(k); if (e) e.exp = Date.now() + ms; return true; },

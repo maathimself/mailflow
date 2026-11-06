@@ -5,7 +5,7 @@ import pg from 'pg';
 const h = vi.hoisted(() => ({ pool: null, userId: null }));
 
 // The scheduled messages API on a real database, through the real send checks: only IMAP, the
-// rate limiter's Redis and the WebSocket are faked.
+// rate limiter's key store and the WebSocket are faked.
 vi.mock('../services/db.js', () => ({
   pool: { connect: (...a) => h.pool.connect(...a), query: (...a) => h.pool.query(...a) },
   query: (text, params) => h.pool.query(text, params),

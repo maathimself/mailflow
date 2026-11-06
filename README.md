@@ -260,14 +260,13 @@ Select a preset (Gmail, iCloud) or Custom for any IMAP server.
 
 ## Option C — Native install (no Docker)
 
-Run MailFlow directly on any Linux, macOS, or BSD machine using Node.js, PostgreSQL, and Redis.
+Run MailFlow directly on any Linux, macOS, or BSD machine using Node.js and PostgreSQL.
 No container runtime required. The steps below use Ubuntu/Debian; adapt package manager commands for other platforms.
 
 ### Prerequisites
 
 - **Node.js 22 (LTS)** — [nodejs.org](https://nodejs.org) or via your package manager. Newer majors break the backend: Node's built-in `fetch` conflicts with the pinned `undici` dispatcher.
 - **PostgreSQL 16+**
-- **Redis 7+**
 - **nginx** — serves the built frontend and proxies API/WebSocket requests to the backend
 
 ### 1. Install system dependencies
@@ -276,14 +275,13 @@ No container runtime required. The steps below use Ubuntu/Debian; adapt package 
 ```bash
 # Node.js 22 via NodeSource
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs postgresql redis-server nginx
+sudo apt-get install -y nodejs postgresql nginx
 ```
 
 **macOS (Homebrew):**
 ```bash
-brew install node@22 postgresql@16 redis nginx
+brew install node@22 postgresql@16 nginx
 brew services start postgresql@16
-brew services start redis
 ```
 
 ### 2. Create the database
@@ -319,10 +317,9 @@ Edit `.env`. In addition to the required secrets, set these for a native install
 | `DB_NAME` | `mailflow` |
 | `DB_USER` | `mailflow` |
 | `DB_PASSWORD` | password you set in step 2 |
-| `REDIS_URL` | `redis://localhost:6379` — or `redis+unix:///path/to/redis.sock` for a Unix socket |
-
-For Docker installs, the bundled Postgres/Redis work out of the box. To point at **external** database or cache servers (any host/port), or to store data on a host **bind mount** (e.g. an Unraid appdata share with `PUID`/`PGID`), see the "Database & Redis" and "Storage & permissions" sections of [`.env.example`](.env.example).
 | `ENCRYPTION_KEY` | `openssl rand -hex 32` |
+
+For Docker installs, the bundled Postgres works out of the box. To point at an **external** database server (any host/port), or to store data on a host **bind mount** (e.g. an Unraid appdata share with `PUID`/`PGID`), see the "Database" and "Storage & permissions" sections of [`.env.example`](.env.example).
 
 ### 5. Build the frontend
 
@@ -609,12 +606,11 @@ nginx  (frontend container — ports 443 + 80)
   ├── /oauth/ → Node.js backend (port 3000)
   └── /ws     → Node.js backend WebSocket (port 3000)
                     │
-                    ├── PostgreSQL  (messages, accounts, users)
-                    ├── Redis       (sessions)
+                    ├── PostgreSQL  (messages, accounts, users, sessions)
                     └── IMAP        (outbound to mail servers)
 ```
 
-nginx and the backend communicate on an internal Docker network. PostgreSQL and Redis are not exposed outside that network.
+nginx and the backend communicate on an internal Docker network. PostgreSQL is not exposed outside that network.
 
 ### With your own reverse proxy
 
@@ -627,7 +623,7 @@ Your proxy  (Nginx / Traefik / Caddy / etc. — TLS termination)
   ▼
 nginx  (frontend container — port 80)
   │
-  └── backend, PostgreSQL, Redis (internal network, unchanged)
+  └── backend, PostgreSQL (internal network, unchanged)
 ```
 
 ### With automatic HTTPS (--profile https)
@@ -641,7 +637,7 @@ Caddy  (ports 80/443 — TLS termination, auto Let's Encrypt)
   ▼
 nginx  (frontend container — internal only)
   │
-  └── backend, PostgreSQL, Redis (internal network, unchanged)
+  └── backend, PostgreSQL (internal network, unchanged)
 ```
 
 ## Desktop and Android apps
@@ -744,7 +740,7 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md). Please don't open a p
 - Passwords are bcrypt-hashed (cost factor 12)
 - Login and registration endpoints are rate-limited (10 attempts per 15 minutes per IP)
 - Password reset tokens are consumed atomically — concurrent reset requests cannot both succeed
-- Database and Redis are not exposed outside the Docker network
+- The database is not exposed outside the Docker network
 - IMAP/SMTP credentials are stored at rest in the database (standard for webmail clients — protect access to your server and database volume accordingly)
 - Responses set a strict `Content-Security-Policy`, clickjacking protection via `X-Frame-Options`, and a restrictive `Referrer-Policy`
 - Email HTML is sanitized before rendering, including stripping external `url()` references from CSS style blocks to prevent tracking

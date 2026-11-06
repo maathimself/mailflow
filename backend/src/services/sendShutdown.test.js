@@ -27,7 +27,7 @@ describe('flushSendsForShutdown', () => {
 
   it('never rejects, so the exit still happens', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    flushHeldSends.mockRejectedValue(new Error('redis down'));
+    flushHeldSends.mockRejectedValue(new Error('database down'));
     stopScheduledSender.mockRejectedValue(new Error('db down'));
     await expect(flushSendsForShutdown(10)).resolves.toBeDefined();
   });
@@ -37,7 +37,7 @@ describe('flushSendsForShutdown', () => {
     flushHeldSends.mockResolvedValue(1);
     await finishHeldSendsForShutdown(3000);
     expect(flushHeldSends).toHaveBeenCalledWith(3000);
-    flushHeldSends.mockRejectedValue(new Error('redis down'));
+    flushHeldSends.mockRejectedValue(new Error('database down'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(finishHeldSendsForShutdown(10)).resolves.toBeUndefined();
   });

@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 // oauth.js imports imapManager from ../index.js, which has heavy load-time side
-// effects (Redis connect, migrations). Mock it so importing oauth.js is inert.
+// effects (migrations). Mock it so importing oauth.js is inert.
 vi.mock('../index.js', () => ({ imapManager: mocks.imapManager }));
 vi.mock('../services/db.js', () => ({ query: vi.fn(async () => ({ rows: [] })), withTransaction: mocks.withTransaction }));
 vi.mock('../services/encryption.js', () => ({ encrypt: (v) => v, decrypt: (v) => v }));

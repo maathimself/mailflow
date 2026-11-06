@@ -26,7 +26,7 @@ const OVER_1MB = JSON.stringify({ text: 'x'.repeat(TWO_MB) });
 // router can turn it away. `answered` records whether the whole request had arrived by the time
 // its response went out. `sessionReads` fires once the parsers' paths have read a request's
 // session, so a test can change that session while the body is still arriving, and
-// `failStoreReads` makes the session store fail as Redis does while it restarts.
+// `failStoreReads` makes the session store fail as it does while the database restarts.
 const parsed = [];
 const answered = [];
 const sessionReads = new EventEmitter();

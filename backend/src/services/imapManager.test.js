@@ -6975,7 +6975,7 @@ describe('closeSockets', () => {
   it('waits a turn, so it also closes a socket that authenticates just after the call', async () => {
     const { sockets, ctx } = arrange();
     ImapManager.prototype.closeSockets.call(ctx, 'u1', { sessionId: 's1' });
-    // An upgrade whose session lookup was answered in the same read from Redis as the write
+    // An upgrade whose session lookup was answered in the same read from the store as the write
     // that ended the session authenticates a microtask after that write's callback.
     await Promise.resolve();
     Object.assign(sockets.authenticating, { userId: 'u1', sessionId: 's1' });

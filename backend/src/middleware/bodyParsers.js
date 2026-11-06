@@ -77,7 +77,7 @@ export function discardBodyUpTo(req, res, limit, callback) {
   req.once('end', onEnd);
 }
 
-// A session store that fails (Redis restarting, say) gets its error answered after the body too.
+// A session store that fails (the database restarting, say) gets its error answered after the body too.
 function loadSessionBeforeParsing(sessionMiddleware) {
   return (req, res, next) => sessionMiddleware(req, res, (err) => (err ? discardBody(req, () => next(err)) : next()));
 }

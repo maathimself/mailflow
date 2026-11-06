@@ -29,7 +29,7 @@ vi.mock('./oidc.js', () => ({ buildEndSessionUrl: vi.fn() }));
 vi.mock('../services/categorizer.js', () => ({
   invalidateGlobalCategorizationCache: vi.fn(),
 }));
-vi.mock('../services/redis.js', () => ({ redisClient: {} }));
+vi.mock('../services/kvStore.js', () => ({ kv: {} }));
 vi.mock('../services/rateLimiter.js', () => ({
   consume: vi.fn(),
   reset: vi.fn(),

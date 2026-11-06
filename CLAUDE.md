@@ -1,8 +1,8 @@
 # MailFlow
 
 A self-hosted, unified webmail client. Dual-licensed: AGPL-3.0, plus a paid commercial
-license for use that AGPL does not suit. Node/Express backend, React frontend, PostgreSQL
-and Redis, shipped as Docker images.
+license for use that AGPL does not suit. Node/Express backend, React frontend, PostgreSQL,
+shipped as Docker images.
 
 This file is context for coding agents and for anyone new to the project. It says what
 MailFlow is for and how to decide what belongs in it. The mechanics live elsewhere and are
@@ -73,9 +73,9 @@ and the directory layout. When it is ambiguous, ask rather than guess.
   (`messageBodyStore.js`), and served from the row after that. Flag changes, moves and
   deletes go back to IMAP through the engine; sending goes out over SMTP from `routes/send.js`.
 - **The WebSocket only pushes.** `websocket.js` authenticates the upgrade with the same
-  Redis-backed session as the REST API. The engine broadcasts per-user events
-  (`sync_complete`, `flags_synced`, `folders_synced`, …), and the client sends nothing but
-  pings. A socket connecting also reconnects that user's accounts, which is how they come
+  session as the REST API (sessions live in Postgres, `services/sessionStore.js`). The engine
+  broadcasts per-user events (`sync_complete`, `flags_synced`, `folders_synced`, …), and the
+  client sends nothing but pings. A socket connecting also reconnects that user's accounts, which is how they come
   back after a restart.
 - **The frontend is one Zustand store.** `frontend/src/store/index.js` holds the state,
   `utils/api.js` is the REST client, and `hooks/useWebSocket.js` applies pushed events to the
@@ -129,10 +129,9 @@ MAILFLOW_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/mailflow_
 
 `npm run dev` in `backend/` is `node --watch`. Startup exits unless `SESSION_SECRET` (at
 least 32 characters), `DB_PASSWORD` and a 64-hex-character `ENCRYPTION_KEY` are set, and it
-applies pending migrations before it listens. Postgres and Redis default to the compose
-hostnames (`DB_HOST`, `REDIS_URL` override them). The Vite dev server on port 5173 proxies
-`/api` and `/ws` to `http://backend:3000`, which is hard-coded, so outside compose `backend`
-has to resolve.
+applies pending migrations before it listens. Postgres defaults to the compose hostname
+(`DB_HOST` overrides it). The Vite dev server on port 5173 proxies `/api` and `/ws` to
+`http://backend:3000`, which is hard-coded, so outside compose `backend` has to resolve.
 
 ## Working on this codebase
 

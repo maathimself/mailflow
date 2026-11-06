@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { redisClient } from './redis.js';
+import { kv } from './kvStore.js';
 
 // Sends held back for a few seconds so the user can undo them. The hold lives on the server,
 // not in the browser: closing the tab during the window still sends.
@@ -8,7 +8,7 @@ import { redisClient } from './redis.js';
 // things keep that from being silent:
 // - A graceful shutdown (SIGTERM, which every update and restart sends) delivers held sends
 //   before the process exits (flushHeldSends).
-// - Each send's state is mirrored to Redis. After a crash, a client asking about a send that was
+// - Each send's state is mirrored to the database (kvStore.js). After a crash, a client asking about a send that was
 //   still held is told it was 'lost', so it reopens the message instead of assuming it went.
 
 const STATUS_TTL_S = 3600;
@@ -20,7 +20,7 @@ const statusKey = (userId, id) => `send_hold:${userId}:${id}`;
 
 async function writeStatus(userId, id, status) {
   try {
-    await redisClient.set(statusKey(userId, id), JSON.stringify(status), { EX: STATUS_TTL_S });
+    await kv.set(statusKey(userId, id), JSON.stringify(status), { EX: STATUS_TTL_S });
   } catch (err) {
     console.warn('[sendHold] could not record status:', err.message);
   }
@@ -97,7 +97,7 @@ export async function getSendStatus(userId, id) {
   if (job && job.userId === userId) return { status: job.state };
   let stored;
   try {
-    const raw = await redisClient.get(statusKey(userId, id));
+    const raw = await kv.get(statusKey(userId, id));
     stored = raw ? JSON.parse(raw) : null;
   } catch {
     return { status: 'unknown' };
