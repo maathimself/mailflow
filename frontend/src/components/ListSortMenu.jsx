@@ -118,7 +118,9 @@ export default function ListSortMenu({ accountId, folder, compact = false }) {
         style={{
           background: open || custom ? 'var(--accent-dim)' : 'none',
           border: `1px solid ${open || custom ? 'var(--accent)' : compact ? 'transparent' : 'var(--border)'}`,
-          borderRadius: 6, padding: compact ? '5px 7px' : '4px 8px',
+          borderRadius: 6, padding: compact ? '5px 7px' : '0 8px',
+          // The desktop list toolbar's control height (TOOLBAR_CONTROL_HEIGHT in MessageList.jsx, #766).
+          height: compact ? undefined : 24, boxSizing: 'border-box',
           color: open || custom ? 'var(--accent)' : 'var(--text-tertiary)',
           cursor: 'pointer', fontSize: 11, fontWeight: 500, fontFamily: 'inherit',
           display: 'flex', alignItems: 'center', gap: 5, maxWidth: 220,

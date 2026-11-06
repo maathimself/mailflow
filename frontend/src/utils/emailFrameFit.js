@@ -9,7 +9,7 @@
 // (the sidebar collapsing, a divider dragged, the window resized). MessageBodyView runs the fit
 // again on each, so these helpers are safe to call any number of times on the same document.
 
-import { SCALE_WRAPPER } from './emailFrameDoc.js';
+import { SCALE_WRAPPER, WIDE_TABLE_ATTR } from './emailFrameDoc.js';
 
 // Content at most this much wider than the frame is sub-pixel rounding, not a wide email.
 export const FIT_TOLERANCE_PX = 2;
@@ -32,13 +32,28 @@ export function fitScale({ frameW, contentW, scale = 1, allowGrow = true, growSl
   return current;
 }
 
+const TOP_LEVEL_TABLES = ':scope > table, :scope > center > table, :scope > div > table, :scope > center > div > table';
+
+// Narrows the top-level tables wider than the frame to it, through the frame's stylesheet
+// (emailFrameDoc.js), and leaves the others at their own width: a fixed-width column keeps its
+// width and centering instead of being stretched to the frame (#757). Each table is measured
+// unmarked, so one marked for a narrower frame is let out again when the frame widens.
+function markWideTables(wrapper, frameW) {
+  const tables = [...wrapper.querySelectorAll(TOP_LEVEL_TABLES)];
+  for (const t of tables) t.removeAttribute(WIDE_TABLE_ATTR);
+  // Read every width before marking any: each mark would lay the email out again.
+  const wide = tables.filter(t => t.offsetWidth > frameW + FIT_TOLERANCE_PX);
+  for (const t of wide) t.setAttribute(WIDE_TABLE_ATTR, '');
+}
+
 // The email's natural width: unscaled, laid out at the frame's own width.
-function measureContentWidth(doc, wrapper) {
+function measureContentWidth(doc, wrapper, frameW) {
   const b = doc.body;
   const h = doc.documentElement;
   wrapper.style.removeProperty('transform');
   wrapper.style.removeProperty('transform-origin');
   wrapper.style.removeProperty('width');
+  markWideTables(wrapper, frameW);
   // iOS Safari clamps scrollWidth to the iframe viewport when overflow:hidden
   // is set on html/body, so wide fixed-layout emails are never detected.
   // Temporarily expose overflow-x inline (beating the !important stylesheet
@@ -58,7 +73,7 @@ function measureContentWidth(doc, wrapper) {
 export function fitEmailToFrame(doc, frameW, { scale = 1, ...limits } = {}) {
   const wrapper = doc?.getElementById(SCALE_WRAPPER);
   if (!wrapper || !(frameW > 0)) return 1;
-  const contentW = measureContentWidth(doc, wrapper);
+  const contentW = measureContentWidth(doc, wrapper, frameW);
   const next = fitScale({ frameW, contentW, scale, ...limits });
   if (next < 1) {
     wrapper.style.transform       = `scale(${next})`;
