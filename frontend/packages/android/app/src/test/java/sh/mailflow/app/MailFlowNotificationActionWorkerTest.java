@@ -84,6 +84,7 @@ public class MailFlowNotificationActionWorkerTest {
                 "http://127.0.0.1:" + server.getLocalPort() + "/api/mail/messages/m1",
                 "DELETE",
                 "connect.sid=s%3Aabc",
+                null,
                 null
             );
         }

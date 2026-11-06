@@ -160,7 +160,9 @@ public class MailFlowNativePlugin extends Plugin {
     @PluginMethod
     public void resetHost(PluginCall call) {
         getPrefs(getContext()).edit().remove(PREF_HOST).apply();
+        MailFlowClientCertificate.clear(getContext());
         getActivity().runOnUiThread(() -> {
+            WebView.clearClientCertPreferences(null);
             if (getActivity() instanceof MainActivity) {
                 ((MainActivity) getActivity()).configureNativeMessageBridge(null);
             }
@@ -747,7 +749,7 @@ public class MailFlowNativePlugin extends Plugin {
         return NativeSecurity.normalizeHost(host);
     }
 
-    private static SharedPreferences getPrefs(Context context) {
+    static SharedPreferences getPrefs(Context context) {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
 
