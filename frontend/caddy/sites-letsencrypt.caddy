@@ -1,0 +1,6 @@
+# TLS_MODE=letsencrypt: a certificate for DOMAIN from Let's Encrypt, renewed automatically, with
+# expiry notices to ACME_EMAIL. Port 80 answers the ACME challenge and redirects to HTTPS.
+{$DOMAIN} {
+	tls {$ACME_EMAIL}
+	import app https
+}

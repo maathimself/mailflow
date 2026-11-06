@@ -135,8 +135,8 @@ describe('JSON body limits and sign-in', () => {
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: 'Not authenticated' });
     expect(parsed).toEqual([]);
-    // The 401 waits until the rest of the body has arrived and been discarded. Behind nginx
-    // every request is Connection: close, and answering one with body data still unread
+    // The 401 waits until the rest of the body has arrived and been discarded. Behind a proxy
+    // that sends Connection: close (nginx does), and answering one with body data still unread
     // resets the connection, which can lose the 401 on the way to the client.
     expect(answered).toEqual([{ status: 401, bodyReceived: true }]);
 

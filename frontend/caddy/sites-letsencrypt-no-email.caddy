@@ -1,0 +1,4 @@
+# TLS_MODE=letsencrypt without ACME_EMAIL: the same, with no expiry notices.
+{$DOMAIN} {
+	import app https
+}

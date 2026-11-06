@@ -1,0 +1,116 @@
+# MailFlow's web server: serves the built app and proxies the backend's paths to it. One image
+# covers every way MailFlow is put online (start.sh picks the sites file):
+#   self-signed  HTTPS on 443 with ./certs (generated when absent), and HTTP on 80 for a reverse
+#                proxy in front. The default.
+#   letsencrypt  HTTPS for DOMAIN with a certificate from Let's Encrypt; 80 redirects to it.
+#   off          HTTP on 80 only, behind a reverse proxy that terminates TLS.
+{
+	# Nothing reconfigures a running container, so the admin API stays off and the config is
+	# never written anywhere, which keeps read-only root filesystems booting (#453).
+	admin off
+	persist_config off
+	servers {
+		# Pass X-Forwarded-For and X-Forwarded-Proto on from whoever connects, appending the
+		# peer's address, as nginx's $proxy_add_x_forwarded_for did. The backend takes the
+		# client from TRUST_PROXY_HOPS hops back, so a spoofed prefix is never believed.
+		trusted_proxies static 0.0.0.0/0 ::/0
+	}
+}
+
+# Security headers on every response. HSTS only over HTTPS; over HTTP the proxy in front owns it.
+(headers-https) {
+	header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+	header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data: https:; img-src 'self' data: https: blob:; connect-src 'self' wss:; frame-src 'self'; object-src 'none'; base-uri 'self';"
+}
+(headers-http) {
+	header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data: https:; img-src 'self' data: https: blob:; connect-src 'self' wss: ws:; frame-src 'self'; object-src 'none'; base-uri 'self';"
+}
+
+# What the backend is told about the request. Over HTTPS this server terminated TLS itself, so
+# the scheme is https whatever the client sent; over HTTP it comes from the proxy in front.
+(forward-https) {
+	header_up X-Forwarded-Proto https
+	header_up X-Real-IP {remote_host}
+}
+(forward-http) {
+	header_up X-Real-IP {remote_host}
+}
+
+# {args[0]} is https or http: the scheme this server answers in.
+(app) {
+	encode zstd gzip
+	import headers-{args[0]}
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# Backup download and restore upload: the whole database can pass through over minutes, so
+	# no size cap and nothing held back. The backend times out a stalled transfer itself.
+	handle /api/admin/backup* {
+		reverse_proxy {$MAILFLOW_BACKEND} {
+			import forward-{args[0]}
+			flush_interval -1
+		}
+	}
+
+	# AI replies stream as server-sent events.
+	handle /api/ai/* {
+		request_body {
+			max_size 50MiB
+		}
+		reverse_proxy {$MAILFLOW_BACKEND} {
+			import forward-{args[0]}
+			flush_interval -1
+		}
+	}
+
+	# The API, sign-in redirects, the WebSocket, and CardDAV with its RFC 6764 discovery. /ws,
+	# /carddav and /.well-known/carddav are prefixes, as nginx had them: /carddav itself must
+	# reach the backend rather than be redirected to /carddav/.
+	@backend path /api/* /oauth/* /auth/oidc/* /ws* /carddav* /.well-known/carddav*
+	handle @backend {
+		request_body {
+			max_size 50MiB
+		}
+		reverse_proxy {$MAILFLOW_BACKEND} {
+			import forward-{args[0]}
+		}
+	}
+
+	# The app. Built assets carry a hash in their names, so they are cached for a year. Anything
+	# else, the HTML above all, is never cached, so a browser always loads the current asset
+	# names, and the service worker, which runs push notifications, updates at once.
+	handle {
+		root * /srv
+		@immutable {
+			path_regexp (?i)\.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$
+			not path /sw.js
+		}
+		@mutable {
+			not path_regexp (?i)\.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$
+		}
+		header @immutable Cache-Control "public, max-age=31536000, immutable"
+		header @mutable Cache-Control "no-store"
+		header /sw.js Cache-Control "no-store"
+		# A path that is not a file is a route inside the app. A missing asset stays a 404, so a
+		# stale page asking for an old bundle fails plainly instead of being handed the HTML.
+		@route {
+			not path_regexp (?i)\.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$
+			not file
+		}
+		rewrite @route /index.html
+		file_server
+	}
+}
+
+# The container's health check. Bound to loopback; never published.
+http://:2080 {
+	bind 127.0.0.1
+	respond /healthz 200
+}
+
+import /etc/caddy/sites-{$MAILFLOW_SITES}.caddy

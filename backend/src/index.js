@@ -64,13 +64,13 @@ try {
 export const APP_VERSION = (process.env.APP_VERSION || buildMeta.version || packageMeta.version).replace(/^v[.]?/, '');
 
 const app = express();
-// Trust the nginx reverse proxy so req.secure reflects HTTPS correctly.
-// Without this, express-session sees HTTP (from nginx) and refuses to set
+// Trust the frontend's reverse proxy so req.secure reflects HTTPS correctly.
+// Without this, express-session sees HTTP (from the proxy) and refuses to set
 // the Secure cookie, meaning the session cookie is never sent to the browser.
 // The hop count also decides req.ip, which keys the login rate limit.
 const trustProxyHops = parseTrustProxyHops(process.env.TRUST_PROXY_HOPS);
 if (trustProxyHops === null) {
-  console.error(`FATAL: TRUST_PROXY_HOPS must be a whole number of at least 1 (the reverse proxies in front of the backend, counting nginx), got "${process.env.TRUST_PROXY_HOPS}". Exiting.`);
+  console.error(`FATAL: TRUST_PROXY_HOPS must be a whole number of at least 1 (the reverse proxies in front of the backend, counting MailFlow's frontend), got "${process.env.TRUST_PROXY_HOPS}". Exiting.`);
   process.exit(1);
 }
 app.set('trust proxy', trustProxyHops);

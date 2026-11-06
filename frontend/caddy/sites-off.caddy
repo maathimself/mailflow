@@ -1,0 +1,4 @@
+# TLS_MODE=off: HTTP on port 80 only, behind a reverse proxy that terminates TLS.
+:80 {
+	import app http
+}

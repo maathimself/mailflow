@@ -23,8 +23,8 @@ function destroyTask(task) {
 
 function loadEngine() {
   enginePromise ??= import('pdfjs-dist').then(pdfjs => {
-    // One worker for every document, created here so Vite bundles it as a .js module: the app's
-    // nginx serves .js as JavaScript, but has no MIME type for the .mjs pdf.js ships.
+    // One worker for every document, created here so Vite bundles it as a .js module: nginx (in
+    // front of native installs, contrib/nginx.conf) has no MIME type for the .mjs pdf.js ships.
     pdfjs.GlobalWorkerOptions.workerPort ??= new Worker(
       new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url),
       { type: 'module' },

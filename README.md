@@ -162,18 +162,11 @@ MailFlow will be available on port 443 (HTTPS, self-signed certificate) and port
 |---|---|---|
 | `APP_PORT` | `443` | HTTPS port |
 | `APP_HTTP_PORT` | `80` | HTTP port |
-| `NGINX_TLS` | `on` | `off` stops serving HTTPS on `APP_PORT` (see below) |
+| `TLS_MODE` | `self-signed` | `letsencrypt` or `off` (see below) |
 
-**Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, download the HTTPS overlay, then restart:
+**Optional — automatic HTTPS via Let's Encrypt:** set `TLS_MODE=letsencrypt`, `DOMAIN` and (optionally) `ACME_EMAIL` in `.env`, then run `docker compose up -d` again. MailFlow gets a certificate for `DOMAIN` and renews it automatically. Requires a public domain with DNS pointing at the server, and ports 80/443 open.
 
-```bash
-curl -o docker-compose.https.yml https://raw.githubusercontent.com/maathimself/mailflow/main/docker-compose.https.yml
-docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d
-```
-
-This adds a Caddy reverse proxy that handles certificate issuance and renewal automatically. Requires Docker Compose 2.21+, a public domain with DNS pointing at the server, and ports 80/443 open.
-
-**Optional — behind your own reverse proxy:** point your proxy at port 80. Set `APP_HTTP_PORT` in `.env` if you need a different host port. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly. To stop MailFlow's nginx serving HTTPS on port 443 and generating a certificate, set `NGINX_TLS=off` in `.env`. This needs a writable `/etc/nginx/conf.d`, so on a read-only filesystem mount a certificate in `/etc/nginx/ssl` instead. The `--profile https` setup always keeps HTTPS on, because Caddy connects to it.
+**Optional — behind your own reverse proxy:** point your proxy at port 80. Set `APP_HTTP_PORT` in `.env` if you need a different host port. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly. To stop MailFlow serving HTTPS on port 443 and generating a certificate, set `TLS_MODE=off` in `.env`.
 
 If clients can reach MailFlow only through your proxy, also set `TRUST_PROXY_HOPS=2` in `.env`, so the login rate limit sees each client's address rather than the proxy's. Docker publishes `APP_PORT` and `APP_HTTP_PORT` on every interface, and firewalls such as ufw do not filter them, so first bind both to an address only your proxy can reach, for example `APP_HTTP_PORT=127.0.0.1:8080` and `APP_PORT=127.0.0.1:8443` for a proxy on the same host. Without that, leave `TRUST_PROXY_HOPS` unset: a client that connects directly could choose the address it is rate-limited and logged under. If your `docker-compose.yml` has no `TRUST_PROXY_HOPS` line, download it again with the first command in step 1, or the setting never reaches the backend.
 
@@ -235,13 +228,9 @@ docker compose up -d --build
 
 First build takes 2–3 minutes. MailFlow will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
 
-**Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, then start with the HTTPS overlay (requires Docker Compose 2.21+):
+**Optional — automatic HTTPS via Let's Encrypt:** set `TLS_MODE=letsencrypt`, `DOMAIN` and (optionally) `ACME_EMAIL` in `.env`, then run `docker compose up -d --build` again. MailFlow gets a certificate for `DOMAIN` and renews it automatically. Requires a public domain with DNS pointing at the server, and ports 80/443 open.
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d --build
-```
-
-**Optional — behind your own reverse proxy:** point your proxy at port 80. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly. To stop MailFlow's nginx serving HTTPS on port 443 and generating a certificate, set `NGINX_TLS=off` in `.env`. This needs a writable `/etc/nginx/conf.d`, so on a read-only filesystem mount a certificate in `/etc/nginx/ssl` instead. The `--profile https` setup always keeps HTTPS on, because Caddy connects to it.
+**Optional — behind your own reverse proxy:** point your proxy at port 80. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly. To stop MailFlow serving HTTPS on port 443 and generating a certificate, set `TLS_MODE=off` in `.env`.
 
 If clients can reach MailFlow only through your proxy, also set `TRUST_PROXY_HOPS=2` in `.env`, so the login rate limit sees each client's address rather than the proxy's. Docker publishes `APP_PORT` and `APP_HTTP_PORT` on every interface, and firewalls such as ufw do not filter them, so first bind both to an address only your proxy can reach, for example `APP_HTTP_PORT=127.0.0.1:8080` and `APP_PORT=127.0.0.1:8443` for a proxy on the same host. Without that, leave `TRUST_PROXY_HOPS` unset: a client that connects directly could choose the address it is rate-limited and logged under.
 
@@ -576,7 +565,7 @@ The file holds password hashes, pending invite links and the accounts' credentia
 
 Restoring replaces everything on the server with the file's contents, then MailFlow restarts. Docker, pm2 and the systemd unit in `contrib/` start it again; a MailFlow started by hand has to be started again the same way. Anyone whose account is not in the backup is signed out, and the passwords are the ones in the backup. A backup restores only on a MailFlow version with the same database schema as the one that made it; releases with no migration between them share one. To move to a version with a newer schema, restore the backup on the version that made it, then update, so the update converts its data as usual.
 
-If your own reverse proxy sits in front of MailFlow, let `/api/admin/backup` through without a request size limit, without buffering and with long timeouts, as `frontend/nginx.conf` does. A native install set up before this version needs that location copied from `contrib/nginx.conf` into its nginx config.
+If your own reverse proxy sits in front of MailFlow, let `/api/admin/backup` through without a request size limit, without buffering and with long timeouts, as MailFlow's own frontend (`frontend/caddy/Caddyfile`) does. A native install set up before this version needs that location copied from `contrib/nginx.conf` into its nginx config.
 
 The database can also be copied as-is with a dump:
 
@@ -600,7 +589,7 @@ cat mailflow-YYYYMMDD.sql | \
 Browser (HTTPS / HTTP)
   │
   ▼
-nginx  (frontend container — ports 443 + 80)
+Caddy  (frontend container — ports 443 + 80; serves the app, terminates HTTPS)
   │
   ├── /api/*  → Node.js backend (port 3000)
   ├── /oauth/ → Node.js backend (port 3000)
@@ -610,7 +599,7 @@ nginx  (frontend container — ports 443 + 80)
                     └── IMAP        (outbound to mail servers)
 ```
 
-nginx and the backend communicate on an internal Docker network. PostgreSQL is not exposed outside that network.
+The frontend and the backend communicate on an internal Docker network. PostgreSQL is not exposed outside that network.
 
 ### With your own reverse proxy
 
@@ -621,21 +610,18 @@ Browser (HTTPS)
 Your proxy  (Nginx / Traefik / Caddy / etc. — TLS termination)
   │  X-Forwarded-Proto: https
   ▼
-nginx  (frontend container — port 80)
+Caddy  (frontend container — port 80, TLS_MODE=off)
   │
   └── backend, PostgreSQL (internal network, unchanged)
 ```
 
-### With automatic HTTPS (--profile https)
+### With automatic HTTPS (TLS_MODE=letsencrypt)
 
 ```
 Browser (HTTPS)
   │
   ▼
-Caddy  (ports 80/443 — TLS termination, auto Let's Encrypt)
-  │
-  ▼
-nginx  (frontend container — internal only)
+Caddy  (frontend container — ports 80/443, certificate from Let's Encrypt)
   │
   └── backend, PostgreSQL (internal network, unchanged)
 ```
