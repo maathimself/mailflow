@@ -25,6 +25,7 @@
     "express-session": "^1.17.3",
     "fast-xml-parser": "^5.10.0",
     "htmlparser2": "^10.1.0",
+    "ical.js": "^2.2.1",
     "imapflow": "^1.0.162",
     "jose": "^6.2.3",
     "nodemailer": "^10.0.13",

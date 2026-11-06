@@ -660,7 +660,8 @@
     "scheduledAttention": "需要处理：{{n}}",
     "favorites": "收藏夹",
     "reorderFolder": "拖动以调整文件夹顺序",
-    "draftsTotal": "草稿：{{n}}"
+    "draftsTotal": "草稿：{{n}}",
+    "mail": "邮件"
   },
   "scheduled": {
     "refresh": "刷新",
@@ -2414,5 +2415,150 @@
     "formNote": "Gmail 和 Google Workspace 邮箱可以使用 Google 登录，而不必使用应用专用密码。",
     "appPasswordNote": "Gmail 需要应用专用密码，而不是你的常用密码。请为 Google 帐号开启两步验证，然后创建应用专用密码并填入密码栏。",
     "createAppPassword": "创建应用专用密码"
+  },
+  "calendar": {
+    "title": "日历",
+    "today": "今天",
+    "previous": "上一个",
+    "next": "下一个",
+    "calendars": "日历列表",
+    "newEvent": "新建日程",
+    "allDay": "全天",
+    "more": "还有 {{count}} 项",
+    "showLess": "收起",
+    "nothingToday": "暂无安排。点击添加日程。",
+    "agendaEmpty": "此时间段内没有日程。",
+    "views": {
+      "label": "日历视图",
+      "month": "月",
+      "week": "周",
+      "day": "日",
+      "agenda": "列表"
+    },
+    "rail": {
+      "addAccount": "添加账户",
+      "manage": "管理账户",
+      "color": "{{name}} 的颜色",
+      "customColor": "自定义颜色"
+    },
+    "empty": {
+      "title": "把你的日历带进 MailFlow",
+      "body": "连接 CalDAV 日历，例如 Nextcloud、Fastmail、iCloud 或 Radicale。日程双向同步，并保留在你自己的服务器上，与邮件放在一起。",
+      "connect": "连接日历"
+    },
+    "detail": {
+      "label": "日程详情",
+      "organizer": "组织者",
+      "attendees": "参与者（{{n}}）",
+      "readOnly": "此日历为只读。",
+      "deleteConfirm": "删除此日程？"
+    },
+    "status": {
+      "tentative": "待定",
+      "cancelled": "已取消"
+    },
+    "attendee": {
+      "accepted": "已接受",
+      "declined": "已拒绝",
+      "tentative": "待定",
+      "pending": "未回复"
+    },
+    "scope": {
+      "editTitle": "编辑重复日程",
+      "moveTitle": "移动重复日程",
+      "deleteTitle": "删除重复日程",
+      "thisOne": "仅此一次",
+      "editAll": "整个系列",
+      "moveAll": "整个系列",
+      "deleteAll": "整个系列"
+    },
+    "form": {
+      "newTitle": "新建日程",
+      "editTitle": "编辑日程",
+      "title": "标题",
+      "calendar": "日历",
+      "start": "开始",
+      "end": "结束",
+      "location": "地点",
+      "description": "说明",
+      "repeat": "重复",
+      "interval": "每隔",
+      "ends": "结束方式",
+      "endsNever": "从不",
+      "endsOn": "在指定日期",
+      "endsAfter": "重复若干次后",
+      "count": "次数",
+      "reminder": "提醒",
+      "titleRequired": "请为日程输入标题。",
+      "calendarRequired": "请选择日历。",
+      "timeRequired": "请输入有效的开始和结束时间。",
+      "endBeforeStart": "结束时间不能早于开始时间。",
+      "untilBeforeStart": "重复结束日期不能早于开始日期。",
+      "countInvalid": "请输入重复次数（至少为 1）。",
+      "noWritable": "没有可用于此日程的可写日历。",
+      "customHint": "此系列使用自定义重复规则，将保持原样。"
+    },
+    "recurrence": {
+      "none": "不重复",
+      "daily": "每天",
+      "weekly": "每周",
+      "monthly": "每月",
+      "yearly": "每年",
+      "custom": "自定义",
+      "interval": "每 {{n}} 个",
+      "afterCount": "共 {{n}} 次",
+      "untilDate": "直到 {{date}}"
+    },
+    "reminder": {
+      "none": "不提醒",
+      "atStart": "开始时",
+      "min10": "提前 10 分钟",
+      "min30": "提前 30 分钟",
+      "hour1": "提前 1 小时",
+      "day1": "提前 1 天",
+      "custom": "提前 {{n}} 分钟"
+    },
+    "errors": {
+      "conflict": "编辑期间此日程已在服务器上被更改。日历已重新加载，请检查后重试。",
+      "busy": "日历正在同步，请稍后再试。",
+      "readOnly": "此日历为只读，未做任何更改。",
+      "server": "日历服务器拒绝了更改或无法连接，未做任何更改：{{message}}",
+      "generic": "出错了：{{message}}",
+      "load": "无法加载日历数据：{{message}}",
+      "noWritable": "你的日历都不接受新日程。请添加一个非只读的日历。"
+    },
+    "accounts": {
+      "title": "日历账户",
+      "addTitle": "添加账户",
+      "name": "名称（可选）",
+      "serverUrl": "服务器地址",
+      "username": "用户名",
+      "password": "密码",
+      "appPasswordHint": "如果服务商支持，请使用应用专用密码，而不是主密码。",
+      "googleHint": "Google 日历需要 OAuth，目前尚不支持。",
+      "connect": "连接",
+      "connecting": "正在连接…",
+      "lastSync": "上次同步：{{when}}。",
+      "neverSynced": "从未同步。",
+      "firstSync": "正在进行首次同步…",
+      "firstSyncBanner": "正在首次同步 {{name}}，日程会陆续显示。",
+      "counts": "日历 {{calendars}} 个，日程 {{events}} 个。",
+      "syncNow": "立即同步",
+      "syncing": "同步中…",
+      "synced": "已同步。",
+      "syncRunning": "此账户已有同步正在进行。",
+      "syncFailed": "同步失败",
+      "bannerTitle": "{{name}} 未能同步。",
+      "manage": "管理",
+      "interval": "同步间隔",
+      "everyMinutes": "每 {{n}} 分钟",
+      "changePassword": "修改密码",
+      "newPassword": "新密码",
+      "passwordSaved": "密码已更新。",
+      "removeConfirm": "要从 MailFlow 中移除 {{name}} 吗？其日历和日程仅在此处删除，服务器上的数据不会受到影响。",
+      "fromMailTitle": "使用邮件账户",
+      "fromMailHint": "尝试使用邮件账户的服务器和密码。不会向其他服务器发送任何内容。",
+      "fromMailNone": "在 {{host}} 上未找到日历服务器：{{error}}"
+    }
   }
 }

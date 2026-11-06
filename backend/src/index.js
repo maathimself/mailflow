@@ -42,6 +42,8 @@ import spamRoutes, { accountSpamRouter } from './routes/spam.js';
 import carddavRouter from './routes/carddav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
 import { startCardavScheduler } from './services/carddavSync.js';
+import calendarRoutes from './routes/calendar.js';
+import { startCaldavScheduler } from './services/caldavSync.js';
 import { start as startSpamScheduler } from './services/spamScheduler.js';
 import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
@@ -172,6 +174,7 @@ app.use('/api/block-list', blockListRoutes);
 app.use('/api/contacts', contactsRoutes);
 app.use('/api/todoist', todoistRoutes);
 app.use('/api/carddav', carddavAccountRouter);
+app.use('/api/calendar', calendarRoutes);
 app.use('/api', aiRoutes);
 app.use('/api', categoriesRoutes);
 // Tier-1 plugin routers, mounted via the plugin registry (see src/plugins/). Registered
@@ -254,6 +257,9 @@ startScheduledSender();
 
 // Schedule periodic CardDAV contact sync for any connected accounts.
 startCardavScheduler();
+
+// Sync CalDAV calendars as they fall due.
+startCaldavScheduler();
 
 // Nightly anti-spam model retrains, staggered per-user across 24h.
 startSpamScheduler();

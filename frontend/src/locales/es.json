@@ -660,7 +660,8 @@
     "scheduledAttention": "Requieren atención: {{n}}",
     "favorites": "Favoritos",
     "reorderFolder": "Arrastra para reordenar la carpeta",
-    "draftsTotal": "Borradores: {{n}}"
+    "draftsTotal": "Borradores: {{n}}",
+    "mail": "Correo"
   },
   "scheduled": {
     "refresh": "Actualizar",
@@ -2414,5 +2415,150 @@
     "formNote": "Los buzones de Gmail y Google Workspace pueden iniciar sesión con Google en lugar de usar una contraseña de aplicación.",
     "appPasswordNote": "Gmail necesita una contraseña de aplicación, no tu contraseña habitual. Activa la verificación en dos pasos de tu cuenta de Google, crea una contraseña de aplicación y escríbela en el campo de contraseña.",
     "createAppPassword": "Crear una contraseña de aplicación"
+  },
+  "calendar": {
+    "title": "Calendario",
+    "today": "Hoy",
+    "previous": "Anterior",
+    "next": "Siguiente",
+    "calendars": "Calendarios",
+    "newEvent": "Nuevo evento",
+    "allDay": "Todo el día",
+    "more": "+{{count}} más",
+    "showLess": "Mostrar menos",
+    "nothingToday": "Nada previsto. Haz clic para añadir un evento.",
+    "agendaEmpty": "No hay eventos en este periodo.",
+    "views": {
+      "label": "Vista del calendario",
+      "month": "Mes",
+      "week": "Semana",
+      "day": "Día",
+      "agenda": "Agenda"
+    },
+    "rail": {
+      "addAccount": "Añadir cuenta",
+      "manage": "Gestionar cuentas",
+      "color": "Color de {{name}}",
+      "customColor": "Color personalizado"
+    },
+    "empty": {
+      "title": "Trae tus calendarios a MailFlow",
+      "body": "Conecta un calendario CalDAV, como Nextcloud, Fastmail, iCloud o Radicale. Los eventos se sincronizan en ambas direcciones y se quedan en tu propio servidor, junto a tu correo.",
+      "connect": "Conectar un calendario"
+    },
+    "detail": {
+      "label": "Detalles del evento",
+      "organizer": "Organizador",
+      "attendees": "Asistentes ({{n}})",
+      "readOnly": "Este calendario es de solo lectura.",
+      "deleteConfirm": "¿Eliminar este evento?"
+    },
+    "status": {
+      "tentative": "Provisional",
+      "cancelled": "Cancelado"
+    },
+    "attendee": {
+      "accepted": "Aceptó",
+      "declined": "Rechazó",
+      "tentative": "Quizás",
+      "pending": "Sin respuesta"
+    },
+    "scope": {
+      "editTitle": "Editar evento recurrente",
+      "moveTitle": "Mover evento recurrente",
+      "deleteTitle": "Eliminar evento recurrente",
+      "thisOne": "Solo esta repetición",
+      "editAll": "Toda la serie",
+      "moveAll": "Toda la serie",
+      "deleteAll": "Toda la serie"
+    },
+    "form": {
+      "newTitle": "Nuevo evento",
+      "editTitle": "Editar evento",
+      "title": "Título",
+      "calendar": "Calendario",
+      "start": "Inicio",
+      "end": "Fin",
+      "location": "Lugar",
+      "description": "Descripción",
+      "repeat": "Repetir",
+      "interval": "Cada",
+      "ends": "Termina",
+      "endsNever": "Nunca",
+      "endsOn": "En una fecha",
+      "endsAfter": "Tras un número de veces",
+      "count": "Veces",
+      "reminder": "Recordatorio",
+      "titleRequired": "Ponle un título al evento.",
+      "calendarRequired": "Elige un calendario.",
+      "timeRequired": "Introduce un inicio y un fin válidos.",
+      "endBeforeStart": "El fin no puede ser anterior al inicio.",
+      "untilBeforeStart": "La fecha final de la repetición no puede ser anterior al inicio.",
+      "countInvalid": "Indica cuántas veces se repite el evento (al menos 1).",
+      "noWritable": "No hay ningún calendario editable disponible para este evento.",
+      "customHint": "Esta serie tiene una regla de repetición personalizada. Se conserva tal cual."
+    },
+    "recurrence": {
+      "none": "No se repite",
+      "daily": "Diariamente",
+      "weekly": "Semanalmente",
+      "monthly": "Mensualmente",
+      "yearly": "Anualmente",
+      "custom": "Personalizada",
+      "interval": "cada {{n}}",
+      "afterCount": "{{n}} veces",
+      "untilDate": "hasta el {{date}}"
+    },
+    "reminder": {
+      "none": "Sin recordatorio",
+      "atStart": "Al inicio",
+      "min10": "10 minutos antes",
+      "min30": "30 minutos antes",
+      "hour1": "1 hora antes",
+      "day1": "1 día antes",
+      "custom": "{{n}} minutos antes"
+    },
+    "errors": {
+      "conflict": "Este evento cambió en el servidor mientras lo editabas. Se ha recargado el calendario; revísalo e inténtalo de nuevo.",
+      "busy": "El calendario se está sincronizando. Inténtalo de nuevo en un momento.",
+      "readOnly": "Este calendario es de solo lectura, así que no se cambió nada.",
+      "server": "El servidor del calendario rechazó el cambio o no responde, así que no se cambió nada: {{message}}",
+      "generic": "Algo salió mal: {{message}}",
+      "load": "No se pudieron cargar los datos del calendario: {{message}}",
+      "noWritable": "Ninguno de tus calendarios admite eventos nuevos. Añade un calendario que no sea de solo lectura."
+    },
+    "accounts": {
+      "title": "Cuentas de calendario",
+      "addTitle": "Añadir una cuenta",
+      "name": "Nombre (opcional)",
+      "serverUrl": "URL del servidor",
+      "username": "Usuario",
+      "password": "Contraseña",
+      "appPasswordHint": "Usa una contraseña de aplicación si tu proveedor las ofrece, en lugar de tu contraseña principal.",
+      "googleHint": "Google Calendar requiere OAuth y todavía no es compatible.",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "lastSync": "Última sincronización: {{when}}.",
+      "neverSynced": "Nunca sincronizado.",
+      "firstSync": "Primera sincronización en curso…",
+      "firstSyncBanner": "Sincronizando {{name}} por primera vez. Los eventos aparecen según llegan.",
+      "counts": "Calendarios: {{calendars}}, eventos: {{events}}.",
+      "syncNow": "Sincronizar ahora",
+      "syncing": "Sincronizando…",
+      "synced": "Sincronizado.",
+      "syncRunning": "Ya hay una sincronización en curso para esta cuenta.",
+      "syncFailed": "Error de sincronización",
+      "bannerTitle": "{{name}} no se está sincronizando.",
+      "manage": "Gestionar",
+      "interval": "Intervalo de sincronización",
+      "everyMinutes": "Cada {{n}} minutos",
+      "changePassword": "Cambiar contraseña",
+      "newPassword": "Nueva contraseña",
+      "passwordSaved": "Contraseña actualizada.",
+      "removeConfirm": "¿Quitar {{name}} de MailFlow? Sus calendarios y eventos se eliminan solo aquí; no se borra nada en el servidor.",
+      "fromMailTitle": "Usar una cuenta de correo",
+      "fromMailHint": "Prueba el servidor y la contraseña de la cuenta de correo. No se envía nada a ningún otro servidor.",
+      "fromMailNone": "No se encontró ningún servidor de calendario en {{host}}: {{error}}"
+    }
   }
 }

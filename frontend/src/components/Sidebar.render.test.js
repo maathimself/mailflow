@@ -124,6 +124,20 @@ describe('Sidebar — collapsed folders show their subfolders\' unread mail (#53
 
 // The Scheduled entry (#543, design 5.2): shown while anything is scheduled or needs attention, and
 // while the view is open; the badge is the pending count, a red dot says some need attention.
+describe('Sidebar: the Mail button', () => {
+  test('goes back to the mail from the calendar and from the contacts', async () => {
+    for (const state of [{ showCalendar: true, showContacts: false }, { showCalendar: false, showContacts: true }]) {
+      await mount({ state });
+      const button = document.querySelector('button[title="sidebar.mail"]');
+      assert.ok(button, 'the button is there');
+      assert.equal(button.getAttribute('aria-pressed'), 'false');
+      await React.act(async () => { button.click(); });
+      assert.equal(useStore.getState().showCalendar, false);
+      assert.equal(useStore.getState().showContacts, false);
+    }
+  });
+});
+
 describe('Sidebar: the Scheduled entry', () => {
   const entry = () => [...dom.window.document.querySelectorAll('[data-mailbox-row]')]
     .find(el => el.textContent.startsWith('sidebar.scheduled'));

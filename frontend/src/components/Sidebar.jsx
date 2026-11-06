@@ -94,6 +94,14 @@ const ICONS = {
       <line x1="21" y1="12" x2="9" y2="12"/>
     </svg>
   ),
+  calendar: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <rect x="3" y="4" width="18" height="18" rx="2"/>
+      <line x1="16" y1="2" x2="16" y2="6"/>
+      <line x1="8" y1="2" x2="8" y2="6"/>
+      <line x1="3" y1="10" x2="21" y2="10"/>
+    </svg>
+  ),
   contacts: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
       <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
@@ -299,7 +307,7 @@ export default function Sidebar() {
     accountsReady,
     sidebarWidth,
     isSidebarResizing,
-    showContacts, setShowContacts,
+    showContacts, setShowContacts, showCalendar, setShowCalendar, setCalendarRailSlot,
   } = useStore();
 
   const isMobile = useMobile();
@@ -943,8 +951,12 @@ export default function Sidebar() {
         </button>
       </div>
 
+      {showCalendar && !isMobile && (
+        <div ref={setCalendarRailSlot} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }} />
+      )}
+
       {/* Compose button */}
-      <div style={{ padding: '12px 10px' }}>
+      <div style={{ padding: '12px 10px', display: showCalendar && !isMobile ? 'none' : undefined }}>
         <button
           onClick={() => openCompose({})}
           className="btn-press"
@@ -965,14 +977,14 @@ export default function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav data-mailbox-sidebar="" style={{ flex: 1, overflow: 'hidden auto', padding: '4px 8px' }}>
+      <nav data-mailbox-sidebar="" style={{ flex: 1, overflow: 'hidden auto', padding: '4px 8px', display: showCalendar && !isMobile ? 'none' : undefined }}>
         {/* Unified Inbox — only shown with 2+ enabled accounts */}
         {accounts.filter(a => a.enabled).length >= 2 && (
           <NavItem
             mailboxRow
             icon={ICONS.inbox}
             label={t('sidebar.allInboxes')}
-            active={isUnified && selectedFolder !== SNOOZED_FOLDER && !isScheduledView && !showContacts}
+            active={isUnified && selectedFolder !== SNOOZED_FOLDER && !isScheduledView && !showContacts && !showCalendar}
             collapsed={sidebarCollapsed}
             badge={unreadCounts.total}
             badgeStale={!unreadCounts.complete}
@@ -988,7 +1000,7 @@ export default function Sidebar() {
             mailboxRow
             icon={ICONS.snoozed}
             label={t('sidebar.snoozed')}
-            active={isUnified && selectedFolder === SNOOZED_FOLDER && !showContacts}
+            active={isUnified && selectedFolder === SNOOZED_FOLDER && !showContacts && !showCalendar}
             collapsed={sidebarCollapsed}
             onClick={() => setSelectedAccount(null, SNOOZED_FOLDER)}
           />
@@ -1002,7 +1014,7 @@ export default function Sidebar() {
             mailboxRow
             icon={<SendLaterIcon size={16} />}
             label={t('sidebar.scheduled')}
-            active={isScheduledView && !showContacts}
+            active={isScheduledView && !showContacts && !showCalendar}
             collapsed={sidebarCollapsed}
             badge={scheduledCount}
             badgeTitle={t('sidebar.scheduledPending', { n: scheduledCount })}
@@ -1910,7 +1922,23 @@ export default function Sidebar() {
         </div>
       ) : (
         <>
-          <div style={{ padding: '4px 8px', display: 'flex', justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
+          <div style={{ padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4, flexDirection: sidebarCollapsed ? 'column' : 'row', justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
+            <button
+              onClick={() => { setShowContacts(false); setShowCalendar(false); }}
+              title={t('sidebar.mail')}
+              aria-label={t('sidebar.mail')}
+              aria-pressed={!showContacts && !showCalendar}
+              style={{
+                width: 28, height: 28, borderRadius: 7,
+                border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: !showContacts && !showCalendar ? 'var(--bg-hover)' : 'transparent',
+                color: !showContacts && !showCalendar ? 'var(--accent)' : 'var(--text-tertiary)',
+                transition: 'background 0.1s, color 0.1s',
+              }}
+            >
+              {ICONS.inbox}
+            </button>
             <button
               onClick={() => { setShowContacts(!showContacts); if (isMobile) setMobileSidebarOpen(false); }}
               title={t('contacts.title')}
@@ -1926,6 +1954,24 @@ export default function Sidebar() {
               onMouseLeave={e => { if (!showContacts) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-tertiary)'; } }}
             >
               {ICONS.contacts}
+            </button>
+            <button
+              onClick={() => { setShowCalendar(!showCalendar); if (isMobile) setMobileSidebarOpen(false); }}
+              title={t('calendar.title')}
+              aria-label={t('calendar.title')}
+              aria-pressed={showCalendar}
+              style={{
+                width: 28, height: 28, borderRadius: 7,
+                border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: showCalendar ? 'var(--bg-hover)' : 'transparent',
+                color: showCalendar ? 'var(--accent)' : 'var(--text-tertiary)',
+                transition: 'background 0.1s, color 0.1s',
+              }}
+              onMouseEnter={e => { if (!showCalendar) { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-secondary)'; } }}
+              onMouseLeave={e => { if (!showCalendar) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-tertiary)'; } }}
+            >
+              {ICONS.calendar}
             </button>
           </div>
           <div style={{ padding: '8px', borderTop: '1px solid var(--border-subtle)' }}>
