@@ -8,7 +8,6 @@ import { useStore } from '../store/index.js';
 import {
   normalizeConversation,
   initialExpandedMessageIds,
-  conversationMembershipKey,
   newestConversationMessage,
 } from '../utils/conversation.js';
 import { archiveThread, deleteThread, spamThread, moveThread, snoozeThread, inAccount, otherAccountsDraft } from '../utils/threadActions.js';
@@ -78,6 +77,8 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   // into the relevant sub-view rather than reimplemented here. message is the copy they open on.
   const [picker, setPicker] = useState(null);
   const [openedOnNewest, setOpenedOnNewest] = useState(null);
+  // The conversation the cards on screen belong to, set when its fetch lands (the stack's key).
+  const [loadedConversation, setLoadedConversation] = useState(null);
   const [aiStatus, setAiStatus] = useState(null);
 
   useEffect(() => {
@@ -100,6 +101,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         if (cancelled) return;
         const ordered = normalizeConversation(data?.messages || []);
         setMessages(ordered);
+        setLoadedConversation(`${accountId || ''}\n${threadId}`);
         setOpenedOnNewest(newestConversationMessage(inAccount(ordered, accountId))?.id ?? null);
         // A picker opened on the previous conversation's cards while this one loaded (below).
         setPicker(null);
@@ -397,9 +399,13 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         onPrefetch={(row) => prefetchBody(row.id)}
       >
       <div
-        // Remounts the stack when the thread's membership changes, so expansion state from a
-        // previous conversation can never be applied to this one's message ids.
-        key={conversationMembershipKey(messages)}
+        // Remounts the stack when another conversation lands, so nothing a card holds carries over
+        // to the next one. Not on a reply read in while it is open (above): a remount ran every open
+        // card's mark-read again, so a message the reader had just marked unread was read again,
+        // and the scroll position and an open dialog were lost. The cards are keyed by message id,
+        // so a new one simply joins the stack. Not on threadId either: the previous conversation's
+        // cards stay on screen until the next one lands, and a remount would mark them read again.
+        key={loadedConversation ?? ''}
         ref={stackRef}
         // flex: 1 and minWidth: 0 are load-bearing. The reading area is a flex row, so
         // without them this pane is sized shrink-to-fit by its contents: collapsed cards

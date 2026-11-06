@@ -261,6 +261,42 @@ describe('conversation pane', () => {
     }
   });
 
+  // The stack was keyed by the conversation's membership, so a reply read in remounted every card:
+  // each open card ran its mark-read again, and a message the reader had just marked unread was
+  // read again behind their back.
+  test('a reply that lands keeps the cards mounted, and an open card marked unread stays unread', async () => {
+    const card = id => document.querySelector(`[data-message-id="${id}"]`);
+    const row = { id: 'm3', thread_id: '<1@x>', account_id: 'acct', folder: 'INBOX', message_count: 3, date: THREAD[2].date, is_read: false };
+    useStore.setState({ messages: [row], searchQuery: '' });
+    await React.act(async () => {
+      root.render(React.createElement(ConversationPane, {
+        key: 'live-unread', threadId: '<1@x>', folder: 'INBOX', accountId: 'acct', selectedMessageId: 'm3', openedFromRow: true,
+      }));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    const unread = card('m3').querySelector('button[aria-label="contextMenu.markUnread"]');
+    assert.ok(unread, 'the open card was read and offers Mark unread');
+    await React.act(async () => { unread.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    const mounted = card('m3');
+    const reads = bulkReads.length;
+    const reply = { id: 'm4', account_id: 'acct', folder: 'INBOX', message_id: '<4@x>', subject: 'Re: Welcome', from_email: 'a@x.z', from_name: 'Ana', date: '2026-01-04T10:00:00Z', is_read: false, snippet: 'arrived while open' };
+    THREAD.push(reply);
+    try {
+      await React.act(async () => {
+        useStore.setState({ messages: [{ ...row, id: 'm4', message_count: 4, date: reply.date }] });
+        await new Promise(r => setTimeout(r, 50));
+      });
+      assert.equal(cards().length, 4, 'the new reply is in the conversation');
+      assert.equal(card('m3'), mounted, 'the open card was not remounted');
+      assert.deepEqual(bulkReads.slice(reads).filter(b => b.read && b.ids.includes('m3')), [], 'the card marked unread is not read again');
+      assert.ok(card('m3').querySelector('button[aria-label="contextMenu.markRead"]'), 'and still offers Mark read');
+    } finally {
+      THREAD.pop();
+      useStore.setState({ messages: [] });
+    }
+  });
+
   test('collapsing and reopening does not refetch', async () => {
     const before = bodyRequests.length;
     const open = document.querySelector(`${CARD_TOGGLE.slice(0, -1)}="true"]`);
