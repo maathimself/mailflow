@@ -83,6 +83,10 @@ function restoreMessagesIfViewCurrent(viewKey, currentViewKeyRef, messages) {
 // After a manual sync, when to reload the list if the socket has not said the sync finished.
 const MANUAL_SYNC_FALLBACK_MS = [5000, 15000];
 
+// One height for the desktop list toolbar's controls, text and icon alike, so they line up (#766).
+// The mobile toolbar keeps its 44px touch targets.
+const TOOLBAR_CONTROL_HEIGHT = 24;
+
 const SWIPE_ACTIONS = {
   archive: { color: 'var(--amber, #d97706)' },
   delete: { color: 'var(--red, #ef4444)' },
@@ -2975,12 +2979,14 @@ function MailboxList() {
         boxShadow: listScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
         transition: 'box-shadow 0.2s ease',
       }}>
-        {/* Title row: label + count + sync (always fits) */}
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: isNarrow ? 6 : 10 }}>
+        {/* Title row: label, then count + controls. The list can be dragged narrower than its layout's
+            width, and labels run long in some languages, so when the controls do not fit beside the whole
+            title they wrap below it, right-aligned, instead of squeezing the title away (#766). */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 6, rowGap: 6, marginBottom: isNarrow ? 6 : 10 }}>
           <h2 style={{
             margin: 0, fontSize: 15, fontWeight: 600,
             color: 'var(--text-primary)',
-            flex: 1, minWidth: 0,
+            flex: '1 1 auto', minWidth: 0,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             display: 'flex', alignItems: 'center',
           }}>
@@ -3001,7 +3007,7 @@ function MailboxList() {
               </svg>
             ) : label}
           </h2>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 6 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
             {!searchQuery && (
               <span title={isSnoozedView && isUnified ? 'Snoozed messages in every account' : filteredCount ? 'Cached results matching this filter' : !headerCountKnown ? 'Mailbox count not yet available' : headerCountStale ? 'Last observed mailbox count; awaiting server refresh' : 'Messages reported by the mail server'} style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
                 {/* The Snoozed view across accounts (#269) counts what the list returned: every account's Snoozed folder. */}
@@ -3015,7 +3021,7 @@ function MailboxList() {
               title={selectedAccountId ? t('messageList.syncAccount') : t('messageList.syncAll')}
               style={{
                 background: 'none', border: '1px solid transparent',
-                borderRadius: 6, padding: '4px 6px',
+                borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                 color: syncing ? 'var(--accent)' : 'var(--text-tertiary)',
                 cursor: syncing ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center',
@@ -3050,7 +3056,7 @@ function MailboxList() {
                   style={{
                     background: showLayoutPicker ? 'var(--accent-dim)' : 'none',
                     border: `1px solid ${showLayoutPicker ? 'var(--accent)' : 'transparent'}`,
-                    borderRadius: 6, padding: '4px 6px',
+                    borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                     color: showLayoutPicker ? 'var(--accent)' : 'var(--text-tertiary)',
                     cursor: 'pointer', display: 'flex', alignItems: 'center',
                     transition: 'color 0.15s, border-color 0.15s, background 0.15s',
@@ -3121,9 +3127,10 @@ function MailboxList() {
                   style={{
                     background: unreadOnly ? 'var(--accent-dim)' : 'none',
                     border: `1px solid ${unreadOnly ? 'var(--accent)' : 'var(--border)'}`,
-                    borderRadius: 6, padding: '4px 8px',
+                    borderRadius: 6, padding: '0 8px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                     color: unreadOnly ? 'var(--accent)' : 'var(--text-tertiary)',
                     cursor: 'pointer', fontSize: 11, fontWeight: 500,
+                    display: 'flex', alignItems: 'center',
                   }}
                 >
                   {t('messageList.unread')}
@@ -3135,7 +3142,7 @@ function MailboxList() {
                   title={t('messageList.messagesPerPage')}
                   style={{
                     background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-                    borderRadius: 6, padding: '4px 6px',
+                    borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                     color: 'var(--text-tertiary)', cursor: 'pointer',
                     fontSize: 11, outline: 'none',
                   }}
@@ -3154,7 +3161,7 @@ function MailboxList() {
               style={{
                 background: selectionMode ? 'var(--accent-dim)' : 'none',
                 border: `1px solid ${selectionMode ? 'var(--accent)' : 'transparent'}`,
-                borderRadius: 6, padding: '4px 6px',
+                borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                 color: selectionMode ? 'var(--accent)' : 'var(--text-tertiary)',
                 cursor: 'pointer', display: 'flex', alignItems: 'center',
                 transition: 'color 0.15s, border-color 0.15s, background 0.15s',
@@ -3170,9 +3177,10 @@ function MailboxList() {
           </div>
         </div>
 
-        {/* Narrow layouts: filter + page size + layout picker on their own row */}
+        {/* Narrow layouts: filter + page size + layout picker on their own row, wrapping when the
+            list is dragged narrower still or the labels are long (#766) */}
         {isNarrow && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginBottom: 6 }}>
             {sortable && <ListSortMenu accountId={selectedAccountId} folder={selectedFolder} />}
             <button
               onClick={() => setUnreadOnly(!unreadOnly)}
@@ -3180,9 +3188,10 @@ function MailboxList() {
               style={{
                 background: unreadOnly ? 'var(--accent-dim)' : 'none',
                 border: `1px solid ${unreadOnly ? 'var(--accent)' : 'var(--border)'}`,
-                borderRadius: 6, padding: '4px 8px',
+                borderRadius: 6, padding: '0 8px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                 color: unreadOnly ? 'var(--accent)' : 'var(--text-tertiary)',
                 cursor: 'pointer', fontSize: 11, fontWeight: 500,
+                display: 'flex', alignItems: 'center',
               }}
             >
               {t('messageList.unread')}
@@ -3193,7 +3202,7 @@ function MailboxList() {
               title={t('messageList.messagesPerPage')}
               style={{
                 background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-                borderRadius: 6, padding: '4px 6px',
+                borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                 color: 'var(--text-tertiary)', cursor: 'pointer',
                 fontSize: 11, outline: 'none',
               }}
@@ -3216,7 +3225,7 @@ function MailboxList() {
                 style={{
                   background: showLayoutPicker ? 'var(--accent-dim)' : 'none',
                   border: `1px solid ${showLayoutPicker ? 'var(--accent)' : 'transparent'}`,
-                  borderRadius: 6, padding: '4px 6px',
+                  borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                   color: showLayoutPicker ? 'var(--accent)' : 'var(--text-tertiary)',
                   cursor: 'pointer', display: 'flex', alignItems: 'center',
                   transition: 'color 0.15s, border-color 0.15s, background 0.15s',
