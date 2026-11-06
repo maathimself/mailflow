@@ -49,6 +49,8 @@ import SpamSettings from './SpamSettings.jsx';
 import BackupSettings from './BackupSettings.jsx';
 import PasswordInput from './PasswordInput.jsx';
 import ApiTokensSection from './ApiTokensSection.jsx';
+import WebhookSettings, { AdminWebhookSettings } from './WebhookSettings.jsx';
+import ToggleRow from './SettingsToggleRow.jsx';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -2051,44 +2053,6 @@ function ChoiceChips({ options, isActive, onSelect, wrap = false }) {
           </button>
         );
       })}
-    </div>
-  );
-}
-
-// An on/off setting: its name and what it does, with a switch on the right.
-function ToggleRow({ label, desc, checked, onChange, disabled = false }) {
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
-      padding: '10px 12px', borderRadius: 8,
-      background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
-    }}>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)' }}>{label}</div>
-        {desc && <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2, lineHeight: 1.4 }}>{desc}</div>}
-      </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
-        style={{
-          width: 44, height: 24, borderRadius: 12,
-          background: checked ? 'var(--accent)' : 'var(--bg-elevated)',
-          border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          position: 'relative', transition: 'all 0.2s', flexShrink: 0,
-          opacity: disabled ? 0.6 : 1,
-        }}
-      >
-        <span style={{
-          position: 'absolute', top: 3, left: checked ? 22 : 3,
-          width: 16, height: 16, borderRadius: '50%', background: 'white',
-          transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-        }} />
-      </button>
     </div>
   );
 }
@@ -5621,6 +5585,7 @@ function NotificationsTab() {
 
       {/* Push Notifications */}
       <PushNotificationsSection />
+      <WebhookSettings />
     </div>
   );
 }
@@ -6976,7 +6941,7 @@ const TAB_GROUPS = [
   { id: 'mail', labelKey: 'admin.tabs.groupMail', tabIds: ['accounts', 'rules', 'categories', 'antispam', 'cleanup'] },
   { id: 'preferences', labelKey: 'admin.tabs.groupPreferences', tabIds: ['appearance', 'behavior', 'notifications', 'shortcuts', 'security'] },
   { id: 'ai-extensions', labelKey: 'admin.tabs.groupAiExtensions', tabIds: ['ai-actions', 'ai', 'integrations', 'plugins'] },
-  { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso', 'mail-signin', 'backup'] },
+  { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso', 'mail-signin', 'webhooks', 'backup'] },
 ];
 
 const TABS = [
@@ -7056,6 +7021,10 @@ const TABS = [
     id: 'mail-signin', labelKey: 'admin.tabs.mailSignIn',
     adminOnly: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="2 7 12 13 22 7"/><circle cx="18" cy="17" r="3" fill="var(--bg-secondary)"/><path d="M18 15.5v1.5l1 .8"/></svg>,
+  },
+  {
+    id: 'webhooks', labelKey: 'webhooks.title', adminOnly: true,
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>,
   },
   {
     id: 'backup', labelKey: 'admin.tabs.backup',
@@ -8705,6 +8674,8 @@ function makeSearchIndex(t) {
     { label: t('admin.search.notificationSound'), keywords: ['sound', 'notification sound', 'audio', 'alert', 'beep', 'chime'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
     { label: t('admin.notifications.appBadge'), keywords: ['badge', 'app icon', 'pwa', 'unread count', 'icon badge'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
     { label: t('admin.notifications.faviconBadge'), keywords: ['favicon', 'tab badge', 'browser tab', 'tab icon', 'unread dot'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
+    { label: t('webhooks.title'), keywords: ['webhook', 'ntfy', 'gotify'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
+    { label: t('webhooks.adminEnable'), keywords: ['webhook', 'ntfy', 'gotify', 'origins'], tab: 'webhooks', adminOnly: true, breadcrumb: tabLabel('webhooks') },
     { label: t('admin.push.title'), keywords: ['push', 'notification', 'browser notification', 'desktop notification', 'permission'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
     // Shortcuts (desktop only)
     { label: tabLabel('shortcuts'), keywords: ['shortcut', 'keyboard', 'hotkey', 'keybind', 'key binding', 'compose shortcut', 'reply shortcut'], tab: 'shortcuts', mobileHidden: true, breadcrumb: tabLabel('shortcuts') },
@@ -8836,6 +8807,7 @@ export default function AdminPanel() {
       {adminTab === 'mail-signin' && user?.isAdmin && <MailSignInTab />}
       {adminTab === 'users' && <UsersTab />}
       {adminTab === 'sso' && <SSOTab />}
+      {adminTab === 'webhooks' && user?.isAdmin && <AdminWebhookSettings />}
       {adminTab === 'backup' && <BackupSettings />}
       {adminTab === 'security' && <SecurityPrivacyTab initialSubTab={pendingSubTab} />}
       {adminTab === 'behavior' && <BehaviorTab />}

@@ -15,13 +15,13 @@ import { settleCids } from '../utils/cidRefs.js';
 import { logger } from './logger.js';
 import { recordBroadcast, recordWarning, recordSyncSignal } from './diagnosticsRing.js';
 import { decrypt } from './encryption.js';
-import { sendPushToUser } from './pushNotifications.js';
+import { notifyNewMail } from './notifyNewMail.js';
 import { redactEmail } from '../utils/redact.js';
 import { adjustFolderCounts, resolveSpamFolder } from '../utils/mailUtils.js';
 import { getAccountAddresses } from './mailAccess.js';
 import { resolveForConnection, createPinnedLookup } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
-import { applyInboxRules, applyBlockList, newMailAlerts, newMailPushPayload } from './inboxRules.js';
+import { applyInboxRules, applyBlockList, newMailAlerts } from './inboxRules.js';
 import { carryUpdate, hasCarries, rememberDroppedRows, takeCarry } from './movedRowCarry.js';
 import { classifyAndTagMessage } from './spamPipeline.js';
 import { generateVCard } from '../utils/vcard.js';
@@ -5435,27 +5435,12 @@ export class ImapManager {
             alertMessages: alertMessages.slice(-5), alertCount,
           }, account.user_id);
           if (newMessages.length > 0) broadcastedNewMessages = true;
-          // Web Push — INBOX only, alert-eligible messages only. Non-inbox folder syncs
+          // Notifications — INBOX only, alert-eligible messages only. Non-inbox folder syncs
           // (Archive, Spam, on-demand) can surface old or filtered messages; sending push
           // for them or for mark_read-silenced messages would be misleading.
           // Fire-and-forget: push errors are non-fatal.
           if (folder === 'INBOX' && alertMessages.length > 0) {
-            const basePayload = newMailPushPayload(alertMessages, alertCount);
-            // Try to include the total unread count for the home screen badge.
-            // If the query fails for any reason, send the push without it so
-            // notifications are never silently dropped.
-            query(
-              `SELECT COUNT(*)::int AS total FROM messages m
-               JOIN email_accounts a ON a.id = m.account_id
-               WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX' AND m.is_read = false AND m.is_deleted = false`,
-              [account.user_id]
-            ).then(r => {
-              sendPushToUser(account.user_id, { ...basePayload, unreadCount: r.rows[0]?.total ?? 0 })
-                .catch(err => console.warn('Push notification error:', err.message));
-            }).catch(() => {
-              sendPushToUser(account.user_id, basePayload)
-                .catch(err => console.warn('Push notification error:', err.message));
-            });
+            notifyNewMail({ userId: account.user_id, accountName: account.name, alertMessages, alertCount });
           }
           // Pre-warm the body cache for newly arrived messages so clicking one
           // immediately after receipt doesn't require a live IMAP fetch.
