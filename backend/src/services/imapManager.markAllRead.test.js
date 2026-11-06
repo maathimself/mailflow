@@ -22,6 +22,7 @@ import { ImapFlow } from 'imapflow';
 import { ImapManager, evictPool } from './imapManager.js';
 import { resolveForConnection } from './hostValidation.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
+import { query } from './db.js';
 
 const ACCOUNT = { id: 'acct-1', user_id: 'u1', imap_host: 'imap.example.com', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'enc' };
 
@@ -71,5 +72,35 @@ describe('markAllReadImap', () => {
     mgr._markSeenInFolder = vi.fn(async () => 3);
     await mgr.markAllReadImap(ACCOUNT, 'INBOX');
     expect(mgr._markSeenInFolder).toHaveBeenCalledTimes(1);
+  });
+
+  // A retry comes up to 35 s after the click. It used to search UNSEEN afresh and mark whatever it
+  // found: mail that had arrived since, and a message the user had marked unread meanwhile.
+  it('writes only up to the uid the click covered, and leaves rows unread in the DB alone', async () => {
+    query.mockResolvedValue({ rows: [{ uid: 2 }] });
+    mgr._markSeenInFolder = vi.fn(async () => 1);
+    await mgr.markAllReadImap(ACCOUNT, 'INBOX', { uidCeiling: 3 });
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('is_read = false'), [ACCOUNT.id, 'INBOX']);
+    expect(mgr._markSeenInFolder).toHaveBeenCalledWith(expect.anything(), 'INBOX', { uidCeiling: 3, skipUids: new Set([2]) });
+  });
+});
+
+describe('_markSeenInFolder', () => {
+  it('searches unread mail up to the ceiling and skips the given uids', async () => {
+    const stored = [];
+    const client = {
+      search: vi.fn(async () => [1, 2, 3]),
+      messageFlagsAdd: vi.fn(async (range) => { stored.push(range); return true; }),
+    };
+    const mgr = new ImapManager();
+    expect(await mgr._markSeenInFolder(client, 'INBOX', { uidCeiling: 3, skipUids: new Set([2]) })).toBe(2);
+    expect(client.search).toHaveBeenCalledWith({ seen: false, uid: '1:3' }, { uid: true });
+    expect(stored).toEqual(['1,3']);
+  });
+
+  it('searches every unread message without a ceiling', async () => {
+    const client = { search: vi.fn(async () => []), messageFlagsAdd: vi.fn() };
+    await new ImapManager()._markSeenInFolder(client, 'INBOX');
+    expect(client.search).toHaveBeenCalledWith({ seen: false }, { uid: true });
   });
 });

@@ -7690,8 +7690,9 @@ export class ImapManager {
   // the messages; `apply(client, range)` runs the IMAP command for a UID range and returns
   // imapflow's truthy/false result. Returns the count processed; throws (with progress) if a
   // chunk cannot be confirmed.
-  async _chunkedFolderOp(client, folder, searchQuery, apply, { label = 'operation', chunkSize = 500, retryBackoffMs = 500 } = {}) {
-    const uids = await client.search(searchQuery, { uid: true });
+  async _chunkedFolderOp(client, folder, searchQuery, apply, { label = 'operation', chunkSize = 500, retryBackoffMs = 500, skipUids } = {}) {
+    let uids = await client.search(searchQuery, { uid: true });
+    if (uids && skipUids?.size) uids = uids.filter(uid => !skipUids.has(uid));
     if (!uids || uids.length === 0) return 0;
     let done = 0;
     for (let i = 0; i < uids.length; i += chunkSize) {
@@ -7728,16 +7729,18 @@ export class ImapManager {
 
   // Add \Seen to every unread message in the locked folder, chunked (see _chunkedFolderOp).
   // Searching UNSEEN only touches what needs changing (idempotent, and a no-op on an
-  // already-read folder).
-  async _markSeenInFolder(client, folder, opts = {}) {
+  // already-read folder). `uidCeiling` leaves out mail that arrived after the user asked.
+  async _markSeenInFolder(client, folder, { uidCeiling, ...opts } = {}) {
     return this._chunkedFolderOp(
-      client, folder, { seen: false },
+      client, folder, uidCeiling ? { seen: false, uid: `1:${uidCeiling}` } : { seen: false },
       (c, range) => c.messageFlagsAdd(range, ['\\Seen'], { uid: true }),
       { label: 'messageFlagsAdd', ...opts },
     );
   }
 
-  async markAllReadImap(account, folder) {
+  // `uidCeiling` is the highest uid the user's Mark all read covered (the route's DB update):
+  // mail that arrives while this runs, or before a retry, stays unread.
+  async markAllReadImap(account, folder, { uidCeiling } = {}) {
     // While this runs, the integrity pass leaves the folder's read state alone (see its repair).
     // That includes the retries: a write given up on leaves the server unread, and the repair
     // then takes the folder back to unread, which is the server's state.
@@ -7750,9 +7753,16 @@ export class ImapManager {
             const lock = await client.getMailboxLock(folder);
             try {
               if (!client.mailbox || client.mailbox.exists === 0) return;
+              // The route marked every row read, so a row unread now was marked unread since, or is
+              // new mail: leave it unread on the server too. Read at each attempt, since a retry
+              // comes up to 35 s later.
+              const unread = await query(
+                'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2 AND is_read = false',
+                [account.id, folder]);
+              const skipUids = new Set((unread?.rows || []).map(r => Number(r.uid)));
               // Chunked so a single STORE +FLAGS \Seen over a large folder can't get throttled
               // into a whole-operation failure.
-              await this._markSeenInFolder(client, folder);
+              await this._markSeenInFolder(client, folder, { uidCeiling, skipUids });
             } finally {
               lock.release();
             }

@@ -1225,24 +1225,31 @@ router.post('/mark-all-read', async (req, res) => {
   // As bulk-read does: the same message's copies in label folders (GTD) are read too, and on a
   // server that keeps them as separate messages their \Seen is written as well.
   const changed = (marked?.rows || []).filter(r => !r.was_read);
-  if (changed.length && await accountMaintainsLabelSiblings(accountId)) {
-    const siblings = await fanOutBulkReadToSiblings(changed.map(r => r.id), true) || [];
-    if (siblings.length && !imapManager.isLabelStore(account)) {
-      (async () => {
-        const acted = changed.map(r => ({ ...r, account_id: accountId, folder }));
-        const flipped = new Set(siblings.map(r => r.id));
-        const targets = [];
-        for (const mid of new Set(siblings.map(r => r.message_id).filter(Boolean))) {
-          targets.push(...await readCopyTargets(accountId, mid, acted));
-        }
-        await pushSeen(imapManager, account, accountId, targets.filter(r => flipped.has(r.id)), true);
-      })().catch(err => console.warn('Mark-all-read copy push failed:', err.message));
+  // A failure here must not keep the folder's own \Seen write below from starting.
+  try {
+    if (changed.length && await accountMaintainsLabelSiblings(accountId)) {
+      const siblings = await fanOutBulkReadToSiblings(changed.map(r => r.id), true) || [];
+      if (siblings.length && !imapManager.isLabelStore(account)) {
+        (async () => {
+          const acted = changed.map(r => ({ ...r, account_id: accountId, folder }));
+          const flipped = new Set(siblings.map(r => r.id));
+          const targets = [];
+          for (const mid of new Set(siblings.map(r => r.message_id).filter(Boolean))) {
+            targets.push(...await readCopyTargets(accountId, mid, acted));
+          }
+          await pushSeen(imapManager, account, accountId, targets.filter(r => flipped.has(r.id)), true);
+        })().catch(err => console.warn('Mark-all-read copy push failed:', err.message));
+      }
     }
+  } catch (err) {
+    console.warn('Mark-all-read label copies failed:', err.message);
   }
   // Also update IMAP so the change survives the next sync (non-fatal if it fails). Not awaited: a
   // large folder is written in chunks. The count refresh waits for it, though, because it asks
   // the server for UNSEEN, and one started beside the write found the folder still unread.
-  imapManager.markAllReadImap(account, folder)
+  // Only what this request marked: the highest uid it covered keeps later mail unread.
+  const uidCeiling = (marked?.rows || []).reduce((max, r) => Math.max(max, Number(r.uid) || 0), 0);
+  imapManager.markAllReadImap(account, folder, { uidCeiling: uidCeiling || undefined })
     .catch(err => console.warn('markAllReadImap failed:', err.message))
     .finally(() => imapManager.scheduleCountRefresh?.(accountId, [folder]));
   imapManager.broadcast({ type: 'sync_complete', accountId }, account.user_id);

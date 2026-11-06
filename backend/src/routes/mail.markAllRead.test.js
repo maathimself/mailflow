@@ -12,6 +12,7 @@ import express from 'express';
 import mailRoutes from './mail.js';
 import { query } from '../services/db.js';
 import { imapManager } from '../index.js';
+import { pluginRegistry } from '../plugins/registry.js';
 
 const ACCOUNT_ID = 'e5e5e5e5-5555-4555-8555-e5e5e5e5e5e5';
 const ACCOUNT = { id: ACCOUNT_ID, user_id: 'user-1' };
@@ -49,7 +50,7 @@ describe('POST /api/mail/mark-all-read', () => {
     imapManager.markAllReadImap.mockReturnValue(new Promise(resolve => { finishWrite = resolve; }));
     const res = await markAllRead();
     expect(res.status).toBe(200);
-    expect(imapManager.markAllReadImap).toHaveBeenCalledWith(ACCOUNT, 'INBOX');
+    expect(imapManager.markAllReadImap).toHaveBeenCalledWith(ACCOUNT, 'INBOX', { uidCeiling: undefined });
     expect(imapManager.broadcast).toHaveBeenCalledWith({ type: 'sync_complete', accountId: ACCOUNT_ID }, 'user-1');
     expect(imapManager.scheduleCountRefresh).not.toHaveBeenCalled();
     finishWrite();
@@ -65,6 +66,34 @@ describe('POST /api/mail/mark-all-read', () => {
       expect(warn).toHaveBeenCalledWith('markAllReadImap failed:', 'NO [THROTTLED]');
     } finally {
       warn.mockRestore();
+    }
+  });
+
+  it('passes the highest uid it marked, so mail that arrives during the write stays unread', async () => {
+    imapManager.markAllReadImap.mockResolvedValue();
+    query.mockImplementation((sql) => Promise.resolve({ rows:
+      sql.includes('FROM email_accounts') ? [ACCOUNT]
+      : sql.includes('RETURNING m.id') ? [{ id: 'a', uid: 7, was_read: true }, { id: 'b', uid: 12, was_read: true }, { id: 'c', uid: 9, was_read: true }]
+      : [] }));
+    expect((await markAllRead()).status).toBe(200);
+    expect(imapManager.markAllReadImap).toHaveBeenCalledWith(ACCOUNT, 'INBOX', { uidCeiling: 12 });
+  });
+
+  it('still writes \\Seen to the folder when the label copies step fails', async () => {
+    imapManager.markAllReadImap.mockResolvedValue();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const active = vi.spyOn(pluginRegistry, 'hasActiveAsync').mockRejectedValue(new Error('connection reset'));
+    query.mockImplementation((sql) => Promise.resolve({ rows:
+      sql.includes('FROM email_accounts') ? [ACCOUNT]
+      : sql.includes('RETURNING m.id') ? [{ id: 'a', uid: 5, message_id: '<m@x>', was_read: false }]
+      : [] }));
+    try {
+      expect((await markAllRead()).status).toBe(200);
+      expect(imapManager.markAllReadImap).toHaveBeenCalledWith(ACCOUNT, 'INBOX', { uidCeiling: 5 });
+      expect(warn).toHaveBeenCalledWith('Mark-all-read label copies failed:', 'connection reset');
+    } finally {
+      warn.mockRestore();
+      active.mockRestore();
     }
   });
 });
