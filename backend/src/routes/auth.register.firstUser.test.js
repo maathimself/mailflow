@@ -23,7 +23,7 @@ import { pool } from '../services/db.js';
 import authRoutes from './auth.js';
 import { closeRegistrationBeforeFirstUser, firstUserRegistrationAllowed } from '../services/firstUserRegistration.js';
 
-let server, base, clientQueries, registrationOpen;
+let server, base, clientQueries, registrationOpen, userCount;
 
 beforeAll(async () => {
   const app = express();
@@ -41,10 +41,11 @@ afterAll(async () => {
 beforeEach(() => {
   clientQueries = [];
   registrationOpen = 'true';
+  userCount = '0';
   pool.connect.mockReset().mockImplementation(async () => ({
     query: vi.fn(async (sql, params) => {
       clientQueries.push({ sql, params });
-      if (sql.includes('COUNT(*)')) return { rows: [{ count: '0' }] };
+      if (sql.includes('COUNT(*)')) return { rows: [{ count: userCount }] };
       if (sql.includes("key IN ('registration_open'")) return { rows: [{ key: 'registration_open', value: registrationOpen }] };
       if (sql.startsWith('INSERT INTO users')) return { rows: [{ id: 'u-new', username: params[0], is_admin: params[2] }] };
       return { rows: [] };
@@ -83,6 +84,23 @@ describe('POST /api/auth/register on an install without accounts', () => {
     process.env.FIRST_USER_REGISTRATION = 'false';
     expect(await register()).toEqual({ status: 200, isAdmin: false });
     expect(clientQueries.some(q => /registration_open', 'false'/.test(q.sql))).toBe(false);
+  });
+});
+
+describe('POST /api/auth/register on an install that already has accounts', () => {
+  // Setting FIRST_USER_REGISTRATION=false on an existing install must change nothing: same answer,
+  // same account, same queries as without it.
+  it.each(['true', 'false'])('behaves exactly as without it, with registration_open=%s', async open => {
+    userCount = '3';
+    registrationOpen = open;
+    const without = await register();
+    const queriesWithout = clientQueries.map(q => q.sql);
+
+    clientQueries = [];
+    process.env.FIRST_USER_REGISTRATION = 'false';
+    expect(await register()).toEqual(without);
+    expect(clientQueries.map(q => q.sql)).toEqual(queriesWithout);
+    expect(without.isAdmin).not.toBe(true);
   });
 });
 
