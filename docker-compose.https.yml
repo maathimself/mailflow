@@ -3,7 +3,9 @@
 # and ACME_EMAIL in .env and run docker compose with docker-compose.yml alone.
 #
 # This file is kept so the old command keeps working:
-#   docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d
+#   docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d --remove-orphans
+# The first time after upgrading, --remove-orphans is required: it removes the old Caddy
+# container, which otherwise keeps ports 80 and 443 and stops the frontend from starting.
 # It turns Let's Encrypt on, and puts the proxy count back to one, as there is no second proxy
 # any more. A TRUST_PROXY_HOPS=2 left from the old setup would let a client choose the address it
 # is rate-limited and logged under.

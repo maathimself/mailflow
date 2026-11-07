@@ -185,8 +185,10 @@ Select a preset (Gmail, iCloud) or Custom for any IMAP server.
 
 ```bash
 docker compose pull
-docker compose up -d
+docker compose up -d --remove-orphans
 ```
+
+`--remove-orphans` removes containers of services MailFlow no longer uses. Since 4.4 that is the Redis container and, if you used the old `https` profile, the separate Caddy container, which would otherwise keep ports 80 and 443 and stop MailFlow's frontend from starting.
 
 To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=4.0.4` to your `.env`.
 
@@ -231,6 +233,15 @@ First build takes 2–3 minutes. MailFlow will be available on port 443 (HTTPS, 
 **Optional — automatic HTTPS via Let's Encrypt:** set `TLS_MODE=letsencrypt`, `DOMAIN` and (optionally) `ACME_EMAIL` in `.env`, then run `docker compose up -d --build` again. MailFlow gets a certificate for `DOMAIN` and renews it automatically. Requires a public domain with DNS pointing at the server, and ports 80/443 open.
 
 **Optional — behind your own reverse proxy:** point your proxy at port 80. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly. To stop MailFlow serving HTTPS on port 443 and generating a certificate, set `TLS_MODE=off` in `.env`.
+
+### Updating
+
+```bash
+git pull
+docker compose up -d --build --remove-orphans
+```
+
+See the note on `--remove-orphans` under Option A.
 
 If clients can reach MailFlow only through your proxy, also set `TRUST_PROXY_HOPS=2` in `.env`, so the login rate limit sees each client's address rather than the proxy's. Docker publishes `APP_PORT` and `APP_HTTP_PORT` on every interface, and firewalls such as ufw do not filter them, so first bind both to an address only your proxy can reach, for example `APP_HTTP_PORT=127.0.0.1:8080` and `APP_PORT=127.0.0.1:8443` for a proxy on the same host. Without that, leave `TRUST_PROXY_HOPS` unset: a client that connects directly could choose the address it is rate-limited and logged under.
 
@@ -543,7 +554,10 @@ docker compose down
 docker compose down -v
 
 # Update to latest images (pre-built install)
-docker compose pull && docker compose up -d
+docker compose pull && docker compose up -d --remove-orphans
+
+# Update a build-from-source install
+git pull && docker compose up -d --build --remove-orphans
 
 # Rebuild after a code change (Docker build-from-source install)
 docker compose up -d --build
