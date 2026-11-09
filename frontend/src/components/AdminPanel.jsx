@@ -2261,7 +2261,7 @@ function LayoutsTab() {
 function BehaviorTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, autoOpenReplyDrafts, setAutoOpenReplyDrafts, plaintextEmail, setPlaintextEmail, replyDefault, setReplyDefault, afterRemove, setAfterRemove, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, accounts, defaultSender, setDefaultSender } = useStore();
+  const { swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, autoOpenReplyDrafts, setAutoOpenReplyDrafts, plaintextEmail, setPlaintextEmail, replyDefault, setReplyDefault, afterRemove, setAfterRemove, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, undoSendSeconds, setUndoSendSeconds, accounts, defaultSender, setDefaultSender } = useStore();
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
   // cross-browser path (works in Firefox and non-installed Chromium) and must be
@@ -2385,6 +2385,21 @@ function BehaviorTab() {
             { id: false, label: t('admin.messageList.composeRichText'),  desc: t('admin.messageList.composeRichTextDesc') },
             { id: true,  label: t('admin.messageList.composePlainText'), desc: t('admin.messageList.composePlainTextDesc') },
           ]} />
+        </SettingRow>
+
+        {/* Undo Send delay (#769): Off sends straight away, with no Undo toast. */}
+        <SettingRow label={t('admin.messageList.undoSend')} desc={t('admin.messageList.undoSendDesc')}>
+          <ChoiceChips
+            isActive={v => undoSendSeconds === v}
+            onSelect={setUndoSendSeconds}
+            options={[
+              { value: 0,  label: t('admin.messageList.undoSendOff') },
+              { value: 5,  label: '5s' },
+              { value: 10, label: '10s' },
+              { value: 20, label: '20s' },
+              { value: 30, label: '30s' },
+            ]}
+          />
         </SettingRow>
 
         {/* Default sender (#417) */}
@@ -5718,7 +5733,7 @@ const LANGUAGES = [
 
 function LanguageTab() {
   const { t } = useTranslation();
-  const { language, setLanguage } = useStore();
+  const { language, setLanguage, timeFormat, setTimeFormat } = useStore();
 
   return (
     <div>
@@ -5760,6 +5775,26 @@ function LanguageTab() {
             </button>
           );
         })}
+      </div>
+
+      {/* Time format (#758): independent of the language above. Automatic keeps the
+          clock the language implies; 12- / 24-hour force it either way. */}
+      <div style={{ marginTop: 28 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('admin.appearance.timeFormat')}
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
+          {t('admin.appearance.timeFormatDesc')}
+        </div>
+        <ChoiceChips
+          isActive={v => timeFormat === v}
+          onSelect={setTimeFormat}
+          options={[
+            { value: 'auto', label: t('admin.appearance.timeFormatAuto') },
+            { value: '12',   label: t('admin.appearance.timeFormat12') },
+            { value: '24',   label: t('admin.appearance.timeFormat24') },
+          ]}
+        />
       </div>
     </div>
   );
@@ -8677,10 +8712,12 @@ function makeSearchIndex(t) {
     { label: t('admin.messageList.defaultReplyAction'), keywords: ['reply', 'reply all', 'default reply'], tab: 'behavior', breadcrumb: behaviorCrumb },
     { label: t('admin.messageList.afterRemove'), keywords: ['next message', 'auto advance', 'after delete', 'after archive', 'open next', 'previous message'], tab: 'behavior', breadcrumb: behaviorCrumb },
     { label: t('admin.messageList.markReadBehavior'), keywords: ['mark read', 'mark as read', 'read delay', 'auto read', 'manual read', 'unread'], tab: 'behavior', breadcrumb: behaviorCrumb },
+    { label: t('admin.messageList.undoSend'), keywords: ['undo send', 'undo', 'unsend', 'send delay', 'recall sent', 'off'], tab: 'behavior', breadcrumb: behaviorCrumb },
     { label: t('admin.messageList.defaultSender'), keywords: ['from', 'sender', 'default sender', 'send from', 'alias', 'identity'], tab: 'behavior', breadcrumb: behaviorCrumb },
     { label: t('admin.messageList.defaultMailApp'), keywords: ['mailto', 'default app', 'default email', 'protocol handler', 'links'], tab: 'behavior', breadcrumb: behaviorCrumb },
     // Appearance > Fonts & Language
     { label: t('admin.appearance.language'), keywords: ['language', 'locale', 'french', 'english', 'spanish', 'german', 'deutsch', 'russian', 'chinese', 'italian', 'czech', 'čeština', 'portuguese', 'português', 'brasil', 'korean', '한국어', 'français', 'español'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
+    { label: t('admin.appearance.timeFormat'), keywords: ['time format', 'clock', '12-hour', '24-hour', '12 hour', '24 hour', 'am pm', 'time'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     { label: t('admin.appearance.fontSize'), keywords: ['font size', 'text size', 'zoom', 'scale', 'accessibility', 'larger text'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     { label: t('admin.appearance.typography'), keywords: ['font', 'typography', 'typeface', 'serif', 'sans', 'monospace', 'reading font'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     // Email providers (admin)
