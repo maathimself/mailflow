@@ -910,21 +910,6 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ markReadDelay: n });
   },
 
-  // Undo Send delay (#769): how long a sent message can be undone — 0 (Off), 5, 10, 20 or
-  // 30 seconds. 0 is a valid stored value, so the read uses includes() on the parsed number
-  // rather than `|| default`, which would clobber it (see folderSyncInterval above).
-  // Default 10, matching UNDO_SEND_SECONDS (utils/heldSend.js).
-  undoSendSeconds: (() => {
-    const n = parseInt(localStorage.getItem('mailflow_undo_send_seconds'));
-    return [0, 5, 10, 20, 30].includes(n) ? n : 10;
-  })(),
-  setUndoSendSeconds: (seconds) => {
-    const n = [0, 5, 10, 20, 30].includes(Number(seconds)) ? Number(seconds) : 10;
-    localStorage.setItem('mailflow_undo_send_seconds', String(n));
-    set({ undoSendSeconds: n });
-    schedulePrefSave({ undoSendSeconds: n });
-  },
-
   // Thread expansion cache (not persisted — reset on navigation)
   expandedThreadId: null,
   setExpandedThreadId: (id) => set({ expandedThreadId: id }),
@@ -1515,13 +1500,6 @@ export const useStore = create((set, get) => ({
         const n = Math.max(1, Math.min(10, parseInt(prefs.markReadDelay) || 1));
         localStorage.setItem('mailflow_mark_read_delay', String(n));
         set({ markReadDelay: n });
-      }
-      if (prefs.undoSendSeconds != null) {
-        const n = parseInt(prefs.undoSendSeconds);
-        if ([0, 5, 10, 20, 30].includes(n)) {
-          localStorage.setItem('mailflow_undo_send_seconds', String(n));
-          set({ undoSendSeconds: n });
-        }
       }
       if (prefs.sidebarWidth) {
         const n = parseInt(prefs.sidebarWidth);
