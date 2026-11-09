@@ -34,13 +34,21 @@ export function requestTags(id) {
   if (!timer) timer = setTimeout(flush, BATCH_MS);
 }
 
+// Refetch the tags of the given messages. Only rows already held are refetched; the rest are fetched
+// when they first show.
 export function invalidateTags(ids) {
+  const held = ids.filter((id) => useTagStore.getState().byMessage[id] !== undefined);
   useTagStore.setState((s) => {
     const next = { ...s.byMessage };
-    for (const id of ids) delete next[id];
+    for (const id of held) delete next[id];
     return { byMessage: next };
   });
-  for (const id of ids) requestTags(id);
+  for (const id of held) requestTags(id);
+}
+
+// A tag definition changed (renamed, recolored or deleted): every pill on screen may be stale.
+export function refreshAllTags() {
+  invalidateTags(Object.keys(useTagStore.getState().byMessage));
 }
 
 export function clearTagCache() {

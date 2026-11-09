@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '../utils/api.js';
-import { clearTagCache, bumpTagDefinitions, useTagDefinitionsRevision } from './tagStore.js';
+import { refreshAllTags, bumpTagDefinitions, useTagDefinitionsRevision } from './tagStore.js';
 import { useTranslation } from 'react-i18next';
 
 const card = { border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', background: 'var(--bg-secondary)', marginTop: 12 };
@@ -18,10 +18,10 @@ function TagRow({ def, onChanged }) {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState(null);
   const [msg, setMsg] = useState(null);
-  const patch = async (p) => { try { await api.tagUpdate(def.id, p); clearTagCache(); onChanged(); return true; } catch (e) { setMsg(e.message); return false; } };
+  const patch = async (p) => { try { await api.tagUpdate(def.id, p); refreshAllTags(); onChanged(); return true; } catch (e) { setMsg(e.message); return false; } };
   const remove = async () => {
     if (!window.confirm(t('tags.settings.confirmDelete', { name: def.name }))) return;
-    try { await api.tagDelete(def.id); clearTagCache(); onChanged(); } catch (e) { setMsg(e.message); }
+    try { await api.tagDelete(def.id); refreshAllTags(); onChanged(); } catch (e) { setMsg(e.message); }
   };
   return (
     <div style={{ borderTop: '1px solid var(--border)', padding: '8px 0' }}>

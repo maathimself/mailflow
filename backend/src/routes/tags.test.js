@@ -5,7 +5,7 @@ const broadcast = vi.hoisted(() => vi.fn());
 vi.mock('../index.js', () => ({ imapManager: { broadcast } }));
 vi.mock('../services/tags/store.js', () => ({
   listDefinitions: vi.fn(), createDefinition: vi.fn(), updateDefinition: vi.fn(), deleteDefinition: vi.fn(),
-  tagsForMessages: vi.fn(), setManualTag: vi.fn(),
+  tagsForMessages: vi.fn(), setManualTag: vi.fn(), copiesOfMessage: vi.fn(),
 }));
 
 import 'express-async-errors';
@@ -74,6 +74,7 @@ describe('messages', () => {
 
   it('adds or removes a tag by hand, tells the open tabs, and 404s a message or tag that is not the user\'s', async () => {
     store.setManualTag.mockResolvedValue(true);
+    store.copiesOfMessage.mockResolvedValue([ID]);
     expect((await call('PUT', `/messages/${ID}/tags/${ID2}`, { applied: false })).status).toBe(200);
     expect(store.setManualTag).toHaveBeenCalledWith('u1', ID, ID2, false);
     expect(broadcast).toHaveBeenCalledWith({ type: 'tags_updated', messageIds: [ID] }, 'u1');
@@ -82,6 +83,30 @@ describe('messages', () => {
     store.setManualTag.mockResolvedValue(false);
     broadcast.mockClear();
     expect((await call('PUT', `/messages/${ID}/tags/${ID2}`, { applied: true })).status).toBe(404);
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+});
+
+describe('keeping other views in step', () => {
+  it('tells the open tabs about every copy of the email when a tag is set by hand', async () => {
+    store.setManualTag.mockResolvedValue(true);
+    store.copiesOfMessage.mockResolvedValue([ID, ID2]);
+    await call('PUT', `/messages/${ID}/tags/${ID2}`, { applied: true });
+    expect(store.copiesOfMessage).toHaveBeenCalledWith('u1', ID);
+    expect(broadcast).toHaveBeenCalledWith({ type: 'tags_updated', messageIds: [ID, ID2] }, 'u1');
+  });
+
+  it('tells the open tabs when a tag is created, renamed or deleted', async () => {
+    store.createDefinition.mockResolvedValue({ id: ID, name: 'Travel' });
+    store.updateDefinition.mockResolvedValue({ id: ID });
+    store.deleteDefinition.mockResolvedValue(true);
+    await call('POST', '/definitions', { name: 'Travel' });
+    await call('PATCH', `/definitions/${ID}`, { name: 'Trips' });
+    await call('DELETE', `/definitions/${ID}`);
+    expect(broadcast.mock.calls.filter(([m]) => m.type === 'tag_definitions_updated')).toHaveLength(3);
+    broadcast.mockClear();
+    store.updateDefinition.mockResolvedValue(null);
+    await call('PATCH', `/definitions/${ID}`, { name: 'x' });
     expect(broadcast).not.toHaveBeenCalled();
   });
 });

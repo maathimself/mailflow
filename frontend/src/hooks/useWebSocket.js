@@ -9,7 +9,7 @@ import { dispatchPluginWsMessage, dispatchPluginReconnect } from '../plugins/eve
 import { recordDiagEvent } from '../utils/diagEvents.js';
 import { scheduledFeed } from '../utils/scheduledFeed.js';
 import { SOCKET_CAUGHT_UP_EVENT } from '../utils/resumeRefresh.js';
-import { invalidateTags } from '../tags/tagStore.js';
+import { invalidateTags, refreshAllTags, bumpTagDefinitions } from '../tags/tagStore.js';
 
 function _applyServerCounts(counts) {
   useStore.getState().setUnreadCounts(counts);
@@ -388,6 +388,11 @@ export function useWebSocket() {
       case 'tags_updated':
         // A tag was added or removed (in another tab): refetch those rows' tags.
         invalidateTags(Array.isArray(data.messageIds) ? data.messageIds : []);
+        break;
+      case 'tag_definitions_updated':
+        // A tag was created, renamed, recolored or deleted (in another tab).
+        refreshAllTags();
+        bumpTagDefinitions();
         break;
 
       default:

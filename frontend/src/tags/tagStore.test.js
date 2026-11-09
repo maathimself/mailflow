@@ -1,7 +1,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { api } from '../utils/api.js';
-import { useTagStore, requestTags, invalidateTags, clearTagCache, bumpTagDefinitions } from './tagStore.js';
+import { useTagStore, requestTags, invalidateTags, clearTagCache, bumpTagDefinitions, refreshAllTags } from './tagStore.js';
 
 const wait = (ms = 80) => new Promise((r) => setTimeout(r, ms));
 const tag = (name) => ({ tagId: `t-${name}`, name, color: '#000000' });
@@ -32,6 +32,19 @@ describe('tag cache', () => {
     invalidateTags(['a']);
     await wait();
     assert.equal(calls.length, 2);
+  });
+
+  it('refetches only rows it already holds when invalidated, and all of them for a definition change', async () => {
+    requestTags('a');
+    await wait();
+    invalidateTags(['a', 'never-shown']);
+    await wait();
+    assert.deepEqual(calls, [['a'], ['a']]);
+    requestTags('b');
+    await wait();
+    refreshAllTags();
+    await wait();
+    assert.deepEqual(calls.at(-1).sort(), ['a', 'b']);
   });
 
   it('keeps ids unknown when the request fails, so the next render retries', async () => {

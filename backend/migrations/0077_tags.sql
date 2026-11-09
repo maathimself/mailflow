@@ -1,6 +1,6 @@
 -- User-defined tags on messages, stored in the database only (nothing is written to IMAP).
 --
---   tag_definitions  one row per tag per user: a name and a colour
+--   tag_definitions  one row per tag per user: a name and a color
 --   message_tags     a tag on an email
 --
 -- Tags belong to the email, not to a row of the messages table. MailFlow gives a message a new row id

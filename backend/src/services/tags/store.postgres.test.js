@@ -8,7 +8,7 @@ vi.mock('../db.js', () => ({ query: vi.fn() }));
 import { query } from '../db.js';
 import * as store from './store.js';
 
-const migration = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../migrations/0076_tags.sql'), 'utf8');
+const migration = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../migrations/0077_tags.sql'), 'utf8');
 const U1 = '00000000-0000-4000-8000-000000000001';
 const U2 = '00000000-0000-4000-8000-000000000002';
 const A1 = '00000000-0000-4000-8000-0000000000a1';
@@ -195,4 +195,32 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('tags follow the email 
     expect(await store.setManualTag(U1, id, urgent.id, true)).toBe(true);
     expect(await namesOf(id)).toEqual(['Urgent']);
   });
+
+  it('copiesOfMessage lists every row of the email, scoped to the owner', async () => {
+    await db.query(`INSERT INTO messages (account_id, folder, uid, message_id) VALUES ('${A1}', 'INBOX', 70, '<c2@x.example>'), ('${A1}', 'Todo', 8, '<c2@x.example>'), ('${A1}', 'INBOX', 71, '<other@x.example>')`);
+    const ids = (await db.query("SELECT id FROM messages WHERE message_id = '<c2@x.example>'")).rows.map((r) => r.id).sort();
+    expect((await store.copiesOfMessage(U1, ids[0])).sort()).toEqual(ids);
+    expect(await store.copiesOfMessage(U2, ids[0])).toEqual([]);
+    // without a Message-ID the email is the row itself
+    const bare = (await db.query("SELECT id FROM messages WHERE uid = 60")).rows[0].id;
+    expect(await store.copiesOfMessage(U1, bare)).toEqual([bare]);
+  });
+
+  it('a message without a Message-ID loses its tags when its row id changes (documented limit)', async () => {
+    await db.query("INSERT INTO messages (account_id, folder, uid, message_id) VALUES ($1, 'INBOX', 80, NULL)", [A1]);
+    const id = (await db.query('SELECT id FROM messages WHERE uid = 80')).rows[0].id;
+    await store.setManualTag(U1, id, urgent.id, true);
+    await db.query('UPDATE messages SET folder = $1, uid = $2, id = gen_random_uuid() WHERE id = $3', ['Trash', 81, id]);
+    const moved = (await db.query('SELECT id FROM messages WHERE uid = 81')).rows[0].id;
+    expect(await namesOf(moved)).toEqual([]);
+  });
+
+  it('the orphan prune keeps row-keyed and Message-ID-keyed tags of live mail and never casts a Message-ID', async () => {
+    const bare = (await db.query('SELECT id FROM messages WHERE uid = 60')).rows[0].id;
+    await store.setManualTag(U1, bare, urgent.id, true);
+    await store.pruneOrphanTags();
+    expect((await db.query("SELECT count(*) FROM message_tags WHERE email_key = $1 AND orphaned_at IS NOT NULL", [`row:${bare}`])).rows[0].count).toBe('0');
+    expect(await namesOf(bare)).toEqual(['Urgent']);
+  });
 });
+
