@@ -257,3 +257,50 @@ describe('PATCH /auth/preferences listSort', () => {
     });
   }
 });
+
+describe('PATCH /auth/preferences timeFormat (#758)', () => {
+  const res = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+
+  for (const value of ['auto', '12', '24']) {
+    it(`stores ${value}`, async () => {
+      await patchPreferences({ session: { userId: 'user-1' }, body: { timeFormat: value } }, res());
+      const [sql, params] = query.mock.calls[0];
+      expect(sql).toContain("jsonb_build_object('timeFormat', $49::text)");
+      expect(params[48]).toBe(value);
+    });
+  }
+
+  it('ignores an unknown value rather than persisting it', async () => {
+    await patchPreferences({ session: { userId: 'user-1' }, body: { timeFormat: '13' } }, res());
+    expect(query.mock.calls[0][1][48]).toBeNull();
+  });
+
+  it('leaves timeFormat alone when it is not sent', async () => {
+    await patchPreferences({ session: { userId: 'user-1' }, body: { pageSize: '50' } }, res());
+    expect(query.mock.calls[0][1][48]).toBeNull();
+  });
+});
+
+describe('PATCH /auth/preferences undoSendSeconds (#769)', () => {
+  const res = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+
+  for (const value of [0, 5, 10, 20, 30]) {
+    it(`stores ${value}`, async () => {
+      await patchPreferences({ session: { userId: 'user-1' }, body: { undoSendSeconds: value } }, res());
+      const [sql, params] = query.mock.calls[0];
+      expect(sql).toContain("jsonb_build_object('undoSendSeconds', $50::text)");
+      // 0 (Off) is a real value, not an absence: it must arrive as '0', not null.
+      expect(params[49]).toBe(String(value));
+    });
+  }
+
+  it('ignores an unknown value rather than persisting it', async () => {
+    await patchPreferences({ session: { userId: 'user-1' }, body: { undoSendSeconds: 7 } }, res());
+    expect(query.mock.calls[0][1][49]).toBeNull();
+  });
+
+  it('leaves undoSendSeconds alone when it is not sent', async () => {
+    await patchPreferences({ session: { userId: 'user-1' }, body: { pageSize: '50' } }, res());
+    expect(query.mock.calls[0][1][49]).toBeNull();
+  });
+});
