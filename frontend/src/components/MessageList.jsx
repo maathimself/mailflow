@@ -3185,11 +3185,12 @@ function MailboxList() {
           </div>
         </div>
 
-        {/* Two-row form: sort + filter + page size + layout picker on their own row, wrapping when the
-            list is narrower still or the labels are long (#766) */}
+        {/* Two-row form: sort + filter + page size + layout picker on their own row. When they do not fit,
+            Sort drops its label if that is enough; otherwise the row breaks evenly, two per line (#766) */}
         {headerCompact && (
-          <div ref={headerFit.extraRef} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginBottom: 6 }}>
-            {sortable && <ListSortMenu accountId={selectedAccountId} folder={selectedFolder} />}
+          <div ref={headerFit.extraRef} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 4, rowGap: headerFit.secondRowBreak ? 0 : 4, marginBottom: 6 }}>
+            {/* Sort shows only its icon when that is what lets this row fit on one line */}
+            {sortable && <ListSortMenu accountId={selectedAccountId} folder={selectedFolder} iconOnly={headerFit.sortIconOnly} />}
             <button
               onClick={() => setUnreadOnly(!unreadOnly)}
               title={unreadOnly ? t('messageList.showAll') : t('messageList.unreadOnly')}
@@ -3204,6 +3205,9 @@ function MailboxList() {
             >
               {t('messageList.unread')}
             </button>
+            {/* Two per line rather than one control alone on a third (useHeaderControlsFit) */}
+            {/* The break is a line of its own, so it carries the 4px between the two lines (rowGap is 0 then) */}
+            {headerFit.secondRowBreak && <span data-row-break="" aria-hidden="true" style={{ flexBasis: '100%', height: 4 }} />}
             <select
               value={pageSize}
               onChange={e => setPageSize(parseInt(e.target.value))}
