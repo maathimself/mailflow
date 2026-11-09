@@ -23,6 +23,7 @@ import { SCHEDULED_VIEW } from '../utils/scheduledCompose.js';
 import { applyListOrder, isSortableList, listOrderFor } from '../utils/listSort.js';
 import ListSortMenu from './ListSortMenu.jsx';
 import { useListFirst } from '../hooks/useListFirst.js';
+import { useHeaderControlsFit } from '../hooks/useHeaderControlsFit.js';
 import GtdTabList from './GtdTabList.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import {
@@ -208,6 +209,10 @@ function MailboxList() {
   const listFirst = useListFirst();
   // List first has no fixed width (null): it is the widest list, not a narrow one.
   const isNarrow = !isColumn && currentLayout.listWidth != null && currentLayout.listWidth <= 260;
+  // The desktop header uses its two-row form in narrow layouts, and in any list too narrow for
+  // the title and every control on one row (a list dragged narrower, long labels, a large count).
+  const headerFit = useHeaderControlsFit(!isMobile && !isNarrow, { gap: 4, columnGap: 6 });
+  const headerCompact = isNarrow || !headerFit.fits;
 
   // Apply the optimistic delete and read guards to a batch of messages from the server
   // (utils/pendingDeletes.js, utils/pendingReads.js), against the rows shown now.
@@ -2979,14 +2984,17 @@ function MailboxList() {
         boxShadow: listScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
         transition: 'box-shadow 0.2s ease',
       }}>
-        {/* Title row: label, then count + controls. The list can be dragged narrower than its layout's
-            width, and labels run long in some languages, so when the controls do not fit beside the whole
-            title they wrap below it, right-aligned, instead of squeezing the title away (#766). */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 6, rowGap: 6, marginBottom: isNarrow ? 6 : 10 }}>
-          <h2 style={{
+        {/* Title row: label, then count + controls. When the title and every control do not fit on one
+            row, the header takes its two-row form (headerCompact), with Sort, Unread, page size and layout
+            on the row below. In a list narrower still, the controls wrap below the title, right-aligned,
+            instead of squeezing the title away (#766). */}
+        <div ref={headerFit.rowRef} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 6, rowGap: 6, marginBottom: headerCompact ? 6 : 10 }}>
+          <h2 ref={headerFit.titleRef} style={{
             margin: 0, fontSize: 15, fontWeight: 600,
             color: 'var(--text-primary)',
-            flex: '1 1 auto', minWidth: 0,
+            // Shrinks but never grows, so its scrollWidth is the title's own width in both header
+            // forms (useHeaderControlsFit); the controls' marginLeft: 'auto' keeps them right-aligned.
+            flex: '0 1 auto', minWidth: 0,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             display: 'flex', alignItems: 'center',
           }}>
@@ -3007,7 +3015,7 @@ function MailboxList() {
               </svg>
             ) : label}
           </h2>
-          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+          <div ref={headerFit.controlsRef} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
             {!searchQuery && (
               <span title={isSnoozedView && isUnified ? 'Snoozed messages in every account' : filteredCount ? 'Cached results matching this filter' : !headerCountKnown ? 'Mailbox count not yet available' : headerCountStale ? 'Last observed mailbox count; awaiting server refresh' : 'Messages reported by the mail server'} style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
                 {/* The Snoozed view across accounts (#269) counts what the list returned: every account's Snoozed folder. */}
@@ -3041,8 +3049,8 @@ function MailboxList() {
               </svg>
             </button>
 
-            {/* Layout picker — wide layouts only; narrow layouts render it in the controls row below */}
-            {!isNarrow && (
+            {/* Layout picker — one-row header only; the two-row form renders it in the controls row below */}
+            {!headerCompact && (
               <div style={{ position: 'relative' }} ref={layoutPickerRef}>
                 <button
                   onClick={() => {
@@ -3117,7 +3125,7 @@ function MailboxList() {
             )}
 
             {/* In wide layouts, keep filter + page size inline */}
-            {!isNarrow && (
+            {!headerCompact && (
               <>
                 {sortable && <ListSortMenu accountId={selectedAccountId} folder={selectedFolder} />}
                 {/* Filter unread */}
@@ -3177,10 +3185,10 @@ function MailboxList() {
           </div>
         </div>
 
-        {/* Narrow layouts: filter + page size + layout picker on their own row, wrapping when the
-            list is dragged narrower still or the labels are long (#766) */}
-        {isNarrow && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+        {/* Two-row form: sort + filter + page size + layout picker on their own row, wrapping when the
+            list is narrower still or the labels are long (#766) */}
+        {headerCompact && (
+          <div ref={headerFit.extraRef} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginBottom: 6 }}>
             {sortable && <ListSortMenu accountId={selectedAccountId} folder={selectedFolder} />}
             <button
               onClick={() => setUnreadOnly(!unreadOnly)}
