@@ -241,6 +241,11 @@ const SAME_VALUE_ALLOWED = {
   // "Mono" — typography abbreviation, same in de, en, es, fr, it
   'admin.appearance.typographyMono': [['de', 'en', 'es', 'fr', 'it', 'pl', 'ptBR']],
 
+  // Time format (#758): Spanish and Portuguese share "Automático", "12 horas", "24 horas"
+  'admin.appearance.timeFormatAuto': [['es', 'ptBR']],
+  'admin.appearance.timeFormat12':   [['es', 'ptBR']],
+  'admin.appearance.timeFormat24':   [['es', 'ptBR']],
+
   // "Archive" — same spelling in en and fr
   'admin.folderMappings.archive': [['en', 'fr'], ['cs', 'de']],
 
