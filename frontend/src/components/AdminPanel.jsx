@@ -2261,7 +2261,7 @@ function LayoutsTab() {
 function BehaviorTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, autoOpenReplyDrafts, setAutoOpenReplyDrafts, plaintextEmail, setPlaintextEmail, replyDefault, setReplyDefault, afterRemove, setAfterRemove, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, undoSendSeconds, setUndoSendSeconds, accounts, defaultSender, setDefaultSender } = useStore();
+  const { swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, autoOpenReplyDrafts, setAutoOpenReplyDrafts, plaintextEmail, setPlaintextEmail, replyDefault, setReplyDefault, afterRemove, setAfterRemove, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, accounts, defaultSender, setDefaultSender } = useStore();
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
   // cross-browser path (works in Firefox and non-installed Chromium) and must be
@@ -2385,21 +2385,6 @@ function BehaviorTab() {
             { id: false, label: t('admin.messageList.composeRichText'),  desc: t('admin.messageList.composeRichTextDesc') },
             { id: true,  label: t('admin.messageList.composePlainText'), desc: t('admin.messageList.composePlainTextDesc') },
           ]} />
-        </SettingRow>
-
-        {/* Undo Send delay (#769): Off sends straight away, with no Undo toast. */}
-        <SettingRow label={t('admin.messageList.undoSend')} desc={t('admin.messageList.undoSendDesc')}>
-          <ChoiceChips
-            isActive={v => undoSendSeconds === v}
-            onSelect={setUndoSendSeconds}
-            options={[
-              { value: 0,  label: t('admin.messageList.undoSendOff') },
-              { value: 5,  label: '5s' },
-              { value: 10, label: '10s' },
-              { value: 20, label: '20s' },
-              { value: 30, label: '30s' },
-            ]}
-          />
         </SettingRow>
 
         {/* Default sender (#417) */}
@@ -8712,7 +8697,6 @@ function makeSearchIndex(t) {
     { label: t('admin.messageList.defaultReplyAction'), keywords: ['reply', 'reply all', 'default reply'], tab: 'behavior', breadcrumb: behaviorCrumb },
     { label: t('admin.messageList.afterRemove'), keywords: ['next message', 'auto advance', 'after delete', 'after archive', 'open next', 'previous message'], tab: 'behavior', breadcrumb: behaviorCrumb },
     { label: t('admin.messageList.markReadBehavior'), keywords: ['mark read', 'mark as read', 'read delay', 'auto read', 'manual read', 'unread'], tab: 'behavior', breadcrumb: behaviorCrumb },
-    { label: t('admin.messageList.undoSend'), keywords: ['undo send', 'undo', 'unsend', 'send delay', 'recall sent', 'off'], tab: 'behavior', breadcrumb: behaviorCrumb },
     { label: t('admin.messageList.defaultSender'), keywords: ['from', 'sender', 'default sender', 'send from', 'alias', 'identity'], tab: 'behavior', breadcrumb: behaviorCrumb },
     { label: t('admin.messageList.defaultMailApp'), keywords: ['mailto', 'default app', 'default email', 'protocol handler', 'links'], tab: 'behavior', breadcrumb: behaviorCrumb },
     // Appearance > Fonts & Language
