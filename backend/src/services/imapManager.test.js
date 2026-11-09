@@ -16,7 +16,8 @@ vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }
 
 import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, contentLocationFromMimeHeader, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, pairMovedCopies, computeThreadId, noteDraftsChanged } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
-import { ensureFreshToken } from './imapManager.js';
+import { ensureFreshToken, clearChangedSinceIgnored, isServerLimitFailure } from './imapManager.js';
+import { fetchSnippetBatch, structureParts } from './imapManager.js';
 import { clearCarries, hasCarries, rememberDroppedRows } from './movedRowCarry.js';
 import { clearRefreshFailure, noteFreshToken, noteRefreshFailure, refreshFailureFor } from './accountErrorCode.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
@@ -1444,6 +1445,48 @@ describe('syncMessages — empty local cache vs nonempty server (wiring)', () =>
       { uid: true }
     );
     expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE folders SET highest_modseq'))).toBe(false);
+  });
+
+  // A read or star set elsewhere on old mail is pulled too: CHANGEDSINCE keeps the answer to what
+  // changed, so the scan covers the whole mailbox, except on a server that ignores it (iCloud).
+  describe('the flag delta scan', () => {
+    const deltaScanFor = async (account) => {
+      clearChangedSinceIgnored();
+      const client = {
+        noop: vi.fn(async () => true),
+        getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+        mailbox: { exists: 9000, uidValidity: 100, highestModseq: 500n },
+        fetch: vi.fn(async function* () {}),
+      };
+      query.mockImplementation((sql) => {
+        if (sql.includes('SELECT uid_validity, highest_modseq FROM folders')) {
+          return Promise.resolve({ rows: [{ uid_validity: 100, highest_modseq: '400' }] });
+        }
+        if (sql.includes('COUNT(*) FILTER (WHERE is_read = false)')) return Promise.resolve({ rows: [{ n: 0 }] });
+        if (sql.includes('COALESCE(MAX(uid), 0)')) return Promise.resolve({ rows: [{ max_uid: 9000 }] });
+        if (sql.includes('SELECT gtd_enabled, gtd_folders FROM email_accounts')) {
+          return Promise.resolve({ rows: [{ gtd_enabled: false, gtd_folders: {} }] });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+      const mgr = { _applyFlagUpdates: vi.fn(async () => 0), broadcast: vi.fn() };
+      await ImapManager.prototype.syncMessages.call(mgr, account, client, 'Archive', 50, false, true);
+      return client.fetch.mock.calls.find(([, fields]) => fields.flags && !fields.envelope);
+    };
+    const base = {
+      user_id: 'user-1', email_address: 'me@example.com', gtd_enabled: false, categorization_enabled: false,
+    };
+
+    it('asks for every UID changed since the watermark, not only recent ones', async () => {
+      const call = await deltaScanFor({ ...base, id: 'acct-delta-gmail', imap_host: 'imap.gmail.com' });
+      expect(call[0]).toBe('1:*');
+      expect(call[2]).toEqual({ uid: true, changedSince: 400n });
+    });
+
+    it('keeps a recent window on iCloud, which ignores changedSince', async () => {
+      const call = await deltaScanFor({ ...base, id: 'acct-delta-icloud', imap_host: 'imap.mail.me.com' });
+      expect(call[0]).toBe('4001:*');
+    });
   });
 
   it('hands a newly-inserted INBOX row to the inboxIngest hook when a plugin is active', async () => {
@@ -3356,6 +3399,18 @@ describe('ensureFreshToken: a refresh that cannot succeed is remembered, not swa
     expect(refreshFailureFor('ms-9')).toBeNull();
   });
 
+  it('writes a refreshed token into the account object its caller keeps', async () => {
+    const later = new Date(Date.now() + 3600 * 1000).toISOString();
+    refreshMicrosoftToken.mockImplementationOnce(async (a) => ({
+      ...a, oauth_access_token: 'new', oauth_refresh_token: 'rotated', oauth_token_expiry: later,
+    }));
+    const held = account();
+    await ensureFreshToken(held);
+    expect(held).toMatchObject({ oauth_access_token: 'new', oauth_refresh_token: 'rotated', oauth_token_expiry: later });
+    await ensureFreshToken(held);
+    expect(refreshMicrosoftToken).toHaveBeenCalledOnce();
+  });
+
   it('forgets the failure once a refresh succeeds', async () => {
     noteRefreshFailure('ms-9', { code: 'oauth_reauth', detail: 'old' });
     refreshMicrosoftToken.mockImplementationOnce(async (a) => ({ ...a, oauth_access_token: 'new' }));
@@ -3618,7 +3673,9 @@ describe('hung IMAP transport recovery', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     query.mockReset();
-    query.mockResolvedValue({ rows: [] });
+    // The tick re-reads the account it holds: a live, enabled one here.
+    query.mockImplementation(async (sql) => (sql.startsWith('SELECT * FROM email_accounts')
+      ? { rows: [{ ...acct, enabled: true }] } : { rows: [] }));
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
   afterEach(() => {
@@ -3656,6 +3713,30 @@ describe('hung IMAP transport recovery', () => {
     expect(successor.close).not.toHaveBeenCalled();
     expect(mgr.connections.get(acct.id)).toBe(successor);
     expect(client.logout).not.toHaveBeenCalled();
+  });
+  it('applies a settings change made while connected on the next tick', async () => {
+    const { mgr } = setup();
+    const held = { ...acct, antispam_enabled: false };
+    query.mockImplementation(async (sql) => (sql.startsWith('SELECT * FROM email_accounts')
+      ? { rows: [{ ...acct, enabled: true, antispam_enabled: true }] } : { rows: [] }));
+    mgr.syncMessages = vi.fn(async (account) => { expect(account.antispam_enabled).toBe(true); return {}; });
+    await mgr._syncTick(held);
+    expect(mgr.syncMessages).toHaveBeenCalledOnce();
+    expect(held.antispam_enabled).toBe(true);
+  });
+  it('disconnects an account removed or disabled while connected, instead of syncing it', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    for (const rows of [[], [{ ...acct, enabled: false }]]) {
+      const { mgr, client } = setup();
+      query.mockImplementation(async () => ({ rows }));
+      mgr.syncIntervals.set(acct.id, setInterval(() => {}, 60000));
+      mgr.syncMessages = vi.fn();
+      await mgr._syncTick(acct);
+      expect(mgr.syncMessages).not.toHaveBeenCalled();
+      expect(client.close).toHaveBeenCalledOnce();
+      expect(mgr.connections.has(acct.id)).toBe(false);
+      expect(mgr.syncIntervals.has(acct.id)).toBe(false);
+    }
   });
   it('disconnect completes even when graceful logout would never settle', async () => {
     const { mgr, client } = setup();
@@ -3808,6 +3889,120 @@ describe('Gmail label memberships (#418)', () => {
       });
     }
   }
+  // A FETCH that names one message the server cannot produce fails as a whole (Gmail's "Some
+  // messages could not be FETCHed"). Backfill used to retry it forever at a batch of 10.
+  it('isolates a message the server refuses to hand over, skips it, and backfills the rest', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    serverUids = Array.from({ length: 30 }, (_, k) => k + 1);
+    ImapFlow.mockImplementation(function () {
+      const client = clientFor('INBOX');
+      const fetchAll = client.fetch;
+      client.fetch = vi.fn(function (range, ...rest) {
+        if (!range.includes(':') && range.split(',').map(Number).includes(17)) {
+          return (async function* () {
+            if (range) throw new Error('Some messages could not be FETCHed (Failure)');
+            yield null;
+          })();
+        }
+        return fetchAll(range, ...rest);
+      });
+      return client;
+    });
+    const pending = ImapManager.prototype.backfillMessages.call(manager(), acct, 'INBOX');
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(rows.filter(r => r.folder === 'INBOX').map(r => r.uid).sort((a, b) => a - b))
+      .toEqual(serverUids.filter(uid => uid !== 17));
+    const written = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO unfetchable_uids'));
+    expect(written.some(([, params]) => params[2].map(Number).includes(17))).toBe(true);
+  });
+  // Throttling or a dropped connection says nothing about the message a FETCH named: it must not
+  // count toward writing that message off, and a run that cannot get through ends instead.
+  // Dovecot's default for a corrupt message (imap_fetch_failure disconnect-immediately) drops the
+  // connection instead of answering NO. Every retry logs in again first, so a FETCH of one UID that
+  // keeps dropping a working connection is that message: it counts toward the write-off.
+  it('writes off a message whose FETCH drops the connection every time, and backfills the rest', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    serverUids = Array.from({ length: 30 }, (_, k) => k + 1);
+    ImapFlow.mockImplementation(function () {
+      const client = clientFor('INBOX');
+      const fetchAll = client.fetch;
+      client.fetch = vi.fn(function (range, ...rest) {
+        if (!range.includes(':') && range.split(',').map(Number).includes(17)) {
+          return (async function* () {
+            if (range) throw new Error('Connection not available');
+            yield null;
+          })();
+        }
+        return fetchAll(range, ...rest);
+      });
+      return client;
+    });
+    const pending = ImapManager.prototype.backfillMessages.call(manager(), acct, 'INBOX');
+    await vi.runAllTimersAsync();
+    await pending;
+    const written = query.mock.calls.filter(([sql]) => sql.includes('INSERT INTO unfetchable_uids'));
+    expect(written.some(([, params]) => params[2].map(Number).includes(17))).toBe(true);
+    expect(rows.filter(r => r.folder === 'INBOX').map(r => r.uid).sort((a, b) => a - b))
+      .toEqual(serverUids.filter(uid => uid !== 17));
+  });
+
+  it('writes nothing off when the failures are throttling, and ends the run', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    serverUids = Array.from({ length: 30 }, (_, k) => k + 1);
+    ImapFlow.mockImplementation(function () {
+      const client = clientFor('INBOX');
+      const fetchAll = client.fetch;
+      client.fetch = vi.fn(function (range, ...rest) {
+        if (!range.includes(':') && range.split(',').map(Number).includes(17)) {
+          return (async function* () {
+            if (range) throw new Error('NO [THROTTLED] Account exceeded command or bandwidth limits');
+            yield null;
+          })();
+        }
+        return fetchAll(range, ...rest);
+      });
+      return client;
+    });
+    const pending = ImapManager.prototype.backfillMessages.call(manager(), acct, 'INBOX');
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT INTO unfetchable_uids'))).toBe(false);
+    // Newest first: 30 down to 18 came in, and the run ended at 17 instead of writing it off.
+    expect(rows.filter(r => r.folder === 'INBOX').map(r => r.uid).sort((a, b) => a - b))
+      .toEqual(Array.from({ length: 13 }, (_, k) => k + 18));
+  });
+
+  it('grows the batch back after a failure streak passes', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    serverUids = Array.from({ length: 600 }, (_, k) => k + 1);
+    let failures = 3;
+    const sizes = [];
+    ImapFlow.mockImplementation(function () {
+      const client = clientFor('INBOX');
+      const fetchAll = client.fetch;
+      client.fetch = vi.fn(function (range, ...rest) {
+        if (!range.includes(':')) {
+          sizes.push(range.split(',').length);
+          if (failures-- > 0) {
+            return (async function* () { if (range) throw new Error('Connection not available'); yield null; })();
+          }
+        }
+        return fetchAll(range, ...rest);
+      });
+      return client;
+    });
+    const pending = ImapManager.prototype.backfillMessages.call(manager(), acct, 'INBOX');
+    await vi.runAllTimersAsync();
+    await pending;
+    // Three failures at 500, halved to 250, which passes; back to 500, which takes the other 350.
+    expect(sizes).toEqual([500, 500, 500, 250, 350]);
+  });
+
   it('repairs an older INBOX hole even when cached counts and maximum UID look complete', async () => {
     serverUids = [1, 2];
     rows = [{ folder: 'INBOX', uid: 2 }, { folder: 'INBOX', uid: 3 },
@@ -6781,7 +6976,7 @@ describe('closeSockets', () => {
   it('waits a turn, so it also closes a socket that authenticates just after the call', async () => {
     const { sockets, ctx } = arrange();
     ImapManager.prototype.closeSockets.call(ctx, 'u1', { sessionId: 's1' });
-    // An upgrade whose session lookup was answered in the same read from Redis as the write
+    // An upgrade whose session lookup was answered in the same read from the store as the write
     // that ended the session authenticates a microtask after that write's callback.
     await Promise.resolve();
     Object.assign(sockets.authenticating, { userId: 'u1', sessionId: 's1' });
@@ -7105,5 +7300,113 @@ describe('prefetchBodyVerdict', () => {
   it('says never for a one-connection pool (Yahoo), even with that connection free', () => {
     const m = manager();
     expect(m.prefetchBodyVerdict(acct('imap.mail.yahoo.com'))).toBe('never');
+  });
+});
+
+// What ends a backfill run without counting toward writing the message off: the server limiting
+// us or in trouble. A dropped connection or a NO for that message counts.
+describe('isServerLimitFailure', () => {
+  it('knows the providers\' limit and trouble replies', () => {
+    for (const reply of [
+      'NO [LIMIT] UID FETCH Rate limit hit', 'NO [THROTTLED] Account exceeded command or bandwidth limits',
+      'NO [OVERQUOTA] Account exceeded bandwidth limits', 'Too many simultaneous connections',
+      'NO Request is throttled', 'NO [UNAVAILABLE] Temporary System Error', 'NO Temporary failure, try again',
+      'NO [AUTHENTICATIONFAILED] Invalid credentials',
+    ]) expect(isServerLimitFailure(reply), reply).toBe(true);
+  });
+  it('leaves message failures and dropped connections to count', () => {
+    for (const reply of [
+      'Some messages could not be FETCHed (Failure)', 'NO [SERVERBUG] Internal error occurred. Refer to server log for more information.',
+      'Connection not available', 'Connection closed',
+    ]) expect(isServerLimitFailure(reply), reply).toBe(false);
+  });
+});
+
+describe('snippet indexer batches (#768)', () => {
+  const plain = { type: 'text/plain' };
+  const alternative = { type: 'multipart/alternative', childNodes: [{ part: '1', type: 'text/plain' }, { part: '2', type: 'text/html' }] };
+  const mixed = { type: 'multipart/mixed', childNodes: [
+    { part: '1', type: 'multipart/alternative', childNodes: [{ part: '1.1', type: 'text/plain' }, { part: '1.2', type: 'text/html' }] },
+    { part: '2', type: 'application/pdf' },
+  ] };
+
+  // A server holding these messages. Strict, like Proton Mail Bridge's Gluon, fails the whole
+  // FETCH when any requested part is missing from any message in it; otherwise it answers
+  // with nothing for that part, as most servers do.
+  const server = (structures, { strict = false, refuse = () => false, drop = false } = {}) => {
+    const calls = [];
+    const client = {
+      fetch(range, items) {
+        calls.push({ uids: range.split(',').map(Number), parts: items.bodyParts ?? null });
+        const uids = range.split(',').map(Number);
+        return (async function* () {
+          if (drop) throw new Error('Connection not available');
+          if (items.bodyParts && (refuse(items.bodyParts) || (strict && uids.some((uid) =>
+            items.bodyParts.some((part) => !structureParts(structures[uid]).has(part)))))) {
+            throw Object.assign(new Error('Command failed'), { responseStatus: 'NO', responseText: 'no such parts exists' });
+          }
+          for (const uid of uids) {
+            const have = structureParts(structures[uid]);
+            yield { uid, bodyStructure: structures[uid],
+              ...(items.bodyParts ? { bodyParts: new Map(items.bodyParts.map((part) => [part, have.has(part) ? Buffer.from(`${uid}:${part}`) : null])) } : {}) };
+          }
+        })();
+      },
+    };
+    return { client, calls };
+  };
+  const collect = () => { const seen = []; return { seen, onMessage: async (msg) => { seen.push(msg); } }; };
+
+  it('numbers a single-part body 1 and lists every part of a multipart', () => {
+    expect([...structureParts(plain)]).toEqual(['1']);
+    expect([...structureParts(alternative)]).toEqual(['1', '2']);
+    expect([...structureParts(mixed)].sort()).toEqual(['1', '1.1', '1.2', '2']);
+    expect([...structureParts(undefined)]).toEqual(['1']);
+  });
+
+  it('asks once with the guessed parts where the server tolerates missing ones', async () => {
+    const { client, calls } = server({ 1: plain, 2: mixed });
+    const { seen, onMessage } = collect();
+    expect(await fetchSnippetBatch(client, [1, 2], onMessage)).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(seen.map((m) => m.uid)).toEqual([1, 2]);
+  });
+
+  it('on a Bridge-style refusal reads the structure and asks each message only for parts it has', async () => {
+    const { client, calls } = server({ 1: plain, 2: alternative, 3: plain, 4: mixed }, { strict: true });
+    const { seen, onMessage } = collect();
+    expect(await fetchSnippetBatch(client, [1, 2, 3, 4], onMessage)).toBe(true);
+    expect(seen.map((m) => m.uid).sort()).toEqual([1, 2, 3, 4]);
+    for (const msg of seen) {
+      const have = structureParts(msg.bodyStructure);
+      expect([...msg.bodyParts.keys()].every((part) => have.has(part)), `uid ${msg.uid}`).toBe(true);
+      expect(msg.bodyParts.get('1')?.length, `uid ${msg.uid}`).toBeGreaterThan(0);
+    }
+    // The refused guess, one structure read, then one FETCH per distinct set of parts.
+    expect(calls.map((c) => c.parts?.join(' ') ?? null)).toEqual([
+      '1 1.1 1.2 2 2.1 2.2 1.1.1 1.2.1', null, '1', '1 2', '1 1.1 1.2 2',
+    ]);
+    expect(calls[2].uids).toEqual([1, 3]);
+  });
+
+  it('skips the guess once the account is known to refuse it', async () => {
+    const { client, calls } = server({ 1: plain, 2: alternative }, { strict: true });
+    const { seen, onMessage } = collect();
+    expect(await fetchSnippetBatch(client, [1, 2], onMessage, { structureFirst: true })).toBe(false);
+    expect(calls[0].parts).toBe(null);
+    expect(seen.map((m) => m.uid).sort()).toEqual([1, 2]);
+  });
+
+  it('skips a set of parts the server still refuses instead of failing the batch', async () => {
+    const { client } = server({ 1: plain, 2: alternative }, { strict: true, refuse: (parts) => parts.includes('2') });
+    const { seen, onMessage } = collect();
+    expect(await fetchSnippetBatch(client, [1, 2], onMessage)).toBe(true);
+    expect(seen.map((m) => m.uid)).toEqual([1]);
+  });
+
+  it('still throws when the connection breaks, so the indexer reconnects', async () => {
+    const { client } = server({ 1: plain }, { drop: true });
+    await expect(fetchSnippetBatch(client, [1], async () => {})).rejects.toThrow('Connection not available');
+    await expect(fetchSnippetBatch(client, [1], async () => {}, { structureFirst: true })).rejects.toThrow('Connection not available');
   });
 });

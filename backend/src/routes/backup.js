@@ -5,6 +5,7 @@ import { requireAdmin } from '../middleware/auth.js';
 import { BACKUP_SCOPES, BackupFileError, restoreBackup, unclassifiedTables, writeBackup } from '../services/backup.js';
 import { APP_VERSION, imapManager, restartAfterRestore } from '../index.js';
 import { startScheduledSender, stopScheduledSender } from '../services/scheduledSend.js';
+import { guardStalledTransfer } from '../utils/stallGuard.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -36,6 +37,7 @@ router.get('/', async (req, res) => {
   if (restoring) return res.status(409).json({ error: 'A restore is running. Try again when MailFlow is back.' });
 
   downloads++;
+  const unguard = guardStalledTransfer(req);
   let client = null;
   try {
     client = await pool.connect();
@@ -56,6 +58,7 @@ router.get('/', async (req, res) => {
       res.destroy(err);
     }
   } finally {
+    unguard();
     client?.release();
     downloads--;
   }
@@ -87,11 +90,12 @@ router.post('/restore', async (req, res) => {
   }
   restoring = true;
   // Node cuts off a request still arriving after server.requestTimeout (five minutes by default),
-  // and a restore upload arrives for as long as the file takes to send and write. nginx in
-  // front bounds a stalled client with its own timeouts.
+  // and a restore upload arrives for as long as the file takes to send and write. A client that
+  // stalls is cut off by guardStalledTransfer instead.
   const server = req.socket.server;
   const requestTimeout = server.requestTimeout;
   server.requestTimeout = 0;
+  const unguard = guardStalledTransfer(req);
   let client = null;
   let started = false;
   let committed = false;
@@ -152,6 +156,7 @@ router.post('/restore', async (req, res) => {
       res.end();
     }
   } finally {
+    unguard();
     client?.release();
     server.requestTimeout = requestTimeout;
     // After a commit the process is about to restart; until then nothing else may start.

@@ -21,6 +21,8 @@ export const DARK_DEFAULTS = { background: '#0f0f11', text: '#e8e8f0', link: '#8
 
 export const FRAME_STYLE = { light: 'mf-frame-light', dark: 'mf-frame-dark', sender: 'mf-sender-dark' };
 export const SCALE_WRAPPER = 'mf-scale-wrapper';
+// Marks a top-level table wider than the frame (emailFrameFit.js).
+export const WIDE_TABLE_ATTR = 'data-mf-wide';
 
 // The sender's dark CSS, if it may be used. It comes from inside a style element, so it cannot
 // close one; refuse it if it ever does.
@@ -58,12 +60,11 @@ export function buildFrameDoc({ html, palette = DARK_DEFAULTS, darkCss = '', rem
                font-size: 14px; line-height: 1.6;
                word-wrap: break-word; overflow-wrap: break-word; }
         img { max-width: 100% !important; height: auto !important; }
-        /* Force top-level wrapper tables to fill the viewport. Selectors cover
-           both the legacy body > table pattern and the mf-scale-wrapper layer. */
-        body > table, body > center > table,
-        body > div > table, body > center > div > table,
-        #mf-scale-wrapper > table, #mf-scale-wrapper > center > table,
-        #mf-scale-wrapper > div > table, #mf-scale-wrapper > center > div > table {
+        /* Top-level tables wider than the frame are narrowed to it; the rest keep their own
+           width (#757). The fit marks them (emailFrameFit.js): WebKit ignores max-width on a
+           table, so this cannot be a max-width. Content that still does not fit is scaled. */
+        #mf-scale-wrapper > table[${WIDE_TABLE_ATTR}], #mf-scale-wrapper > center > table[${WIDE_TABLE_ATTR}],
+        #mf-scale-wrapper > div > table[${WIDE_TABLE_ATTR}], #mf-scale-wrapper > center > div > table[${WIDE_TABLE_ATTR}] {
           width: 100% !important;
         }
         /* Reset min-width on cells only — not on table elements, because fluid

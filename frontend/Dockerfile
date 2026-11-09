@@ -1,7 +1,7 @@
-# Overridable nginx base for hosts whose older kernels cannot exec binaries from
-# the newest Alpine package repo (e.g. some NAS units) — set to an older tag like
-# nginx:1.27-alpine via the NGINX_BASE build arg.
-ARG NGINX_BASE=nginx:alpine
+# Overridable Caddy base for hosts whose older kernels cannot exec binaries from the newest
+# Alpine package repo (e.g. some NAS units): set FRONTEND_BASE to an older tag such as
+# caddy:2.10-alpine.
+ARG FRONTEND_BASE=caddy:2-alpine
 
 FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
 
@@ -24,29 +24,16 @@ ENV VITE_EMAIL_DIV_RENDER=${VITE_EMAIL_DIV_RENDER:-false}
 
 RUN npm run build
 
-FROM ${NGINX_BASE}
+FROM ${FRONTEND_BASE}
 
-RUN apk add --no-cache openssl
+# openssl makes the self-signed certificate on first start (caddy/start.sh).
+RUN apk add --no-cache openssl && mkdir -p /etc/mailflow/certs
 
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /app/dist /srv
+COPY frontend/caddy/Caddyfile frontend/caddy/sites-*.caddy /etc/caddy/
+COPY frontend/caddy/start.sh /usr/local/bin/mailflow-start
+RUN chmod +x /usr/local/bin/mailflow-start
 
-# The config is baked in, NOT rendered at runtime. 3.4.3 made it an envsubst template to get
-# the resolver right on non-Docker runtimes (#448), but that made /etc/nginx/conf.d a startup
-# write and broke read-only root filesystems (#453) — the image's entrypoint runs under
-# `set -e`, so the failed write stopped nginx booting at all.
-#
-# Only one marked line is rewritten now, in place, and failing to rewrite it is survivable:
-# 16-detect-resolver.sh corrects the resolver from the container's real /etc/resolv.conf when
-# it can, and leaves the shipped Docker default when it cannot. Read-only filesystems start
-# either way. The resolver is NOT an include — `resolve` requires one, so a glob that matched
-# nothing would stop nginx booting.
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
-COPY frontend/detect-resolver.sh /docker-entrypoint.d/16-detect-resolver.sh
-COPY frontend/set-backend.sh /docker-entrypoint.d/17-set-backend.sh
-COPY frontend/generate-cert.sh /docker-entrypoint.d/10-generate-cert.sh
-COPY frontend/set-tls.sh /docker-entrypoint.d/18-set-tls.sh
-RUN chmod +x /docker-entrypoint.d/10-generate-cert.sh /docker-entrypoint.d/16-detect-resolver.sh /docker-entrypoint.d/17-set-backend.sh /docker-entrypoint.d/18-set-tls.sh
+EXPOSE 80 443 443/udp
 
-EXPOSE 80 443
-
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["/usr/local/bin/mailflow-start"]

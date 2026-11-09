@@ -62,7 +62,7 @@ import {
   isCurrentThreadLoad,
   unreadCountsByAccount,
 } from '../utils/threadedArchive.js';
-import { createUndoableCommit, UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
+import { createUndoableCommit, holdUndoable, releaseUndoable, UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
 import { resolveConversationSelection, selectListedMessage } from '../utils/conversation.js';
 
 // Folder icon for move picker
@@ -79,6 +79,13 @@ function FolderIcon({ specialUse, size = 13 }) {
 function restoreMessagesIfViewCurrent(viewKey, currentViewKeyRef, messages) {
   if (currentViewKeyRef.current === viewKey) useStore.getState().restoreMessages(messages);
 }
+
+// After a manual sync, when to reload the list if the socket has not said the sync finished.
+const MANUAL_SYNC_FALLBACK_MS = [5000, 15000];
+
+// One height for the desktop list toolbar's controls, text and icon alike, so they line up (#766).
+// The mobile toolbar keeps its 44px touch targets.
+const TOOLBAR_CONTROL_HEIGHT = 24;
 
 const SWIPE_ACTIONS = {
   archive: { color: 'var(--amber, #d97706)' },
@@ -233,6 +240,9 @@ function MailboxList() {
   const pullDirectionRef = useRef(null);
   const pullDistRef = useRef(0);
   const handleSyncRef = useRef(null);
+  // When the socket last said a sync finished (mailflow:sync_done), for a manual sync to tell
+  // whether its answer came.
+  const lastSyncDoneAtRef = useRef(0);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, message, defaultMoveView?, defaultSnoozeView? }
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchHasMore, setSearchHasMore] = useState(false);
@@ -348,6 +358,9 @@ function MailboxList() {
   // Bumped by every new search, by clearing the query, and by a change of account or folder, so a
   // response (or a page of more results) that arrives after any of them is dropped (#592).
   const searchSeq = useRef(0);
+  // Bumped whenever the list is replaced by a fresh first page (folder, filter or page change).
+  // A next page still in flight from before belongs to the old list and is dropped.
+  const listGenRef = useRef(0);
   const isSearching = useStore(s => s.isSearching);
   const refreshRequestRef = useRef(null);
   if (refreshRequestRef.current === null) refreshRequestRef.current = createLatestRequest();
@@ -445,6 +458,7 @@ function MailboxList() {
       // resolves, finds no account IDs, and returns empty — causing the blank
       // "All Inboxes" on first load.
       if (!accountsReady) return;
+      listGenRef.current += 1;
       setLoadingMessages(true);
       setMessagesOffset(0);
       setHasMoreMessages(true);
@@ -503,6 +517,7 @@ function MailboxList() {
   // Load next page (called by scroll or button)
   const loadMore = useCallback(async () => {
     if (loadingMessages || !hasMoreMessages) return;
+    const gen = listGenRef.current;
     setLoadingMessages(true);
     try {
       // Read current offset directly from store to avoid stale closure
@@ -514,13 +529,15 @@ function MailboxList() {
       if (useStore.getState().threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       const data = await api.getMessages(params);
+      if (listGenRef.current !== gen) return;
       appendMessages(applyReadGuard(data.messages));
       setMessagesOffset(currentOffset + data.messages.length);
       setHasMoreMessages(currentOffset + data.messages.length < data.total);
     } catch (err) {
       console.error('Failed to load more messages:', err);
     } finally {
-      setLoadingMessages(false);
+      // The new list's own load owns the flag once the list was replaced.
+      if (listGenRef.current === gen) setLoadingMessages(false);
     }
   }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset]);
 
@@ -567,7 +584,9 @@ function MailboxList() {
     };
 
     const handler = () => {
-      if (searchQuery.trim()) return;
+      // Search results are their own list. The refresh is held, not dropped: clearing the search
+      // hands it over (below), or the folder would come back as it was before the search.
+      if (searchQuery.trim()) { trailingRefreshRef.current.request(true); return; }
       if (trailingRefreshRef.current.request(useStore.getState().loadingMessages)) {
         const delayMs = Math.max(0, recentMessageOpenUntilRef.current - Date.now());
         clearTimeout(deferredRefreshTimerRef.current);
@@ -603,6 +622,8 @@ function MailboxList() {
       setSearchHasMore(false);
       setSearchError(null);
       searchFetchedOffsetRef.current = 0;
+      // A refresh held while searching (new mail, a resume, another device's change) runs now.
+      if (trailingRefreshRef.current.settle()) window.dispatchEvent(new CustomEvent('mailflow:refresh'));
       return;
     }
     setIsSearching(true);
@@ -713,6 +734,7 @@ function MailboxList() {
   // Load a specific page (paginated mode)
   const loadPage = useCallback(async (pageNum) => {
     if (loadingMessages) return;
+    listGenRef.current += 1;
     setLoadingMessages(true);
     setCurrentPage(pageNum);
     try {
@@ -755,9 +777,16 @@ function MailboxList() {
           .catch(err => console.error('syncFolder failed:', err.message));
       }
       // The server will send sync_complete via WebSocket when done, which triggers
-      // mailflow:refresh (list reload) and mailflow:sync_done (spinner off).
-      // Safety fallback: stop spinner after 15s in case WS event never arrives.
-      setTimeout(() => setSyncing(false), 15000);
+      // mailflow:refresh (list reload) and mailflow:sync_done (spinner off). The sync runs after
+      // the request answers, so without the socket (a phone back from the background, still
+      // reconnecting) nothing said it was done: the list stayed as it was and the spinner ran
+      // for 15 s. With no word from the socket the list is reloaded anyway, twice, since a sync
+      // can take a while; the second time the spinner stops.
+      const startedAt = Date.now();
+      MANUAL_SYNC_FALLBACK_MS.forEach((delay, i) => setTimeout(() => {
+        if (lastSyncDoneAtRef.current < startedAt) window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        if (i === MANUAL_SYNC_FALLBACK_MS.length - 1) setSyncing(false);
+      }, delay));
     } catch (err) {
       console.error('Sync failed:', err);
       setSyncing(false);
@@ -835,6 +864,7 @@ function MailboxList() {
   // caused two concurrent setMessages() calls racing each other.
   useEffect(() => {
     const handler = async () => {
+      lastSyncDoneAtRef.current = Date.now();
       setSyncing(true);
       setTimeout(() => setSyncing(false), 1200);
     };
@@ -1111,7 +1141,7 @@ function MailboxList() {
           body: ids.length > 1 ? t('messageList.bulkDeleted.failBody', { count: ids.length }) : t('messageList.deleted.failBody'),
         });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     pendingDeleteTimers.current.set(key, { timer, message: visibleMessage, ids });
     addNotification({
       title: ids.length > 1 ? t('messageList.bulkDeleted.title', { count: ids.length }) : t('messageList.deleted.title'),
@@ -1166,8 +1196,10 @@ function MailboxList() {
     const timers = new Map();
     let settled = false;
     const undo = () => {
+      // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+      if (!releaseUndoable(timers.get('__call__'))) return;
       settled = true;
-      timers.forEach(timer => clearTimeout(timer));
+      timers.forEach(timer => releaseUndoable(timer));
       timers.clear();
       // Restore the messages in their original position (re-sort by date).
       useStore.getState().restoreMessages(messages);
@@ -1179,7 +1211,7 @@ function MailboxList() {
       return fn(id).catch(err => ({ __failed: true, id, message: err.message }));
     };
 
-    timers.set('__call__', setTimeout(async () => {
+    timers.set('__call__', holdUndoable(async () => {
       if (settled) return;
       timers.delete('__call__');
       const results = await Promise.allSettled(ids.map(performCall));
@@ -1207,7 +1239,7 @@ function MailboxList() {
       // concurrent IMAP IDLE update, can desync the local counters.
       api.getUnreadCounts().then(c => useStore.getState().setUnreadCounts(c)).catch(() => {});
       api.getFolders(accountId).then(f => useStore.getState().setFolders(accountId, f)).catch(() => {});
-    }, 4500));
+    }, UNDO_COMMIT_DELAY_MS));
 
     addNotification({
       title: label === 'spam'
@@ -1255,21 +1287,31 @@ function MailboxList() {
   // Navigating away during the 4.5s undo window should still delete the message —
   // cancelling the timer would silently leave it on the server.
   // (Page refresh is handled by the beforeunload listener above which clears the map first.)
-  useEffect(() => () => {
-    pendingDeleteTimers.current.forEach(({ timer, message, ids }) => {
-      clearTimeout(timer);
-      const deleteIds = ids?.length ? ids : [message.id];
-      const deletePromise =
-        deleteIds.length > 1
-          ? api.bulkDelete(deleteIds)
-          : api.deleteMessage(deleteIds[0]);
-      deletePromise
-        .then(result => {
-          const actuallyDeleted = new Set(result?.deleted ?? deleteIds);
-          deleteIds.forEach(id => (actuallyDeleted.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
-        })
-        .catch(() => { deleteIds.forEach((id) => clearDeleteGuard(id)); });
-    });
+  // Locking fires them too, before the lock reaches the server: the unmount that follows the
+  // lock would send them after it, and they would be refused.
+  useEffect(() => {
+    const flushDeletes = () => {
+      pendingDeleteTimers.current.forEach(({ timer, message, ids }) => {
+        clearTimeout(timer);
+        const deleteIds = ids?.length ? ids : [message.id];
+        const deletePromise =
+          deleteIds.length > 1
+            ? api.bulkDelete(deleteIds)
+            : api.deleteMessage(deleteIds[0]);
+        deletePromise
+          .then(result => {
+            const actuallyDeleted = new Set(result?.deleted ?? deleteIds);
+            deleteIds.forEach(id => (actuallyDeleted.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
+          })
+          .catch(() => { deleteIds.forEach((id) => clearDeleteGuard(id)); });
+      });
+      pendingDeleteTimers.current.clear();
+    };
+    window.addEventListener('mailflow:will-lock', flushDeletes);
+    return () => {
+      window.removeEventListener('mailflow:will-lock', flushDeletes);
+      flushDeletes();
+    };
   }, []);
 
   const handleDelete = (e, message) => {
@@ -1311,11 +1353,13 @@ function MailboxList() {
       ? aggregateUnread
       : (message.is_read ? 0 : 1);
     if (optimisticUnread > 0) decrementUnread(message.account_id, optimisticUnread, { undoable: true });
+    // The conversation read now as well, for a flush that cannot wait to read it (see flushUndoables).
+    const early = threadRow ? resolveMessagesForThreadAction(message).catch(() => null) : null;
     const archiveAction = createUndoableCommit({
       delayMs: UNDO_COMMIT_DELAY_MS,
-      commit: async () => {
+      commit: async ({ flushing = false } = {}) => {
         guards.forEach(clearDeleteGuard);
-        await archiveMessage(message, { alreadyRemoved: true, viewKey });
+        await archiveMessage(message, { alreadyRemoved: true, viewKey, ...(flushing ? { resolved: early } : {}) });
       },
       undo: () => {
         guards.forEach(clearDeleteGuard);
@@ -1331,7 +1375,7 @@ function MailboxList() {
   }, [
     isThreadListRow, selectedAccountId, selectedFolder, expandedThreadId,
     removeMessage, setExpandedThreadId, decrementUnread, incrementUnread,
-    addNotification, t,
+    addNotification, t, resolveMessagesForThreadAction,
   ]);
 
   const handleSwipeStar = useCallback((message) => {
@@ -1567,12 +1611,15 @@ function MailboxList() {
       if (useStore.getState().searchQuery.trim()) {
         setSearchReloadToken(token => token + 1);
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     pendingDeleteTimers.current.set(key, { timer, message: msgs[0], ids: deleteIds });
     addNotification({
       title: t('messageList.bulkDeleted.title', { count: deleteIds.length }),
       body: t('messageList.bulkDeleted.body'),
       onUndo: () => {
+        // Already sent (the page went away and came back from the back-forward cache, or the
+        // screen locked): nothing to undo.
+        if (!pendingDeleteTimers.current.has(key)) return;
         undone = true;
         clearTimeout(timer);
         pendingDeleteTimers.current.delete(key);
@@ -1607,7 +1654,7 @@ function MailboxList() {
     setSelectionModeActive(false);
     setShowFolderPicker(false);
     let undone = false;
-    const timer = setTimeout(async () => {
+    const timer = holdUndoable(async () => {
       if (undone) return;
       try {
         const result = await api.bulkMove(moveIds, folder);
@@ -1625,13 +1672,14 @@ function MailboxList() {
         useStore.getState().restoreMessages(msgs);
         addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: moveIds.length }) });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     addNotification({
       title: t('messageList.bulkMoved.title', { count: moveIds.length }),
       body: folder,
       onUndo: () => {
+        // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+        if (!releaseUndoable(timer)) return;
         undone = true;
-        clearTimeout(timer);
         useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
       },
@@ -1694,15 +1742,26 @@ function MailboxList() {
     setSelectedIds(new Set());
     setSelectionModeActive(false);
     setShowFolderPicker(false);
+    // Conversations read now as well, for a flush that cannot wait to read them (see flushUndoables).
+    // Eight at a time, as the commit reads them.
+    const early = new Map();
+    const threadRows = msgs.filter(isThreadListRow);
+    let previous = Promise.resolve();
+    for (let offset = 0; offset < threadRows.length; offset += 8) {
+      const batch = threadRows.slice(offset, offset + 8);
+      const read = previous.then(() => Promise.all(batch.map(message => resolveMessagesForThreadAction(message).catch(() => null))));
+      batch.forEach((message, k) => early.set(message.id, read.then(results => results[k])));
+      previous = read;
+    }
     const archiveAction = createUndoableCommit({
       delayMs: UNDO_COMMIT_DELAY_MS,
-      commit: async () => {
+      commit: async ({ flushing = false } = {}) => {
         let groups;
         let targets;
         try {
           groups = await archiveTargetGroupsForRows(
             msgs,
-            message => resolveMessagesForThreadAction(message),
+            async message => (flushing && await early.get(message.id)) || resolveMessagesForThreadAction(message),
             activeFolder,
             isThreadListRow,
             selectedAccountId,
@@ -1783,9 +1842,12 @@ function MailboxList() {
     addNotification, t,
   ]);
 
+  // `resolved`: the conversation as read when the action was taken, for a flush that cannot
+  // wait to read it again (see flushUndoables).
   const archiveVisibleMessage = useCallback(async (message, {
     alreadyRemoved = false,
     viewKey: actionViewKey = archiveViewKeyRef.current,
+    resolved: resolvedEarly = null,
   } = {}) => {
     const threadRow = isThreadListRow(message);
     const threadId = message.thread_id || message.id;
@@ -1814,7 +1876,7 @@ function MailboxList() {
 
     let targets;
     try {
-      const resolved = await resolveMessagesForThreadAction(message);
+      const resolved = (resolvedEarly && await resolvedEarly) || await resolveMessagesForThreadAction(message);
       targets = archiveTargetsForFolder(message, resolved, activeFolder, threadRow, selectedAccountId);
 
       const resolvedUnreadByAccount = unreadCountsByAccount(targets);
@@ -2285,11 +2347,13 @@ function MailboxList() {
           ? aggregateUnread
           : (archived.is_read ? 0 : 1);
         if (optimisticUnread > 0) decrementUnread(archived.account_id, optimisticUnread, { undoable: true });
+        // The conversation read now as well, for a flush that cannot wait to read it (see flushUndoables).
+        const early = threadRow ? resolveMessagesForThreadAction(archived).catch(() => null) : null;
         const archiveAction = createUndoableCommit({
           delayMs: UNDO_COMMIT_DELAY_MS,
-          commit: async () => {
+          commit: async ({ flushing = false } = {}) => {
             guards.forEach(clearDeleteGuard);
-            await archiveMessage(archived, { alreadyRemoved: true, viewKey });
+            await archiveMessage(archived, { alreadyRemoved: true, viewKey, ...(flushing ? { resolved: early } : {}) });
           },
           undo: () => {
             guards.forEach(clearDeleteGuard);
@@ -2342,7 +2406,7 @@ function MailboxList() {
           if (next.size === 0) setSelectionModeActive(false);
         }
         let moveUndone = false;
-        const moveTimer = setTimeout(async () => {
+        const moveTimer = holdUndoable(async () => {
           if (moveUndone) return;
           try {
             const result = await api.bulkMove(moveIds, folder);
@@ -2366,13 +2430,14 @@ function MailboxList() {
             if (!moved.is_read) incrementUnread(moved.account_id);
             addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
           }
-        }, 4500);
+        }, UNDO_COMMIT_DELAY_MS);
         addNotification({
           title: t('message.moved.title'),
           body: folder,
           onUndo: () => {
+            // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+            if (!releaseUndoable(moveTimer)) return;
             moveUndone = true;
-            clearTimeout(moveTimer);
             useStore.getState().restoreMessages([moved]);
             if (!moved.is_read) incrementUnread(moved.account_id);
           },
@@ -2914,12 +2979,14 @@ function MailboxList() {
         boxShadow: listScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
         transition: 'box-shadow 0.2s ease',
       }}>
-        {/* Title row: label + count + sync (always fits) */}
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: isNarrow ? 6 : 10 }}>
+        {/* Title row: label, then count + controls. The list can be dragged narrower than its layout's
+            width, and labels run long in some languages, so when the controls do not fit beside the whole
+            title they wrap below it, right-aligned, instead of squeezing the title away (#766). */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 6, rowGap: 6, marginBottom: isNarrow ? 6 : 10 }}>
           <h2 style={{
             margin: 0, fontSize: 15, fontWeight: 600,
             color: 'var(--text-primary)',
-            flex: 1, minWidth: 0,
+            flex: '1 1 auto', minWidth: 0,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             display: 'flex', alignItems: 'center',
           }}>
@@ -2940,7 +3007,7 @@ function MailboxList() {
               </svg>
             ) : label}
           </h2>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 6 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
             {!searchQuery && (
               <span title={isSnoozedView && isUnified ? 'Snoozed messages in every account' : filteredCount ? 'Cached results matching this filter' : !headerCountKnown ? 'Mailbox count not yet available' : headerCountStale ? 'Last observed mailbox count; awaiting server refresh' : 'Messages reported by the mail server'} style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
                 {/* The Snoozed view across accounts (#269) counts what the list returned: every account's Snoozed folder. */}
@@ -2954,7 +3021,7 @@ function MailboxList() {
               title={selectedAccountId ? t('messageList.syncAccount') : t('messageList.syncAll')}
               style={{
                 background: 'none', border: '1px solid transparent',
-                borderRadius: 6, padding: '4px 6px',
+                borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                 color: syncing ? 'var(--accent)' : 'var(--text-tertiary)',
                 cursor: syncing ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center',
@@ -2989,7 +3056,7 @@ function MailboxList() {
                   style={{
                     background: showLayoutPicker ? 'var(--accent-dim)' : 'none',
                     border: `1px solid ${showLayoutPicker ? 'var(--accent)' : 'transparent'}`,
-                    borderRadius: 6, padding: '4px 6px',
+                    borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                     color: showLayoutPicker ? 'var(--accent)' : 'var(--text-tertiary)',
                     cursor: 'pointer', display: 'flex', alignItems: 'center',
                     transition: 'color 0.15s, border-color 0.15s, background 0.15s',
@@ -3060,9 +3127,10 @@ function MailboxList() {
                   style={{
                     background: unreadOnly ? 'var(--accent-dim)' : 'none',
                     border: `1px solid ${unreadOnly ? 'var(--accent)' : 'var(--border)'}`,
-                    borderRadius: 6, padding: '4px 8px',
+                    borderRadius: 6, padding: '0 8px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                     color: unreadOnly ? 'var(--accent)' : 'var(--text-tertiary)',
                     cursor: 'pointer', fontSize: 11, fontWeight: 500,
+                    display: 'flex', alignItems: 'center',
                   }}
                 >
                   {t('messageList.unread')}
@@ -3074,7 +3142,7 @@ function MailboxList() {
                   title={t('messageList.messagesPerPage')}
                   style={{
                     background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-                    borderRadius: 6, padding: '4px 6px',
+                    borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                     color: 'var(--text-tertiary)', cursor: 'pointer',
                     fontSize: 11, outline: 'none',
                   }}
@@ -3093,7 +3161,7 @@ function MailboxList() {
               style={{
                 background: selectionMode ? 'var(--accent-dim)' : 'none',
                 border: `1px solid ${selectionMode ? 'var(--accent)' : 'transparent'}`,
-                borderRadius: 6, padding: '4px 6px',
+                borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                 color: selectionMode ? 'var(--accent)' : 'var(--text-tertiary)',
                 cursor: 'pointer', display: 'flex', alignItems: 'center',
                 transition: 'color 0.15s, border-color 0.15s, background 0.15s',
@@ -3109,9 +3177,10 @@ function MailboxList() {
           </div>
         </div>
 
-        {/* Narrow layouts: filter + page size + layout picker on their own row */}
+        {/* Narrow layouts: filter + page size + layout picker on their own row, wrapping when the
+            list is dragged narrower still or the labels are long (#766) */}
         {isNarrow && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginBottom: 6 }}>
             {sortable && <ListSortMenu accountId={selectedAccountId} folder={selectedFolder} />}
             <button
               onClick={() => setUnreadOnly(!unreadOnly)}
@@ -3119,9 +3188,10 @@ function MailboxList() {
               style={{
                 background: unreadOnly ? 'var(--accent-dim)' : 'none',
                 border: `1px solid ${unreadOnly ? 'var(--accent)' : 'var(--border)'}`,
-                borderRadius: 6, padding: '4px 8px',
+                borderRadius: 6, padding: '0 8px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                 color: unreadOnly ? 'var(--accent)' : 'var(--text-tertiary)',
                 cursor: 'pointer', fontSize: 11, fontWeight: 500,
+                display: 'flex', alignItems: 'center',
               }}
             >
               {t('messageList.unread')}
@@ -3132,7 +3202,7 @@ function MailboxList() {
               title={t('messageList.messagesPerPage')}
               style={{
                 background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-                borderRadius: 6, padding: '4px 6px',
+                borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                 color: 'var(--text-tertiary)', cursor: 'pointer',
                 fontSize: 11, outline: 'none',
               }}
@@ -3155,7 +3225,7 @@ function MailboxList() {
                 style={{
                   background: showLayoutPicker ? 'var(--accent-dim)' : 'none',
                   border: `1px solid ${showLayoutPicker ? 'var(--accent)' : 'transparent'}`,
-                  borderRadius: 6, padding: '4px 6px',
+                  borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                   color: showLayoutPicker ? 'var(--accent)' : 'var(--text-tertiary)',
                   cursor: 'pointer', display: 'flex', alignItems: 'center',
                   transition: 'color 0.15s, border-color 0.15s, background 0.15s',

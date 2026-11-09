@@ -27,6 +27,7 @@ import { SNOOZED_FOLDER } from '../utils/snoozeActions.js';
 import { SCHEDULED_VIEW } from '../utils/scheduledCompose.js';
 import { SendLaterIcon } from './SendLater.jsx';
 import { describeAccountError, needsSignIn } from '../utils/accountErrors.js';
+import { holdUndoable, releaseUndoable, UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
 
 const ICONS = {
   snoozed: (
@@ -384,7 +385,7 @@ export default function Sidebar() {
       if (!msg.is_read) state.decrementUnread(msg.account_id, 1, { undoable: true });
     });
     let undone = false;
-    const timer = setTimeout(async () => {
+    const timer = holdUndoable(async () => {
       if (undone) return;
       try {
         const result = await api.bulkMove(movedIds, targetFolder);
@@ -409,13 +410,14 @@ export default function Sidebar() {
         msgs.forEach(m => { if (!m.is_read) s.incrementUnread(m.account_id); });
         s.addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: movedIds.length }) });
       }
-    }, 4500);
+    }, UNDO_COMMIT_DELAY_MS);
     state.addNotification({
       title: t('messageList.bulkMoved.title', { count: msgs.length }),
       body: targetFolder,
       onUndo: () => {
+        // Already sent (a flush, as the page went into the back-forward cache): nothing to undo.
+        if (!releaseUndoable(timer)) return;
         undone = true;
-        clearTimeout(timer);
         const s = useStore.getState();
         s.restoreMessages(msgs);
         msgs.forEach(m => { if (!m.is_read) s.incrementUnread(m.account_id); });

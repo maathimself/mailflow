@@ -17,7 +17,7 @@ import { buildEndSessionUrl } from './oidc.js';
 import { invalidateGlobalCategorizationCache } from '../services/categorizer.js';
 import { sanitizeGtdPrefs } from '../utils/gtdPrefs.js';
 import { sanitizeRightSidebarPrefs } from '../utils/rightSidebarPrefs.js';
-import { redisClient } from '../services/redis.js';
+import { kv } from '../services/kvStore.js';
 import { destroyUserSessions } from '../services/userSessions.js';
 import { touchLastSeen } from '../services/lastSeen.js';
 import { removeIdentitiesForPasswordReset } from '../services/userIdentities.js';
@@ -357,9 +357,9 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
   }
 
   // Prevent replay attacks — TOTP codes are valid for ±30 s (1 period).
-  // Store the consumed code in Redis for 90 s (one extra period) as a replay guard.
+  // Store the consumed code for 90 s (one extra period) as a replay guard.
   const replayKey = `totp_used:${user.id}:${normalizedCode}`;
-  const isFirstUse = await redisClient.set(replayKey, '1', { NX: true, EX: 90 });
+  const isFirstUse = await kv.set(replayKey, '1', { NX: true, EX: 90 });
   if (!isFirstUse) {
     logAuthEvent('totp_fail', { username: user.username, userId: user.id, ip: req.ip, success: false });
     return res.status(401).json({ error: 'Invalid code' });
@@ -638,7 +638,7 @@ router.post('/lock', async (req, res) => {
   res.json({ ok: true });
 });
 
-// The failed-attempt counter is an ATOMIC Redis counter (rlConsume), not a mutable
+// The failed-attempt counter is an ATOMIC database counter (rlConsume), not a mutable
 // session field: express-session has no per-request locking, so concurrent guesses
 // would race past a session-object cap. Only FAILURES are counted (keyed per user), so
 // a correct PIN is never throttled — which also avoids the per-IP authLimiter pitfall
@@ -1200,7 +1200,7 @@ router.post('/reset-password', authLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Invalid or expired reset link' });
     }
     const { id: userId, username, removed } = reset;
-    // Sessions are in Redis, outside the transaction, so they end once it has committed.
+    // Sessions end once the transaction has committed, so a rolled-back reset leaves them alone.
     await destroyUserSessions(userId);
     if (removed.length) console.log(`[auth] password reset for ${username} removed ${removed.length} linked identity(s): ${removed.map(i => i.provider_name).join(', ')}`);
     removed.forEach(() => logAuthEvent('identity_unlinked', { userId, username, ip: req.ip, success: true }));

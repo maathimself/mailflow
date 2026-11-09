@@ -39,7 +39,7 @@ import { aiTextToHtml } from '../utils/aiText.js';
 import { browserTimeZone, checkSendAt, formatSendAt } from '../utils/scheduleTimes.js';
 import {
   DUE_MARGIN_MS, SCHEDULE_UNDO_MS, UNDO_FOR, createEditHold, isScheduledEdit, needsConfirmation, newClientKey, once,
-  openScheduledView, scheduleErrorText, sendNowUndoMs, undoSchedule, undoSendNow,
+  openScheduledView, scheduleErrorText, sendNowUndoMs, undoSchedule, undoSendNow, withScheduledAttachments,
 } from '../utils/scheduledCompose.js';
 import { ComposeQuestion, ScheduledStrip, SendLaterIcon, SendLaterMenu, SendLaterSheet } from './SendLater.jsx';
 
@@ -436,6 +436,17 @@ export default function ComposeModal() {
   // Prevents the signature from being reset by a store refresh (same fromValue, accounts updated).
   const signatureInitializedRef = useRef(false);
   const prevFromValueRef = useRef(fromValue);
+  // The accounts can arrive after the composer: one reopened on unlock mounts before the accounts
+  // are loaded again (locking clears them), and with none to check against no From is chosen.
+  // Choose it once they are here, as on opening: the signature below takes it as the initial From,
+  // not a change, so a reopened message keeps the signature it had.
+  useEffect(() => {
+    if (fromValue || unsupportedSenderRef.current || !accounts.length) return;
+    const value = initialFromValue();
+    if (!value) return;
+    prevFromValueRef.current = value;
+    setFromValue(value);
+  }, [accounts]); // eslint-disable-line react-hooks/exhaustive-deps -- only the accounts arriving re-runs it; fromValue set here or by the user ends it
 
   // Edit/save timestamps driving the autosave rule. Refs, not state: they are written from the
   // editor's onUpdate on every keystroke and must never cause a render. Both are seeded at mount
@@ -1154,6 +1165,8 @@ export default function ComposeModal() {
   // `built` is buildSendPayload's result.
   const buildRestoreData = ({ accountId, aliasId, toFinal, ccFinal, bccFinal, bodyToSend, sentQuotedHtml, autoAtSend, savedDraft, hasDraft }) => ({
     ...composeData,
+    // A sender chosen since opening a draft from an address MailFlow cannot send as replaces it.
+    unsupportedFrom: unsupportedSenderRef.current ? composeData?.unsupportedFrom : undefined,
     accountId,
     aliasId: aliasId || undefined,
     draftUid: hasDraft ? savedDraft.uid : null,
@@ -1181,6 +1194,22 @@ export default function ComposeModal() {
     // A message put back this way is the user's own text, not a request for another reply.
     aiReply: undefined,
   });
+
+  // Locking replaces the mail view, and this composer with it, so hand what it holds to the store
+  // first: the composer that opens after unlock then has the text since the last autosave, the
+  // attachments, and the draft it saves into, rather than what it was opened with. A scheduled
+  // message being edited keeps its own state, and a send in flight closes the composer anyway.
+  const keepForLockRef = useRef(null);
+  keepForLockRef.current = () => {
+    if (scheduledEdit || sendingRef.current) return;
+    const { accountId, aliasId } = resolveFrom(fromValue);
+    useStore.getState().keepComposeForLock(composeSession, buildRestoreData(buildSendPayload(accountId, aliasId)));
+  };
+  useEffect(() => {
+    const keep = () => keepForLockRef.current?.();
+    window.addEventListener('mailflow:will-lock', keep);
+    return () => window.removeEventListener('mailflow:will-lock', keep);
+  }, []);
 
   const handleSend = async (opts = {}) => {
     // A scheduled message being edited is saved, not sent (Ctrl+Enter is Update there).
@@ -1343,6 +1372,7 @@ export default function ComposeModal() {
             // Open goes to the message there, highlighted: a deleted one can be restored for minutes.
             openView: () => openScheduledView(useStore, undo.id),
             t,
+            loadAttachments: data => withScheduledAttachments(data, undo.id, api.scheduled),
           });
         }),
       } : {}),
@@ -1703,7 +1733,8 @@ export default function ComposeModal() {
       if (result.uid != null) {
         draftPointerRef.current = { uid: result.uid, folder: result.folder, accountId };
         setDraftUid(result.uid);
-        updateComposePersistedKey(composeSession, `${accountId}:${result.folder}:${result.uid}:${result.messageId || ""}:${composeData?.draftUidValidity || ""}`);
+        updateComposePersistedKey(composeSession, `${accountId}:${result.folder}:${result.uid}:${result.messageId || ""}:${composeData?.draftUidValidity || ""}`,
+          useStore.getState().composeData?.restored ? { draftUid: result.uid, draftFolder: result.folder, draftAccountId: accountId } : {});
       }
       unsavedRestoreRef.current = false;
       const before = useStore.getState().replyDraftRevision;

@@ -4,7 +4,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   HOLD_RENEW_MS, SCHEDULED_VIEW, createEditHold, isScheduledEdit, needsConfirmation, newClientKey,
-  once, openScheduledView, scheduleErrorText, sendNowUndoMs, undoSchedule, undoSendNow,
+  once, openScheduledView, scheduleErrorText, sendNowUndoMs, undoSchedule, undoSendNow, withScheduledAttachments,
 } from './scheduledCompose.js';
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -537,5 +537,77 @@ describe('undoing Send now', () => {
       notify: n => seen.push(n), t,
     });
     assert.equal(seen[0].body, 'scheduled.errors.undoExpired');
+  });
+});
+
+// Scheduling a draft deletes it. One saved with attachments by another client sends them from its
+// own parts, so Undo brings those back from the scheduled copy, or the reopened message could be
+// neither sent nor saved.
+describe('withScheduledAttachments', () => {
+  const scheduledCopy = {
+    get: async () => ({ attachments: [
+      { index: 0, filename: 'notes.txt', contentType: 'text/plain', size: 5, kind: 'upload' },
+      { index: 1, filename: 'contract.pdf', contentType: 'application/pdf', size: 3, kind: 'forwarded' },
+      { index: 2, filename: 'thread.eml', contentType: 'message/rfc822', size: 9, kind: 'message' },
+    ] }),
+    attachmentBase64: async (id, index) => `${id}-${index}`,
+  };
+
+  test("turns the draft's own parts into attachments of the reopened message", async () => {
+    const upload = { name: 'notes.txt', size: 5, type: 'text/plain', data: 'bm90ZXM=' };
+    const restored = await withScheduledAttachments({
+      subject: 'Hi',
+      attachments: [upload],
+      externalAttachments: [{ part: '2', filename: 'contract.pdf' }],
+      forwardedAttachments: [
+        { messageId: 'draft-row', part: '2', filename: 'contract.pdf' },
+        { messageId: 'other', asMessage: true, filename: 'thread.eml' },
+      ],
+      unresolvedExternalAttachments: false,
+    }, 's1', scheduledCopy);
+    assert.deepEqual(restored.attachments, [upload, { name: 'contract.pdf', size: 3, type: 'application/pdf', data: 's1-1' }]);
+    assert.deepEqual(restored.forwardedAttachments, [{ messageId: 'other', asMessage: true, filename: 'thread.eml' }]);
+    assert.deepEqual(restored.externalAttachments, []);
+    assert.equal(restored.subject, 'Hi');
+  });
+
+  test('leaves a message whose draft had no attachments as it is, without asking the server', async () => {
+    const data = { subject: 'Hi', attachments: [], forwardedAttachments: [{ messageId: 'm', part: '1' }] };
+    const restored = await withScheduledAttachments(data, 's1', { get: async () => { throw new Error('asked'); } });
+    assert.equal(restored, data);
+  });
+
+  test('undo reopens with them, after cancelling once', async () => {
+    const cancels = [];
+    let reopened;
+    const ok = await undoSchedule({ id: 's1', restoreData: { externalAttachments: [{}], attachments: [] } }, {
+      cancel: async id => { cancels.push(id); },
+      reopen: data => { reopened = data; },
+      notify: () => assert.fail('no error'),
+      t: k => k,
+      loadAttachments: data => withScheduledAttachments(data, 's1', scheduledCopy),
+    });
+    assert.equal(ok, true);
+    assert.deepEqual(cancels, ['s1']);
+    assert.equal(reopened.attachments[0].data, 's1-1');
+  });
+});
+
+// Once the cancel has gone through, the message will not be sent whatever fails after it. The user
+// is pointed to the Scheduled view to restore it, not told the undo failed.
+describe('undoSchedule after the cancel went through', () => {
+  test('a failure bringing back the attachments offers to open it from Scheduled', async () => {
+    const notes = [];
+    const ok = await undoSchedule({ id: 's1', restoreData: { externalAttachments: [{}] } }, {
+      cancel: async () => {},
+      reopen: () => assert.fail('nothing to reopen'),
+      notify: n => notes.push(n),
+      openView: () => {},
+      t: k => k,
+      loadAttachments: async () => { throw Object.assign(new Error('Attachment not found'), { status: 404 }); },
+    });
+    assert.equal(ok, false);
+    assert.equal(notes[0].title, 'compose.scheduleSend.undoFailedOpen');
+    assert.equal(typeof notes[0].onAction, 'function');
   });
 });

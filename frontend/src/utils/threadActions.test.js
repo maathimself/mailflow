@@ -42,6 +42,7 @@ globalThis.fetch = async (url, opts = {}) => {
 
 const { useStore } = await import('../store/index.js');
 const { resolveThreadMessages, archiveThread, deleteThread, spamThread, moveThread, snoozeThread } = await import('./threadActions.js');
+const { flushUndoables } = await import('./undoableAction.js');
 
 // A thread of three: two from the correspondent, one the reader sent.
 const THREAD = [
@@ -62,7 +63,8 @@ const addNotification = n => notifications.push(n);
 
 const ids = () => useStore.getState().messages.map(m => m.id).sort();
 const tick = (ms = 0) => new Promise(r => setTimeout(r, ms));
-const UNDO_WINDOW = 4500;
+// The request goes out when the undo window has passed, a little after the toast closes.
+const UNDO_WINDOW = 4750;
 
 beforeEach(() => {
   requests = [];
@@ -111,6 +113,37 @@ describe('archiveThread', () => {
     assert.deepEqual(ids(), ['a1', 'a2', 'a3'], 'a thread that failed to archive must come back');
     const failure = notifications.find(n => n.type === 'error');
     assert.ok(failure, 'the user is told the archive failed');
+  });
+});
+
+// Closing the tab or locking runs the action at once (flushUndoables). It cannot read the
+// conversation again first: the page is gone, or the screen locked, before that answers, and the
+// archive itself would never be sent. It uses the conversation as read when the action was taken.
+describe('a conversation action flushed before its undo window ends', () => {
+  test('sends the archive at once, with the conversation read when it was taken', async () => {
+    let reads = 0;
+    // A read after the first never answers, as a request would not before the page is gone.
+    const counted = () => { reads += 1; return reads === 1 ? fetchThread() : new Promise(() => {}); };
+    archiveThread(THREAD, { t, addNotification, fetchThread: counted, anchorId: 'a3', folder: 'INBOX', accountId: 'acct' });
+    await tick(10); // the read taken with the action has answered
+    requests = [];
+    flushUndoables();
+    // Only microtasks: what a pagehide handler's page still runs before it goes.
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    assert.equal(requests.length, 1, 'the archive went out without waiting on another read');
+    assert.match(requests[0].url, /bulk-archive/);
+    assert.deepEqual(requests[0].body.ids.sort(), ['a1', 'a3', 'a4']);
+    assert.equal(reads, 1, 'and without reading the conversation again');
+    await tick(UNDO_WINDOW + 50);
+    assert.equal(requests.length, 1, 'and not again when its timer would have fired');
+  });
+
+  test('its Undo, still on screen after the page comes back, puts nothing back', async () => {
+    archiveThread(THREAD, { t, addNotification });
+    flushUndoables();
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    notifications[0].onUndo();
+    assert.deepEqual(ids(), [], 'the server has it archived, so the list does not show it again');
   });
 });
 

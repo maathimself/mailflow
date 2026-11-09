@@ -13,7 +13,7 @@ export function buildSessionOptions(store, secret) {
     // so the browser's copy expires a fixed 7 days after login however much the account is
     // used. Reading mail is all GETs that modify nothing, so an active user was signed out
     // every week (#465) while the server-side session was still alive, because store.touch()
-    // kept refreshing the Redis TTL that nothing was reading any more.
+    // kept refreshing the stored session's expiry that nothing was reading any more.
     //
     // `rolling` re-sends the cookie on every response, so the window above is measured from
     // last activity rather than from login.

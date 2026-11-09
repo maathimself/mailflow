@@ -110,7 +110,7 @@ router.get('/', async (req, res) => {
 // Returns the contact photo for the given sender email as image bytes.
 // This route must remain ABOVE /:id to prevent Express matching "photo" as an id.
 // Contact photos and Gravatar images are served from MailFlow's own origin: never as anything but
-// an image, whatever proxy sits in front (nginx adds nosniff too, a custom one may not), and never
+// an image, whatever proxy sits in front (MailFlow's frontend adds nosniff too, a custom one may not), and never
 // run as a page if opened on their own. The image proxy sends the same.
 const IMAGE_SAFETY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',

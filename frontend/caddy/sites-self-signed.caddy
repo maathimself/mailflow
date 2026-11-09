@@ -1,0 +1,10 @@
+# TLS_MODE=self-signed (the default): HTTPS with the certificate in ./certs, and HTTP on port 80
+# for a reverse proxy that terminates TLS in front.
+:443 {
+	tls {$MAILFLOW_CERT} {$MAILFLOW_KEY}
+	import app https
+}
+
+:80 {
+	import app http
+}

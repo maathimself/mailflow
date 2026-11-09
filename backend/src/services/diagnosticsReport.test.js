@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./redis.js', () => ({ redisClient: { ping: vi.fn().mockResolvedValue('PONG') } }));
 vi.mock('./aiProvider.js', () => ({ loadAiConfig: vi.fn().mockResolvedValue({ enabled: true, provider: 'api-key' }) }));
 vi.mock('../plugins/activation.js', () => ({ getActivatedPlugins: vi.fn().mockResolvedValue(new Set(['gtd'])) }));
 vi.mock('./diagnosticsRing.js', () => ({
@@ -147,7 +146,7 @@ describe('buildServerReport', () => {
     expect(report.counts.unreadTotal).toBe(3);
     expect(report.config.plugins).toEqual({ gtd: 'enabled' });
     expect(report.config.aiEnabled).toBe(true);
-    expect(report.server.redisOk).toBe(true);
+    expect(report.server).not.toHaveProperty('redisOk');
 
     // warnings: only this user's account warning + the global one; other-user filtered out
     const imapWarnings = report.warnings.filter(w => w.code === 'imap_error');
