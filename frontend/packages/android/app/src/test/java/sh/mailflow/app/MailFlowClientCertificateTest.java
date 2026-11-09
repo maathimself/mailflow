@@ -3,8 +3,14 @@ package sh.mailflow.app;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import java.net.HttpURLConnection;
+import java.net.URL;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocketFactory;
 import org.junit.Test;
 
 public class MailFlowClientCertificateTest {
@@ -35,5 +41,43 @@ public class MailFlowClientCertificateTest {
         assertNull(MailFlowClientCertificate.aliasForHost(HOST, "work", null));
         assertNull(MailFlowClientCertificate.aliasForHost(null, null, HOST));
         assertNull(MailFlowClientCertificate.aliasForHost(HOST, null, HOST));
+    }
+
+    @Test
+    public void withoutASocketFactoryAConnectionIsLeftAlone() throws Exception {
+        HttpsURLConnection connection = (HttpsURLConnection) new URL(HOST + "/api/mail/unread-counts").openConnection();
+        SSLSocketFactory original = connection.getSSLSocketFactory();
+
+        MailFlowClientCertificate.use(connection, null);
+
+        assertSame(original, connection.getSSLSocketFactory());
+        assertTrue(connection.getInstanceFollowRedirects());
+    }
+
+    @Test
+    public void anHttpsConnectionGetsTheFactoryAndStopsFollowingRedirects() throws Exception {
+        HttpsURLConnection connection = (HttpsURLConnection) new URL(HOST + "/api/mail/unread-counts").openConnection();
+        SSLSocketFactory socketFactory = socketFactory();
+
+        MailFlowClientCertificate.use(connection, socketFactory);
+
+        assertSame(socketFactory, connection.getSSLSocketFactory());
+        assertFalse(connection.getInstanceFollowRedirects());
+    }
+
+    @Test
+    public void aPlainHttpConnectionIsLeftAlone() throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL("http://192.168.1.20/api/mail/unread-counts").openConnection();
+
+        MailFlowClientCertificate.use(connection, socketFactory());
+
+        assertFalse(connection instanceof HttpsURLConnection);
+        assertTrue(connection.getInstanceFollowRedirects());
+    }
+
+    private static SSLSocketFactory socketFactory() throws Exception {
+        SSLContext tls = SSLContext.getInstance("TLS");
+        tls.init(null, null, null);
+        return tls.getSocketFactory();
     }
 }
