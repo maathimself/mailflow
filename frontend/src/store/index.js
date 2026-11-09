@@ -754,6 +754,18 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ language: lng });
   },
 
+  // Time format (#758): 'auto' follows the language as before, '12' / '24' force a
+  // 12- or 24-hour clock wherever formatDate.js renders a time. Read by that helper
+  // straight from localStorage, so the list and reading pane pick it up on render.
+  timeFormat: ['auto', '12', '24'].includes(localStorage.getItem('mailflow_time_format'))
+    ? localStorage.getItem('mailflow_time_format') : 'auto',
+  setTimeFormat: (val) => {
+    const v = ['auto', '12', '24'].includes(val) ? val : 'auto';
+    localStorage.setItem('mailflow_time_format', v);
+    set({ timeFormat: v });
+    schedulePrefSave({ timeFormat: v });
+  },
+
   // How conversations are shown: 'off', 'list' (threads expand inline in the list) or
   // 'pane' (a selected row opens the whole conversation in the reading area).
   //
@@ -896,6 +908,21 @@ export const useStore = create((set, get) => ({
     localStorage.setItem('mailflow_mark_read_delay', String(n));
     set({ markReadDelay: n });
     schedulePrefSave({ markReadDelay: n });
+  },
+
+  // Undo Send delay (#769): how long a sent message can be undone — 0 (Off), 5, 10, 20 or
+  // 30 seconds. 0 is a valid stored value, so the read uses includes() on the parsed number
+  // rather than `|| default`, which would clobber it (see folderSyncInterval above).
+  // Default 10, matching UNDO_SEND_SECONDS (utils/heldSend.js).
+  undoSendSeconds: (() => {
+    const n = parseInt(localStorage.getItem('mailflow_undo_send_seconds'));
+    return [0, 5, 10, 20, 30].includes(n) ? n : 10;
+  })(),
+  setUndoSendSeconds: (seconds) => {
+    const n = [0, 5, 10, 20, 30].includes(Number(seconds)) ? Number(seconds) : 10;
+    localStorage.setItem('mailflow_undo_send_seconds', String(n));
+    set({ undoSendSeconds: n });
+    schedulePrefSave({ undoSendSeconds: n });
   },
 
   // Thread expansion cache (not persisted — reset on navigation)
@@ -1429,6 +1456,10 @@ export const useStore = create((set, get) => ({
         set({ language: prefs.language });
         i18n.changeLanguage(prefs.language);
       }
+      if (['auto', '12', '24'].includes(prefs.timeFormat)) {
+        localStorage.setItem('mailflow_time_format', prefs.timeFormat);
+        set({ timeFormat: prefs.timeFormat });
+      }
       if (isConversationMode(prefs.conversationMode) || typeof prefs.threadedView === 'boolean') {
         const mode = resolveConversationMode(prefs);
         localStorage.setItem('mailflow_conversation_mode', mode);
@@ -1484,6 +1515,13 @@ export const useStore = create((set, get) => ({
         const n = Math.max(1, Math.min(10, parseInt(prefs.markReadDelay) || 1));
         localStorage.setItem('mailflow_mark_read_delay', String(n));
         set({ markReadDelay: n });
+      }
+      if (prefs.undoSendSeconds != null) {
+        const n = parseInt(prefs.undoSendSeconds);
+        if ([0, 5, 10, 20, 30].includes(n)) {
+          localStorage.setItem('mailflow_undo_send_seconds', String(n));
+          set({ undoSendSeconds: n });
+        }
       }
       if (prefs.sidebarWidth) {
         const n = parseInt(prefs.sidebarWidth);
