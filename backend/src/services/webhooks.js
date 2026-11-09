@@ -37,10 +37,23 @@ export async function webhookAdminSettings() {
   catch { return { enabled: false, allowedOrigins: [] }; }
 }
 
+// Coalesce concurrent batches and avoid database reads while the feature is off.
+// Settings reads stay fresh; only background delivery uses this one-minute cache.
+let deliveryPolicy;
+function deliveryAdminSettings() {
+  if (!deliveryPolicy || Date.now() >= deliveryPolicy.expiresAt) {
+    const entry = { expiresAt: Date.now() + 60_000, promise: webhookAdminSettings() };
+    deliveryPolicy = entry;
+    entry.promise.catch(() => { if (deliveryPolicy === entry) deliveryPolicy = null; });
+  }
+  return deliveryPolicy.promise;
+}
+
 export async function saveWebhookAdminSettings(input) {
   const settings = validateAdminSettings(input);
   await query(`INSERT INTO system_settings (key, value, updated_at) VALUES ('notification_webhooks', $1, NOW())
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, [JSON.stringify(settings)]);
+  deliveryPolicy = null;
   return settings;
 }
 
@@ -143,7 +156,7 @@ function admitWebhook(userId, timeout) {
 }
 
 export async function notifyWebhook({ userId, accountName, count, latest }) {
-  const admin = await webhookAdminSettings();
+  const admin = await deliveryAdminSettings();
   if (!admin.enabled) return { skipped: 'disabled' };
   const { rows } = await query(`SELECT w.*, u.preferences->>'language' AS language
     FROM notification_webhooks w JOIN users u ON u.id = w.user_id WHERE w.user_id = $1`, [userId]);

@@ -184,3 +184,40 @@ describe('localized presets', () => {
     expect(JSON.parse(req.body)).toEqual({ account: 'QQ', count: 2, sender: 'Alice', subject: 'Hello' });
   });
 });
+
+describe('delivery policy cache', () => {
+  it('coalesces disabled batches, avoids user lookups, and expires after one minute', async () => {
+    vi.useFakeTimers();
+    try {
+      await saveWebhookAdminSettings({ enabled: false, allowedOrigins: [] });
+      admin.enabled = false;
+      query.mockClear();
+      const results = await Promise.all(Array.from({ length: 10 }, () => send()));
+      expect(results.every(r => r.skipped === 'disabled')).toBe(true);
+      expect(query).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(59_999);
+      await send();
+      expect(query).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await send();
+      expect(query).toHaveBeenCalledTimes(2);
+      expect(consume).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+  it('applies saved policy changes immediately', async () => {
+    await send();
+    admin.enabled = false;
+    await saveWebhookAdminSettings(admin);
+    safeFetch.mockClear();
+    expect(await send()).toEqual({ skipped: 'disabled' });
+    expect(safeFetch).not.toHaveBeenCalled();
+    admin.enabled = true;
+    await saveWebhookAdminSettings(admin);
+    expect(await send()).toEqual({ sent: true });
+  });
+  it('retries a failed policy read rather than caching the error', async () => {
+    query.mockRejectedValueOnce(new Error('database unavailable'));
+    await expect(send()).rejects.toThrow('database unavailable');
+    expect(await send()).toEqual({ sent: true });
+  });
+});
