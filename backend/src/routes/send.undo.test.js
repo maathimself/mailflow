@@ -3,10 +3,10 @@ vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: req.headers['x-test-user'] || 'u1' }; next(); },
 }));
-// A small in-memory Redis: the undo flow reads back what it wrote, so plain mocks are not enough.
+// A small in-memory key store: the undo flow reads back what it wrote, so plain mocks are not enough.
 const store = new Map();
-vi.mock('../services/redis.js', () => ({
-  redisClient: {
+vi.mock('../services/kvStore.js', () => ({
+  kv: {
     get: vi.fn(async key => store.get(key) ?? null),
     set: vi.fn(async (key, value, opts = {}) => {
       if (opts.NX && store.has(key)) return null;
@@ -23,7 +23,7 @@ vi.mock('../services/draftCopies.js', () => ({ deleteSentDraft: vi.fn() }));
 import express from 'express';
 import routes from './send.js';
 import { query } from '../services/db.js';
-import { redisClient } from '../services/redis.js';
+import { kv } from '../services/kvStore.js';
 import { createAccountSmtpTransport } from '../services/smtpTransport.js';
 import { resolveSentFolder } from '../utils/mailUtils.js';
 import { flushHeldSends, heldSendCount } from '../services/sendHold.js';
@@ -238,6 +238,6 @@ describe('send with an undo window', () => {
   it('rejects an id that is not a UUID', async () => {
     expect((await fetch(`${base}/api/mail/send/abc`)).status).toBe(400);
     expect((await cancel('abc')).status).toBe(400);
-    expect(redisClient.get).not.toHaveBeenCalled();
+    expect(kv.get).not.toHaveBeenCalled();
   });
 });

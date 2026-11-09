@@ -90,7 +90,7 @@ export function prepareEmailHtml(rawHtml, uid) {
     }
     .${prefix} img { max-width: 100% !important; height: auto !important; }
     .${prefix} > table, .${prefix} > center > table,
-    .${prefix} > div > table, .${prefix} > center > div > table { width: 100% !important; }
+    .${prefix} > div > table, .${prefix} > center > div > table { max-width: 100%; }
     .${prefix} td, .${prefix} th { min-width: 0 !important; }
     .${prefix} th { overflow-wrap: normal; word-break: normal; }
     .${prefix} td { word-break: break-word; }

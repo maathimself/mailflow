@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
-vi.mock('../services/redis.js', () => ({ redisClient: {} }));
+vi.mock('../services/kvStore.js', () => ({ kv: {} }));
 
 import { attachTokenIdentity } from './apiTokenAuth.js';
 import { matchApiTokenRoute } from '../services/apiTokenAllowlist.js';

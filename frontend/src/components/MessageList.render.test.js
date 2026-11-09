@@ -942,6 +942,20 @@ describe('MessageList — a refresh during a load runs when the load finishes (#
   });
 });
 
+// A refresh that arrives while a search is shown used to be dropped, and clearing the search did
+// not reload the folder, so it came back as it was before the search.
+describe('MessageList: a refresh during a search runs when the search is cleared', () => {
+  test('the folder shows mail that arrived while searching', async () => {
+    const M2 = { ...MESSAGE, id: 'msg-during-search', uid: 3, message_id: '<during@example.com>', subject: 'Arrived while searching' };
+    await mount({ rows: [MESSAGE], threadedView: false });
+    await React.act(async () => { useStore.setState({ searchQuery: 'invoice' }); await new Promise(r => setTimeout(r, 400)); });
+    SERVED = [M2, MESSAGE];
+    await React.act(async () => { window.dispatchEvent(new dom.window.CustomEvent('mailflow:refresh')); });
+    await React.act(async () => { useStore.setState({ searchQuery: '' }); await new Promise(r => setTimeout(r, 30)); });
+    assert.ok(container.querySelector('[data-msgid="msg-during-search"]'), 'the folder was reloaded');
+  });
+});
+
 // A read still in flight (from opening a message) and a manual read state set over it: its reply
 // or failure must not undo what the user chose, and a refresh in the meantime keeps the row as
 // the user left it.
@@ -1353,5 +1367,84 @@ describe('MessageList — category totals (#597)', () => {
     assert.ok([...container.querySelectorAll('span[title="Cached results matching this filter"]')].length > 0);
     useStore.setState({ categorizationEnabled: false });
     ROUTES = {};
+  });
+});
+
+describe('MessageList: the next page', () => {
+  test('a page still loading when the folder changes is not added to the new folder', async () => {
+    const plain = globalThis.fetch;
+    const ARCHIVED = { ...MESSAGE, id: 'msg-arch', folder: 'Archive', subject: 'Archived subject' };
+    const LATE = { ...MESSAGE, id: 'msg-late', subject: 'Second inbox page' };
+    let releasePage;
+    globalThis.fetch = async (url, opts) => {
+      const path = String(url);
+      if (path.includes('/mail/messages?') && /offset=1(&|$)/.test(path)) {
+        await new Promise(r => { releasePage = r; });
+        return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ messages: [LATE], total: 2 }), text: async () => '' };
+      }
+      if (path.includes('/mail/messages?')) {
+        const archive = path.includes('folder=Archive');
+        const body = archive ? { messages: [ARCHIVED], total: 1 } : { messages: [MESSAGE], total: 2 };
+        return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => body, text: async () => '' };
+      }
+      return plain(url, opts);
+    };
+    try {
+      await mount({ rows: [MESSAGE], threadedView: false });
+      const more = [...container.querySelectorAll('button')].find(b => b.textContent === 'messageList.loadMore');
+      assert.ok(more, 'the inbox offers a next page');
+      await React.act(async () => { more.click(); await new Promise(r => setTimeout(r, 0)); });
+      assert.ok(releasePage, 'the next page was requested');
+      await React.act(async () => {
+        useStore.setState({ selectedFolder: 'Archive' });
+        await new Promise(r => setTimeout(r, 0));
+      });
+      assert.ok(container.querySelector('[data-msgid="msg-arch"]'), 'the archive is listed');
+      await React.act(async () => { releasePage(); await new Promise(r => setTimeout(r, 0)); });
+      assert.equal(container.querySelector('[data-msgid="msg-late"]'), null, 'the inbox page stays out of the archive');
+      assert.deepEqual(useStore.getState().messages.map(m => m.id), ['msg-arch']);
+    } finally {
+      globalThis.fetch = plain;
+    }
+  });
+});
+
+describe('MessageList: a manual sync', () => {
+  // The sync runs after the request answers, and only the socket says when it is done. Without it
+  // (a phone back from the background, still reconnecting) the list stayed as it was.
+  const syncButton = () => container.querySelector('button[title="messageList.syncAccount"]');
+  const refreshesDuring = async (t, during) => {
+    let refreshes = 0;
+    const count = () => { refreshes += 1; };
+    window.addEventListener('mailflow:refresh', count);
+    try {
+      await mount({ rows: [MESSAGE], threadedView: false });
+      t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+      await React.act(async () => { syncButton().click(); });
+      await React.act(async () => { await Promise.resolve(); });
+      await during(() => refreshes);
+    } finally {
+      window.removeEventListener('mailflow:refresh', count);
+      t.mock.timers.reset();
+    }
+  };
+
+  test('reloads the list when the socket does not say the sync finished', async (t) => {
+    await refreshesDuring(t, async (refreshes) => {
+      assert.ok(syncButton().disabled, 'the sync is running');
+      await React.act(async () => { t.mock.timers.tick(5000); });
+      assert.equal(refreshes(), 1);
+      await React.act(async () => { t.mock.timers.tick(10000); });
+      assert.equal(refreshes(), 2);
+      assert.equal(syncButton().disabled, false, 'and the spinner stops');
+    });
+  });
+
+  test('leaves it to the socket when it answers', async (t) => {
+    await refreshesDuring(t, async (refreshes) => {
+      await React.act(async () => { window.dispatchEvent(new CustomEvent('mailflow:sync_done')); });
+      await React.act(async () => { t.mock.timers.tick(15000); });
+      assert.equal(refreshes(), 0);
+    });
   });
 });

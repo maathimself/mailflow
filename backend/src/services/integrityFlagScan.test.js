@@ -105,7 +105,7 @@ describe('planIntegrityFlagScan', () => {
 // arrival between SELECT and SEARCH leaves the count unchanged while the set differs, which
 // is exactly the case the two-view check exists to catch.
 
-import { ImapManager, createKeyedSemaphore } from './imapManager.js';
+import { ImapManager, createKeyedSemaphore, clearChangedSinceIgnored, flagScanLowUid, noteChangedSinceScan } from './imapManager.js';
 import { query } from './db.js';
 
 function managerFor({ uids, exists, condstore, storedModseq, localUids }) {
@@ -210,10 +210,13 @@ describe('the flag watermark', () => {
 
 describe('the delta flag fetch', () => {
   const acct = { id: 'acct', user_id: 'u', imap_host: 'imap.example.com' };
+  const icloud = { id: 'acct-icloud', user_id: 'u', imap_host: 'p01-imap.mail.me.com' };
   const observed = { uidValidity: 8n, uidNext: 40000, highestModseq: 999n };
 
-  // Captures what the integrity pass actually asked the server for.
-  function managerCapturing(mailbox) {
+  // Captures what the integrity pass actually asked the server for. `answer` is how many
+  // records the server returns.
+  function managerCapturing(mailbox, answer = 1) {
+    clearChangedSinceIgnored();
     const calls = [];
     query.mockClear();
     query.mockImplementation(async (sql) => {
@@ -227,10 +230,10 @@ describe('the delta flag fetch', () => {
         mailbox,
         capabilities: new Map([['CONDSTORE', true]]),
         getMailboxLock: async () => ({ release: vi.fn() }),
-        search: async () => [1],
+        search: async () => Array.from({ length: Math.max(1, mailbox.exists) }, (_, i) => i + 1),
         fetch: (range, fields, opts) => {
           calls.push({ range, opts });
-          return (async function* () { yield { uid: 1, flags: new Set() }; })();
+          return (async function* () { for (let uid = 1; uid <= answer; uid++) yield { uid, flags: new Set() }; })();
         },
       }),
       syncMessages: vi.fn().mockResolvedValue({}),
@@ -241,30 +244,183 @@ describe('the delta flag fetch', () => {
     return { mgr, calls };
   }
 
-  it('asks for a bounded UID range, not the whole mailbox', async () => {
-    // iCloud advertises CONDSTORE and ignores changedSince, returning everything in the
-    // requested range. A sub-budget bounds the wait; only the range bounds the work.
+  it('asks for every UID changed since the watermark, so old mail changed elsewhere is seen', async () => {
     const { mgr, calls } = managerCapturing({ exists: 1, uidValidity: 8n, highestModseq: 999n, uidNext: 40000 });
     await mgr._refreshObservedFolder(acct, 'INBOX', observed);
-
     expect(calls).toHaveLength(1);
+    expect(calls[0].range).toBe('1:*');
+  });
+
+  it('keeps a bounded UID range on iCloud, which ignores changedSince', async () => {
+    // iCloud advertises CONDSTORE and returns everything in the requested range. A
+    // sub-budget bounds the wait; only the range bounds the work.
+    const { mgr, calls } = managerCapturing({ exists: 1, uidValidity: 8n, highestModseq: 999n, uidNext: 40000 });
+    await mgr._refreshObservedFolder(icloud, 'INBOX', observed);
     expect(calls[0].range).toBe('35000:*');        // uidNext - DELTA_SCAN_UID_WINDOW
-    expect(calls[0].range).not.toBe('1:*');
   });
 
   it('issues a UID FETCH, so the range means UIDs and not sequence numbers', async () => {
-    // Without { uid: true } the range is interpreted as sequence numbers and the window is
-    // meaningless: "35000:*" would address the 35000th message onward, not UID 35000 onward.
+    // Without { uid: true } a windowed range is interpreted as sequence numbers: "35000:*"
+    // would address the 35000th message onward, not UID 35000 onward.
     const { mgr, calls } = managerCapturing({ exists: 1, uidValidity: 8n, highestModseq: 999n, uidNext: 40000 });
-    await mgr._refreshObservedFolder(acct, 'INBOX', observed);
+    await mgr._refreshObservedFolder(icloud, 'INBOX', observed);
 
     expect(calls[0].opts).toMatchObject({ uid: true });
     expect(calls[0].opts.changedSince).toBe(500n);
   });
 
-  it('falls back to the whole mailbox only when the server reports no UIDNEXT', async () => {
+  it('falls back to the whole mailbox when the server reports no UIDNEXT', async () => {
     const { mgr, calls } = managerCapturing({ exists: 1, uidValidity: 8n, highestModseq: 999n, uidNext: undefined });
-    await mgr._refreshObservedFolder(acct, 'INBOX', observed);
+    await mgr._refreshObservedFolder(icloud, 'INBOX', observed);
     expect(calls[0].range).toBe('1:*');
+  });
+
+  it('windows a server from then on once it answers changedSince with the whole mailbox twice', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const mailbox = { exists: 6000, uidValidity: 8n, highestModseq: 999n, uidNext: 40000 };
+    const { mgr, calls } = managerCapturing(mailbox, 6000);
+    for (let n = 0; n < 3; n++) await mgr._refreshObservedFolder(acct, 'INBOX', observed);
+    expect(calls.map(c => c.range)).toEqual(['1:*', '1:*', '35000:*']);
+  });
+});
+
+describe('telling a server that ignores changedSince', () => {
+  const acct = { id: 'acct-detect', imap_host: 'imap.example.com' };
+  const fresh = () => clearChangedSinceIgnored();
+
+  it('keeps the full range after an answer of only what changed, even a large one', () => {
+    fresh();
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 7000, exists: 30000 });
+    expect(flagScanLowUid(acct, 30000)).toBe(1);
+  });
+
+  it('windows after two answers of nearly every message, or two scans that ran out of time', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fresh();
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 29000, exists: 30000 });
+    expect(flagScanLowUid(acct, 30000)).toBe(1);
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 29000, exists: 30000 });
+    expect(flagScanLowUid(acct, 30000)).toBe(25001);
+    fresh();
+    noteChangedSinceScan(acct, { lowUid: 1, exists: 30000, timedOut: true });
+    noteChangedSinceScan(acct, { lowUid: 1, exists: 30000, timedOut: true });
+    expect(flagScanLowUid(acct, 30000)).toBe(25001);
+  });
+
+  it("is not cleared by a small folder's answer, which a server that ignores changedSince gives in full anyway", () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fresh();
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 29000, exists: 30000 }); // INBOX
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 200, exists: 200 });     // Sent, in full
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 29000, exists: 30000 }); // INBOX again
+    expect(flagScanLowUid(acct, 30000)).toBe(25001);
+  });
+
+  it('takes one such answer for a real mass change, cleared by an ordinary one after it', () => {
+    fresh();
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 29000, exists: 30000 }); // all marked read elsewhere
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 3, exists: 30000 });
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 29000, exists: 30000 }); // and once more, later
+    expect(flagScanLowUid(acct, 30000)).toBe(1);
+  });
+
+  it('ignores small mailboxes and scans that were already windowed', () => {
+    fresh();
+    noteChangedSinceScan(acct, { lowUid: 1, returned: 800, exists: 800 });
+    noteChangedSinceScan(acct, { lowUid: 1, exists: 800, timedOut: true });
+    noteChangedSinceScan(acct, { lowUid: 25001, returned: 5000, exists: 30000 });
+    expect(flagScanLowUid(acct, 30000)).toBe(1);
+  });
+});
+
+// Read state the flag scans skipped is repaired from one UNSEEN search when the unread counts
+// disagree: the scans' old UID window let such changes slip past the watermark for good.
+describe('repairing read state from the server', () => {
+  const acct = { id: 'acct-heal', user_id: 'u', imap_host: 'imap.example.com' };
+
+  function healing({ rows, unseen, unseenOnServer }) {
+    const searches = [];
+    const client = {
+      mailbox: { exists: rows.length, uidValidity: 8n, highestModseq: 999n, uidNext: 100 },
+      capabilities: new Map([['CONDSTORE', true]]),
+      getMailboxLock: async () => ({ release: vi.fn() }),
+      search: async (criteria) => {
+        searches.push(criteria);
+        return criteria.seen === false ? unseenOnServer : rows.map(r => r.uid);
+      },
+      fetch: async function* () { /* changedsince: nothing changed */ },
+    };
+    query.mockClear();
+    query.mockImplementation(async (sql, params) => {
+      if (sql.includes('status_synced_modseq FROM folders')) return { rows: [{ status_synced_modseq: '999' }] };
+      if (sql.includes('FROM messages') && sql.startsWith('SELECT')) {
+        return { rows: rows.map(r => ({ uid: String(r.uid), synced_at: null, is_read: r.is_read })) };
+      }
+      if (sql.includes('unfetchable_uids')) return { rows: [] };
+      if (sql.includes('UPDATE messages SET is_read = NOT')) return { rows: [], rowCount: params[3].length };
+      return { rows: [], rowCount: 0 };
+    });
+    const mgr = Object.assign(Object.create(ImapManager.prototype), {
+      _withCountClient: async (_a, fn) => fn(client),
+      syncMessages: vi.fn().mockResolvedValue({}),
+      _applyFlagUpdates: vi.fn().mockResolvedValue(0),
+      _isMoveUidGuarded: (_a, _f, uid) => uid === 4,
+      broadcast: vi.fn(), backfillMessages: vi.fn(), _bgConnSem: createKeyedSemaphore(2),
+    });
+    const observed = { uidValidity: 8n, uidNext: 100, highestModseq: 999n, unseen };
+    return { run: () => mgr._refreshObservedFolder(acct, 'INBOX', observed), mgr, searches };
+  }
+  const heal = () => query.mock.calls.find(([sql]) => sql.includes('UPDATE messages SET is_read = NOT'));
+
+  it('sets rows that disagree with the server to its read state', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    // Here: 1 and 2 unread, 3 and 4 read. Server: 1 and 3 unread. So 2 was read elsewhere, 3
+    // was marked unread elsewhere; 4 is in a move and left alone.
+    const { run, mgr } = healing({
+      rows: [{ uid: 1, is_read: false }, { uid: 2, is_read: false }, { uid: 3, is_read: true }, { uid: 4, is_read: true }],
+      unseen: 3, unseenOnServer: [1, 3, 4],
+    });
+    await run();
+    const [sql, params] = heal();
+    expect(params[2]).toEqual([1, 3, 4]);
+    expect(params[3]).toEqual([2, 3]);
+    expect(sql).toMatch(/read_changed_at IS NULL OR NOW\(\) - read_changed_at >= interval '30 seconds'/);
+    expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'flags_synced', accountId: acct.id }, acct.user_id);
+  });
+
+  it('counts only unread rows the server still lists', async () => {
+    // Uid 9 is a stale unread row (gone from the server, not pruned on a cheap pass). Counted,
+    // it would make every pass search UNSEEN and repair nothing.
+    const { run, searches } = healing({
+      rows: [{ uid: 1, is_read: false }, { uid: 2, is_read: true }], unseen: 1, unseenOnServer: [1],
+    });
+    query.mockImplementation(async (sql) => {
+      if (sql.includes('status_synced_modseq FROM folders')) return { rows: [{ status_synced_modseq: '999' }] };
+      if (sql.includes('FROM messages') && sql.startsWith('SELECT')) {
+        return { rows: [{ uid: '1', is_read: false }, { uid: '2', is_read: true }, { uid: '9', is_read: false }].map(r => ({ ...r, synced_at: null })) };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    await run();
+    expect(searches.some(c => c.seen === false)).toBe(false);
+  });
+
+  it('leaves the folder alone while a mark-all-read is still writing to the server', async () => {
+    const { run, mgr, searches } = healing({
+      rows: [{ uid: 1, is_read: true }, { uid: 2, is_read: true }], unseen: 2, unseenOnServer: [1, 2],
+    });
+    mgr._markingAllRead = new Map([[`${acct.id}\nINBOX`, 1]]);
+    await run();
+    expect(searches.some(c => c.seen === false)).toBe(false);
+    expect(heal()).toBeUndefined();
+  });
+
+  it('does not search when the unread counts already agree', async () => {
+    const { run, searches } = healing({
+      rows: [{ uid: 1, is_read: false }, { uid: 2, is_read: true }], unseen: 1, unseenOnServer: [2],
+    });
+    await run();
+    expect(searches.some(c => c.seen === false)).toBe(false);
+    expect(heal()).toBeUndefined();
   });
 });

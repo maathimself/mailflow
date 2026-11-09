@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import { authenticator } from 'otplib';
 import { query } from './db.js';
 import { decrypt } from './encryption.js';
-import { redisClient } from './redis.js';
+import { kv } from './kvStore.js';
 import { consume, release, reset } from './rateLimiter.js';
 import { authLimiterConfig } from './authLimiter.js';
 import { logAuthEvent } from './authEvents.js';
@@ -110,7 +110,7 @@ async function confirmTotp(req, user, totpCode) {
     logWrongAnswer('totp_fail', req, user);
     return wrong;
   }
-  const firstUse = await redisClient.set(`totp_used:${user.id}:${code}`, '1', { NX: true, EX: 90 });
+  const firstUse = await kv.set(`totp_used:${user.id}:${code}`, '1', { NX: true, EX: 90 });
   if (!firstUse) {
     logWrongAnswer('totp_fail', req, user);
     return wrong;
@@ -136,14 +136,14 @@ async function confirmPassword(req, user, password) {
 
 // The provider is checked again here: it may have been turned off, or the identity unlinked, since
 // the sign-in (and again under locks when the token is stored, apiTokens.js). A confirmation makes
-// one token, or one link: the session forgets it here, and Redis keeps its nonce as spent for as
+// one token, or one link: the session forgets it here, and kv_store keeps its nonce as spent for as
 // long as it could have counted, so two requests carrying the same one cannot both pass, as
 // confirmTotp keeps a two-factor code from being used twice.
 async function confirmOidc(req, user) {
   const fresh = freshOidcConfirmation(req.session);
   if (fresh && fresh.userId === user.id && (await linkedProviders(user.id)).some(p => p.id === fresh.providerId)) {
     clearOidcConfirmation(req.session);
-    const firstUse = await redisClient.set(`oidc_confirmation_used:${fresh.nonce}`, '1', { NX: true, EX: Math.ceil(OIDC_CONFIRMATION_MS / 1000) });
+    const firstUse = await kv.set(`oidc_confirmation_used:${fresh.nonce}`, '1', { NX: true, EX: Math.ceil(OIDC_CONFIRMATION_MS / 1000) });
     if (firstUse) {
       return { confirmedWith: 'oidc', oidcProvider: { id: fresh.providerId, issuerUrl: fresh.issuerUrl, clientId: fresh.clientId } };
     }

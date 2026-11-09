@@ -10,7 +10,7 @@
 [Unit]
 Description=MailFlow backend
 Documentation=https://github.com/maathimself/mailflow
-After=network.target postgresql.service redis.service
+After=network.target postgresql.service
 
 [Service]
 Type=simple

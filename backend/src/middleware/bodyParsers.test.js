@@ -26,7 +26,7 @@ const OVER_1MB = JSON.stringify({ text: 'x'.repeat(TWO_MB) });
 // router can turn it away. `answered` records whether the whole request had arrived by the time
 // its response went out. `sessionReads` fires once the parsers' paths have read a request's
 // session, so a test can change that session while the body is still arriving, and
-// `failStoreReads` makes the session store fail as Redis does while it restarts.
+// `failStoreReads` makes the session store fail as it does while the database restarts.
 const parsed = [];
 const answered = [];
 const sessionReads = new EventEmitter();
@@ -135,8 +135,8 @@ describe('JSON body limits and sign-in', () => {
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: 'Not authenticated' });
     expect(parsed).toEqual([]);
-    // The 401 waits until the rest of the body has arrived and been discarded. Behind nginx
-    // every request is Connection: close, and answering one with body data still unread
+    // The 401 waits until the rest of the body has arrived and been discarded. Behind a proxy
+    // that sends Connection: close (nginx does), and answering one with body data still unread
     // resets the connection, which can lose the 401 on the way to the client.
     expect(answered).toEqual([{ status: 401, bodyReceived: true }]);
 

@@ -1,3 +1,4 @@
+import 'express-async-errors';
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
@@ -158,7 +159,7 @@ function fakeQuery(rawSql, params = []) {
     return result([]);
   }
   if (sql.startsWith('SELECT * FROM email_accounts')) return result([ACCOUNT]);
-  if (sql === 'DELETE FROM messages WHERE id = $1') {
+  if (sql === 'DELETE FROM messages WHERE id = $1 RETURNING *') {
     const before = messages.length;
     messages = messages.filter(m => m.id !== params[0]);
     return result(new Array(before - messages.length).fill({}));
@@ -174,7 +175,12 @@ function fakeQuery(rawSql, params = []) {
   }
   const insert = sql.match(/^INSERT INTO snoozed_messages \((.+?)\) VALUES/);
   if (insert) {
-    snoozes.push(Object.fromEntries(insert[1].split(',').map((col, i) => [col.trim(), params[i]])));
+    const id = `snooze-${snoozes.length + 1}`;
+    snoozes.push({ id, ...Object.fromEntries(insert[1].split(',').map((col, i) => [col.trim(), params[i]])) });
+    return result(sql.includes('RETURNING id') ? [{ id }] : []);
+  }
+  if (sql === 'DELETE FROM snoozed_messages WHERE id = $1') {
+    snoozes = snoozes.filter(s => s.id !== params[0]);
     return result([]);
   }
   if (sql.includes('snoozed_messages')) unmodelled.push(sql);
@@ -266,6 +272,36 @@ describe('POST /api/mail/messages/:id/snooze — Snoozed folder path', () => {
       message_id_header: '<a@example.com>', original_folder: 'INBOX', snoozed_folder: 'INBOX.Snoozed',
     })]);
     expect(countedPaths()).toEqual(['INBOX']);
+  });
+
+  // Written after the move, the record was lost to a failed row update (or a restart) in between,
+  // and the message sat in Snoozed with nothing to wake it.
+  it('keeps the snooze when the move landed but the row update failed', async () => {
+    const plain = query.getMockImplementation();
+    query.mockImplementation(async (sql, params) => {
+      if (sql.startsWith('UPDATE messages SET folder')) throw new Error('connection terminated');
+      return plain(sql, params);
+    });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect((await snooze()).status).toBe(500);
+    } finally {
+      error.mockRestore();
+    }
+    expect(imapManager.moveMessage).toHaveBeenCalled();
+    expect(snoozes).toEqual([expect.objectContaining({ message_id_header: '<a@example.com>', original_folder: 'INBOX', snoozed_folder: 'INBOX.Snoozed' })]);
+  });
+
+  it('leaves no record behind when the move fails', async () => {
+    imapManager.moveMessage.mockRejectedValue(new Error('NO [TRYCREATE]'));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect((await snooze()).status).toBe(500);
+    } finally {
+      error.mockRestore();
+    }
+    expect(snoozes).toEqual([]);
+    expect(message.folder).toBe('INBOX');
   });
 
   it('refuses a message that is already in the Snoozed folder', async () => {

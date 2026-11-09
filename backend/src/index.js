@@ -5,9 +5,9 @@ import cors from 'cors';
 import { corsExceptDav } from './middleware/corsExceptDav.js';
 import { createServer } from 'http';
 import { readFileSync } from 'fs';
-import RedisStore from 'connect-redis';
 import 'dotenv/config';
-import { redisClient } from './services/redis.js';
+import { PgSessionStore } from './services/sessionStore.js';
+import { startExpirySweep, stopExpirySweep } from './services/kvStore.js';
 import { parseTrustProxyHops } from './utils/trustProxy.js';
 import { buildSessionOptions } from './utils/sessionConfig.js';
 import { mountApiAuth } from './middleware/apiChain.js';
@@ -64,21 +64,18 @@ try {
 export const APP_VERSION = (process.env.APP_VERSION || buildMeta.version || packageMeta.version).replace(/^v[.]?/, '');
 
 const app = express();
-// Trust the nginx reverse proxy so req.secure reflects HTTPS correctly.
-// Without this, express-session sees HTTP (from nginx) and refuses to set
+// Trust the frontend's reverse proxy so req.secure reflects HTTPS correctly.
+// Without this, express-session sees HTTP (from the proxy) and refuses to set
 // the Secure cookie, meaning the session cookie is never sent to the browser.
 // The hop count also decides req.ip, which keys the login rate limit.
 const trustProxyHops = parseTrustProxyHops(process.env.TRUST_PROXY_HOPS);
 if (trustProxyHops === null) {
-  console.error(`FATAL: TRUST_PROXY_HOPS must be a whole number of at least 1 (the reverse proxies in front of the backend, counting nginx), got "${process.env.TRUST_PROXY_HOPS}". Exiting.`);
+  console.error(`FATAL: TRUST_PROXY_HOPS must be a whole number of at least 1 (the reverse proxies in front of the backend, counting MailFlow's frontend), got "${process.env.TRUST_PROXY_HOPS}". Exiting.`);
   process.exit(1);
 }
 app.set('trust proxy', trustProxyHops);
 const httpServer = createServer(app);
 const wss = createWebSocketServer(httpServer);
-
-// Redis — connect the shared client before any route or session middleware uses it.
-await redisClient.connect();
 
 // Fail fast if required secrets are missing
 if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
@@ -103,7 +100,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.APP_URL) {
 
 // Session — options live in utils/sessionConfig.js so they can be exercised by tests.
 const sessionMiddleware = session(
-  buildSessionOptions(new RedisStore({ client: redisClient }), process.env.SESSION_SECRET)
+  buildSessionOptions(new PgSessionStore(), process.env.SESSION_SECRET)
 );
 
 // Not for /carddav, whose own OPTIONS answer tells contact apps it serves address books.
@@ -216,6 +213,7 @@ setupWebSocket(wss, sessionMiddleware, imapManager);
 
 // Run pending schema migrations then start
 await runMigrations();
+startExpirySweep();
 
 // One-time backfill: populate photo_data from existing vcard column for contacts
 // that were synced before CardDAV PUT started persisting photo_data.
@@ -293,7 +291,7 @@ function exitAfterClose(code, { wsCode = 1001, wsReason = 'Shutting down' } = {}
     code,
     httpServer,
     closeClients: () => closeWebSocketClients(wss, wsCode, wsReason),
-    quit: () => redisClient.quit(),
+    quit: () => stopExpirySweep(),
     exit: c => process.exit(c),
   });
 }

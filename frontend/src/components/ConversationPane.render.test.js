@@ -233,6 +233,70 @@ describe('conversation pane', () => {
     assert.deepEqual(opened().sort(), ['m1', 'm3'], 'a message picked on its own still opens beside the newest');
   });
 
+  test('a reply that lands while the conversation is open is added, and stays closed until opened', async () => {
+    const opened = () => [...openCards()].map(c => c.closest('[data-message-id]')?.dataset.messageId);
+    const row = { id: 'm3', thread_id: '<1@x>', account_id: 'acct', folder: 'INBOX', message_count: 3, date: THREAD[2].date, is_read: false };
+    useStore.setState({ messages: [row], searchQuery: '' });
+    await React.act(async () => {
+      root.render(React.createElement(ConversationPane, {
+        key: 'live-reply', threadId: '<1@x>', folder: 'INBOX', accountId: 'acct', selectedMessageId: 'm3', openedFromRow: true,
+      }));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    assert.equal(cards().length, 3);
+    const reads = bulkReads.length;
+    const reply = { id: 'm4', account_id: 'acct', folder: 'INBOX', message_id: '<4@x>', subject: 'Re: Welcome', from_email: 'a@x.z', from_name: 'Ana', date: '2026-01-04T10:00:00Z', is_read: false, snippet: 'arrived while open' };
+    THREAD.push(reply);
+    try {
+      await React.act(async () => {
+        useStore.setState({ messages: [{ ...row, id: 'm4', message_count: 4, date: reply.date }] });
+        await new Promise(r => setTimeout(r, 50));
+      });
+      assert.equal(cards().length, 4, 'the new reply is in the conversation');
+      assert.deepEqual(opened(), ['m3'], 'the card the reader had open stays open, the new one stays closed');
+      assert.ok(!bulkReads.slice(reads).some(b => JSON.stringify(b).includes('m4')), 'the new reply is not marked read');
+    } finally {
+      THREAD.pop();
+      useStore.setState({ messages: [] });
+    }
+  });
+
+  // The stack was keyed by the conversation's membership, so a reply read in remounted every card:
+  // each open card ran its mark-read again, and a message the reader had just marked unread was
+  // read again behind their back.
+  test('a reply that lands keeps the cards mounted, and an open card marked unread stays unread', async () => {
+    const card = id => document.querySelector(`[data-message-id="${id}"]`);
+    const row = { id: 'm3', thread_id: '<1@x>', account_id: 'acct', folder: 'INBOX', message_count: 3, date: THREAD[2].date, is_read: false };
+    useStore.setState({ messages: [row], searchQuery: '' });
+    await React.act(async () => {
+      root.render(React.createElement(ConversationPane, {
+        key: 'live-unread', threadId: '<1@x>', folder: 'INBOX', accountId: 'acct', selectedMessageId: 'm3', openedFromRow: true,
+      }));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    const unread = card('m3').querySelector('button[aria-label="contextMenu.markUnread"]');
+    assert.ok(unread, 'the open card was read and offers Mark unread');
+    await React.act(async () => { unread.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    const mounted = card('m3');
+    const reads = bulkReads.length;
+    const reply = { id: 'm4', account_id: 'acct', folder: 'INBOX', message_id: '<4@x>', subject: 'Re: Welcome', from_email: 'a@x.z', from_name: 'Ana', date: '2026-01-04T10:00:00Z', is_read: false, snippet: 'arrived while open' };
+    THREAD.push(reply);
+    try {
+      await React.act(async () => {
+        useStore.setState({ messages: [{ ...row, id: 'm4', message_count: 4, date: reply.date }] });
+        await new Promise(r => setTimeout(r, 50));
+      });
+      assert.equal(cards().length, 4, 'the new reply is in the conversation');
+      assert.equal(card('m3'), mounted, 'the open card was not remounted');
+      assert.deepEqual(bulkReads.slice(reads).filter(b => b.read && b.ids.includes('m3')), [], 'the card marked unread is not read again');
+      assert.ok(card('m3').querySelector('button[aria-label="contextMenu.markRead"]'), 'and still offers Mark read');
+    } finally {
+      THREAD.pop();
+      useStore.setState({ messages: [] });
+    }
+  });
+
   test('collapsing and reopening does not refetch', async () => {
     const before = bodyRequests.length;
     const open = document.querySelector(`${CARD_TOGGLE.slice(0, -1)}="true"]`);
@@ -884,6 +948,27 @@ describe('a conversation another account also received', () => {
   // The titles of the notices on screen; the i18n stub renders each as its key.
   const notices = () => useStore.getState().notifications.map(n => n.title);
 
+  // A conversation row stands for its newest message: a reply that arrives gives the row a new id,
+  // and the conversation the reader had open used to close under them.
+  test('a reply that arrives keeps the conversation open, and comes in closed and unread', async () => {
+    await open();
+    assert.deepEqual(openIds(), ['m3']);
+    const M4 = { ...THREAD[2], id: 'm4', message_id: '<4@x>', thread_id: '<1@x>', date: '2026-01-04T10:00:00Z', is_read: false, snippet: 'arrived while open' };
+    served['<1@x>'] = [...THREAD, B3, M4];
+    requests.length = 0;
+    try {
+      await React.act(async () => {
+        useStore.setState({ messages: [{ ...ROW, id: 'm4', date: M4.date, message_count: 3, unread_count: 1 }] });
+      });
+      await wait(50);
+      assert.ok(cardIds().includes('m4'), 'the reply is in the open conversation');
+      assert.deepEqual(openIds(), ['m3'], 'the card the reader had open stays open, the reply stays closed');
+      assert.ok(!sentIds(/bulk-read/).includes('m4'), 'and the reply is not marked read');
+    } finally {
+      delete served['<1@x>'];
+    }
+  });
+
   test('opening it marks the row account\'s copy read, not the other account\'s', async () => {
     await open();
     const read = requests.filter(r => r.url.includes('/bulk-read')).flatMap(r => r.body.ids);
@@ -1369,4 +1454,36 @@ describe('a conversation another account also received', () => {
       assert.equal(useStore.getState().selectedMessageId, selected, `selected in ${selectedAccountId || 'the unified'} view`);
     }
   });
+});
+
+test('GTD conversation header uses the displayed account on desktop and mobile', async () => {
+  await import('../plugins/gtd/index.jsx');
+  const { patchGtdMetadata, clearGtdMetadata } = await import('../plugins/gtd/metadataStore.js');
+  const original = useStore.getState();
+  const selected = { ...THREAD[0], id: 'header-selection', account_id: 'other' };
+  try {
+    for (const width of [1024, 375]) {
+      dom.window.innerWidth = width;
+      await React.act(async () => {
+        useStore.setState({ enabledPlugins: ['gtd'], accounts: [{ id: 'acct', gtd_enabled: false }, { id: 'other', gtd_enabled: true }],
+          messages: [selected], searchQuery: '', selectedMessageId: selected.id, selectedAccountId: 'acct' });
+        patchGtdMetadata(selected, 'watch');
+        root.render(React.createElement(ConversationPane, { key: width, threadId: 'header-thread', folder: 'Sent', selectedMessageId: selected.id }));
+      });
+      const chips = document.querySelectorAll('[aria-label="gtd.state.watch"]');
+      assert.equal(chips.length, 1, `header shown once at ${width}`);
+      assert.equal(Boolean(chips[0].closest('[role="group"]')), width > 375, `desktop puts it in the toolbar at ${width}`);
+    }
+    await React.act(async () => {
+      useStore.setState({ messages: [], threadMessages: {}, selectedMessageId: null });
+      root.render(React.createElement(ConversationPane, { threadId: 'header-thread', folder: 'Sent' }));
+    });
+    assert.equal(document.querySelector('[aria-label="gtd.state.watch"]'), null, 'local fallback cannot borrow selected metadata');
+  } finally { dom.window.innerWidth = 1024; await React.act(async () => {
+    clearGtdMetadata(); root.unmount();
+    useStore.setState({ enabledPlugins: original.enabledPlugins, accounts: original.accounts,
+      messages: original.messages, threadMessages: original.threadMessages,
+      searchQuery: original.searchQuery, selectedMessageId: original.selectedMessageId, selectedAccountId: original.selectedAccountId });
+    root = createRoot(document.getElementById('root'));
+  }); }
 });

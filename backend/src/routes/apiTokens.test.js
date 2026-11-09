@@ -1,10 +1,10 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The token routes as the browser and a token reach them: the real router, requireAuth and
-// re-authentication over an in-memory database and Redis.
+// re-authentication over an in-memory database and key store.
 const { rs, db } = vi.hoisted(() => ({ rs: { store: new Map() }, db: {} }));
-vi.mock('../services/redis.js', () => ({
-  redisClient: {
+vi.mock('../services/kvStore.js', () => ({
+  kv: {
     async incr(k)        { const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v++; rs.store.set(k, e); return e.v; },
     async decr(k)        { const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v--; rs.store.set(k, e); return e.v; },
     async pExpire(k, ms) { const e = rs.store.get(k); if (e) e.exp = Date.now() + ms; return true; },

@@ -23,7 +23,7 @@ describe('WebSocket failure recovery', () => {
     expect(ws.terminate).toHaveBeenCalledOnce();
   });
   it('allows the browser to retry a session-store outage', () => {
-    const { ws, manager } = setup((_req, _res, next) => next(new Error('Redis unavailable')));
+    const { ws, manager } = setup((_req, _res, next) => next(new Error('database unavailable')));
     expect(ws.close).toHaveBeenCalledWith(1011, 'Session unavailable');
     expect(manager.connectAllForUser).not.toHaveBeenCalled();
   });

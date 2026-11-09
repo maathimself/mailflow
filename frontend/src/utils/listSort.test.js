@@ -55,6 +55,16 @@ test('rows are ordered as the server orders them', () => {
   assert.deepEqual(order({ sort: 'subject', dir: 'asc', starredFirst: true }), ['c', 'b', 'a']);
 });
 
+// Undo puts a conversation back where the server would list it: one whose older message is
+// starred stays on top even though the row shows an unstarred message.
+test('a conversation row with another starred message sorts as starred', () => {
+  const threads = [
+    { id: 'plain', date: '2026-10-05T00:00:00Z' },
+    { id: 'older-starred', date: '2026-10-01T00:00:00Z', is_starred: false, others_starred: true },
+  ];
+  assert.deepEqual([...threads].sort(compareListOrder({ sort: 'date', dir: 'desc', starredFirst: true })).map(r => r.id), ['older-starred', 'plain']);
+});
+
 test('equal keys fall back to newest first, and an empty key goes last', () => {
   const same = [
     { id: 'old', from_name: 'Sam', date: '2026-01-01T00:00:00Z' },

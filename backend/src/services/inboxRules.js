@@ -1,4 +1,5 @@
 import { query } from './db.js';
+import { rememberDroppedRows } from './movedRowCarry.js';
 import { resolveArchiveFolder, isAllMailFolder, resolveTrashFolder, resolveAllTrashPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 
 async function getRulesForAccount(userId, accountId) {
@@ -346,6 +347,23 @@ export function newMailAlerts({ remaining, mutedIds = new Set(), notifyMessages 
   return { alertMessages, alertCount: alertMessages.length, send: remaining.length > 0 || notifyMessages.length > 0 };
 }
 
+// The Web Push payload for a sync's alerts. The notification's tag collapses arrivals into one
+// card for the latest message. `messageId` is sent only when the push is about that one message,
+// so the card's Mark as read / Archive buttons (#689) never act on one of several it summarizes.
+export function newMailPushPayload(alertMessages, alertCount) {
+  const latest = alertMessages[alertMessages.length - 1];
+  const payload = {
+    title: latest.fromName || latest.fromEmail || 'New mail',
+    body: alertCount === 1 ? (latest.subject || '(no subject)') : `${alertCount} new messages`,
+    icon: '/icon-512.png',
+    badge: '/badge-96.png',
+    // Fall back to the inbox if the id is somehow absent.
+    url: latest.id ? `/?m=${latest.id}` : '/',
+  };
+  if (alertCount === 1 && latest.id) payload.messageId = latest.id;
+  return payload;
+}
+
 // Moves messages from blocked senders to trash before inbox rules run.
 export async function applyBlockList(messages, account, imapManager) {
   if (!messages.length) return messages;
@@ -429,7 +447,8 @@ export const RULE_CATEGORIES = new Set(['primary', 'newsletter', 'promotion', 'a
 // destination (#665), so the row is dropped rather than kept on it, and a sync of the destination
 // files the message under its real uid. The destination's counts come from that sync.
 async function dropMovedRow(imapManager, account, msg, destination) {
-  await query('DELETE FROM messages WHERE id = $1', [msg.id]);
+  const dropped = await query('DELETE FROM messages WHERE id = $1 RETURNING *', [msg.id]);
+  rememberDroppedRows(destination, dropped?.rows);
   imapManager.syncFolderOnDemand(account, destination)
     .catch(err => console.warn(`inboxRules: sync of ${destination} after a move without a new uid failed: ${err.message}`));
 }

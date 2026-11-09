@@ -52,8 +52,8 @@ const APP = ['/', '/index.html', '/manifest.json', '/assets/index-abc123.js'];
 
 // Each config's server blocks by listen line, so a block that stops being parsed (the commented
 // one in contrib, say) fails the test instead of going unchecked.
+// The Docker image runs Caddy (caddyConfig.test.js); this is the config for native installs.
 const CONFIGS = {
-  '../nginx.conf': ['443 ssl', '80'],
   '../../contrib/nginx.conf': ['80', '443 ssl'],
 };
 

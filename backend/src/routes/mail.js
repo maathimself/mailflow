@@ -8,6 +8,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { extractImapError } from '../services/imapError.js';
 import { isConnectionRefusal } from '../services/imapManager.js';
+import { CARRIED_COLUMNS, rememberDroppedRows } from '../services/movedRowCarry.js';
 import { stripEmailHead, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs, splitDarkScheme, proxyRemoteImages, remoteImageRefs } from '../services/emailSanitizer.js';
 import { imageProxyPath, proxyWidth, fetchProxiedImage, createUserLimiter } from '../services/imageProxy.js';
 import { imageCache, imageCacheKey } from '../services/imageCache.js';
@@ -100,6 +101,37 @@ const RELOCATE_COPY_COLS = [
 // from the deleted row; uid is the UIDPLUS-mapped new uid; folder is the destination ($4).
 export const RELOCATE_INSERT_COLS = ['account_id', 'uid', 'folder', ...RELOCATE_COPY_COLS].join(', ');
 export const RELOCATE_SELECT_COLS = ['d.account_id', 'u.new_uid', '$4', ...RELOCATE_COPY_COLS.map(c => `d.${c}`)].join(', ');
+
+// On a uid a sync already filed, the synced row is kept with what it read from the server, and
+// takes from the moved row what only MailFlow knew (a "Not spam" decision, the category, an
+// unsubscribe), which the sync had no carry to restore from. A column the moved row never had
+// keeps the synced row's value.
+const RELOCATE_CONFLICT_SET = CARRIED_COLUMNS.map(c => `${c} = COALESCE(EXCLUDED.${c}, messages.${c})`).join(', ');
+
+// Move rows to `folder` in one statement: each row whose new uid the server named is re-inserted
+// there with every carried column; if a sync already inserted that uid, its row is kept (above). A row
+// without a new uid is dropped for the folder's sync to file again (#665), and kept in
+// movedRowCarry for that sync to give back what only MailFlow knew about it.
+export async function relocateRows(ids, newUids, folder) {
+  const withUid = ids.filter(id => newUids.has(id));
+  const result = await query(`
+    WITH deleted AS (
+      DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING *
+    ),
+    uid_map(src_id, new_uid) AS (
+      SELECT * FROM unnest($2::uuid[], $3::bigint[])
+    ),
+    relocated AS (
+      INSERT INTO messages (${RELOCATE_INSERT_COLS})
+      SELECT ${RELOCATE_SELECT_COLS}
+      FROM deleted d
+      JOIN uid_map u ON d.id = u.src_id
+      ON CONFLICT (account_id, uid, folder) DO UPDATE SET ${RELOCATE_CONFLICT_SET}
+    )
+    SELECT d.* FROM deleted d WHERE NOT (d.id = ANY($2::uuid[]))
+  `, [ids, withUid, withUid.map(id => newUids.get(id)), folder]);
+  rememberDroppedRows(folder, result?.rows);
+}
 
 
 // Returns true if a snippet contains content that should never appear in plain-text
@@ -1181,13 +1213,43 @@ router.post('/mark-all-read', async (req, res) => {
   if (!isValidFolderName(folder)) return res.status(400).json({ error: 'Invalid folder name' });
   const account = await findOwnedAccount(req.session.userId, accountId);
   if (!account) return res.status(404).json({ error: 'Account not found' });
-  await query('UPDATE messages SET is_read = true, read_changed_at = NOW() WHERE account_id = $1 AND folder = $2', [accountId, folder]);
+  // Every row is stamped, read ones too, so a flag pull racing the IMAP write can't take them
+  // back; was_read (the row before the update) picks out the ones this actually changed.
+  const marked = await query(`
+    UPDATE messages m SET is_read = true, read_changed_at = NOW()
+      FROM (SELECT id, is_read AS was_read FROM messages WHERE account_id = $1 AND folder = $2) o
+     WHERE m.id = o.id
+     RETURNING m.id, m.uid, m.message_id, o.was_read`, [accountId, folder]);
   await query('UPDATE folders SET unread_count = 0 WHERE account_id = $1 AND path = $2', [accountId, folder])
     .catch(err => console.error('Folder count update failed:', err.message));
+  // As bulk-read does: the same message's copies in label folders (GTD) are read too, and on a
+  // server that keeps them as separate messages their \Seen is written as well.
+  const changed = (marked?.rows || []).filter(r => !r.was_read);
+  // A failure here must not keep the folder's own \Seen write below from starting.
+  try {
+    if (changed.length && await accountMaintainsLabelSiblings(accountId)) {
+      const siblings = await fanOutBulkReadToSiblings(changed.map(r => r.id), true) || [];
+      if (siblings.length && !imapManager.isLabelStore(account)) {
+        (async () => {
+          const acted = changed.map(r => ({ ...r, account_id: accountId, folder }));
+          const flipped = new Set(siblings.map(r => r.id));
+          const targets = [];
+          for (const mid of new Set(siblings.map(r => r.message_id).filter(Boolean))) {
+            targets.push(...await readCopyTargets(accountId, mid, acted));
+          }
+          await pushSeen(imapManager, account, accountId, targets.filter(r => flipped.has(r.id)), true);
+        })().catch(err => console.warn('Mark-all-read copy push failed:', err.message));
+      }
+    }
+  } catch (err) {
+    console.warn('Mark-all-read label copies failed:', err.message);
+  }
   // Also update IMAP so the change survives the next sync (non-fatal if it fails). Not awaited: a
   // large folder is written in chunks. The count refresh waits for it, though, because it asks
   // the server for UNSEEN, and one started beside the write found the folder still unread.
-  imapManager.markAllReadImap(account, folder)
+  // Only what this request marked: the highest uid it covered keeps later mail unread.
+  const uidCeiling = (marked?.rows || []).reduce((max, r) => Math.max(max, Number(r.uid) || 0), 0);
+  imapManager.markAllReadImap(account, folder, { uidCeiling: uidCeiling || undefined })
     .catch(err => console.warn('markAllReadImap failed:', err.message))
     .finally(() => imapManager.scheduleCountRefresh?.(accountId, [folder]));
   imapManager.broadcast({ type: 'sync_complete', accountId }, account.user_id);
@@ -1683,19 +1745,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
       for (const [trashPath, entries] of Object.entries(byTrashPath)) {
         const allIds    = entries.map(u => u.msg.id);
         const withUid   = entries.filter(u => u.newUid);
-        await query(`
-          WITH deleted AS (
-            DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING *
-          ),
-          uid_map(src_id, new_uid) AS (
-            SELECT * FROM unnest($2::uuid[], $3::bigint[])
-          )
-          INSERT INTO messages (${RELOCATE_INSERT_COLS})
-          SELECT ${RELOCATE_SELECT_COLS}
-          FROM deleted d
-          JOIN uid_map u ON d.id = u.src_id
-          ON CONFLICT (account_id, uid, folder) DO NOTHING
-        `, [allIds, withUid.map(u => u.msg.id), withUid.map(u => u.newUid), trashPath]);
+        await relocateRows(allIds, new Map(withUid.map(u => [u.msg.id, u.newUid])), trashPath);
       }
       // Non-UIDPLUS trash moves were deleted with no reinsert; pull each affected
       // (account, trash folder) now so they reappear promptly instead of via IDLE.
@@ -1923,20 +1973,7 @@ router.post('/messages/bulk-move', async (req, res) => {
       // keeps it intact. For messages without new UIDs the DELETE-only path relies
       // on IMAP IDLE + the message_id pre-check in processMsg to re-insert them.
       const uidUpdateMap = new Map(uidUpdates.map(u => [u.id, u.newUid]));
-      const withNewUid   = movedIds.filter(id =>  uidUpdateMap.has(id));
-      await query(`
-        WITH deleted AS (
-          DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING *
-        ),
-        uid_map(src_id, new_uid) AS (
-          SELECT * FROM unnest($2::uuid[], $3::bigint[])
-        )
-        INSERT INTO messages (${RELOCATE_INSERT_COLS})
-        SELECT ${RELOCATE_SELECT_COLS}
-        FROM deleted d
-        JOIN uid_map u ON d.id = u.src_id
-        ON CONFLICT (account_id, uid, folder) DO NOTHING
-      `, [movedIds, withNewUid, withNewUid.map(id => uidUpdateMap.get(id)), folder]);
+      await relocateRows(movedIds, uidUpdateMap, folder);
       // Messages moved on a non-UIDPLUS server were deleted with no reinsert; pull the
       // destination folder now so they reappear promptly instead of waiting for IDLE.
       for (const acct of resyncAccounts) {
@@ -2094,19 +2131,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
         continue;
       }
       const withUid = entries.filter(e => e.newUid != null);
-      await query(`
-        WITH deleted AS (
-          DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING *
-        ),
-        uid_map(src_id, new_uid) AS (
-          SELECT * FROM unnest($2::uuid[], $3::bigint[])
-        )
-        INSERT INTO messages (${RELOCATE_INSERT_COLS})
-        SELECT ${RELOCATE_SELECT_COLS}
-        FROM deleted d
-        JOIN uid_map u ON d.id = u.src_id
-        ON CONFLICT (account_id, uid, folder) DO NOTHING
-      `, [allIds, withUid.map(e => e.id), withUid.map(e => e.newUid), archiveFolder]);
+      await relocateRows(allIds, new Map(withUid.map(e => [e.id, e.newUid])), archiveFolder);
     }
 
     // Non-UIDPLUS archive moves were deleted with no reinsert; pull each affected
@@ -2359,10 +2384,20 @@ router.post('/messages/:id/snooze', async (req, res) => {
   for (const tm of convo) {
     imapManager._guardMoveUid(tm.account_id, tm.folder, tm.uid);
     try {
+      // The record goes in before the move. Written after it, a failed row update or a restart
+      // in between left the message in Snoozed with nothing to wake it. Until the move lands the
+      // record is not live (no copy in Snoozed), so nothing reads it as a snooze yet.
+      const record = await query(
+        `INSERT INTO snoozed_messages (user_id, account_id, message_id_header, original_folder, snooze_until, snoozed_folder)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [req.session.userId, tm.account_id, tm.message_id, tm.folder, untilDate.toISOString(), snoozedFolder]
+      );
       let snoozedUid;
       try {
         snoozedUid = await imapManager.moveMessage(account, tm.uid, tm.folder, snoozedFolder);
       } catch (err) {
+        await query('DELETE FROM snoozed_messages WHERE id = $1', [record.rows[0]?.id])
+          .catch(e => console.error(`Snooze record cleanup failed for message ${tm.id}:`, e.message));
         console.error(`Snooze IMAP move failed for message ${tm.id}:`, err.message);
         // The message the user acted on must succeed; a failed sibling is logged
         // and skipped so the rest of the conversation still snoozes.
@@ -2375,16 +2410,11 @@ router.post('/messages/:id/snooze', async (req, res) => {
         // The new uid is not known (see moveMessage), and the source uid can belong to another
         // message in Snoozed. Drop the row and let a sync of Snoozed file the message, which
         // the snooze below still finds by its Message-ID.
-        await query('DELETE FROM messages WHERE id = $1', [tm.id]);
+        const dropped = await query('DELETE FROM messages WHERE id = $1 RETURNING *', [tm.id]);
+        rememberDroppedRows(snoozedFolder, dropped.rows);
         imapManager.syncFolderOnDemand(account, snoozedFolder)
           .catch(err => console.warn(`Sync of ${snoozedFolder} after a snooze without a new uid failed: ${err.message}`));
       }
-
-      await query(
-        `INSERT INTO snoozed_messages (user_id, account_id, message_id_header, original_folder, snooze_until, snoozed_folder)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [req.session.userId, tm.account_id, tm.message_id, tm.folder, untilDate.toISOString(), snoozedFolder]
-      );
 
       adjustFolderCounts(tm.account_id, tm.folder, -1, tm.is_read ? 0 : -1);
       if (snoozedUid != null) adjustFolderCounts(tm.account_id, snoozedFolder, 1, tm.is_read ? 0 : 1);
@@ -2514,7 +2544,8 @@ async function deleteMessage(req, res, id) {
         // The new uid is not known (see moveMessage). The source uid can belong to another
         // message in Trash, so the row is dropped rather than kept on it, and a sync of Trash
         // files the message under its real uid; Trash's counts come from that sync.
-        await query('DELETE FROM messages WHERE id = $1', [id]);
+        const dropped = await query('DELETE FROM messages WHERE id = $1 RETURNING *', [id]);
+        rememberDroppedRows(trashPath, dropped.rows);
         imapManager.syncFolderOnDemand(account, trashPath)
           .catch(err => console.warn(`Sync of ${trashPath} after a delete without a new uid failed: ${err.message}`));
       }
@@ -2691,7 +2722,11 @@ async function moveForSpamLabel(messageId, userId, destinationFolder, label) {
       // The new uid is not known (see moveMessage). The source uid can belong to another
       // message in the destination, so the row is dropped rather than kept on it, and a sync of
       // the destination files the message under its real uid; its counts come from that sync.
-      await query('DELETE FROM messages WHERE id = $1', [messageId]);
+      // The decision this move makes goes with it, so the destination's sync files the
+      // message with the user's verdict and does not classify it again.
+      const dropped = await query('DELETE FROM messages WHERE id = $1 RETURNING *', [messageId]);
+      rememberDroppedRows(destinationFolder, dropped.rows,
+        { spam_user_override: label, spam_verdict: label, spam_analyzed_at: new Date() });
       imapManager.syncFolderOnDemand(account, destinationFolder)
         .catch(err => console.warn(`Sync of ${destinationFolder} after a move without a new uid failed: ${err.message}`));
     }

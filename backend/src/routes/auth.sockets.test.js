@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   closeSockets: vi.fn(),
   disconnectUser: vi.fn(),
-  redis: { scan: vi.fn(), get: vi.fn(), del: vi.fn() },
+  kv: { set: vi.fn() },
 }));
 
 vi.mock('../services/db.js', () => ({ query: mocks.query, pool: {}, withTransaction: fn => fn({ query: mocks.query }) }));
@@ -32,7 +32,7 @@ vi.mock('./oidc.js', () => ({ buildEndSessionUrl: vi.fn(async () => null) }));
 vi.mock('../services/categorizer.js', () => ({
   invalidateGlobalCategorizationCache: vi.fn(),
 }));
-vi.mock('../services/redis.js', () => ({ redisClient: mocks.redis }));
+vi.mock('../services/kvStore.js', () => ({ kv: mocks.kv }));
 vi.mock('../services/rateLimiter.js', () => ({
   consume: vi.fn(async () => ({ limited: false })),
   reset: vi.fn(),
@@ -45,13 +45,13 @@ vi.mock('bcryptjs', () => ({
 import express from 'express';
 import authRoutes from './auth.js';
 
-// What happened, in order, across the session store, Redis and the sockets.
+// What happened, in order, across the session store, the sessions table and the sockets.
 let events;
 
 function buildApp() {
   const app = express();
   app.use(express.json());
-  // Stands in for express-session. Its store calls finish on a later tick, as the Redis
+  // Stands in for express-session. Its store calls finish on a later tick, as the real
   // store's do, so a socket closed before the store has caught up shows in `events`.
   // destroy() drops req.session at once, as the real one does.
   app.use((req, _res, next) => {
@@ -90,9 +90,7 @@ beforeEach(() => {
   mocks.query.mockReset().mockResolvedValue({ rows: [] });
   mocks.closeSockets.mockReset().mockImplementation(() => { events.push('sockets closed'); });
   mocks.disconnectUser.mockReset().mockResolvedValue();
-  mocks.redis.scan.mockReset();
-  mocks.redis.get.mockReset();
-  mocks.redis.del.mockReset();
+  mocks.kv.set.mockReset();
 });
 
 const post = (path, body = {}) => fetch(`${base}/api/auth${path}`, {
@@ -117,16 +115,14 @@ describe('ending a session closes the WebSockets it opened', () => {
   });
 
   it('a password reset closes every socket of the user once their sessions are deleted', async () => {
-    mocks.query.mockImplementation(async (sql) => (
-      sql.includes('DELETE FROM password_reset_tokens') ? { rows: [{ user_id: 'u1' }] } : { rows: [] }
-    ));
-    mocks.redis.scan.mockResolvedValue({ cursor: 0, keys: ['sess:a', 'sess:b'] });
-    mocks.redis.get.mockImplementation(async (key) => JSON.stringify({ userId: key === 'sess:a' ? 'u1' : 'u2' }));
-    mocks.redis.del.mockImplementation(async (key) => { events.push(`deleted ${key}`); });
+    mocks.query.mockImplementation(async (sql, params) => {
+      if (sql.includes('DELETE FROM sessions')) events.push(`deleted sessions of ${params[0]}`);
+      return sql.includes('DELETE FROM password_reset_tokens') ? { rows: [{ user_id: 'u1' }] } : { rows: [] };
+    });
 
     const res = await post('/reset-password', { token: 'reset-token', password: 'a-new-password' });
     expect(res.status).toBe(200);
     expect(mocks.closeSockets.mock.calls).toEqual([['u1']]);
-    expect(events).toEqual(['deleted sess:a', 'sockets closed']);
+    expect(events).toEqual(['deleted sessions of u1', 'sockets closed']);
   });
 });

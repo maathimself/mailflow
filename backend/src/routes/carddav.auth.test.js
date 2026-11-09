@@ -1,10 +1,10 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// The real rateLimiter runs against this in-memory Redis, so the tests see the shared
+// The real rateLimiter runs against this in-memory key store, so the tests see the shared
 // auth:<ip> counter the login routes use.
 const { rs } = vi.hoisted(() => ({ rs: { store: new Map() } }));
-vi.mock('../services/redis.js', () => ({
-  redisClient: {
+vi.mock('../services/kvStore.js', () => ({
+  kv: {
     async incr(k)        { const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v++; rs.store.set(k, e); return e.v; },
     async decr(k)        { const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v--; rs.store.set(k, e); return e.v; },
     async pExpire(k, ms) { const e = rs.store.get(k); if (e) e.exp = Date.now() + ms; return true; },
@@ -22,7 +22,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import carddavRouter from './carddav.js';
 import { query } from '../services/db.js';
-import { redisClient } from '../services/redis.js';
+import { kv } from '../services/kvStore.js';
 
 const USER = { id: 'u1', password_hash: bcrypt.hashSync('right', 4), totp_enabled: false };
 
@@ -102,7 +102,7 @@ describe('CardDAV Basic auth and the shared login rate limit', () => {
   it('keeps the slot of a request refused in the last seconds of the window', async () => {
     for (let i = 0; i < 3; i++) await propfind('wrong');
     // A hand-back this close to the end could land after the key expires and uncount a new guess.
-    vi.spyOn(redisClient, 'pTTL').mockResolvedValue(1000);
+    vi.spyOn(kv, 'pTTL').mockResolvedValue(1000);
     expect((await propfind('right')).status).toBe(429);
     expect([...rs.store.values()].map(e => e.v)).toEqual([4]);
   });

@@ -14,6 +14,11 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+const MESSAGE_ACTIONS = [
+  { action: 'read', title: 'Mark as read' },
+  { action: 'archive', title: 'Archive' },
+];
+
 self.addEventListener('push', (event) => {
   if (!event.data) return;
 
@@ -30,6 +35,7 @@ self.addEventListener('push', (event) => {
     icon        = '/icon-512.png',
     badge       = '/badge-96.png',
     url         = '/',
+    messageId,            // only for a push about one message: enables the action buttons
     unreadCount,          // intentionally no default — undefined means "don't touch badge"
   } = data;
 
@@ -62,7 +68,10 @@ self.addEventListener('push', (event) => {
             body,
             icon,
             badge,
-            data:  { url },
+            data:  { url, messageId },
+            // Mark as read / Archive act on the one message the card is about (#689).
+            // Browsers that don't support actions (Safari) drop them and show the card as before.
+            ...(messageId ? { actions: MESSAGE_ACTIONS } : {}),
             // Replace any existing MailFlow notification so rapid arrivals
             // don't stack unboundedly in the notification center.
             tag:      'mailflow-new-mail',
@@ -104,27 +113,78 @@ function storePendingDeepLink(url) {
   });
 }
 
+// Open the app, at the deep link when there is one: focus a live client, or open a window.
+function openApp(targetUrl) {
+  const deepLink = !!targetUrl && targetUrl !== '/';
+  return (deepLink ? storePendingDeepLink(targetUrl) : Promise.resolve())
+    .then(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
+    .then((clients) => {
+      const existing = clients.find(
+        (c) => new URL(c.url).origin === self.location.origin
+      );
+      if (existing) {
+        // Nudge the live client to consume the persisted deep-link immediately
+        // (no reload). Harmless if nothing is listening.
+        if (deepLink) existing.postMessage({ type: 'mailflow_deeplink' });
+        return existing.focus();
+      }
+      // Cold/killed: openWindow's URL is honored on Chromium and ignored on iOS,
+      // but the persisted target above covers iOS on the next app launch.
+      return self.clients.openWindow(targetUrl);
+    });
+}
+
+function apiRequest(method, path, body) {
+  return fetch(path, {
+    method,
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'MailFlow' },
+    body: JSON.stringify(body),
+  });
+}
+
+// Run a notification button without opening the app. Resolves 'done', 'no-archive-folder', or
+// 'open' when it could not run here: signed out (401), screen lock (423), offline, or a refusal.
+// The app then opens at the message, as a plain tap would.
+function runMessageAction(action, messageId) {
+  const id = encodeURIComponent(messageId);
+  const request = action === 'read'
+    ? apiRequest('PATCH', `/api/mail/messages/${id}/read`, { read: true })
+    : apiRequest('POST', '/api/mail/messages/bulk-archive', { ids: [messageId] });
+  return request
+    .then((res) => {
+      if (!res.ok) return 'open';
+      if (action === 'read') return 'done';
+      return res.json().then((result) => {
+        if (Array.isArray(result?.archived) && result.archived.includes(messageId)) return 'done';
+        if (Array.isArray(result?.noArchiveFolder) && result.noArchiveFolder.length) return 'no-archive-folder';
+        return 'open';
+      });
+    })
+    .catch(() => 'open');
+}
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const targetUrl = event.notification.data?.url || '/';
-  const deepLink = !!targetUrl && targetUrl !== '/';
+  const messageId = event.notification.data?.messageId;
 
-  event.waitUntil(
-    (deepLink ? storePendingDeepLink(targetUrl) : Promise.resolve())
-      .then(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
-      .then((clients) => {
-        const existing = clients.find(
-          (c) => new URL(c.url).origin === self.location.origin
-        );
-        if (existing) {
-          // Nudge the live client to consume the persisted deep-link immediately
-          // (no reload). Harmless if nothing is listening.
-          if (deepLink) existing.postMessage({ type: 'mailflow_deeplink' });
-          return existing.focus();
-        }
-        // Cold/killed: openWindow's URL is honored on Chromium and ignored on iOS,
-        // but the persisted target above covers iOS on the next app launch.
-        return self.clients.openWindow(targetUrl);
-      })
-  );
+  if (messageId && (event.action === 'read' || event.action === 'archive')) {
+    event.waitUntil(runMessageAction(event.action, messageId).then((outcome) => {
+      if (outcome === 'done') return undefined;
+      if (outcome === 'no-archive-folder') {
+        return self.registration.showNotification('Not archived', {
+          body: 'This account has no Archive folder. Tap to open the message.',
+          icon: '/icon-512.png',
+          badge: '/badge-96.png',
+          data: { url: targetUrl },
+          tag: 'mailflow-action-failed',
+        });
+      }
+      return openApp(targetUrl);
+    }));
+    return;
+  }
+
+  event.waitUntil(openApp(targetUrl));
 });

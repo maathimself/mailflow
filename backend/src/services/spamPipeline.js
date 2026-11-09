@@ -25,6 +25,7 @@
 // deferred intent is recorded in spam_details (PR review, 2026-09-15).
 
 import { query } from './db.js';
+import { rememberDroppedRows } from './movedRowCarry.js';
 import { tokenize, extractFlagFeatures } from './spamTokenizer.js';
 import { scoreRules } from './spamRules.js';
 import { extractAuthservIds, normalizeAuthservId } from './spamParser.js';
@@ -221,7 +222,8 @@ async function autoMove(row, spamFolder, imap, messageId) {
       // The new uid is not known, and the source uid can belong to another message in the spam
       // folder (#665), as in the manual /spam path: drop the row rather than keep it on that uid,
       // and let a sync of the spam folder file the message under its real one.
-      await query('DELETE FROM messages WHERE id = $1', [messageId]);
+      const dropped = await query('DELETE FROM messages WHERE id = $1 RETURNING *', [messageId]);
+      rememberDroppedRows(spamFolder, dropped?.rows);
       Promise.resolve(imap.syncFolderOnDemand?.({ id: row.account_id }, spamFolder))
         .catch(err => console.warn(`Sync of ${spamFolder} after an auto-move without a new uid failed: ${err.message}`));
     }

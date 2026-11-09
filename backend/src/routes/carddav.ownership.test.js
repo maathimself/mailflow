@@ -3,8 +3,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 // The CardDAV address book routes look the book up through services/ownership.js. A signed-in
 // user naming another user's book under their own principal gets a bare 404, with nothing
 // written; the owner's book is served and written as before.
-vi.mock('../services/redis.js', () => ({
-  redisClient: { incr: vi.fn(async () => 1), decr: vi.fn(async () => 0), pExpire: vi.fn(async () => true), pTTL: vi.fn(async () => 60000), del: vi.fn(async () => 1) },
+vi.mock('../services/kvStore.js', () => ({
+  kv: { incr: vi.fn(async () => 1), decr: vi.fn(async () => 0), pExpire: vi.fn(async () => true), pTTL: vi.fn(async () => 60000), del: vi.fn(async () => 1) },
 }));
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));

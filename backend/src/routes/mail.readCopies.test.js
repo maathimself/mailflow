@@ -88,6 +88,12 @@ async function database(sql, params = []) {
     }
     return { rows: rows.filter(r => r.account_id === params[0] && r.message_id === params[1] && !r.is_deleted).slice(0, 65).map(r => ({ ...r, body_hash: r.body_text == null && r.body_html == null ? null : createHash('md5').update(JSON.stringify([r.body_text ?? null, r.body_html ?? null])).digest('hex') })) };
   }
+  if (sql.includes('AS was_read')) {
+    const targets = rows.filter(r => r.account_id === params[0] && r.folder === params[1]);
+    const out = targets.map(r => ({ id: r.id, uid: r.uid, message_id: r.message_id, was_read: r.is_read }));
+    for (const r of targets) r.is_read = true;
+    return { rows: out };
+  }
   if (sql.includes('UPDATE messages') && sql.includes('is_read = $1')) {
     const targets = sql.includes('FROM (')
       ? rows.filter(r => !params[1].includes(r.id) && r.is_read !== params[0] && rows.some(a => params[1].includes(a.id) && a.message_id === r.message_id && a.account_id === r.account_id))
@@ -172,6 +178,26 @@ describe('read-copy production routes and IMAP', () => {
     releaseOldSelection(); await settle();
     expect(wire.filter(([folder]) => folder === 'Watch')).toEqual([['Watch', '42', false]]);
     expect(rows.every(r => r.is_read === false)).toBe(true);
+  });
+  it('mark all read reads the label copy too, on the server as well', async () => {
+    imapManager._markAllReadRetryMs = [];
+    // The route takes only a UUID for the account.
+    account.id = 'd0000000-0000-4000-8000-00000000000' + (serial % 10);
+    for (const r of rows) r.account_id = account.id;
+    imapManager.connections.set(account.id, Object.assign(new Mailbox(), { mailbox: { path: 'INBOX', exists: 3 } }));
+    const ok = await fetch(url.replace(/\/messages$/, '/mark-all-read'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accountId: account.id, folder: 'INBOX' }) });
+    expect(ok.status).toBe(200); await settle();
+    expect(rows.find(r => r.id === B).is_read).toBe(true);
+    expect(wire).toEqual(expect.arrayContaining([['Watch', '42', true]]));
+  });
+  it('mark all read leaves the label copies alone without a plugin that keeps them', async () => {
+    gtd = false; imapManager._markAllReadRetryMs = [];
+    account.id = 'e0000000-0000-4000-8000-00000000000' + (serial % 10);
+    for (const r of rows) r.account_id = account.id;
+    const ok = await fetch(url.replace(/\/messages$/, '/mark-all-read'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accountId: account.id, folder: 'INBOX' }) });
+    expect(ok.status).toBe(200); await settle();
+    expect(rows.find(r => r.id === B).is_read).toBe(false);
+    expect(wire.filter(([folder]) => folder === 'Watch')).toEqual([]);
   });
   it('pushes bulk siblings once when both copies are selected', async () => {
     expect((await bulk([A, B], true)).status).toBe(200); await settle();

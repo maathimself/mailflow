@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { REPAIR_FLAG, signInResultNotice, trustedWrongAccount } from '../utils/accountErrors.js';
 import InboxReplyDraftObserver from './InboxReplyDraftObserver.js';
 import { useStore } from '../store/index.js';
-import { api } from '../utils/api.js';
+import { api, setPageClosing } from '../utils/api.js';
+import { flushUndoables } from '../utils/undoableAction.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { LAYOUTS } from '../layouts.js';
@@ -48,6 +49,10 @@ const lazyFallback = (
   </div>
 );
 
+// Waits before each new try of a failed account load: quick for a server that is restarting,
+// then once a minute.
+const ACCOUNTS_RETRY_MS = [2000, 5000, 15000, 30000, 60000];
+
 export default function MailApp() {
   const { t } = useTranslation();
   const {
@@ -65,6 +70,24 @@ export default function MailApp() {
   const syncInterval = useStore(s => s.syncInterval);
   const autoLockMinutes = useStore(s => s.autoLockMinutes);
   const lockScreen = useStore(s => s.lockScreen);
+
+  // An archive, move or other action still in its undo window goes to the server when the tab
+  // closes or reloads (keepalive, so the request outlives the page), and before the screen locks,
+  // rather than never. pageshow undoes the flag for a page restored from the back-forward cache.
+  useEffect(() => {
+    // A page kept in the back-forward cache comes back with the Undo toasts of the actions just
+    // sent; their Undo refuses (releaseUndoable says they are no longer pending).
+    const onHide = () => { setPageClosing(true); flushUndoables(); };
+    const onShow = () => setPageClosing(false);
+    window.addEventListener('pagehide', onHide);
+    window.addEventListener('pageshow', onShow);
+    window.addEventListener('mailflow:will-lock', flushUndoables);
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      window.removeEventListener('pageshow', onShow);
+      window.removeEventListener('mailflow:will-lock', flushUndoables);
+    };
+  }, []);
 
   // Auto-lock after inactivity (#235). MailApp only mounts while unlocked, so this
   // timer runs only when unlocked; hitting the timeout locks and unmounts this tree.
@@ -427,16 +450,28 @@ export default function MailApp() {
   }, [openCompose]);
 
   useEffect(() => {
-    // Load accounts
-    api.getAccounts()
-      .then(accounts => {
-        setAccounts(accounts); // also sets accountsReady:true in the store
-      })
-      .catch(err => {
-        console.error(err);
-        // Even on error, mark accounts as ready so MessageList doesn't hang
-        useStore.setState({ accountsReady: true });
-      });
+    // Load accounts. A failed load (the server restarting, a dropped connection) used to leave
+    // the app with no accounts until a reload: it is tried again, sooner at first, and on a resume.
+    let accountsLoaded = false;
+    let accountsRetry = null;
+    let accountsAttempt = 0;
+    const loadAccounts = () => {
+      clearTimeout(accountsRetry);
+      return api.getAccounts()
+        .then(accounts => {
+          accountsLoaded = true;
+          setAccounts(accounts); // also sets accountsReady:true in the store
+        })
+        .catch(err => {
+          console.error(err);
+          // Even on error, mark accounts as ready so MessageList doesn't hang
+          useStore.setState({ accountsReady: true });
+          if (err?.status === 401) return; // signed out: the session handler takes over
+          const delay = ACCOUNTS_RETRY_MS[Math.min(accountsAttempt++, ACCOUNTS_RETRY_MS.length - 1)];
+          accountsRetry = setTimeout(loadAccounts, delay);
+        });
+    };
+    loadAccounts();
 
     // Sync Todoist connection state — localStorage alone isn't enough across devices/sessions
     api.todoist.status().then(({ connected }) => setTodoistConnected(connected)).catch(() => {});
@@ -476,6 +511,7 @@ export default function MailApp() {
       // fail on their own without saying so, and when the network is not back yet, all of them
       // do. Its failure has installResumeRefresh run the resync again.
       onResync: () => {
+        if (!accountsLoaded) loadAccounts();
         refreshFolders();
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
         return api.getUnreadCounts().then(setUnreadCounts);
@@ -485,6 +521,7 @@ export default function MailApp() {
     window.addEventListener('mailflow:counts_refresh', refreshCounts);
     return () => {
       clearInterval(interval);
+      clearTimeout(accountsRetry);
       stopResume();
       window.removeEventListener('mailflow:counts_refresh', refreshCounts);
     };
