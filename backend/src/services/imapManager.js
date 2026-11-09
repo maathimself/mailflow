@@ -429,6 +429,72 @@ export function planIntegrityFlagScan({ condstore, storedModseq, serverModseq, e
 // Body parts that cover ~99% of real-world email structures (used for full body caching)
 const BODY_PREFETCH_PARTS = ['1', '1.1', '1.2', '2', '2.1', '2.2', '1.1.1', '1.2.1'];
 
+// The part numbers a message's BODYSTRUCTURE lists. imapflow numbers a multipart's children
+// "1", "2", "1.1" and so on; a single-part message carries no number in the tree, and its
+// body is part 1.
+export function structureParts(structure) {
+  const parts = new Set();
+  const walk = (node) => {
+    if (!node) return;
+    if (node.part) parts.add(node.part);
+    for (const child of node.childNodes || []) walk(child);
+  };
+  walk(structure);
+  if (!parts.size) parts.add('1');
+  return parts;
+}
+
+// The server answered the command with NO or BAD: it refused it, and the connection is fine.
+const isServerRejection = (err) => err?.responseStatus === 'NO' || err?.responseStatus === 'BAD';
+
+// Fetches one snippet-indexer batch, handing each message to onMessage.
+//
+// The one-round-trip form asks every message for the same guessed parts. Servers return
+// nothing for a part a message lacks, except Proton Mail Bridge, which fails the whole FETCH
+// with "no such parts exists" (#768), so the same batch was retried forever. On that refusal,
+// and from the start when structureFirst is set, this reads each message's structure and asks
+// only for the parts it has, one FETCH per distinct set of parts. Anything the server still
+// refuses is skipped: those messages get no snippet and are marked attempted like any other,
+// so a batch can never repeat. A broken connection still throws.
+//
+// Returns true when the guessed form was refused, so the caller can skip it from then on.
+export async function fetchSnippetBatch(client, uids, onMessage, { structureFirst = false } = {}) {
+  const items = { uid: true, envelope: true, bodyStructure: true };
+  if (!structureFirst) {
+    try {
+      for await (const msg of client.fetch(uids.join(','), { ...items, bodyParts: BODY_PREFETCH_PARTS }, { uid: true })) {
+        await onMessage(msg);
+      }
+      return false;
+    } catch (err) {
+      if (!isServerRejection(err)) throw err;
+    }
+  }
+  const groups = new Map();
+  try {
+    for await (const msg of client.fetch(uids.join(','), { uid: true, bodyStructure: true }, { uid: true })) {
+      const have = structureParts(msg.bodyStructure);
+      const parts = BODY_PREFETCH_PARTS.filter((part) => have.has(part));
+      const key = parts.join(' ');
+      if (!groups.has(key)) groups.set(key, { parts, uids: [] });
+      groups.get(key).uids.push(msg.uid);
+    }
+  } catch (err) {
+    if (!isServerRejection(err)) throw err;
+    return !structureFirst;
+  }
+  for (const { parts, uids: group } of groups.values()) {
+    try {
+      for await (const msg of client.fetch(group.join(','), { ...items, bodyParts: parts }, { uid: true })) {
+        await onMessage(msg);
+      }
+    } catch (err) {
+      if (!isServerRejection(err)) throw err;
+    }
+  }
+  return !structureFirst;
+}
+
 // Every cid: reference receives a full copy of its image, so a small message pointing at one
 // inline part thousands of times would build a body of hundreds of MB. The first reference to
 // each image is always embedded; repeats share this many characters of data: URI per message,
@@ -2884,6 +2950,7 @@ export class ImapManager {
     this._pollOnlyAccounts = new Set(); // accountId — demoted to poll-only (no persistent IDLE) by the per-host connection budget (#379)
     this._idleMissStreak = new Map(); // accountId -> consecutive health checks seen NOT idling despite IDLE being enabled
     this.snippetIndexerRunning = new Set(); // accountId — prevent duplicate snippet-index runs
+    this.snippetStructureFirst = new Set(); // accountId: the server refuses guessed body parts (Proton Mail Bridge, #768)
     this.snippetBackoff = new Map();        // imap_host -> { failures, until } circuit breaker (host-level: a per-host connection limit hits every account on that host, so back them all off together)
     this.lastUserActivity = new Map();      // accountId -> ms timestamp of last live body fetch
     this.syncTickCount = new Map(); // accountId -> successful sync ticks (for reconcile scheduling)
@@ -2892,10 +2959,14 @@ export class ImapManager {
     this._expungeDebounceTimers = new Map(); // accountId -> debounce timer for expunge reconciles
     this._pendingFlagSync = new Set(); // accountId — flag sync was skipped because a full sync was running; drain after sync
     this._pendingNewMail = new Set(); // accountId — new mail (EXISTS) arrived while a sync was running; sync again after it
-    // accountId -> Map<`${messageId}:${flag}`, { messageId, flag, attempts }>: local read/star
-    // changes whose IMAP push failed and must be retried until the server confirms them.
+    // accountId -> how many times it was disconnected; a connect in flight stops when it changes.
+    this._disconnectGeneration = new Map();
     // `${accountId}\n${folder}` -> how many mark-all-reads of it are still writing to the server.
     this._markingAllRead = new Map();
+    // Pauses before each retry of a mark-all-read whose \Seen write failed (tests shorten them).
+    this._markAllReadRetryMs = [5000, 30000];
+    // accountId -> Map<`${messageId}:${flag}`, { messageId, flag, attempts }>: local read/star
+    // changes whose IMAP push failed and must be retried until the server confirms them.
     this._pendingFlagPush = new Map();
     // Tracks UIDs that are actively being moved by inboxRules so reconcileDeletes
     // does not delete the DB row if an EXPUNGE arrives before the DB update completes,
@@ -3428,6 +3499,11 @@ export class ImapManager {
     // Previously this only ran when a connection existed, which left orphaned
     // intervals running whenever the connection died between reconnect attempts.
     await this.disconnectAccount(account.id);
+    // A disconnect from here on (the account disabled or deleted while this connects, which can
+    // take a minute) bumps the generation, and this connect then stops instead of setting up an
+    // IDLE connection and a sync timer for an account nobody wants synced.
+    const generation = this._disconnectGeneration.get(account.id) || 0;
+    const superseded = () => (this._disconnectGeneration.get(account.id) || 0) !== generation;
 
     // Per-host persistent-connection budget (#379 Phase 2). When an operator has set a finite cap
     // for this (connection-limited) host and this account is beyond it, run poll-only instead of
@@ -3438,6 +3514,7 @@ export class ImapManager {
     if (Number.isFinite(persistentCap)) {
       const eligible = await this._isPersistentEligible(account, persistentCap).catch(() => true);
       if (!eligible) {
+        if (superseded()) { this.connectingAccounts.delete(account.id); return false; }
         try { this._startPollOnly(account); }
         finally { this.connectingAccounts.delete(account.id); }
         return true;
@@ -3461,6 +3538,11 @@ export class ImapManager {
       client = await connectImapClient(account, resolved,
         { enableIdle: providerProfile(account).usesIdle !== false, policy, idleKeepaliveMs: providerProfile(account).idleKeepaliveMs },
         30000, 'IMAP connect');
+      if (superseded()) {
+        try { client.close(); } catch { /* already closed */ }
+        console.log(`Connect of ${logAccount(account)} abandoned: disconnected meanwhile`);
+        return false;
+      }
 
       // Remove from active connections the moment the server closes the socket.
       // Without this, a cleanly-closed connection lingers in this.connections and
@@ -3509,6 +3591,14 @@ export class ImapManager {
         this._connectCooldown.delete(account.id);
       } catch (syncErr) {
         console.warn(`Initial sync skipped for ${logAccount(account)}: ${extractImapError(syncErr)}`);
+      }
+
+      // Disconnected during the initial sync: no backfill, pool or sync timer for it.
+      if (superseded()) {
+        if (this.connections.get(account.id) === client) this.connections.delete(account.id);
+        try { client.close(); } catch { /* already closed */ }
+        console.log(`Connect of ${logAccount(account)} abandoned: disconnected meanwhile`);
+        return false;
       }
 
       // Pre-warm one pool connection immediately so the first email click doesn't
@@ -3574,6 +3664,7 @@ export class ImapManager {
   }
 
   async disconnectAccount(accountId) {
+    this._disconnectGeneration.set(accountId, (this._disconnectGeneration.get(accountId) || 0) + 1);
     const timer = this.syncIntervals.get(accountId);
     // clearTimeout works for both setTimeout and setInterval Timeout objects in Node.js
     if (timer) { clearTimeout(timer); this.syncIntervals.delete(accountId); }
@@ -6297,10 +6388,7 @@ export class ImapManager {
           try {
             const lock = await siClient.getMailboxLock(folder);
             try {
-              for await (const msg of siClient.fetch(uids.join(','), {
-                uid: true, envelope: true, bodyStructure: true,
-                bodyParts: BODY_PREFETCH_PARTS,
-              }, { uid: true })) {
+              const refused = await fetchSnippetBatch(siClient, uids, async (msg) => {
                 try {
                   const parsed = await parseMessage(msg);
                   if (parsed.snippet) {
@@ -6312,6 +6400,10 @@ export class ImapManager {
                     );
                   }
                 } catch { /* skip snippet on parse/update failure */ }
+              }, { structureFirst: this.snippetStructureFirst.has(account.id) });
+              if (refused) {
+                this.snippetStructureFirst.add(account.id);
+                console.log(`Snippet indexer: ${logAccount(account)} refuses guessed body parts; reading each message's structure first from now on`);
               }
             } finally {
               lock.release();
@@ -7666,8 +7758,9 @@ export class ImapManager {
   // the messages; `apply(client, range)` runs the IMAP command for a UID range and returns
   // imapflow's truthy/false result. Returns the count processed; throws (with progress) if a
   // chunk cannot be confirmed.
-  async _chunkedFolderOp(client, folder, searchQuery, apply, { label = 'operation', chunkSize = 500, retryBackoffMs = 500 } = {}) {
-    const uids = await client.search(searchQuery, { uid: true });
+  async _chunkedFolderOp(client, folder, searchQuery, apply, { label = 'operation', chunkSize = 500, retryBackoffMs = 500, skipUids } = {}) {
+    let uids = await client.search(searchQuery, { uid: true });
+    if (uids && skipUids?.size) uids = uids.filter(uid => !skipUids.has(uid));
     if (!uids || uids.length === 0) return 0;
     let done = 0;
     for (let i = 0; i < uids.length; i += chunkSize) {
@@ -7704,35 +7797,53 @@ export class ImapManager {
 
   // Add \Seen to every unread message in the locked folder, chunked (see _chunkedFolderOp).
   // Searching UNSEEN only touches what needs changing (idempotent, and a no-op on an
-  // already-read folder).
-  async _markSeenInFolder(client, folder, opts = {}) {
+  // already-read folder). `uidCeiling` leaves out mail that arrived after the user asked.
+  async _markSeenInFolder(client, folder, { uidCeiling, ...opts } = {}) {
     return this._chunkedFolderOp(
-      client, folder, { seen: false },
+      client, folder, uidCeiling ? { seen: false, uid: `1:${uidCeiling}` } : { seen: false },
       (c, range) => c.messageFlagsAdd(range, ['\\Seen'], { uid: true }),
       { label: 'messageFlagsAdd', ...opts },
     );
   }
 
-  async markAllReadImap(account, folder) {
+  // `uidCeiling` is the highest uid the user's Mark all read covered (the route's DB update):
+  // mail that arrives while this runs, or before a retry, stays unread.
+  async markAllReadImap(account, folder, { uidCeiling } = {}) {
     // While this runs, the integrity pass leaves the folder's read state alone (see its repair).
+    // That includes the retries: a write given up on leaves the server unread, and the repair
+    // then takes the folder back to unread, which is the server's state.
     const marking = `${account.id}\n${folder}`;
     this._markingAllRead.set(marking, (this._markingAllRead.get(marking) || 0) + 1);
     try {
-      return await withFreshClient(account, async (client) => {
-        const lock = await client.getMailboxLock(folder);
+      for (let attempt = 0; ; attempt++) {
         try {
-          if (!client.mailbox || client.mailbox.exists === 0) return;
-          // Chunked so a single STORE +FLAGS \Seen over a large folder can't get throttled
-          // into a whole-operation failure (which would leave the DB read but the server
-          // unread, and the next flag-sync would flip those rows back to unread).
-          await this._markSeenInFolder(client, folder);
+          return await withFreshClient(account, async (client) => {
+            const lock = await client.getMailboxLock(folder);
+            try {
+              if (!client.mailbox || client.mailbox.exists === 0) return;
+              // The route marked every row read, so a row unread now was marked unread since, or is
+              // new mail: leave it unread on the server too. Read at each attempt, since a retry
+              // comes up to 35 s later.
+              const unread = await query(
+                'SELECT uid FROM messages WHERE account_id = $1 AND folder = $2 AND is_read = false',
+                [account.id, folder]);
+              const skipUids = new Set((unread?.rows || []).map(r => Number(r.uid)));
+              // Chunked so a single STORE +FLAGS \Seen over a large folder can't get throttled
+              // into a whole-operation failure.
+              await this._markSeenInFolder(client, folder, { uidCeiling, skipUids });
+            } finally {
+              lock.release();
+            }
+          });
         } catch (err) {
-          console.warn(`markAllRead IMAP warning for ${folder}:`, err.message);
-          // Non-fatal — DB is already updated; the next sync reconciles any residual unread.
-        } finally {
-          lock.release();
+          const wait = this._markAllReadRetryMs[attempt];
+          // A dropped connection or a throttled STORE used to be the end of it: the DB said read,
+          // the server unread, and the next pass put the folder back to unread.
+          if (wait === undefined) throw err;
+          console.warn(`markAllRead IMAP warning for ${folder}, retrying:`, err.message);
+          await new Promise(resolve => setTimeout(resolve, wait));
         }
-      });
+      }
     } finally {
       const left = (this._markingAllRead.get(marking) || 1) - 1;
       if (left > 0) this._markingAllRead.set(marking, left); else this._markingAllRead.delete(marking);
@@ -8176,7 +8287,10 @@ export class ImapManager {
           usedFreshSyncClient = true;
           await this._syncInboxWithFreshLogin(account);
         } else {
-          await this.syncMessages(account, client, 'INBOX', 20, false, true);
+          // The interval tick's wall-clock bound: imapflow has no per-command timeout and waits
+          // up to 5 minutes on a half-open socket, holding the account's sync lock (no interval
+          // sync either) for all of it. On the timeout the catch below closes the client.
+          await raceTimeout(this.syncMessages(account, client, 'INBOX', 20, false, true), 55000, 'Manual sync');
         }
         console.log(`syncNow complete: ${logAccount(account)}`);
       } catch (err) {
@@ -8488,7 +8602,7 @@ export class ImapManager {
   // A socket is authenticated once, at upgrade, so ending its session does not stop the
   // broadcasts above reaching it. The userId guard matters: a socket still authenticating
   // has no userId either, and would match a missing one. The close waits a turn: an upgrade
-  // whose session lookup was answered in the same read from Redis as the write that ended
+  // whose session lookup was answered in the same read from the store as the write that ended
   // the session authenticates a microtask after that write's callback, and would be missed.
   closeSockets(userId, { sessionId = null, exceptSessionId = null, reason = 'Unauthorized' } = {}) {
     if (!userId) return;

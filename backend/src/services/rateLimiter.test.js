@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Shared mock Redis state (hoisted so the vi.mock factory can reference it).
+// Shared mock key store state (hoisted so the vi.mock factory can reference it).
 const { rs } = vi.hoisted(() => ({ rs: { fail: false, store: new Map() } }));
-vi.mock('./redis.js', () => ({
-  redisClient: {
+vi.mock('./kvStore.js', () => ({
+  kv: {
     async incr(k)        { if (rs.fail) throw new Error('down'); const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v++; rs.store.set(k, e); return e.v; },
     async pExpire(k, ms) { if (rs.fail) throw new Error('down'); const e = rs.store.get(k); if (e) e.exp = Date.now() + ms; return true; },
     async pTTL(k)        { if (rs.fail) throw new Error('down'); const e = rs.store.get(k); return e ? (e.exp - Date.now()) : -2; },
@@ -14,7 +14,7 @@ vi.mock('./redis.js', () => ({
 
 const { consume, reset, release } = await import('./rateLimiter.js');
 
-describe('rateLimiter — Redis path', () => {
+describe('rateLimiter — database path', () => {
   beforeEach(() => { rs.fail = false; rs.store.clear(); });
 
   it('allows up to max requests then limits', async () => {
@@ -52,7 +52,7 @@ describe('rateLimiter — Redis path', () => {
   });
 });
 
-describe('rateLimiter — in-memory fallback when Redis is down', () => {
+describe('rateLimiter — in-memory fallback when the database is down', () => {
   beforeEach(() => { rs.fail = true; });
 
   it('still enforces the limit', async () => {

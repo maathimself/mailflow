@@ -4,7 +4,7 @@ import express from 'express';
 import { EventEmitter } from 'node:events';
 import { readFile } from 'node:fs/promises';
 
-const boundary = vi.hoisted(() => ({ manager: null, database: null, redis: new Map(), transactions: 0 }));
+const boundary = vi.hoisted(() => ({ manager: null, database: null, kv: new Map(), transactions: 0 }));
 vi.mock('../services/db.js', () => ({
   query: vi.fn(),
   pool: { query: (...args) => boundary.database.query(...args) },
@@ -25,13 +25,13 @@ vi.mock('../index.js', () => ({ get imapManager() { return boundary.manager; } }
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (req, _res, next) => {
   req.session = { userId: req.headers['x-test-user'] || 'owner' }; next();
 } }));
-vi.mock('../services/redis.js', () => ({ redisClient: {
-  get: async key => boundary.redis.get(key) ?? null,
+vi.mock('../services/kvStore.js', () => ({ kv: {
+  get: async key => boundary.kv.get(key) ?? null,
   set: async (key, value, options) => {
-    if (options?.NX && boundary.redis.has(key)) return null;
-    boundary.redis.set(key, value); return 'OK';
+    if (options?.NX && boundary.kv.has(key)) return null;
+    boundary.kv.set(key, value); return 'OK';
   },
-  del: async key => Number(boundary.redis.delete(key)),
+  del: async key => Number(boundary.kv.delete(key)),
 } }));
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }));
 vi.mock('../services/smtpTransport.js', () => ({ createAccountSmtpTransport: vi.fn() }));
@@ -264,7 +264,7 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('sent Watch through rea
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     sent = 'Sent'; watch = 'Watch';
     observerReads = []; observerSnapshots = []; events = []; observe = false; failInsert = false; databaseFailures = [];
-    boundary.redis.clear(); boundary.transactions = 0; siblingInserted = false;
+    boundary.kv.clear(); boundary.transactions = 0; siblingInserted = false;
     provider = { boxes: new Map(), commands: [], assertionFailures: [], attempts: 0, nextUid: 101,
       appendUid: true, copyUid: true, delayAppend: false, delayCopy: false, failCopy: false };
     ImapFlow.mockImplementation(function (config) { return new FakeImap(config); });

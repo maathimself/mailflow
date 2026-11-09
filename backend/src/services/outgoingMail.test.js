@@ -292,6 +292,27 @@ describe('deliverAndRecord', () => {
     expect(imapManager.appendToSent).toHaveBeenCalledWith(account, 'Sent', msg.delivery.rawMessage);
   });
 
+  // A Sent APPEND still uploading when the 20 s wait ran out (a large attachment, a slow link) could
+  // land after the one pull of Sent that followed, and the copy stayed out of the list.
+  it('pulls Sent again a minute later when the Sent copy did not answer in time', async () => {
+    const msg = await message();
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      imapManager.appendToSent.mockImplementationOnce(() => new Promise(() => {}));
+      const stalled = deliverAndRecord(msg, {});
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect((await stalled).sentCopySaved).toBe(false);
+      await vi.advanceTimersByTimeAsync(8_000);
+      expect(imapManager.syncFolderOnDemand).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(52_000);
+      expect(imapManager.syncFolderOnDemand).toHaveBeenCalledTimes(2);
+      expect(imapManager.syncFolderOnDemand).toHaveBeenLastCalledWith(account, 'Sent');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('calls onDelivered once SMTP accepted, before the draft is deleted', async () => {
     const order = [];
     const onDelivered = vi.fn(async early => { order.push(['delivered', early]); });

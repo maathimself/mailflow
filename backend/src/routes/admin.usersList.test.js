@@ -9,7 +9,7 @@ vi.mock('../services/connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn()
 vi.mock('../services/authLimiter.js', () => ({ reloadAuthSettings: vi.fn() }));
 vi.mock('../services/carddavSync.js', () => ({ stopCardavUser: vi.fn() }));
 vi.mock('../plugins/registry.js', () => ({ pluginRegistry: { runHook: vi.fn() } }));
-vi.mock('../services/redis.js', () => ({ redisClient: {} }));
+vi.mock('../services/kvStore.js', () => ({ kv: {} }));
 
 import { query } from '../services/db.js';
 import { listUsers } from './admin.js';

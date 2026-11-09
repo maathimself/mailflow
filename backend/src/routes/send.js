@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { redisClient } from '../services/redis.js';
+import { kv } from '../services/kvStore.js';
 import { holdSend, cancelSend, getSendStatus } from '../services/sendHold.js';
 import {
   UUID_RE, SendError, sanitizeSmtpError, publicSendCode, missingSendFields, validateSendInput,
@@ -40,10 +40,10 @@ router.post('/send', async (req, res) => {
   const idempotencyKey = typeof req.headers['x-idempotency-key'] === 'string'
     ? req.headers['x-idempotency-key'].slice(0, 128)
     : null;
-  const idemKeyRedis = idempotencyKey ? `send_idem:${req.session.userId}:${idempotencyKey}` : null;
-  if (idemKeyRedis) {
+  const idemStoreKey = idempotencyKey ? `send_idem:${req.session.userId}:${idempotencyKey}` : null;
+  if (idemStoreKey) {
     let cached;
-    try { cached = await redisClient.get(idemKeyRedis); }
+    try { cached = await kv.get(idemStoreKey); }
     catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
     if (cached === '__inflight__') return res.status(409).json({ error: 'This message is already being sent.' });
     if (cached) {
@@ -54,7 +54,7 @@ router.post('/send', async (req, res) => {
       // sends anew. One that had started stays answered: it may have gone out.
       const { status } = await getSendStatus(userId, previous.pendingId);
       if (status !== 'lost') return res.json({ ...previous, remainingMs: remainingUntil(previous.sendAt) });
-      try { await redisClient.del(idemKeyRedis); }
+      try { await kv.del(idemStoreKey); }
       catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
     }
   }
@@ -79,11 +79,11 @@ router.post('/send', async (req, res) => {
     // same-key submit cannot also send (the post-send cache alone can't stop concurrent
     // duplicates). Overwritten with the result on success; released in the catch only if
     // delivery never happened, so a genuine retry after a pre-send failure can proceed.
-    if (idemKeyRedis) {
+    if (idemStoreKey) {
       // TTL comfortably above the worst-case send (large attachment over a slow SMTP
       // server) so the in-flight guard cannot lapse while this request is still running.
       let reserved;
-      try { reserved = await redisClient.set(idemKeyRedis, '__inflight__', { NX: true, EX: 300 }); }
+      try { reserved = await kv.set(idemStoreKey, '__inflight__', { NX: true, EX: 300 }); }
       catch { return res.status(503).json({ error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
       if (reserved !== 'OK') return res.status(409).json({ error: 'This message is already being sent.' });
       reservationAcquired = true;
@@ -94,11 +94,11 @@ router.post('/send', async (req, res) => {
       // Overwrite the in-flight reservation with the final result so a retry after a lost
       // response returns this instead of re-sending.
       onResult: sendResult => {
-        if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
+        if (idemStoreKey) kv.set(idemStoreKey, JSON.stringify(sendResult), { EX: 86400 }).catch(() => {});
       },
       // A failure before reservation must not delete a concurrent request's lock.
       onFailure: () => {
-        if (idemKeyRedis && reservationAcquired) redisClient.del(idemKeyRedis).catch(() => {});
+        if (idemStoreKey && reservationAcquired) kv.del(idemStoreKey).catch(() => {});
       },
     };
 
@@ -108,11 +108,11 @@ router.post('/send', async (req, res) => {
         delayMs: holdMs,
         run: onDelivered => deliverAndRecord(message, { ...hooks, onDelivered }),
         // An undone send frees its idempotency key, so the reopened message can be sent again.
-        onCancel: async () => { if (idemKeyRedis) await redisClient.del(idemKeyRedis); },
+        onCancel: async () => { if (idemStoreKey) await kv.del(idemStoreKey); },
       });
       const pendingResult = { ok: true, pending: true, pendingId: id, sendAt, remainingMs: remainingUntil(sendAt) };
       // A retry of this same request (lost response) gets the held send back, not a second one.
-      if (idemKeyRedis) redisClient.set(idemKeyRedis, JSON.stringify(pendingResult), { EX: 86400 }).catch(() => {});
+      if (idemStoreKey) kv.set(idemStoreKey, JSON.stringify(pendingResult), { EX: 86400 }).catch(() => {});
       return res.status(202).json(pendingResult);
     }
 
@@ -122,12 +122,12 @@ router.post('/send', async (req, res) => {
     if (err instanceof SendError) {
       // An SMTP configuration the account cannot send with (prepareDelivery). It comes before the
       // reservation today, but a reservation this request holds must never outlive its answer.
-      if (idemKeyRedis && reservationAcquired) redisClient.del(idemKeyRedis).catch(() => {});
+      if (idemStoreKey && reservationAcquired) kv.del(idemStoreKey).catch(() => {});
       return res.status(err.status).json({ error: err.message });
     }
     console.error('Send failed:', err.message);
     // A failure before reservation must not delete a concurrent request's lock.
-    if (idemKeyRedis && reservationAcquired) redisClient.del(idemKeyRedis).catch(() => {});
+    if (idemStoreKey && reservationAcquired) kv.del(idemStoreKey).catch(() => {});
     res.status(500).json({ error: sanitizeSmtpError(err), ...(publicSendCode(err) ? { code: publicSendCode(err) } : {}) });
   }
 });

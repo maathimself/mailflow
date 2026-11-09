@@ -6,6 +6,7 @@ vi.mock('../middleware/auth.js', () => ({
 }));
 const imapManager = vi.hoisted(() => ({
   appendToFolder: vi.fn(),
+  findUidByMessageId: vi.fn(),
   upsertDraftMessageRecord: vi.fn(),
   permanentDeleteMessage: vi.fn(),
   syncFolderOnDemand: vi.fn(),
@@ -173,6 +174,18 @@ describe('POST /api/mail/draft — local row persistence', () => {
       .toBe('<root@example.test> <parent@example.test>');
   });
 
+  it('appends the draft with CRLF line endings (#365)', async () => {
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: ['recipient@example.test'],
+        subject: 'Hi', body: 'Line one\nLine two', inReplyTo: '<parent@example.test>' }),
+    });
+    expect(res.status).toBe(200);
+    const raw = imapManager.appendToFolder.mock.calls[0][2].toString();
+    expect(raw).toMatch(/\r\nSubject: Hi\r\n/);
+    expect(raw.replace(/\r\n/g, '')).not.toContain('\n');
+  });
+
   it('rejects reply-header injection before appending a draft', async () => {
     const res = await fetch(`${base}/api/mail/draft`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -276,8 +289,9 @@ describe('POST /api/mail/draft — local row persistence', () => {
     expect(await res.json()).toEqual({ uid: 5, folder: 'Drafts' });
   });
 
-  it('does not persist a row when the append returns no uid (no reliable key)', async () => {
+  it('does not persist a row when the append returns no uid and none can be found (no reliable key)', async () => {
     imapManager.appendToFolder.mockResolvedValueOnce({ uid: null, folder: 'Drafts' });
+    imapManager.findUidByMessageId.mockResolvedValueOnce(null);
     const res = await fetch(`${base}/api/mail/draft`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -285,6 +299,39 @@ describe('POST /api/mail/draft — local row persistence', () => {
     });
     expect(res.status).toBe(200);
     expect(imapManager.upsertDraftMessageRecord).not.toHaveBeenCalled();
+  });
+
+  // Without UIDPLUS the APPEND names no uid; the composer then had no copy to replace, and every
+  // autosave left another draft behind.
+  it('finds the new copy by its Message-ID when the server does not name its uid', async () => {
+    imapManager.appendToFolder.mockResolvedValueOnce({ uid: null, folder: 'Drafts' });
+    imapManager.findUidByMessageId.mockResolvedValueOnce(77);
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: ['a@b.com'], subject: 'x', body: 'y', includeIdentity: true }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ uid: 77, folder: 'Drafts' });
+    const raw = imapManager.appendToFolder.mock.calls.at(-1)[2].toString();
+    expect(raw).toContain(`Message-ID: ${body.messageId}`);
+    expect(imapManager.findUidByMessageId).toHaveBeenCalledWith(expect.objectContaining({ id: ACCOUNT_ID }), 'Drafts', body.messageId);
+    expect(imapManager.upsertDraftMessageRecord).toHaveBeenCalledWith(expect.anything(), 'Drafts', 77, expect.objectContaining({ messageId: body.messageId }));
+  });
+
+  it('still saves when that lookup fails', async () => {
+    imapManager.appendToFolder.mockResolvedValueOnce({ uid: null, folder: 'Drafts' });
+    imapManager.findUidByMessageId.mockRejectedValueOnce(new Error('connection lost'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const res = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: ['a@b.com'], subject: 'x', body: 'y' }),
+    });
+    warn.mockRestore();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ uid: null, folder: 'Drafts' });
   });
 });
 

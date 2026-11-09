@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const store = new Map();
-vi.mock('./redis.js', () => ({
-  redisClient: {
+vi.mock('./kvStore.js', () => ({
+  kv: {
     set: vi.fn(async (key, value) => { store.set(key, value); return 'OK'; }),
     get: vi.fn(async key => store.get(key) ?? null),
   },

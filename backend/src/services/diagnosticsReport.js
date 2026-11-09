@@ -11,7 +11,6 @@
 import crypto from 'crypto';
 import { readFileSync } from 'fs';
 import { query } from './db.js';
-import { redisClient } from './redis.js';
 import { loadAiConfig } from './aiProvider.js';
 import { getActivatedPlugins } from '../plugins/activation.js';
 import { getWarningsRaw, getConnectionStats, getSyncSignalsRaw } from './diagnosticsRing.js';
@@ -186,8 +185,6 @@ export async function buildServerReport(userId, salt) {
 
   let dbOk = true;
   try { await query('SELECT 1'); } catch { dbOk = false; }
-  let redisOk = true;
-  try { await redisClient.ping(); } catch { redisOk = false; }
 
   // Recent categorized warnings, scoped to this user's accounts (account-less
   // server warnings are global). Account ids are hashed with the report salt.
@@ -220,7 +217,7 @@ export async function buildServerReport(userId, salt) {
 
   return {
     versions: { backend: BACKEND_VERSION, gitSha: process.env.BUILD_SHA || 'dev' },
-    server: { uptimeSeconds: Math.round(process.uptime()), dbOk, redisOk },
+    server: { uptimeSeconds: Math.round(process.uptime()), dbOk },
     accounts,
     folders,
     counts: { unreadTotal, unreadByAccountRef },

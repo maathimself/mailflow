@@ -2,6 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { fitScale, fitEmailToFrame, contentOverflows, createFitGuard, GROW_SLACK_PX } from './emailFrameFit.js';
+import { WIDE_TABLE_ATTR } from './emailFrameDoc.js';
 
 describe('fitScale', () => {
   test('leaves an email that fits at 1', () => {
@@ -99,6 +100,45 @@ describe('fitEmailToFrame', () => {
   test('a document without the wrapper is shown as is', () => {
     const { document } = new JSDOM('<body><p>x</p></body>').window;
     assert.equal(fitEmailToFrame(document, 600), 1);
+  });
+});
+
+// Each table's natural width comes from its data-w, and a marked table is as wide as the frame,
+// as the frame's stylesheet makes it.
+function tablesDoc(html) {
+  const { document } = new JSDOM(`<body><div id="mf-scale-wrapper">${html}</div></body>`).window;
+  const frame = { w: 0 };
+  for (const t of document.querySelectorAll('table')) {
+    Object.defineProperty(t, 'offsetWidth', { get: () => (t.hasAttribute(WIDE_TABLE_ATTR) ? frame.w : Number(t.dataset.w)) });
+  }
+  const fit = (w) => { frame.w = w; return fitEmailToFrame(document, w); };
+  const wide = () => [...document.querySelectorAll(`table[${WIDE_TABLE_ATTR}]`)].map(t => t.id);
+  return { fit, wide };
+}
+
+describe('fitEmailToFrame: top-level tables (#757)', () => {
+  test('narrows a top-level table wider than the frame and leaves a narrower one at its own width', () => {
+    const { fit, wide } = tablesDoc('<table id="gls" data-w="878"></table>');
+    fit(1100);
+    assert.deepEqual(wide(), [], 'a 878px column in a 1100px frame keeps its width');
+    fit(380);
+    assert.deepEqual(wide(), ['gls'], 'and is narrowed to a phone');
+    fit(1100);
+    assert.deepEqual(wide(), [], 'and let out again when the frame widens');
+  });
+
+  test('top level includes a center and a div around it, not a table inside another', () => {
+    const { fit, wide } = tablesDoc(
+      '<center><table id="c" data-w="700"></table><div><table id="cd" data-w="700"></table></div></center>'
+      + '<div><table id="d" data-w="700"><tr><td><table id="nested" data-w="700"></table></td></tr></table></div>');
+    fit(500);
+    assert.deepEqual(wide(), ['c', 'cd', 'd']);
+  });
+
+  test('a table within rounding of the frame is not marked', () => {
+    const { fit, wide } = tablesDoc('<table id="t" data-w="602"></table>');
+    fit(600);
+    assert.deepEqual(wide(), []);
   });
 });
 

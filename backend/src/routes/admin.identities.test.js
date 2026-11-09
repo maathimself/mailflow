@@ -13,7 +13,7 @@ vi.mock('../services/authLimiter.js', () => ({ reloadAuthSettings: vi.fn() }));
 vi.mock('../services/carddavSync.js', () => ({ stopCardavUser: vi.fn() }));
 vi.mock('../plugins/registry.js', () => ({ pluginRegistry: { runHook: vi.fn() } }));
 vi.mock('../services/userSessions.js', () => ({ destroyUserSessions: vi.fn() }));
-vi.mock('../services/redis.js', () => ({ redisClient: {} }));
+vi.mock('../services/kvStore.js', () => ({ kv: {} }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));
 vi.mock('../services/userIdentities.js', () => ({
   listUserIdentities: vi.fn(), removeIdentitiesForPasswordReset: vi.fn(), unlinkUserIdentity: vi.fn(),

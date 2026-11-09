@@ -23,6 +23,7 @@ import { SCHEDULED_VIEW } from '../utils/scheduledCompose.js';
 import { applyListOrder, isSortableList, listOrderFor } from '../utils/listSort.js';
 import ListSortMenu from './ListSortMenu.jsx';
 import { useListFirst } from '../hooks/useListFirst.js';
+import { useHeaderControlsFit } from '../hooks/useHeaderControlsFit.js';
 import GtdTabList from './GtdTabList.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import {
@@ -79,6 +80,13 @@ function FolderIcon({ specialUse, size = 13 }) {
 function restoreMessagesIfViewCurrent(viewKey, currentViewKeyRef, messages) {
   if (currentViewKeyRef.current === viewKey) useStore.getState().restoreMessages(messages);
 }
+
+// After a manual sync, when to reload the list if the socket has not said the sync finished.
+const MANUAL_SYNC_FALLBACK_MS = [5000, 15000];
+
+// One height for the desktop list toolbar's controls, text and icon alike, so they line up (#766).
+// The mobile toolbar keeps its 44px touch targets.
+const TOOLBAR_CONTROL_HEIGHT = 24;
 
 const SWIPE_ACTIONS = {
   archive: { color: 'var(--amber, #d97706)' },
@@ -201,6 +209,10 @@ function MailboxList() {
   const listFirst = useListFirst();
   // List first has no fixed width (null): it is the widest list, not a narrow one.
   const isNarrow = !isColumn && currentLayout.listWidth != null && currentLayout.listWidth <= 260;
+  // The desktop header uses its two-row form in narrow layouts, and in any list too narrow for
+  // the title and every control on one row (a list dragged narrower, long labels, a large count).
+  const headerFit = useHeaderControlsFit(!isMobile && !isNarrow, { gap: 4, columnGap: 6 });
+  const headerCompact = isNarrow || !headerFit.fits;
 
   // Apply the optimistic delete and read guards to a batch of messages from the server
   // (utils/pendingDeletes.js, utils/pendingReads.js), against the rows shown now.
@@ -233,6 +245,9 @@ function MailboxList() {
   const pullDirectionRef = useRef(null);
   const pullDistRef = useRef(0);
   const handleSyncRef = useRef(null);
+  // When the socket last said a sync finished (mailflow:sync_done), for a manual sync to tell
+  // whether its answer came.
+  const lastSyncDoneAtRef = useRef(0);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, message, defaultMoveView?, defaultSnoozeView? }
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchHasMore, setSearchHasMore] = useState(false);
@@ -348,6 +363,9 @@ function MailboxList() {
   // Bumped by every new search, by clearing the query, and by a change of account or folder, so a
   // response (or a page of more results) that arrives after any of them is dropped (#592).
   const searchSeq = useRef(0);
+  // Bumped whenever the list is replaced by a fresh first page (folder, filter or page change).
+  // A next page still in flight from before belongs to the old list and is dropped.
+  const listGenRef = useRef(0);
   const isSearching = useStore(s => s.isSearching);
   const refreshRequestRef = useRef(null);
   if (refreshRequestRef.current === null) refreshRequestRef.current = createLatestRequest();
@@ -445,6 +463,7 @@ function MailboxList() {
       // resolves, finds no account IDs, and returns empty — causing the blank
       // "All Inboxes" on first load.
       if (!accountsReady) return;
+      listGenRef.current += 1;
       setLoadingMessages(true);
       setMessagesOffset(0);
       setHasMoreMessages(true);
@@ -503,6 +522,7 @@ function MailboxList() {
   // Load next page (called by scroll or button)
   const loadMore = useCallback(async () => {
     if (loadingMessages || !hasMoreMessages) return;
+    const gen = listGenRef.current;
     setLoadingMessages(true);
     try {
       // Read current offset directly from store to avoid stale closure
@@ -514,13 +534,15 @@ function MailboxList() {
       if (useStore.getState().threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       const data = await api.getMessages(params);
+      if (listGenRef.current !== gen) return;
       appendMessages(applyReadGuard(data.messages));
       setMessagesOffset(currentOffset + data.messages.length);
       setHasMoreMessages(currentOffset + data.messages.length < data.total);
     } catch (err) {
       console.error('Failed to load more messages:', err);
     } finally {
-      setLoadingMessages(false);
+      // The new list's own load owns the flag once the list was replaced.
+      if (listGenRef.current === gen) setLoadingMessages(false);
     }
   }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset]);
 
@@ -717,6 +739,7 @@ function MailboxList() {
   // Load a specific page (paginated mode)
   const loadPage = useCallback(async (pageNum) => {
     if (loadingMessages) return;
+    listGenRef.current += 1;
     setLoadingMessages(true);
     setCurrentPage(pageNum);
     try {
@@ -759,9 +782,16 @@ function MailboxList() {
           .catch(err => console.error('syncFolder failed:', err.message));
       }
       // The server will send sync_complete via WebSocket when done, which triggers
-      // mailflow:refresh (list reload) and mailflow:sync_done (spinner off).
-      // Safety fallback: stop spinner after 15s in case WS event never arrives.
-      setTimeout(() => setSyncing(false), 15000);
+      // mailflow:refresh (list reload) and mailflow:sync_done (spinner off). The sync runs after
+      // the request answers, so without the socket (a phone back from the background, still
+      // reconnecting) nothing said it was done: the list stayed as it was and the spinner ran
+      // for 15 s. With no word from the socket the list is reloaded anyway, twice, since a sync
+      // can take a while; the second time the spinner stops.
+      const startedAt = Date.now();
+      MANUAL_SYNC_FALLBACK_MS.forEach((delay, i) => setTimeout(() => {
+        if (lastSyncDoneAtRef.current < startedAt) window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        if (i === MANUAL_SYNC_FALLBACK_MS.length - 1) setSyncing(false);
+      }, delay));
     } catch (err) {
       console.error('Sync failed:', err);
       setSyncing(false);
@@ -839,6 +869,7 @@ function MailboxList() {
   // caused two concurrent setMessages() calls racing each other.
   useEffect(() => {
     const handler = async () => {
+      lastSyncDoneAtRef.current = Date.now();
       setSyncing(true);
       setTimeout(() => setSyncing(false), 1200);
     };
@@ -2953,12 +2984,17 @@ function MailboxList() {
         boxShadow: listScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
         transition: 'box-shadow 0.2s ease',
       }}>
-        {/* Title row: label + count + sync (always fits) */}
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: isNarrow ? 6 : 10 }}>
-          <h2 style={{
+        {/* Title row: label, then count + controls. When the title and every control do not fit on one
+            row, the header takes its two-row form (headerCompact), with Sort, Unread, page size and layout
+            on the row below. In a list narrower still, the controls wrap below the title, right-aligned,
+            instead of squeezing the title away (#766). */}
+        <div ref={headerFit.rowRef} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 6, rowGap: 6, marginBottom: headerCompact ? 6 : 10 }}>
+          <h2 ref={headerFit.titleRef} style={{
             margin: 0, fontSize: 15, fontWeight: 600,
             color: 'var(--text-primary)',
-            flex: 1, minWidth: 0,
+            // Shrinks but never grows, so its scrollWidth is the title's own width in both header
+            // forms (useHeaderControlsFit); the controls' marginLeft: 'auto' keeps them right-aligned.
+            flex: '0 1 auto', minWidth: 0,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             display: 'flex', alignItems: 'center',
           }}>
@@ -2979,7 +3015,7 @@ function MailboxList() {
               </svg>
             ) : label}
           </h2>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 6 }}>
+          <div ref={headerFit.controlsRef} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
             {!searchQuery && (
               <span title={isSnoozedView && isUnified ? 'Snoozed messages in every account' : filteredCount ? 'Cached results matching this filter' : !headerCountKnown ? 'Mailbox count not yet available' : headerCountStale ? 'Last observed mailbox count; awaiting server refresh' : 'Messages reported by the mail server'} style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
                 {/* The Snoozed view across accounts (#269) counts what the list returned: every account's Snoozed folder. */}
@@ -2993,7 +3029,7 @@ function MailboxList() {
               title={selectedAccountId ? t('messageList.syncAccount') : t('messageList.syncAll')}
               style={{
                 background: 'none', border: '1px solid transparent',
-                borderRadius: 6, padding: '4px 6px',
+                borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                 color: syncing ? 'var(--accent)' : 'var(--text-tertiary)',
                 cursor: syncing ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center',
@@ -3013,8 +3049,8 @@ function MailboxList() {
               </svg>
             </button>
 
-            {/* Layout picker — wide layouts only; narrow layouts render it in the controls row below */}
-            {!isNarrow && (
+            {/* Layout picker — one-row header only; the two-row form renders it in the controls row below */}
+            {!headerCompact && (
               <div style={{ position: 'relative' }} ref={layoutPickerRef}>
                 <button
                   onClick={() => {
@@ -3028,7 +3064,7 @@ function MailboxList() {
                   style={{
                     background: showLayoutPicker ? 'var(--accent-dim)' : 'none',
                     border: `1px solid ${showLayoutPicker ? 'var(--accent)' : 'transparent'}`,
-                    borderRadius: 6, padding: '4px 6px',
+                    borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                     color: showLayoutPicker ? 'var(--accent)' : 'var(--text-tertiary)',
                     cursor: 'pointer', display: 'flex', alignItems: 'center',
                     transition: 'color 0.15s, border-color 0.15s, background 0.15s',
@@ -3089,7 +3125,7 @@ function MailboxList() {
             )}
 
             {/* In wide layouts, keep filter + page size inline */}
-            {!isNarrow && (
+            {!headerCompact && (
               <>
                 {sortable && <ListSortMenu accountId={selectedAccountId} folder={selectedFolder} />}
                 {/* Filter unread */}
@@ -3099,9 +3135,10 @@ function MailboxList() {
                   style={{
                     background: unreadOnly ? 'var(--accent-dim)' : 'none',
                     border: `1px solid ${unreadOnly ? 'var(--accent)' : 'var(--border)'}`,
-                    borderRadius: 6, padding: '4px 8px',
+                    borderRadius: 6, padding: '0 8px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                     color: unreadOnly ? 'var(--accent)' : 'var(--text-tertiary)',
                     cursor: 'pointer', fontSize: 11, fontWeight: 500,
+                    display: 'flex', alignItems: 'center',
                   }}
                 >
                   {t('messageList.unread')}
@@ -3113,7 +3150,7 @@ function MailboxList() {
                   title={t('messageList.messagesPerPage')}
                   style={{
                     background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-                    borderRadius: 6, padding: '4px 6px',
+                    borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                     color: 'var(--text-tertiary)', cursor: 'pointer',
                     fontSize: 11, outline: 'none',
                   }}
@@ -3132,7 +3169,7 @@ function MailboxList() {
               style={{
                 background: selectionMode ? 'var(--accent-dim)' : 'none',
                 border: `1px solid ${selectionMode ? 'var(--accent)' : 'transparent'}`,
-                borderRadius: 6, padding: '4px 6px',
+                borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                 color: selectionMode ? 'var(--accent)' : 'var(--text-tertiary)',
                 cursor: 'pointer', display: 'flex', alignItems: 'center',
                 transition: 'color 0.15s, border-color 0.15s, background 0.15s',
@@ -3148,9 +3185,10 @@ function MailboxList() {
           </div>
         </div>
 
-        {/* Narrow layouts: filter + page size + layout picker on their own row */}
-        {isNarrow && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+        {/* Two-row form: sort + filter + page size + layout picker on their own row, wrapping when the
+            list is narrower still or the labels are long (#766) */}
+        {headerCompact && (
+          <div ref={headerFit.extraRef} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginBottom: 6 }}>
             {sortable && <ListSortMenu accountId={selectedAccountId} folder={selectedFolder} />}
             <button
               onClick={() => setUnreadOnly(!unreadOnly)}
@@ -3158,9 +3196,10 @@ function MailboxList() {
               style={{
                 background: unreadOnly ? 'var(--accent-dim)' : 'none',
                 border: `1px solid ${unreadOnly ? 'var(--accent)' : 'var(--border)'}`,
-                borderRadius: 6, padding: '4px 8px',
+                borderRadius: 6, padding: '0 8px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                 color: unreadOnly ? 'var(--accent)' : 'var(--text-tertiary)',
                 cursor: 'pointer', fontSize: 11, fontWeight: 500,
+                display: 'flex', alignItems: 'center',
               }}
             >
               {t('messageList.unread')}
@@ -3171,7 +3210,7 @@ function MailboxList() {
               title={t('messageList.messagesPerPage')}
               style={{
                 background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-                borderRadius: 6, padding: '4px 6px',
+                borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                 color: 'var(--text-tertiary)', cursor: 'pointer',
                 fontSize: 11, outline: 'none',
               }}
@@ -3194,7 +3233,7 @@ function MailboxList() {
                 style={{
                   background: showLayoutPicker ? 'var(--accent-dim)' : 'none',
                   border: `1px solid ${showLayoutPicker ? 'var(--accent)' : 'transparent'}`,
-                  borderRadius: 6, padding: '4px 6px',
+                  borderRadius: 6, padding: '0 6px', height: TOOLBAR_CONTROL_HEIGHT, boxSizing: 'border-box',
                   color: showLayoutPicker ? 'var(--accent)' : 'var(--text-tertiary)',
                   cursor: 'pointer', display: 'flex', alignItems: 'center',
                   transition: 'color 0.15s, border-color 0.15s, background 0.15s',

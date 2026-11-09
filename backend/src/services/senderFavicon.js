@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import net from 'node:net';
 import { domainToASCII } from 'node:url';
-import { redisClient } from './redis.js';
+import { kv } from './kvStore.js';
 import { safeFetch } from './safeFetch.js';
 
 const PROVIDER_ORIGIN = 'https://twenty-icons.com';
@@ -197,7 +197,7 @@ async function resolveWithParents(domain, deps) {
 }
 
 export async function getSenderFavicon(domain, {
-  cache = redisClient,
+  cache = kv,
   fetchImpl = safeFetch,
   timeoutMs = 5000,
   maxBytes = MAX_BYTES,

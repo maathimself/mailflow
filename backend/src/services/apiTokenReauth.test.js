@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// The real rate limiter and replay guard run against this in-memory Redis.
+// The real rate limiter and replay guard run against this in-memory key store.
 const { rs, settings, linked } = vi.hoisted(() => ({
   rs: { store: new Map() },
   settings: { internalAuthDisabled: 'false', mfaEnforcement: 'off' },
   // Enabled providers each user has an identity at, as the query returns them.
   linked: new Map(),
 }));
-vi.mock('./redis.js', () => ({
-  redisClient: {
+vi.mock('./kvStore.js', () => ({
+  kv: {
     async incr(k)        { const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v++; rs.store.set(k, e); return e.v; },
     async decr(k)        { const e = rs.store.get(k) || { v: 0, exp: 0 }; e.v--; rs.store.set(k, e); return e.v; },
     async pExpire(k, ms) { const e = rs.store.get(k); if (e) e.exp = Date.now() + ms; return true; },

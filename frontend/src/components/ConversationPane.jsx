@@ -8,7 +8,6 @@ import { useStore } from '../store/index.js';
 import {
   normalizeConversation,
   initialExpandedMessageIds,
-  conversationMembershipKey,
   newestConversationMessage,
 } from '../utils/conversation.js';
 import { archiveThread, deleteThread, spamThread, moveThread, snoozeThread, inAccount, otherAccountsDraft } from '../utils/threadActions.js';
@@ -20,6 +19,8 @@ import ConversationMessageCard from './ConversationMessageCard.jsx';
 import { aiReplyAvailable } from '../utils/aiReply.js';
 import ContextMenu from './ContextMenu.jsx';
 import { prefetchBody } from '../utils/bodyCache.js';
+import { applyReadGuard } from '../utils/pendingReads.js';
+import { applyDeleteGuard } from '../utils/pendingDeletes.js';
 import { ActionBtn, ArchiveIcon, MoveIcon, SnoozeIcon, SpamIcon, PrintIcon, TrashIcon, useShortcutTitle } from './MessageActions.jsx';
 import { PluginSlot } from '../plugins/PluginSlot.jsx';
 
@@ -75,6 +76,9 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   // { x, y, view, message } — the move and snooze pickers are ContextMenu's, opened straight
   // into the relevant sub-view rather than reimplemented here. message is the copy they open on.
   const [picker, setPicker] = useState(null);
+  const [openedOnNewest, setOpenedOnNewest] = useState(null);
+  // The conversation the cards on screen belong to, set when its fetch lands (the stack's key).
+  const [loadedConversation, setLoadedConversation] = useState(null);
   const [aiStatus, setAiStatus] = useState(null);
 
   useEffect(() => {
@@ -97,6 +101,8 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         if (cancelled) return;
         const ordered = normalizeConversation(data?.messages || []);
         setMessages(ordered);
+        setLoadedConversation(`${accountId || ''}\n${threadId}`);
+        setOpenedOnNewest(newestConversationMessage(inAccount(ordered, accountId))?.id ?? null);
         // A picker opened on the previous conversation's cards while this one loaded (below).
         setPicker(null);
         // Opens on the newest message, the way every threaded client does: the reader
@@ -115,6 +121,34 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
     return () => { cancelled = true; };
   }, [threadId, folder, unified, accountId]);
 
+  // A reply that lands while the conversation is open shows up in its list row (the count and
+  // date change) but the pane fetched once, so it stayed out until the conversation was opened
+  // again. When the row changes the conversation is read again in place: the cards keep how they
+  // were opened, and the new message comes in collapsed, since opening a card marks it read.
+  const listedVersion = useStore(s => {
+    if (!threadId) return null;
+    const row = (s.searchQuery?.trim() ? s.searchResults : s.messages)
+      .find(m => (m.thread_id || m.id) === threadId && (!accountId || m.account_id === accountId));
+    return row ? `${row.message_count ?? 1}|${row.date}` : null;
+  });
+  const listedVersionRef = useRef({ threadId, version: listedVersion });
+  useEffect(() => {
+    const seen = listedVersionRef.current;
+    listedVersionRef.current = { threadId, version: listedVersion };
+    if (!threadId || seen.threadId !== threadId || !listedVersion || !seen.version || seen.version === listedVersion) return;
+    let cancelled = false;
+    api.getThread(threadId, folder, unified)
+      .then(data => {
+        if (cancelled) return;
+        setMessages(prev => {
+          if (!prev.length) return prev;
+          return normalizeConversation(applyReadGuard(applyDeleteGuard(data?.messages || []), prev));
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [threadId, folder, unified, accountId, listedVersion]);
+
   // The pane stays mounted from one conversation to the next, so an open picker would
   // otherwise apply its pick to a conversation it was not opened on. The previous
   // conversation's cards and buttons stay on screen until the next one lands, so a picker can
@@ -130,8 +164,11 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   // person's last message beside a newer reply of the reader's in Sent, and scrolled to it (#707).
   // The newest card is then the selected one too, so the outline and the shortcuts follow it.
   const selectedHere = Boolean(selectedMessageId) && messages.some(message => message.id === selectedMessageId);
+  // The newest card when the conversation loaded, so a reply read in afterwards (above) does not
+  // become the focused card, which would open it and mark it read without the reader opening it.
   const focusedId = selectedHere && openedFromRow
-    ? newestConversationMessage(inAccount(messages, accountId))?.id ?? selectedMessageId
+    ? (openedOnNewest && messages.some(message => message.id === openedOnNewest) ? openedOnNewest : null)
+      ?? newestConversationMessage(inAccount(messages, accountId))?.id ?? selectedMessageId
     : selectedMessageId;
   useEffect(() => {
     if (!selectedHere || !focusedId) return;
@@ -362,9 +399,13 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         onPrefetch={(row) => prefetchBody(row.id)}
       >
       <div
-        // Remounts the stack when the thread's membership changes, so expansion state from a
-        // previous conversation can never be applied to this one's message ids.
-        key={conversationMembershipKey(messages)}
+        // Remounts the stack when another conversation lands, so nothing a card holds carries over
+        // to the next one. Not on a reply read in while it is open (above): a remount ran every open
+        // card's mark-read again, so a message the reader had just marked unread was read again,
+        // and the scroll position and an open dialog were lost. The cards are keyed by message id,
+        // so a new one simply joins the stack. Not on threadId either: the previous conversation's
+        // cards stay on screen until the next one lands, and a remount would mark them read again.
+        key={loadedConversation ?? ''}
         ref={stackRef}
         // flex: 1 and minWidth: 0 are load-bearing. The reading area is a flex row, so
         // without them this pane is sized shrink-to-fit by its contents: collapsed cards

@@ -40,9 +40,9 @@ function largeUnlessToken(largeParser) {
 }
 
 // Reads off and discards the rest of the body, then calls back, as body-parser does before it
-// reports an error. nginx and the Vite dev proxy send Connection: close, and Node closing such a
-// socket with body data still unread resets the connection, which can lose the answer before the
-// client reads it.
+// reports an error. Behind a proxy that sends Connection: close (nginx, the Vite dev proxy), Node
+// closing such a socket with body data still unread resets the connection, which can lose the
+// answer before the client reads it.
 function discardBody(req, callback) {
   if (req.readableEnded || req.destroyed) return callback();
   req.once('end', callback);
@@ -77,7 +77,7 @@ export function discardBodyUpTo(req, res, limit, callback) {
   req.once('end', onEnd);
 }
 
-// A session store that fails (Redis restarting, say) gets its error answered after the body too.
+// A session store that fails (the database restarting, say) gets its error answered after the body too.
 function loadSessionBeforeParsing(sessionMiddleware) {
   return (req, res, next) => sessionMiddleware(req, res, (err) => (err ? discardBody(req, () => next(err)) : next()));
 }

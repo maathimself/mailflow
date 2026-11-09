@@ -17,6 +17,7 @@ vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }
 import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, contentLocationFromMimeHeader, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, pairMovedCopies, computeThreadId, noteDraftsChanged } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { ensureFreshToken, clearChangedSinceIgnored, isServerLimitFailure } from './imapManager.js';
+import { fetchSnippetBatch, structureParts } from './imapManager.js';
 import { clearCarries, hasCarries, rememberDroppedRows } from './movedRowCarry.js';
 import { clearRefreshFailure, noteFreshToken, noteRefreshFailure, refreshFailureFor } from './accountErrorCode.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
@@ -6975,7 +6976,7 @@ describe('closeSockets', () => {
   it('waits a turn, so it also closes a socket that authenticates just after the call', async () => {
     const { sockets, ctx } = arrange();
     ImapManager.prototype.closeSockets.call(ctx, 'u1', { sessionId: 's1' });
-    // An upgrade whose session lookup was answered in the same read from Redis as the write
+    // An upgrade whose session lookup was answered in the same read from the store as the write
     // that ended the session authenticates a microtask after that write's callback.
     await Promise.resolve();
     Object.assign(sockets.authenticating, { userId: 'u1', sessionId: 's1' });
@@ -7318,5 +7319,94 @@ describe('isServerLimitFailure', () => {
       'Some messages could not be FETCHed (Failure)', 'NO [SERVERBUG] Internal error occurred. Refer to server log for more information.',
       'Connection not available', 'Connection closed',
     ]) expect(isServerLimitFailure(reply), reply).toBe(false);
+  });
+});
+
+describe('snippet indexer batches (#768)', () => {
+  const plain = { type: 'text/plain' };
+  const alternative = { type: 'multipart/alternative', childNodes: [{ part: '1', type: 'text/plain' }, { part: '2', type: 'text/html' }] };
+  const mixed = { type: 'multipart/mixed', childNodes: [
+    { part: '1', type: 'multipart/alternative', childNodes: [{ part: '1.1', type: 'text/plain' }, { part: '1.2', type: 'text/html' }] },
+    { part: '2', type: 'application/pdf' },
+  ] };
+
+  // A server holding these messages. Strict, like Proton Mail Bridge's Gluon, fails the whole
+  // FETCH when any requested part is missing from any message in it; otherwise it answers
+  // with nothing for that part, as most servers do.
+  const server = (structures, { strict = false, refuse = () => false, drop = false } = {}) => {
+    const calls = [];
+    const client = {
+      fetch(range, items) {
+        calls.push({ uids: range.split(',').map(Number), parts: items.bodyParts ?? null });
+        const uids = range.split(',').map(Number);
+        return (async function* () {
+          if (drop) throw new Error('Connection not available');
+          if (items.bodyParts && (refuse(items.bodyParts) || (strict && uids.some((uid) =>
+            items.bodyParts.some((part) => !structureParts(structures[uid]).has(part)))))) {
+            throw Object.assign(new Error('Command failed'), { responseStatus: 'NO', responseText: 'no such parts exists' });
+          }
+          for (const uid of uids) {
+            const have = structureParts(structures[uid]);
+            yield { uid, bodyStructure: structures[uid],
+              ...(items.bodyParts ? { bodyParts: new Map(items.bodyParts.map((part) => [part, have.has(part) ? Buffer.from(`${uid}:${part}`) : null])) } : {}) };
+          }
+        })();
+      },
+    };
+    return { client, calls };
+  };
+  const collect = () => { const seen = []; return { seen, onMessage: async (msg) => { seen.push(msg); } }; };
+
+  it('numbers a single-part body 1 and lists every part of a multipart', () => {
+    expect([...structureParts(plain)]).toEqual(['1']);
+    expect([...structureParts(alternative)]).toEqual(['1', '2']);
+    expect([...structureParts(mixed)].sort()).toEqual(['1', '1.1', '1.2', '2']);
+    expect([...structureParts(undefined)]).toEqual(['1']);
+  });
+
+  it('asks once with the guessed parts where the server tolerates missing ones', async () => {
+    const { client, calls } = server({ 1: plain, 2: mixed });
+    const { seen, onMessage } = collect();
+    expect(await fetchSnippetBatch(client, [1, 2], onMessage)).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(seen.map((m) => m.uid)).toEqual([1, 2]);
+  });
+
+  it('on a Bridge-style refusal reads the structure and asks each message only for parts it has', async () => {
+    const { client, calls } = server({ 1: plain, 2: alternative, 3: plain, 4: mixed }, { strict: true });
+    const { seen, onMessage } = collect();
+    expect(await fetchSnippetBatch(client, [1, 2, 3, 4], onMessage)).toBe(true);
+    expect(seen.map((m) => m.uid).sort()).toEqual([1, 2, 3, 4]);
+    for (const msg of seen) {
+      const have = structureParts(msg.bodyStructure);
+      expect([...msg.bodyParts.keys()].every((part) => have.has(part)), `uid ${msg.uid}`).toBe(true);
+      expect(msg.bodyParts.get('1')?.length, `uid ${msg.uid}`).toBeGreaterThan(0);
+    }
+    // The refused guess, one structure read, then one FETCH per distinct set of parts.
+    expect(calls.map((c) => c.parts?.join(' ') ?? null)).toEqual([
+      '1 1.1 1.2 2 2.1 2.2 1.1.1 1.2.1', null, '1', '1 2', '1 1.1 1.2 2',
+    ]);
+    expect(calls[2].uids).toEqual([1, 3]);
+  });
+
+  it('skips the guess once the account is known to refuse it', async () => {
+    const { client, calls } = server({ 1: plain, 2: alternative }, { strict: true });
+    const { seen, onMessage } = collect();
+    expect(await fetchSnippetBatch(client, [1, 2], onMessage, { structureFirst: true })).toBe(false);
+    expect(calls[0].parts).toBe(null);
+    expect(seen.map((m) => m.uid).sort()).toEqual([1, 2]);
+  });
+
+  it('skips a set of parts the server still refuses instead of failing the batch', async () => {
+    const { client } = server({ 1: plain, 2: alternative }, { strict: true, refuse: (parts) => parts.includes('2') });
+    const { seen, onMessage } = collect();
+    expect(await fetchSnippetBatch(client, [1, 2], onMessage)).toBe(true);
+    expect(seen.map((m) => m.uid)).toEqual([1]);
+  });
+
+  it('still throws when the connection breaks, so the indexer reconnects', async () => {
+    const { client } = server({ 1: plain }, { drop: true });
+    await expect(fetchSnippetBatch(client, [1], async () => {})).rejects.toThrow('Connection not available');
+    await expect(fetchSnippetBatch(client, [1], async () => {}, { structureFirst: true })).rejects.toThrow('Connection not available');
   });
 });
