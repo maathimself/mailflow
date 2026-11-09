@@ -8,6 +8,7 @@ import android.security.KeyChain;
 import android.webkit.ClientCertRequest;
 import androidx.annotation.NonNull;
 import androidx.lifecycle.DefaultLifecycleObserver;
+import androidx.lifecycle.Lifecycle;
 import androidx.lifecycle.LifecycleOwner;
 import java.net.HttpURLConnection;
 import java.net.Socket;
@@ -164,32 +165,39 @@ final class MailFlowClientCertificate {
     }
 
     // The system can close the picker without answering: the launcher icon brings the singleTask
-    // activity back and clears the picker above it. A picker still unanswered a moment after the
-    // app resumes counts as cancelled, or the request would wait forever.
+    // activity back and clears the picker above it, and a picker asked for while the app is not in
+    // the foreground may never open. A picker still unanswered a moment after the app resumes
+    // counts as cancelled, or the request would wait forever.
     private static final class PickerWatcher implements DefaultLifecycleObserver {
         private static final long ANSWER_GRACE_MS = 1000;
         private final MainActivity activity;
         private final AtomicBoolean answered;
-        private boolean paused = false;
+        private final Handler handler = new Handler(Looper.getMainLooper());
+        private final Runnable timeout = this::cancelIfUnanswered;
+        private boolean paused;
 
         PickerWatcher(MainActivity activity, AtomicBoolean answered) {
             this.activity = activity;
             this.answered = answered;
+            paused = !activity.getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.RESUMED);
         }
 
         @Override
         public void onPause(@NonNull LifecycleOwner owner) {
             paused = true;
+            // A resume that the picker opening cuts short, as at launch, is not a return without an answer.
+            handler.removeCallbacks(timeout);
         }
 
         @Override
         public void onResume(@NonNull LifecycleOwner owner) {
-            if (!paused) return;
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                if (!answered.compareAndSet(false, true)) return;
-                activity.getLifecycle().removeObserver(this);
-                executor.execute(MailFlowClientCertificate::cancelPending);
-            }, ANSWER_GRACE_MS);
+            if (paused) handler.postDelayed(timeout, ANSWER_GRACE_MS);
+        }
+
+        private void cancelIfUnanswered() {
+            if (!answered.compareAndSet(false, true)) return;
+            activity.getLifecycle().removeObserver(this);
+            executor.execute(MailFlowClientCertificate::cancelPending);
         }
 
         @Override
