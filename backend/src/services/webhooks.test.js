@@ -1,20 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./redis.js', () => ({ redisClient: { eval: vi.fn(), isReady: true } }));
+vi.mock('./rateLimiter.js', () => ({ consume: vi.fn() }));
 vi.mock('./safeFetch.js', () => ({ safeFetch: vi.fn() }));
 vi.mock('./encryption.js', () => ({ isEncrypted: value => value?.startsWith('encrypted:'), encrypt: value => value ? `encrypted:${value}` : value, decrypt: value => value?.replace(/^encrypted:/, '') }));
 import { query } from './db.js';
-import { redisClient } from './redis.js';
+import { consume } from './rateLimiter.js';
 import { safeFetch } from './safeFetch.js';
-import { getWebhook, saveWebhook, notifyWebhook, webhookRequest, validateAdminSettings } from './webhooks.js';
+import { getWebhook, saveWebhook, notifyWebhook, webhookRequest, validateAdminSettings, saveWebhookAdminSettings } from './webhooks.js';
 
 let row, admin;
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
   row = { enabled: true, format: 'generic', url: 'encrypted:https://example.com/secret', token: 'encrypted:private-token', revision: 'rev-1', failures: 0 };
   admin = { enabled: true, allowedOrigins: [] };
   query.mockImplementation(async sql => ({ rows: sql.includes('system_settings') ? [{ value: JSON.stringify(admin) }] : sql.startsWith('SELECT') ? [row] : [] }));
-  redisClient.eval.mockResolvedValue(1);
+  await saveWebhookAdminSettings(admin);
+  query.mockClear();
+  consume.mockReset().mockResolvedValue({ limited: false });
   safeFetch.mockResolvedValue({ ok: true, status: 200, body: { cancel: vi.fn().mockResolvedValue() } });
 });
 const send = () => notifyWebhook({ userId: 'user-1', accountName: 'Work', count: 2, latest: { fromName: 'Alice', fromEmail: 'alice@example.com', subject: 'Confidential', body: 'Never send this' } });
@@ -81,6 +83,7 @@ describe('webhook delivery', () => {
     await send();
     expect(safeFetch.mock.calls[0][2].allowPrivateNetworks).toBe(false);
     admin.allowedOrigins = ['https://example.com'];
+    await saveWebhookAdminSettings(admin);
     await send();
     expect(safeFetch.mock.calls[1][2]).toEqual({ allowPrivate: false, allowPrivateNetworks: true, requireHttps: false, blockReserved: true, requirePublicHttps: true });
   });
@@ -88,13 +91,14 @@ describe('webhook delivery', () => {
     admin.enabled = false;
     expect(await send()).toEqual({ skipped: 'disabled' });
     admin.enabled = true;
-    redisClient.eval.mockResolvedValue(0);
+    await saveWebhookAdminSettings(admin);
+    consume.mockResolvedValue({ limited: true });
     expect(await send()).toEqual({ skipped: 'rate_limit' });
     expect(safeFetch).not.toHaveBeenCalled();
     expect(query.mock.calls.some(([sql]) => sql.startsWith('UPDATE'))).toBe(false);
   });
   it('fails closed when the shared rate limiter is unavailable', async () => {
-    redisClient.eval.mockRejectedValue(new Error('redis unavailable'));
+    consume.mockRejectedValue(new Error('admission failed'));
     expect(await send()).toEqual({ skipped: 'unavailable' });
     expect(safeFetch).not.toHaveBeenCalled();
   });
@@ -119,36 +123,28 @@ describe('webhook delivery', () => {
   });
 });
 
-describe('bounded Redis admission', () => {
-  it('skips disconnected Redis without queueing a command', async () => {
-    redisClient.isReady = false;
-    try {
-      expect(await send()).toEqual({ skipped: 'unavailable' });
-      expect(redisClient.eval).not.toHaveBeenCalled();
-      expect(safeFetch).not.toHaveBeenCalled();
-    } finally { redisClient.isReady = true; }
-  });
+describe('bounded rate admission', () => {
   it('times out stalled admission, prevents accumulation, and never delivers it late', async () => {
     vi.useFakeTimers();
     let finish;
-    redisClient.eval.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    consume.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     try {
       const pending = send();
       await vi.advanceTimersByTimeAsync(5000);
       expect(await pending).toEqual({ skipped: 'unavailable' });
       expect(await send()).toEqual({ skipped: 'unavailable' });
-      expect(redisClient.eval).toHaveBeenCalledTimes(1);
+      expect(consume).toHaveBeenCalledTimes(1);
       expect(query.mock.calls.some(([sql]) => sql.startsWith('UPDATE'))).toBe(false);
-      finish(1);
+      finish({ limited: false });
       await vi.advanceTimersByTimeAsync(0);
       expect(safeFetch).not.toHaveBeenCalled();
       expect(await send()).toEqual({ sent: true });
-    } finally { finish?.(1); vi.useRealTimers(); }
+    } finally { finish?.({ limited: false }); vi.useRealTimers(); }
   });
   it('uses only the remaining five-second budget for HTTP', async () => {
     vi.useFakeTimers();
     const timeout = vi.spyOn(AbortSignal, 'timeout');
-    redisClient.eval.mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve(1), 3000)));
+    consume.mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve({ limited: false }), 3000)));
     try {
       const pending = send();
       await vi.advanceTimersByTimeAsync(3000);

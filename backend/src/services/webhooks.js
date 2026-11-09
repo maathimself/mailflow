@@ -1,7 +1,6 @@
-import { randomUUID } from 'node:crypto';
 import { query } from './db.js';
 import { encrypt, decrypt, isEncrypted } from './encryption.js';
-import { redisClient } from './redis.js';
+import { consume } from './rateLimiter.js';
 import { safeFetch } from './safeFetch.js';
 import { webhookText } from './webhookText.js';
 
@@ -101,16 +100,6 @@ export async function saveWebhook(userId, input) {
   return publicWebhook(result.rows[0], admin.enabled);
 }
 
-// A rolling window shared by all accounts, test sends and backend processes. Redis time avoids
-// clock skew, and a single script makes admitting an attempt atomic. Failure is fail-closed.
-const rateScript = `local t = redis.call('TIME')
-local now = t[1] * 1000 + math.floor(t[2] / 1000)
-redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - 60000)
-if redis.call('ZCARD', KEYS[1]) >= 10 then return 0 end
-redis.call('ZADD', KEYS[1], now, ARGV[1])
-redis.call('PEXPIRE', KEYS[1], 60000)
-return 1`;
-
 export function webhookRequest(row, { accountName, count, latest = {} }) {
   const payload = { account: String(accountName || 'MailFlow').slice(0, 200), count };
   if (row.include_sender) payload.sender = String(latest.fromName || latest.fromEmail || '').slice(0, 500);
@@ -133,8 +122,8 @@ export function webhookRequest(row, { accountName, count, latest = {} }) {
   return { method: 'POST', headers, body: JSON.stringify(payload) };
 }
 
-// A sent Redis command cannot be cancelled by node-redis v4. If one times out,
-// stop admitting more work until it settles, rather than accumulating pending replies.
+// Database admission cannot be cancelled. If it times out, stop admitting more
+// work until it settles, rather than accumulating pending requests.
 let stalledAdmissions = 0;
 function admitWebhook(userId, timeout) {
   return new Promise(resolve => {
@@ -148,7 +137,7 @@ function admitWebhook(userId, timeout) {
       if (expired) stalledAdmissions--;
       else { clearTimeout(timer); resolve(value); }
     };
-    Promise.resolve().then(() => redisClient.eval(rateScript, { keys: [`webhook:rate:${userId}`], arguments: [randomUUID()] }))
+    Promise.resolve().then(() => consume(`webhook:rate:${userId}`, 10, 60_000)).then(result => !result.limited)
       .then(settle, () => settle(null));
   });
 }
@@ -160,7 +149,7 @@ export async function notifyWebhook({ userId, accountName, count, latest }) {
     FROM notification_webhooks w JOIN users u ON u.id = w.user_id WHERE w.user_id = $1`, [userId]);
   const row = rows[0];
   if (!row?.enabled || !row.url) return { skipped: 'disabled' };
-  if (!redisClient.isReady || stalledAdmissions) return { skipped: 'unavailable' };
+  if (stalledAdmissions) return { skipped: 'unavailable' };
   const deadline = Date.now() + 5000;
   const admitted = await admitWebhook(userId, 5000);
   if (admitted === null || Date.now() >= deadline) return { skipped: 'unavailable' };

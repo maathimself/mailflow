@@ -2,23 +2,20 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import pg from 'pg';
-import { createClient } from 'redis';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
-vi.mock('./redis.js', () => ({ redisClient: { eval: vi.fn(), isReady: true } }));
 vi.mock('./safeFetch.js', () => ({ safeFetch: vi.fn() }));
 import { query } from './db.js';
-import { redisClient } from './redis.js';
+import { kv } from './kvStore.js';
 import { safeFetch } from './safeFetch.js';
 import { decrypt, isEncrypted } from './encryption.js';
 import { getWebhook, removeWebhook, saveWebhook, saveWebhookAdminSettings, notifyWebhook } from './webhooks.js';
 
 // Explicit opt-in databases only. A unique schema and random user IDs isolate this suite;
-// cleanup removes only that schema and those users' Redis keys.
-describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL || !process.env.MAILFLOW_TEST_REDIS_URL)('webhook persistence and shared rate limit', () => {
-  let database, redis, userId, oldKey;
+// cleanup removes only that schema.
+describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('webhook persistence and shared rate limit', () => {
+  let database, userId, oldKey;
   const schema = `webhook_test_${randomUUID().replaceAll('-', '')}`;
-  const users = [];
   const stored = async () => (await database.query('SELECT * FROM notification_webhooks WHERE user_id = $1', [userId])).rows[0];
   const send = () => notifyWebhook({ userId, accountName: 'Work', count: 1, latest: { subject: 'Mail' } });
   beforeAll(async () => {
@@ -27,20 +24,14 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL || !process.env.MAILFLOW
     database = new pg.Pool({ connectionString: process.env.MAILFLOW_TEST_DATABASE_URL, options: `-c search_path=${schema}` });
     await database.query(`CREATE SCHEMA ${schema}`);
     await database.query('CREATE TABLE users (id uuid PRIMARY KEY, preferences jsonb DEFAULT \'{}\'::jsonb); CREATE TABLE system_settings (key text PRIMARY KEY, value text, updated_at timestamptz DEFAULT NOW())');
-    const migration = await readFile(new URL('../../migrations/0076_notification_webhooks.sql', import.meta.url), 'utf8');
+    const migration = await readFile(new URL('../../migrations/0077_notification_webhooks.sql', import.meta.url), 'utf8');
     await database.query(migration);
     // Idempotence matters when startup rechecks migration files.
     await database.query(migration);
     query.mockImplementation((sql, params) => database.query(sql, params));
-    redis = createClient({ url: process.env.MAILFLOW_TEST_REDIS_URL });
-    await redis.connect();
-    redisClient.eval.mockImplementation((...args) => redis.eval(...args));
+    await database.query(await readFile(new URL('../../migrations/0076_sessions_and_kv_store.sql', import.meta.url), 'utf8'));
   });
   afterAll(async () => {
-    if (redis?.isOpen) {
-      for (const id of users) await redis.del(`webhook:rate:${id}`);
-      await redis.quit();
-    }
     if (database) {
       await database.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
       await database.end();
@@ -50,7 +41,6 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL || !process.env.MAILFLOW
   });
   beforeEach(async () => {
     userId = randomUUID();
-    users.push(userId);
     await database.query('INSERT INTO users (id) VALUES ($1)', [userId]);
     await saveWebhookAdminSettings({ enabled: true, allowedOrigins: [] });
     await saveWebhook(userId, { enabled: true, format: 'ntfy', url: 'https://notify.example/secret-topic', token: 'secret-token' });
@@ -164,16 +154,25 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL || !process.env.MAILFLOW
     expect(results.filter(result => result.skipped === 'rate_limit')).toHaveLength(5);
     expect(safeFetch).toHaveBeenCalledTimes(10);
     expect((await stored()).failures).toBe(0);
-    expect(await redis.zCard(`webhook:rate:${userId}`)).toBe(10);
-    const ttl = await redis.pTTL(`webhook:rate:${userId}`);
+    expect(await kv.get(`rl:webhook:rate:${userId}`)).toBe('15');
+    const ttl = await kv.pTTL(`rl:webhook:rate:${userId}`);
     expect(ttl).toBeGreaterThan(0);
     expect(ttl).toBeLessThanOrEqual(60000);
   });
-  it('expires attempts outside the rolling minute without resetting newer entries', async () => {
-    const key = `webhook:rate:${userId}`;
-    await redis.zAdd(key, Array.from({ length: 10 }, (_, i) => ({ score: Date.now() - 61000, value: `old-${i}` })));
+  it('starts a new fixed window after expiry', async () => {
+    const key = `rl:webhook:rate:${userId}`;
+    await database.query("INSERT INTO kv_store (key, value, expires_at) VALUES ($1, '10', now() - interval '1 second')", [key]);
     expect(await send()).toEqual({ sent: true });
-    expect(await redis.zCard(key)).toBe(1);
+    expect(await kv.get(key)).toBe('1');
+  });
+  it('uses the limiter memory fallback when the key store fails', async () => {
+    const incr = vi.spyOn(kv, 'incr').mockRejectedValue(new Error('database unavailable'));
+    try {
+      const results = await Promise.all(Array.from({ length: 12 }, () => send()));
+      expect(results.filter(result => result.sent)).toHaveLength(10);
+      expect(results.filter(result => result.skipped === 'rate_limit')).toHaveLength(2);
+      expect((await stored()).failures).toBe(0);
+    } finally { incr.mockRestore(); }
   });
   it('uses the saved user language and picks up changes without restarting', async () => {
     await database.query("UPDATE users SET preferences = $1 WHERE id = $2", [JSON.stringify({ language: 'zhCN' }), userId]);
