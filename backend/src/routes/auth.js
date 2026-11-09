@@ -792,7 +792,7 @@ export async function patchPreferences(req, res) {
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
           folderOrder, senderFavicons, showMessagePreviews, defaultSender,
           conversationMode, hoverActionSet, autoOpenReplyDrafts, afterRemove, darkEmailBodies, listSort,
-          timeFormat, undoSendSeconds } = req.body;
+          timeFormat } = req.body;
   if (autoOpenReplyDrafts !== undefined && typeof autoOpenReplyDrafts !== 'boolean') {
     return res.status(400).json({ error: 'autoOpenReplyDrafts must be a boolean' });
   }
@@ -861,10 +861,6 @@ export async function patchPreferences(req, res) {
   const conversationModeVal = ['off', 'list', 'pane'].includes(conversationMode) ? conversationMode : null;
   // Time format (#758): 'auto' follows the language, '12' / '24' force a clock. Same rule.
   const timeFormatVal = ['auto', '12', '24'].includes(timeFormat) ? timeFormat : null;
-  // Undo Send delay (#769): 0 (Off) sends straight away, otherwise 5/10/20/30 seconds.
-  // 0 is meaningful, so the check is an includes() on the number, not a truthiness test.
-  const undoSendSecondsVal = undoSendSeconds != null && [0, 5, 10, 20, 30].includes(Number(undoSendSeconds))
-    ? String(Number(undoSendSeconds)) : null;
   // #440: which hover quick actions the message list shows. Same vocabulary and canonical
   // order as frontend/src/utils/hoverActions.js; unknown keys are dropped rather than stored.
   const HOVER_ACTION_KEYS = ['markRead', 'star', 'archive', 'snooze', 'delete', 'move'];
@@ -927,7 +923,6 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $47::boolean IS NOT NULL THEN jsonb_build_object('darkEmailBodies', $47::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $48::jsonb IS NOT NULL THEN jsonb_build_object('listSort', $48::jsonb) ELSE '{}'::jsonb END
       || CASE WHEN $49::text IS NOT NULL THEN jsonb_build_object('timeFormat', $49::text) ELSE '{}'::jsonb END
-      || CASE WHEN $50::text IS NOT NULL THEN jsonb_build_object('undoSendSeconds', $50::text) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -939,7 +934,7 @@ export async function patchPreferences(req, res) {
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
       showMessagePreviews ?? null, defaultSenderVal, conversationModeVal, hoverActionSetJson, autoOpenReplyDrafts ?? null,
-      afterRemoveVal, darkEmailBodies ?? null, listSortJson, timeFormatVal, undoSendSecondsVal]);
+      afterRemoveVal, darkEmailBodies ?? null, listSortJson, timeFormatVal]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;
