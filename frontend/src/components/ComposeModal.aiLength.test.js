@@ -85,6 +85,7 @@ async function improve(text) {
   await React.act(async () => { root.render(React.createElement(ComposeModal)); });
   await React.act(async () => {});
   const press = (el) => React.act(async () => { el.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true })); });
+  await press(document.querySelector('button[aria-label="message.more"]'));
   await press(document.querySelector('button[title="compose.toolbar.aiAssist"]'));
   await press([...document.querySelectorAll('button')].find(b => b.textContent === 'compose.toolbar.aiImprove'));
   await React.act(async () => {});
