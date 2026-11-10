@@ -1725,9 +1725,9 @@ export async function rollbackCopiedMessageOnInsertFailure(
 async function recountFolderRows(accountId, folder) {
   await query(
     `UPDATE folders f
-     SET total_count  = (SELECT COUNT(*) FROM messages m WHERE m.account_id = $1 AND m.folder = $2),
+     SET total_count  = (SELECT COUNT(*) FROM messages m WHERE m.account_id = $1 AND m.folder = $2 AND m.is_deleted = false),
          unread_count = (SELECT COUNT(*) FILTER (WHERE m.is_read = false)
-                         FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
+                         FROM messages m WHERE m.account_id = $1 AND m.folder = $2 AND m.is_deleted = false)
      WHERE f.account_id = $1 AND f.path = $2`,
     [accountId, folder]
   );
@@ -6904,22 +6904,16 @@ export class ImapManager {
   // Syncs the most recent messages in a specific folder on demand.
   // Called when the user navigates to a folder that has no local messages yet.
   // Uses a pooled connection — does NOT touch the main sync connection.
-  async _syncFolderOnDemandNow(account, folder) {
-    await withFreshClient(account, async (client) => {
-      await this.syncMessages(account, client, folder, 100, false, true);
-    });
-  }
-
-  async syncFolderOnDemand(account, folder, { freshAfterActive = false } = {}) {
+  async syncFolderOnDemand(account, folder, { freshAfterActive = false } = {}, waitDeadline = Date.now() + 30000) {
     const key = `${account.id}:${folder}`;
     const active = this.onDemandSyncing.get(key);
     if (active) {
       console.log(`syncFolderOnDemand waiting (already running): ${logAccount(account)}/${folder}`);
       try {
-        await raceTimeout(active.promise, 30000, 'Active folder sync');
+        await raceTimeout(active.promise, Math.max(0, waitDeadline - Date.now()), 'Active folder sync');
       } catch (err) {
         // A timed-out owner may still be writing. Leave its claim intact rather than start a
-        // competing sync; callers can proceed and the next periodic sync will retry freshness.
+        // competing sync; callers can proceed, but freshness can resume only after this claim releases.
         console.warn(`Active folder sync wait failed for ${logAccount(account)}/${folder}: ${err.message}`);
         return;
       }
@@ -6927,13 +6921,13 @@ export class ImapManager {
       // A sync that started before a non-UIDPLUS COPY may not have observed the new destination
       // row. Once that older owner settles, take a new claim and perform one post-copy pass.
       if (this.onDemandSyncing.get(key) === active) this.onDemandSyncing.delete(key);
-      return this.syncFolderOnDemand(account, folder);
+      return this.syncFolderOnDemand(account, folder, {}, waitDeadline);
     }
 
     const task = (async () => {
       console.log(`syncFolderOnDemand start: ${logAccount(account)}/${folder}`);
       try {
-        await this._syncFolderOnDemandNow(account, folder);
+        await this.syncFolderViaPool(account, folder);
         console.log(`syncFolderOnDemand done: ${logAccount(account)}/${folder}`);
         // sync_complete fires mailflow:refresh in the frontend, reloading the message list
         this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
@@ -6962,8 +6956,9 @@ export class ImapManager {
   _releaseFolderSync(accountId, folder) {
     const key = `${accountId}:${folder}`;
     const entry = this.onDemandSyncing.get(key);
-    if (!entry) return;
-    entry.release?.();
+    // Core-owned work releases its own entry in finally; the facade cannot cancel it.
+    if (!entry?.release) return;
+    entry.release();
     if (this.onDemandSyncing.get(key) === entry) this.onDemandSyncing.delete(key);
   }
 

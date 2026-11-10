@@ -321,7 +321,7 @@ describe('classifyAndTagMessage — Authentication-Results trust gate', () => {
 describe('autoMove deletion notifications', () => {
   it.each([null, 500])('reports actual removed keys for destination UID %s', async newUid => {
     const source = messageRow({ thread_key: 'source-still-present' });
-    const removed = { account_id: ACCOUNT_ID, folder: newUid == null ? 'INBOX' : 'Junk', thread_key: 'deleted-thread' };
+    const removed = { account_id: ACCOUNT_ID, folder: newUid == null ? 'INBOX' : 'Junk', thread_key: newUid == null ? source.thread_key : 'deleted-thread' };
     query.mockResolvedValueOnce({ rows: [removed] }).mockResolvedValueOnce({ rows: [] });
     const imap = imapFacade();
     imap.moveMessage.mockResolvedValue(newUid);
@@ -330,7 +330,7 @@ describe('autoMove deletion notifications', () => {
     try {
       expect(await autoMove(source, 'Junk', imap, MESSAGE_ID)).toBe(true);
       expect(hook).toHaveBeenCalledExactlyOnceWith('messageRowsDeleted', {
-        account: { id: ACCOUNT_ID, user_id: USER_ID }, folder: removed.folder, threadKeys: ['deleted-thread'],
+        account: { id: ACCOUNT_ID, user_id: USER_ID }, folder: removed.folder, threadKeys: [removed.thread_key],
       });
     } finally { hook.mockRestore(); }
   });

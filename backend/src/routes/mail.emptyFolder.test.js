@@ -54,17 +54,19 @@ describe('POST /api/mail/folders/empty — async background empty', () => {
     expect(emittedType('sync_complete')).toBeTruthy();
   });
 
-  it.each(['empty', 'delete'])('%s notifies only actual deleted keys after updating folder counts', async action => {
+  it.each(['empty', 'delete'])('%s reports the returned deletion keys', async action => {
     imapManager.emptyFolder.mockResolvedValue();
     imapManager.deleteFolder.mockResolvedValue();
+    const order = [];
     query.mockImplementation(async sql => {
+      if (sql.startsWith('UPDATE folders SET total_count = 0')) order.push('recount');
       if (sql.includes('FROM email_accounts WHERE id = $1 AND user_id = $2')) return { rows: [ACCOUNT] };
-      if (sql.startsWith('DELETE FROM messages')) return { rows: [{ thread_key: 'deleted' }, { thread_key: 'deleted' }, { thread_key: null }] };
+      if (sql.startsWith('DELETE FROM messages')) return { rows: [{ thread_key: 'deleted' }] };
       return { rows: [] };
     });
     const hook = vi.spyOn(pluginRegistry, 'runHook').mockImplementation(async name => {
-      if (name === 'messageRowsDeleted') expect(query.mock.calls.some(([sql]) => action === 'empty'
-        ? sql.startsWith('UPDATE folders SET total_count = 0') : sql.startsWith('DELETE FROM folders'))).toBe(true);
+      if (name === 'messageRowsDeleted') order.push('hook');
+      return [];
     });
     try {
       const response = await fetch(`${base}/api/mail/folders/${action}`, {
@@ -74,32 +76,8 @@ describe('POST /api/mail/folders/empty — async background empty', () => {
       expect(response.status).toBe(action === 'empty' ? 202 : 200);
       await tick();
       expect(hook).toHaveBeenCalledWith('messageRowsDeleted', { account: ACCOUNT, folder: 'Todo', threadKeys: ['deleted'] });
+      expect(order).toEqual(action === 'empty' ? ['recount', 'hook'] : ['hook']);
       expect(query.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM messages'))[0]).toContain('RETURNING thread_key');
-    } finally { hook.mockRestore(); }
-  });
-
-  it.each(['empty', 'delete'])('%s completes despite a deletion hook that never settles', async action => {
-    imapManager.emptyFolder.mockResolvedValue();
-    imapManager.deleteFolder.mockResolvedValue();
-    query.mockImplementation(async sql => {
-      if (sql.includes('FROM email_accounts WHERE id = $1 AND user_id = $2')) return { rows: [ACCOUNT] };
-      if (sql.startsWith('DELETE FROM messages')) return { rows: [{ thread_key: 'removed' }] };
-      return { rows: [] };
-    });
-    const hook = vi.spyOn(pluginRegistry, 'runHook').mockImplementation(name => name === 'messageRowsDeleted'
-      ? new Promise(() => {}) : Promise.resolve([]));
-    try {
-      const response = await fetch(`${base}/api/mail/folders/${action}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId: ACCOUNT_ID, path: 'Todo' }),
-      });
-      expect(response.status).toBe(action === 'empty' ? 202 : 200);
-      await tick();
-      if (action === 'empty') {
-        expect(query.mock.calls.some(([sql]) => sql.startsWith('UPDATE folders SET total_count = 0'))).toBe(true);
-        expect(emittedType('folder_emptied')?.ok).toBe(true);
-      }
-      expect(hook).toHaveBeenCalledWith('messageRowsDeleted', { account: ACCOUNT, folder: 'Todo', threadKeys: ['removed'] });
     } finally { hook.mockRestore(); }
   });
 

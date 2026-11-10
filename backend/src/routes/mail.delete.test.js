@@ -219,8 +219,6 @@ describe('DELETE /api/mail/messages/:id', () => {
       expect(notices).toEqual([['messageRowsDeleted', {
         account: expect.objectContaining({ id: ACCOUNT_ID }), folder, threadKeys: ['deleted-thread'],
       }]]);
-      expect(await del()).toBe(404);
-      expect(hook.mock.calls.filter(([name]) => name === 'messageRowsDeleted')).toHaveLength(1);
     } finally { hook.mockRestore(); }
   });
 

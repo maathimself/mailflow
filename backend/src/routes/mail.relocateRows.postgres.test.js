@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import pg from 'pg';
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
@@ -6,6 +6,7 @@ vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req, _res, next) => nex
 vi.mock('../index.js', () => ({ imapManager: {} }));
 import { query } from '../services/db.js';
 import { RELOCATE_INSERT_COLS, relocateRows } from './mail.js';
+import { pluginRegistry } from '../plugins/registry.js';
 import { clearCarries, takeCarry } from '../services/movedRowCarry.js';
 
 // The bulk move, archive and Trash paths relocate rows in one statement: a row whose new uid the
@@ -24,22 +25,27 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('relocateRows on Postgr
       .filter(c => !['account_id', 'uid', 'folder', 'message_id', 'date'].includes(c));
     await database.query(`CREATE TEMP TABLE messages (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(), account_id uuid, uid bigint, folder text,
-      message_id text, date timestamptz, ${carried.map(c => `${c} text`).join(', ')},
+      message_id text, date timestamptz, thread_key text, ${carried.map(c => `${c} text`).join(', ')},
       UNIQUE (account_id, uid, folder))`);
     query.mockImplementation((sql, values) => database.query(sql, values));
   });
   afterAll(async () => { await database?.end(); });
+  afterEach(() => vi.restoreAllMocks());
   beforeEach(async () => {
     clearCarries();
     await database.query('TRUNCATE messages');
-    const insert = `INSERT INTO messages (id, account_id, uid, folder, message_id, date, subject, spam_user_override, category)
-      VALUES ($1, $2, $3, 'Junk', $4, '2026-11-04T10:00:00Z', $5, 'ham', 'social')`;
+    const insert = `INSERT INTO messages (id, account_id, uid, folder, message_id, date, subject, spam_user_override, category, thread_key)
+      VALUES ($1, $2, $3, 'Junk', $4, '2026-11-04T10:00:00Z', $5, 'ham', 'social', $4)`;
     await database.query(insert, [A, ACC, 10, '<a@x>', 'Known']);
     await database.query(insert, [B, ACC, 11, '<b@x>', 'Unknown']);
   });
 
   it('moves a row with a new uid, and drops one without for the sync to file with its state', async () => {
-    await relocateRows([A, B], new Map([[A, 500]]), 'INBOX');
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    await relocateRows([A, B], new Map([[A, 500]]), 'INBOX', 'fixture-user');
+    expect(hook).toHaveBeenCalledExactlyOnceWith('messageRowsDeleted', {
+      account: { id: ACC, user_id: 'fixture-user' }, folder: 'Junk', threadKeys: ['<b@x>'],
+    });
 
     const { rows } = await database.query('SELECT uid, folder, subject, spam_user_override, category FROM messages ORDER BY uid');
     expect(rows).toEqual([{ uid: '500', folder: 'INBOX', subject: 'Known', spam_user_override: 'ham', category: 'social' }]);

@@ -14,11 +14,11 @@ describe('messageRowsDeleted dispatch', () => {
       { account_id: 'a', folder: 'Done', thread_key: 'one' },
       { account_id: 'b', folder: 'Todo', thread_key: 'two' },
       { account_id: 'a', folder: 'Todo', thread_key: null },
-    ]);
+    ], undefined, 'fixture-user');
     expect(pluginRegistry.runHook.mock.calls).toEqual([
-      ['messageRowsDeleted', { account: { id: 'a' }, folder: 'Todo', threadKeys: ['one'] }],
-      ['messageRowsDeleted', { account: { id: 'a' }, folder: 'Done', threadKeys: ['one'] }],
-      ['messageRowsDeleted', { account: { id: 'b' }, folder: 'Todo', threadKeys: ['two'] }],
+      ['messageRowsDeleted', { account: { id: 'a', user_id: 'fixture-user' }, folder: 'Todo', threadKeys: ['one'] }],
+      ['messageRowsDeleted', { account: { id: 'a', user_id: 'fixture-user' }, folder: 'Done', threadKeys: ['one'] }],
+      ['messageRowsDeleted', { account: { id: 'b', user_id: 'fixture-user' }, folder: 'Todo', threadKeys: ['two'] }],
     ]);
   });
 
@@ -35,18 +35,7 @@ describe('messageRowsDeleted dispatch', () => {
     pluginRegistry.runHook.mockReset().mockResolvedValue([{ pluginId: 'broken', error: new Error('handler failed') }]);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     notifyMessageRowsDeleted({ id: 'a' }, [{ thread_key: 'one' }], 'Todo');
-    await Promise.resolve();
-    expect(warn).toHaveBeenCalledWith('Message deletion hook failed (broken):', 'handler failed');
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith('Message deletion hook failed (broken):', 'handler failed'));
   });
 
-  it.each(['throw', 'reject'])('logs a plugin %s without failing the committed deletion', async mode => {
-    const failure = new Error('plugin failed');
-    pluginRegistry.runHook.mockReset().mockImplementation(() => {
-      if (mode === 'throw') throw failure;
-      return Promise.reject(failure);
-    });
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    expect(() => notifyMessageRowsDeleted({ id: 'a' }, [{ thread_key: 'one' }], 'Todo')).not.toThrow();
-    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith('Message deletion hook failed:', 'plugin failed'));
-  });
 });

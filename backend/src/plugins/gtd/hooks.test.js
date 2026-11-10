@@ -188,12 +188,14 @@ describe('gtd hooks — afterLabelCopy / afterLabelRemove', () => {
     expect(mgr.syncFolderOnDemand).not.toHaveBeenCalled();
   });
 
-  it('afterLabelCopy kicks off the deferred reconcile on the non-UIDPLUS path (newUid null)', async () => {
+  it.each([false, true])('afterLabelCopy observes deferred sync (core-owned promise: %s)', async shared => {
     const mgr = { broadcast: vi.fn(), syncFolderOnDemand: vi.fn().mockResolvedValue(undefined) };
     const account = { id: 'a1', user_id: 'u1' };
-    await afterLabelCopy({ mgr, account, toFolder: 'Todo', fromFolder: 'INBOX', srcUid: 5, newUid: null });
+    const destinationSync = shared ? Promise.resolve() : undefined;
+    await afterLabelCopy({ mgr, account, toFolder: 'Todo', fromFolder: 'INBOX', srcUid: 5, newUid: null, destinationSync });
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'a1' }, 'u1');
-    expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(account, 'Todo', { freshAfterActive: true });
+    if (shared) expect(mgr.syncFolderOnDemand).not.toHaveBeenCalled();
+    else expect(mgr.syncFolderOnDemand).toHaveBeenCalled();
   });
 
   it('afterLabelRemove broadcasts the section refresh', async () => {

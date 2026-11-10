@@ -77,7 +77,7 @@ Core mounts the router and fires the hooks through the registry — core never c
 `messageRowsDeleted` receives `{ account, folder, threadKeys }` after explicit cached-message
 removals commit, including reconciliation, UIDVALIDITY purges, folder cleanup, labels, drafts,
 and user/rule actions. Keys come from deleted rows, grouped and deduplicated per account/folder;
-`account` includes at least its `id`. An atomic relocation that reinserts the same logical copy
+`account` includes its `id` and owning `user_id` (batch actions may supply only those fields). An atomic relocation that reinserts the same logical copy
 is not a removal. Recounts run first where applicable, and notifications are dispatched even
 if the recount fails. Dispatch is nonblocking; plugin failures are logged.
 `afterLabelRemove` retains its separate contract and includes the removed copy’s `threadKey`.
@@ -88,7 +88,8 @@ post-copy completion promise; GTD observes it before refreshing/re-evaluating th
 `syncFolderOnDemand(account, folder, { freshAfterActive: true })` requests a new pass after an
 older folder sync settles, for example after a non-UIDPLUS COPY. Waiting on an active owner is
 bounded to 30 seconds; a timeout warns and returns without releasing that owner's claim or
-starting a competing pass. Freshness then falls back to the next periodic sync.
+starting a competing pass. Retries can sync only after the active claim releases; a
+never-released claim requires owner cleanup or restart.
 
 ### Data
 

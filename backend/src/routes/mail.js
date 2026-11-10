@@ -113,7 +113,7 @@ const RELOCATE_CONFLICT_SET = CARRIED_COLUMNS.map(c => `${c} = COALESCE(EXCLUDED
 // there with every carried column; if a sync already inserted that uid, its row is kept (above). A row
 // without a new uid is dropped for the folder's sync to file again (#665), and kept in
 // movedRowCarry for that sync to give back what only MailFlow knew about it.
-export async function relocateRows(ids, newUids, folder) {
+export async function relocateRows(ids, newUids, folder, userId) {
   const withUid = ids.filter(id => newUids.has(id));
   const result = await query(`
     WITH deleted AS (
@@ -131,7 +131,7 @@ export async function relocateRows(ids, newUids, folder) {
     )
     SELECT d.* FROM deleted d WHERE NOT (d.id = ANY($2::uuid[]))
   `, [ids, withUid, withUid.map(id => newUids.get(id)), folder]);
-  notifyMessageRowsDeleted(null, result?.rows);
+  notifyMessageRowsDeleted(null, result?.rows, undefined, userId);
   rememberDroppedRows(folder, result?.rows);
 }
 
@@ -1720,7 +1720,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
     // Permanently deleted: remove DB rows immediately.
     if (expungeSucceeded.length) {
       const deletedRows = await query('DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING account_id, folder, thread_key', [expungeSucceeded.map(m => m.id)]);
-      notifyMessageRowsDeleted(null, deletedRows.rows);
+      notifyMessageRowsDeleted(null, deletedRows.rows, undefined, req.session.userId);
     }
 
     // Sync never corrects a row whose uid holds another message. Drop the refused rows, so a sync
@@ -1728,7 +1728,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
     // `deleted`.
     if (expungeRefused.length) {
       const deletedRows = await query('DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING account_id, folder, thread_key', [expungeRefused.map(m => m.id)]);
-      notifyMessageRowsDeleted(null, deletedRows.rows);
+      notifyMessageRowsDeleted(null, deletedRows.rows, undefined, req.session.userId);
       const refusedBy = {};
       for (const msg of expungeRefused) {
         const key = `${msg.account_id}:${msg.folder}`;
@@ -1755,7 +1755,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
       for (const [trashPath, entries] of Object.entries(byTrashPath)) {
         const allIds    = entries.map(u => u.msg.id);
         const withUid   = entries.filter(u => u.newUid);
-        await relocateRows(allIds, new Map(withUid.map(u => [u.msg.id, u.newUid])), trashPath);
+        await relocateRows(allIds, new Map(withUid.map(u => [u.msg.id, u.newUid])), trashPath, req.session.userId);
       }
       // Non-UIDPLUS trash moves were deleted with no reinsert; pull each affected
       // (account, trash folder) now so they reappear promptly instead of via IDLE.
@@ -1983,7 +1983,7 @@ router.post('/messages/bulk-move', async (req, res) => {
       // keeps it intact. For messages without new UIDs the DELETE-only path relies
       // on IMAP IDLE + the message_id pre-check in processMsg to re-insert them.
       const uidUpdateMap = new Map(uidUpdates.map(u => [u.id, u.newUid]));
-      await relocateRows(movedIds, uidUpdateMap, folder);
+      await relocateRows(movedIds, uidUpdateMap, folder, req.session.userId);
       // Messages moved on a non-UIDPLUS server were deleted with no reinsert; pull the
       // destination folder now so they reappear promptly instead of waiting for IDLE.
       for (const acct of resyncAccounts) {
@@ -2138,11 +2138,11 @@ router.post('/messages/bulk-archive', async (req, res) => {
       const allIds  = entries.map(e => e.id);
       if (allMailDestFolders.has(archiveFolder)) {
         const deletedRows = await query('DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING account_id, folder, thread_key', [allIds]);
-        notifyMessageRowsDeleted(null, deletedRows.rows);
+        notifyMessageRowsDeleted(null, deletedRows.rows, undefined, req.session.userId);
         continue;
       }
       const withUid = entries.filter(e => e.newUid != null);
-      await relocateRows(allIds, new Map(withUid.map(e => [e.id, e.newUid])), archiveFolder);
+      await relocateRows(allIds, new Map(withUid.map(e => [e.id, e.newUid])), archiveFolder, req.session.userId);
     }
 
     // Non-UIDPLUS archive moves were deleted with no reinsert; pull each affected
@@ -2422,7 +2422,7 @@ router.post('/messages/:id/snooze', async (req, res) => {
         // message in Snoozed. Drop the row and let a sync of Snoozed file the message, which
         // the snooze below still finds by its Message-ID.
         const dropped = await query('DELETE FROM messages WHERE id = $1 RETURNING *', [tm.id]);
-        notifyMessageRowsDeleted(null, dropped.rows);
+        notifyMessageRowsDeleted(account, dropped.rows);
         rememberDroppedRows(snoozedFolder, dropped.rows);
         imapManager.syncFolderOnDemand(account, snoozedFolder)
           .catch(err => console.warn(`Sync of ${snoozedFolder} after a snooze without a new uid failed: ${err.message}`));
