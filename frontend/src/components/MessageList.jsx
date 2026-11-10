@@ -65,6 +65,7 @@ import {
 } from '../utils/threadedArchive.js';
 import { createUndoableCommit, holdUndoable, releaseUndoable, UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
 import { resolveConversationSelection, selectListedMessage } from '../utils/conversation.js';
+import { spamFolderPaths, selectionSpamAction } from '../utils/spamFolders.js';
 
 // Folder icon for move picker
 function FolderIcon({ specialUse, size = 13 }) {
@@ -145,6 +146,29 @@ export default function MessageList() {
   return scheduledView ? <ScheduledList /> : <MailboxList />;
 }
 
+// Whether the query names its own folder scope. The server's search route lets an in: operator
+// (in:sent, in:all) win over the folder param, so a note naming the open folder would mislead
+// then. The operator pattern is the route's own.
+const SEARCH_OPERATOR_PATTERN = /(-?)\b(from|to|subject|has|is|after|before|in):("([^"]*)"|(\S+))/gi;
+function queryNamesSearchFolder(query) {
+  for (const match of String(query || '').matchAll(SEARCH_OPERATOR_PATTERN)) {
+    const value = (match[4] !== undefined ? match[4] : match[5] || '').trim();
+    if (match[2].toLowerCase() === 'in' && value) return true;
+  }
+  return false;
+}
+
+// Whether the server leaves the open folder out of an all-folder search. The search route drops
+// Trash from every all-folder search (shouldExcludeTrashFromSearch, trashFolderExclusionCondition),
+// so "Search all folders" offered from Trash would empty the results. The rule is the route's own:
+// the \Trash-flagged folder, or one named with "trash" or "deleted". A folder that is Trash only by
+// the account's folder mapping stays searched, so it keeps the button.
+function allFolderSearchSkips(folder, path) {
+  if (String(folder?.special_use ?? '').toLowerCase() === '\\trash') return true;
+  const name = String(folder?.name ?? path ?? '').toLowerCase();
+  return name.includes('trash') || name.includes('deleted');
+}
+
 function MailboxList() {
   const { t } = useTranslation();
   const uiScale = useUiScale();
@@ -166,9 +190,9 @@ function MailboxList() {
     folders, favoriteFolders, recentFolders, addFavoriteFolder, removeFavoriteFolder, setSelectedAccount,
     categorizationEnabled, categoryCounts, categoryTotals, setCategoryCounts, adjustCategoryCount,
     markReadBehavior, markReadDelay,
-    searchAllFolders,
+    searchAllFolders, setSearchAllFolders,
     activeGtdTab, setActiveGtdTab, gtdSections, enabledPlugins,
-    openMessageWindow,
+    openMessageWindow, setFolders,
   } = useStore();
   // GTD's UI surfaces (pills, rail, per-row "done") gate on the GTD plugin being activated for the
   // user, on top of each account's gtd_enabled — deactivating hides them entirely.
@@ -267,6 +291,9 @@ function MailboxList() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [selectionModeActive, setSelectionModeActive] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
+  // The selection bar's More menu (mark as spam / not spam).
+  const [showBulkMore, setShowBulkMore] = useState(false);
+  const bulkMoreRef = useRef(null);
   const [pickerFolders, setPickerFolders] = useState([]);
   const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
@@ -390,6 +417,7 @@ function MailboxList() {
     setSelectedIds(new Set());
     setSelectionModeActive(false);
     setShowFolderPicker(false);
+    setShowBulkMore(false);
     lastSelectIdxRef.current = -1;
   }, [messagesRefreshToken]);
 
@@ -398,6 +426,7 @@ function MailboxList() {
     const onKey = (e) => {
       if (e.key === 'Escape') {
         setShowFolderPicker(false);
+        setShowBulkMore(false);
         setShowLayoutPicker(false);
         setSelectedIds(new Set());
         setSelectionModeActive(false);
@@ -409,6 +438,9 @@ function MailboxList() {
       }
       if (layoutPickerRef.current && !layoutPickerRef.current.contains(e.target)) {
         setShowLayoutPicker(false);
+      }
+      if (bulkMoreRef.current && !bulkMoreRef.current.contains(e.target)) {
+        setShowBulkMore(false);
       }
     };
     document.addEventListener('keydown', onKey);
@@ -1186,11 +1218,17 @@ function MailboxList() {
     const ids = messages.map(m => m.id);
     const isBulk = ids.length > 1;
 
-    // Optimistic local update: remove from view + drop unread badge.
-    const unreadCount = messages.reduce((sum, m) => sum + (m.is_read ? 0 : 1), 0);
-    const accountId = messages[0].account_id;
+    // Optimistic local update: remove from view + drop unread badges. A selection in All Inboxes
+    // can span accounts, so each account's badge moves by its own unread messages.
+    const unreadByAccount = (list) => {
+      const counts = new Map();
+      list.forEach(m => { if (!m.is_read) counts.set(m.account_id, (counts.get(m.account_id) || 0) + 1); });
+      return counts;
+    };
+    const unread = unreadByAccount(messages);
+    const accountIds = [...new Set(messages.map(m => m.account_id))];
     messages.forEach(m => removeMessage(m.id));
-    if (unreadCount > 0) decrementUnread(accountId, unreadCount, { undoable: true });
+    unread.forEach((n, acct) => decrementUnread(acct, n, { undoable: true }));
 
     // Sidebar folder badges are not adjusted here. They render the counts the IMAP server
     // reported for each folder, so a local guess would be overwritten by the next observation
@@ -1208,7 +1246,7 @@ function MailboxList() {
       timers.clear();
       // Restore the messages in their original position (re-sort by date).
       useStore.getState().restoreMessages(messages);
-      if (unreadCount > 0) incrementUnread(accountId, unreadCount);
+      unread.forEach((n, acct) => incrementUnread(acct, n));
     };
 
     const performCall = (id) => {
@@ -1227,8 +1265,7 @@ function MailboxList() {
       if (failed.length) {
         const failedMsgs = messages.filter(m => failed.includes(m.id));
         useStore.getState().restoreMessages(failedMsgs);
-        const failedUnread = failedMsgs.reduce((sum, m) => sum + (m.is_read ? 0 : 1), 0);
-        if (failedUnread > 0) incrementUnread(accountId, failedUnread);
+        unreadByAccount(failedMsgs).forEach((n, acct) => incrementUnread(acct, n));
         const titleKey = label === 'spam' ? 'spam.failTitle' : 'spam.failHamTitle';
         const bodyKey = label === 'spam' ? 'spam.failBody' : 'spam.failHamBody';
         addNotification({
@@ -1243,7 +1280,9 @@ function MailboxList() {
       // moving messages between two folders that share a parent, or a
       // concurrent IMAP IDLE update, can desync the local counters.
       api.getUnreadCounts().then(c => useStore.getState().setUnreadCounts(c)).catch(() => {});
-      api.getFolders(accountId).then(f => useStore.getState().setFolders(accountId, f)).catch(() => {});
+      accountIds.forEach(acct => {
+        api.getFolders(acct).then(f => useStore.getState().setFolders(acct, f)).catch(() => {});
+      });
     }, UNDO_COMMIT_DELAY_MS));
 
     addNotification({
@@ -1456,6 +1495,7 @@ function MailboxList() {
     setSelectedIds(new Set());
     setSelectionModeActive(false);
     setShowFolderPicker(false);
+    setShowBulkMore(false);
     lastSelectIdxRef.current = -1;
   }, []);
 
@@ -2759,6 +2799,10 @@ function MailboxList() {
   const label = searchQuery.trim()
     ? `Search: "${searchQuery}"`
     : isSnoozedView ? t('sidebar.snoozed') : isUnified ? t('sidebar.allInboxes') : folderLabel;
+  // The scope note names the folder as the header does outside a search.
+  const searchScopeLabel = isSnoozedView ? t('sidebar.snoozed') : folderLabel;
+  // From Trash the note offers no widening: the server's all-folder search skips Trash.
+  const offerAllFolders = !allFolderSearchSkips(selectedFolderCounts, selectedFolder);
 
   const headerUnread = isSnoozedView && isUnified ? 0
     : isUnified ? unreadCounts.total
@@ -2789,6 +2833,28 @@ function MailboxList() {
   const bulkMarkAsRead = selectedMsgs.some(m => !m.is_read);
   const bulkMarkAsStarred = selectedMsgs.some(m => !m.is_starred);
   const bulkMoveAccount = accounts.find(a => a.id === selectedMsgs[0]?.account_id);
+  // The More menu offers Mark as spam, or Not spam when every selected message is in spam.
+  // An account whose folders have not loaded is unknown unless it maps a spam folder itself.
+  const bulkSpam = selectionSpamAction(selectedMsgs, acct => {
+    const account = accounts.find(a => a.id === acct);
+    if (!folders[acct] && !account?.folder_mappings?.spam) return null;
+    return spamFolderPaths(account, folders[acct]);
+  });
+  // Folder lists load with the sidebar only for expanded accounts, so in All Inboxes the
+  // selected accounts' lists are often missing. Load them when the menu opens.
+  useEffect(() => {
+    if (!showBulkMore) return;
+    const missing = [...new Set(selectedMsgs.map(m => m.account_id))].filter(acct => !useStore.getState().folders[acct]);
+    missing.forEach(acct => {
+      api.getFolders(acct).then(f => setFolders(acct, f)).catch(() => {});
+    });
+  }, [showBulkMore]); // eslint-disable-line react-hooks/exhaustive-deps
+  const handleBulkSpam = () => {
+    if (!bulkSpam.enabled) return;
+    setShowBulkMore(false);
+    performSpamLabel(selectedMsgs, bulkSpam.action);
+    clearSelection();
+  };
   // messages are the selected rows as shown: a thread row is its representative message, not
   // expanded to every member the way handleBulkMove expands it. A plugin that needs every member
   // resolves them itself.
@@ -3185,11 +3251,12 @@ function MailboxList() {
           </div>
         </div>
 
-        {/* Two-row form: sort + filter + page size + layout picker on their own row, wrapping when the
-            list is narrower still or the labels are long (#766) */}
+        {/* Two-row form: sort + filter + page size + layout picker on their own row. When they do not fit,
+            Sort drops its label if that is enough; otherwise the row breaks evenly, two per line (#766) */}
         {headerCompact && (
-          <div ref={headerFit.extraRef} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginBottom: 6 }}>
-            {sortable && <ListSortMenu accountId={selectedAccountId} folder={selectedFolder} />}
+          <div ref={headerFit.extraRef} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 4, rowGap: headerFit.secondRowBreak ? 0 : 4, marginBottom: 6 }}>
+            {/* Sort shows only its icon when that is what lets this row fit on one line */}
+            {sortable && <ListSortMenu accountId={selectedAccountId} folder={selectedFolder} iconOnly={headerFit.sortIconOnly} />}
             <button
               onClick={() => setUnreadOnly(!unreadOnly)}
               title={unreadOnly ? t('messageList.showAll') : t('messageList.unreadOnly')}
@@ -3204,6 +3271,9 @@ function MailboxList() {
             >
               {t('messageList.unread')}
             </button>
+            {/* Two per line rather than one control alone on a third (useHeaderControlsFit) */}
+            {/* The break is a line of its own, so it carries the 4px between the two lines (rowGap is 0 then) */}
+            {headerFit.secondRowBreak && <span data-row-break="" aria-hidden="true" style={{ flexBasis: '100%', height: 4 }} />}
             <select
               value={pageSize}
               onChange={e => setPageSize(parseInt(e.target.value))}
@@ -3744,6 +3814,31 @@ function MailboxList() {
           </div>
         )}
 
+        {/* Scope reminder while a folder-scoped search is active — recent matches
+            often live in other folders, which otherwise reads as broken search. */}
+        {searchQuery.trim() && searchFolder && !queryNamesSearchFolder(searchQuery) && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+            padding: '6px 14px', fontSize: 12, color: 'var(--text-tertiary)',
+            borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)',
+          }}>
+            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {t('messageList.searchScopeNote', { folder: searchScopeLabel })}
+            </span>
+            {offerAllFolders && (
+              <button
+                onClick={() => setSearchAllFolders(true)}
+                style={{
+                  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                  color: 'var(--accent)', fontSize: 12, flexShrink: 0,
+                }}
+              >
+                {t('sidebar.searchAllFolders')}
+              </button>
+            )}
+          </div>
+        )}
+
         {!loadingMessages && displayMessages.length === 0 && (
           <EmptyState
             folderSyncing={folderSyncing}
@@ -4058,8 +4153,50 @@ function MailboxList() {
               )}
             </div>
 
-            {/* Clear selection */}
-            <button
+            {/* More: actions that don't earn a button of their own */}
+            <div style={{ position: 'relative' }} ref={bulkMoreRef}>
+              <BulkBtn title={t('message.more')} expanded={showBulkMore} onClick={() => setShowBulkMore(v => !v)}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+                  <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+                </svg>
+              </BulkBtn>
+              {showBulkMore && (
+                <div role="menu" style={{
+                  position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 1000,
+                  background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                  borderRadius: 8, boxShadow: 'var(--shadow-popover)', minWidth: 190, overflow: 'hidden',
+                }}>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={!bulkSpam.enabled}
+                    title={bulkSpam.pending ? t('common.loading') : undefined}
+                    onClick={handleBulkSpam}
+                    onMouseEnter={e => { if (bulkSpam.enabled) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                      padding: isMobile ? '12px 14px' : '8px 12px', border: 'none', background: 'transparent',
+                      fontSize: 13, textAlign: 'left', whiteSpace: 'nowrap',
+                      color: bulkSpam.enabled ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                      cursor: bulkSpam.enabled ? 'pointer' : 'default',
+                    }}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+                      <path d="M12 3L4 7v5c0 5 3.5 9.3 8 10.3C16.5 21.3 20 17 20 12V7L12 3z"/>
+                      {bulkSpam.action === 'ham'
+                        ? <polyline points="9 12 11 14 15 10"/>
+                        : <><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></>}
+                    </svg>
+                    {bulkSpam.action === 'ham' ? t('contextMenu.markAsHam') : t('contextMenu.markAsSpam')}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Clear selection. A phone's header already shows Cancel during selection, and the
+                bar has no room to spare there. */}
+            {!isMobile && <button
               onClick={clearSelection}
               title={t('messageList.clearSelection')}
               style={{
@@ -4073,7 +4210,7 @@ function MailboxList() {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
               </svg>
-            </button>
+            </button>}
           </div>
         )}
 
@@ -5200,12 +5337,15 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
   );
 }
 
-function BulkBtn({ children, onClick, title, disabled, danger }) {
+function BulkBtn({ children, onClick, title, disabled, danger, expanded }) {
   const [hov, setHov] = useState(false);
   return (
     <button
       onClick={onClick}
       title={title}
+      aria-label={title}
+      aria-haspopup={expanded === undefined ? undefined : 'menu'}
+      aria-expanded={expanded}
       disabled={disabled}
       onMouseEnter={() => { if (!disabled) setHov(true); }}
       onMouseLeave={() => setHov(false)}

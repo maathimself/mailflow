@@ -13,11 +13,11 @@ import FolderPathLabel from './FolderPathLabel.jsx';
 import { buildMovePickerSections, movePickerSectionHeading, movePickerFoldersEmpty, runMovePickerAction } from '../utils/folderDisplay.js';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { spamFolderPaths as spamFolderPathsFor } from '../utils/spamFolders.js';
 
 // Module-level regex — spam-name heuristic shared with MessagePane.jsx so
 // it isn't recompiled on every render. Mirrors resolveAllSpamPaths on the
 // backend; keep these three in sync when adding a new locale.
-const SPAM_NAME_RE = /(spam|junk|bulk|indesiderata|spamverdacht|courrier\s*ind|posta\s*indesiderata)/i;
 
 // ─── Context Menu ─────────────────────────────────────────────────────────────
 const CATEGORIES = ['primary', 'newsletter', 'promotion', 'automated', 'social'];
@@ -59,17 +59,8 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   const isMessagePane = variant === 'messagePane';
   const hasSelectedText = Boolean(String(selectedText || '').trim());
 
-  // A folder is "spam-like" when either the user mapped it as spam or the IMAP
-  // server tagged it with \Junk special-use. Falls back to a multilingual name
-  // heuristic so unconfigured accounts still get sensible context-menu items.
-  // Mirrors resolveAllSpamPaths on the backend so server and client agree.
-  const spamFolderPaths = (() => {
-    const mapped = account?.folder_mappings?.spam;
-    if (mapped) return new Set([mapped]);
-    return new Set(accountFolders.filter(f =>
-      f.special_use === '\\Junk' || SPAM_NAME_RE.test(f.name || '')
-    ).map(f => f.path));
-  })();
+  // Spam-like folders: the user's mapping, \Junk special-use, or a name match (spamFolders.js).
+  const spamFolderPaths = spamFolderPathsFor(account, accountFolders);
   const inSpamFolder = spamFolderPaths.has(message.folder);
 
   // Adjust position to stay within viewport. The menu's height changes after
