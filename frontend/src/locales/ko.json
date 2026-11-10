@@ -512,6 +512,7 @@
     "searching": "검색 중…",
     "clearSearch": "검색 지우기",
     "noSearchResultsDesc": "{{query}}에 대한 결과가 없습니다.",
+    "searchScopeNote": "\"{{folder}}\" 폴더에서만 검색 중",
     "searchHelp": {
       "isUnread": "읽지 않은 것만",
       "hasAttachment": "첨부파일 있음",

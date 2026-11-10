@@ -1,6 +1,7 @@
 // MessageList's search states (#592): a search still waiting for its response says so instead of
 // "no results", and a response that arrives after the query was cleared, or after the account
-// or folder changed, is dropped. Harness as MessageList.render.test.js.
+// or folder changed, is dropped. Then the note a folder-scoped search shows above its results.
+// Harness as MessageList.render.test.js.
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,7 +14,7 @@ registerHooks({
   load(url, context, nextLoad) {
     if (url.endsWith('react-i18next/dist/es/index.js') || url.endsWith('/react-i18next')) {
       return { format: 'module', shortCircuit: true, source: [
-        'export const useTranslation = () => ({ t: (k, d) => (typeof d === "string" ? d : d?.defaultValue ?? k), i18n: { language: "en", changeLanguage: () => {} } });',
+        'export const useTranslation = () => ({ t: (k, d) => (typeof d === "string" ? d : d?.defaultValue ?? (d && Object.keys(d).length ? k + " " + JSON.stringify(d) : k)), i18n: { language: "en", changeLanguage: () => {} } });',
         'export const initReactI18next = { type: "3rdParty", init: () => {} };',
         'export const Trans = ({ children }) => children ?? null;',
         'export const I18nextProvider = ({ children }) => children ?? null;',
@@ -303,5 +304,68 @@ describe('MessageList replacement search feedback', () => {
     assert.doesNotMatch(text(), /messageList\.pageOf|messageList\.nextPage/);
     await settle();
     await respond({ messages: [] });
+  });
+});
+
+describe('MessageList search scope note', () => {
+  const note = () => text().match(/messageList\.searchScopeNote \{"folder":"([^"]*)"\}/)?.[1] ?? null;
+  const allFoldersButton = () => [...container().querySelectorAll('button')].find(b => b.textContent === 'sidebar.searchAllFolders');
+  const drain = async () => { await settle(); while (pending.length) await respond({ messages: [] }); };
+
+  test('names the open folder as the header does, and its button widens the search', async () => {
+    await mount();
+    await React.act(async () => useStore.setState({
+      selectedFolder: 'INBOX.Sent',
+      folders: { 'acct-1': [{ path: 'INBOX', name: 'INBOX' }, { path: 'INBOX.Sent', name: 'Sent', special_use: '\\Sent' }] },
+    }));
+    assert.equal(note(), null, 'no note without a query');
+    await search('Synthetic');
+    assert.equal(note(), 'Sent', 'the role folder by its display name, not its path');
+    await settle();
+    assert.match(await respond({ messages: [hit('scoped')] }), /folder=INBOX\.Sent/);
+    assert.equal(note(), 'Sent', 'the note stays above the results');
+    assert.ok(allFoldersButton(), 'a Search all folders button');
+    await React.act(async () => { allFoldersButton().click(); });
+    assert.equal(useStore.getState().searchAllFolders, true, 'the same switch as the sidebar');
+    assert.equal(note(), null, 'no note once the search spans every folder');
+    await settle();
+    assert.doesNotMatch(await respond({ messages: [hit('anywhere')] }), /folder=/);
+    await React.act(async () => useStore.getState().setSearchAllFolders(false));
+    await drain();
+  });
+
+  test('stays away when the query names its own folder, and in the unified view', async () => {
+    await mount();
+    await search('in:all Synthetic');
+    assert.equal(note(), null, 'in:all makes the server search every folder');
+    await drain();
+    await search('Synthetic in:sent');
+    assert.equal(note(), null, 'in:sent picks the folder itself');
+    await drain();
+    await search('Synthetic');
+    assert.equal(note(), 'INBOX');
+    await React.act(async () => useStore.setState({ selectedAccountId: null }));
+    assert.equal(note(), null, 'the unified view already searches every folder');
+    await drain();
+  });
+
+  test('keeps the button out of Trash, which an all-folder search leaves out', async () => {
+    await mount();
+    await React.act(async () => useStore.setState({
+      selectedFolder: 'INBOX.Trash',
+      folders: { 'acct-1': [{ path: 'INBOX', name: 'INBOX' }, { path: 'INBOX.Trash', name: 'Trash', special_use: '\\Trash' }] },
+    }));
+    await search('Synthetic');
+    assert.equal(note(), 'Trash', 'the search is still scoped, so the note stays');
+    assert.ok(!allFoldersButton(), 'no button: the server skips Trash when it searches every folder');
+    await drain();
+    // The route skips a folder by name too, flagged or not.
+    await React.act(async () => useStore.setState({
+      selectedFolder: 'Deleted Items',
+      folders: { 'acct-1': [{ path: 'INBOX', name: 'INBOX' }, { path: 'Deleted Items', name: 'Deleted Items' }] },
+    }));
+    assert.equal(note(), 'Deleted Items');
+    assert.ok(!allFoldersButton(), 'an unflagged "Deleted Items" is skipped by name');
+    await drain();
   });
 });

@@ -525,6 +525,7 @@
     "noSearchResults": "Nie znaleziono wyników",
     "searching": "Wyszukiwanie…",
     "noSearchResultsDesc": "Brak wyników dla {{query}}",
+    "searchScopeNote": "Wyszukiwanie tylko w „{{folder}}”",
     "searchFailed": "Wyszukiwanie nie powiodło się",
     "clearSearch": "Wyczyść wyszukiwanie",
     "searchHelp": {
