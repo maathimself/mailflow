@@ -1659,6 +1659,8 @@ describe('AI writing actions and the signature toggle', () => {
         await React.act(async () => { toggle.click(); });
         assert.equal(toggle.getAttribute('aria-pressed'), 'false');
       }
+      const more = document.querySelector('button[aria-label="message.more"]');
+      if (more?.getAttribute('aria-expanded') === 'false') await mouseDown(more);
       const aiButton = document.querySelector('button[title="compose.toolbar.aiAssist"]');
       assert.ok(aiButton, 'precondition: the AI actions are enabled');
       await mouseDown(aiButton);
