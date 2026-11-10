@@ -203,10 +203,10 @@ public class MailFlowOidcFlowTest {
     }
 
     @Test
-    public void blockedRedirectReturnsAnErrorForBothLoginAndLinking() throws Exception {
-        for (String action : new String[] { "login", "link" }) {
+    public void blockedRedirectReturnsAnErrorForEveryAction() throws Exception {
+        for (String action : new String[] { "login", "link", "reauth" }) {
             evaluate(appView, "location.href='/auth/oidc/company/start?action=" + action + "&blocked=1'");
-            waitForScript("location.search.includes('oidc_error=') && location.pathname === '" + (action.equals("link") ? "/" : "/login") + "'");
+            waitForScript("location.search.includes('oidc_error=') && location.pathname === '" + (action.equals("login") ? "/login" : "/") + "'");
         }
     }
 
@@ -234,14 +234,14 @@ public class MailFlowOidcFlowTest {
         serving.setDaemon(true);
         serving.start();
         String provider = "https://127.0.0.1:" + tlsServer.getLocalPort();
-        for (String action : new String[] { "login", "link" }) {
+        for (String action : new String[] { "login", "link", "reauth" }) {
             instrumentation.runOnMainSync(() -> MailFlowOidcLogin.open(activity, appView, host, host + "/provider?action=" + action));
             WebView login = waitForLoginView();
             waitForScript(login, "document.readyState === 'complete' && location.pathname === '/provider'");
             evaluate(login, "window.imageFailed=false; var img=new Image(); img.onerror=()=>window.imageFailed=true; img.src='" + provider + "/image'; document.body.append(img)");
             waitForScript(login, "window.imageFailed === true");
             evaluate(login, "location.href='" + provider + "/login'");
-            waitForScript("location.search.includes('oidc_error=') && location.pathname === '" + (action.equals("link") ? "/" : "/login") + "'");
+            waitForScript("location.search.includes('oidc_error=') && location.pathname === '" + (action.equals("login") ? "/login" : "/") + "'");
             assertLoginClosed();
         }
     }
