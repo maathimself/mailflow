@@ -588,6 +588,7 @@ describe('deleteReconciledMessageRows', () => {
     try {
       expect(await deleteReconciledMessageRows(account, 'Delegated', [41, 42], reconcileStartedAt)).toBe(2);
       expect(query.mock.calls[0][0]).toContain('RETURNING thread_key');
+      expect(query.mock.calls[1][0]).toContain('UPDATE folders f');
       expect(runHook).toHaveBeenCalledWith('messageRowsDeleted', {
         account,
         folder: 'Delegated',
@@ -710,6 +711,31 @@ describe('removeMessageCopy hook', () => {
 });
 
 describe('syncFolderOnDemand coalescing', () => {
+  it.each([false, true])('bounds a stuck claim wait (freshAfterActive=%s) without releasing its owner', async freshAfterActive => {
+    vi.useFakeTimers();
+    const mgr = new ImapManager({ clients: new Set() });
+    vi.clearAllTimers();
+    const acct = { id: 'stuck-claim', user_id: 'u' };
+    const sync = vi.spyOn(mgr, '_syncFolderOnDemandNow').mockResolvedValue();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      mgr.pluginFacade.tryClaimFolderSync(acct.id, 'Todo');
+      const entry = mgr.onDemandSyncing.get(`${acct.id}:Todo`);
+      let settled = false;
+      const waiting = mgr.pluginFacade.syncFolderOnDemand(acct, 'Todo', { freshAfterActive }).then(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(settled).toBe(true);
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/active folder sync.*timeout/i));
+      expect(mgr.onDemandSyncing.get(`${acct.id}:Todo`)).toBe(entry);
+      expect(sync).not.toHaveBeenCalled();
+      expect(mgr.pluginFacade.tryClaimFolderSync(acct.id, 'Todo')).toBe(false);
+      mgr.pluginFacade.releaseFolderSync(acct.id, 'Todo');
+      await waiting;
+      await mgr.syncFolderOnDemand(acct, 'Todo');
+      expect(sync).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); vi.restoreAllMocks(); }
+  });
+
   it('waits for an already claimed folder sync instead of reporting completion early', async () => {
     const mgr = new ImapManager({ clients: new Set() });
     const acct = { id: 'acct-1', user_id: 'user-1', email_address: 'user@example.test' };
@@ -731,7 +757,7 @@ describe('syncFolderOnDemand coalescing', () => {
     expect(mgr.pluginFacade.tryClaimFolderSync(acct.id, 'Delegated')).toBe(true);
     const syncNow = vi.spyOn(mgr, '_syncFolderOnDemandNow').mockResolvedValue(undefined);
 
-    const waiting = mgr.syncFolderOnDemand(acct, 'Delegated', { freshAfterActive: true });
+    const waiting = mgr.pluginFacade.syncFolderOnDemand(acct, 'Delegated', { freshAfterActive: true });
     await Promise.resolve();
     expect(syncNow).not.toHaveBeenCalled();
     mgr.pluginFacade.releaseFolderSync(acct.id, 'Delegated');
@@ -3181,6 +3207,26 @@ describe('syncFolders pruning', () => {
     expect(del[1]).toEqual(['acct-1', ['Newsletter']]);
   });
 
+  it('notifies plugins only for the returned rows, grouped by removed folder', async () => {
+    query.mockImplementation(async sql => {
+      if (sql.includes('DELETE FROM folders')) return { rows: [{ path: 'Todo' }, { path: 'Delegated' }, { path: 'Empty' }] };
+      if (sql.includes('DELETE FROM messages')) return { rows: [
+        { folder: 'Todo', thread_key: 'a' }, { folder: 'Todo', thread_key: 'a' },
+        { folder: 'Todo', thread_key: null }, { folder: 'Delegated', thread_key: 'b' },
+      ], rowCount: 4 };
+      return { rows: [] };
+    });
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    try {
+      await ImapManager.prototype.syncFolders.call({}, account, { list: async () => [{ path: 'INBOX' }] });
+      expect(query.mock.calls.find(([sql]) => sql.includes('DELETE FROM messages'))[0]).toContain('RETURNING folder, thread_key');
+      expect(hook.mock.calls.filter(([name]) => name === 'messageRowsDeleted')).toEqual([
+        ['messageRowsDeleted', { account, folder: 'Todo', threadKeys: ['a'] }],
+        ['messageRowsDeleted', { account, folder: 'Delegated', threadKeys: ['b'] }],
+      ]);
+    } finally { hook.mockRestore(); }
+  });
+
   it('touches no message rows when no folder was pruned', async () => {
     query.mockImplementation(async () => ({ rows: [], rowCount: 0 }));
     const client = { list: vi.fn().mockResolvedValue([{ path: 'INBOX', name: 'INBOX', delimiter: '/' }]) };
@@ -4239,6 +4285,21 @@ describe('folder integrity reconciliation safety', () => {
     expect(deletion[1][2]).toEqual([1]);
     expect(deletion[0]).toContain('uid_validity=$5');
   });
+  it('reports only rows returned by the integrity delete, after recounting', async () => {
+    const { mgr } = setup([]);
+    query.mockImplementation(async sql => {
+      if (sql.startsWith('SELECT uid,')) return { rows: [{ uid: '1' }, { uid: '2' }] };
+      if (sql.startsWith('DELETE')) return { rows: [{ thread_key: 'actual' }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockImplementation(async name => {
+      if (name === 'messageRowsDeleted') expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE folders f'))).toBe(true);
+    });
+    await mgr._refreshObservedFolder(acct, 'Sent', observed);
+    expect(hook).toHaveBeenCalledWith('messageRowsDeleted', { account: acct, folder: 'Sent', threadKeys: ['actual'] });
+    expect(query.mock.calls.find(([sql]) => sql.startsWith('DELETE'))[0]).toContain('RETURNING thread_key');
+  });
+
   it('backs off unresolved membership without blocking other folders or advancing a checkpoint', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     const { mgr } = setup([]);
@@ -6779,6 +6840,17 @@ describe('server copy identity checks', () => {
     expect(client.messageDelete).not.toHaveBeenCalled();
   });
 
+  it('requests a fresh post-copy pass for a non-UIDPLUS copy', async () => {
+    const { mgr, account, client } = arrange(new Map());
+    client.messageCopy = vi.fn().mockResolvedValue({});
+    const sync = vi.spyOn(mgr, 'syncFolderOnDemand').mockResolvedValue();
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    try {
+      expect(await mgr.copyMessage(account.id, 7, 'INBOX', 'Todo')).toBeNull();
+      expect(sync).toHaveBeenCalledWith(account, 'Todo', { freshAfterActive: true });
+    } finally { hook.mockRestore(); }
+  });
+
   it('rolls back a server copy if inserting its local row fails', async () => {
     const { mgr, account, client } = arrange(new Map());
     const insertError = new Error('insert failed');
@@ -7537,5 +7609,44 @@ describe('snippet indexer batches (#768)', () => {
     const { client } = server({ 1: plain }, { drop: true });
     await expect(fetchSnippetBatch(client, [1], async () => {})).rejects.toThrow('Connection not available');
     await expect(fetchSnippetBatch(client, [1], async () => {}, { structureFirst: true })).rejects.toThrow('Connection not available');
+  });
+});
+
+
+describe('UIDVALIDITY purge notifications', () => {
+  afterEach(() => vi.restoreAllMocks());
+  it.each(['sync', 'backfill'])('%s reports returned thread keys after recounting the purged folder', async mode => {
+    const acct = { ...baseAccount, id: `purge-${mode}`, user_id: 'fixture-user', enabled: true };
+    const client = Object.assign(new EventEmitter(), {
+      usable: true, connect: vi.fn().mockResolvedValue(), close: vi.fn(),
+      noop: vi.fn().mockResolvedValue(), logout: vi.fn().mockResolvedValue(),
+      mailbox: { exists: 1, uidValidity: 8n },
+      getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+      search: vi.fn().mockResolvedValue([]), fetch: async function* () {},
+    });
+    ImapFlow.mockImplementation(function () { return client; });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    query.mockReset().mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts')) return { rows: [acct] };
+      if (sql.includes('COUNT(') || sql.includes('MAX(uid)')) return { rows: [{ n: '0', count: '0', max_uid: 0 }] };
+      if (sql.includes('SELECT uid_validity')) return { rows: [{ uid_validity: '7' }] };
+      if (sql.startsWith('DELETE FROM messages')) return { rowCount: 3, rows: [
+        { thread_key: 'removed' }, { thread_key: 'removed' }, { thread_key: null },
+      ] };
+      return { rows: [], rowCount: 0 };
+    });
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockImplementation(async name => {
+      if (name === 'messageRowsDeleted') expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE folders f'))).toBe(true);
+      return [];
+    });
+    const mgr = new ImapManager({ clients: new Set() });
+    vi.spyOn(mgr, 'broadcast').mockImplementation(() => {});
+    if (mode === 'sync') {
+      vi.spyOn(mgr, 'backfillMessages').mockResolvedValue();
+      await mgr.syncMessages(acct, client, 'Todo', 20, false);
+    } else await mgr.backfillMessages(acct, 'Todo');
+    expect(hook).toHaveBeenCalledWith('messageRowsDeleted', { account: acct, folder: 'Todo', threadKeys: ['removed'] });
+    expect(query.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM messages'))[0]).toContain('RETURNING thread_key');
   });
 });

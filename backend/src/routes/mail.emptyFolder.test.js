@@ -4,12 +4,13 @@ vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: (req, _res, next) => { req.session = { userId: 'user-1' }; next(); },
 }));
-vi.mock('../index.js', () => ({ imapManager: { emptyFolder: vi.fn(), broadcast: vi.fn() } }));
+vi.mock('../index.js', () => ({ imapManager: { emptyFolder: vi.fn(), deleteFolder: vi.fn(), broadcast: vi.fn() } }));
 
 import express from 'express';
 import mailRoutes from './mail.js';
 import { query } from '../services/db.js';
 import { imapManager } from '../index.js';
+import { pluginRegistry } from '../plugins/registry.js';
 
 const ACCOUNT_ID = 'c3c3c3c3-3333-4333-8333-c3c3c3c3c3c3';
 const ACCOUNT = { id: ACCOUNT_ID, user_id: 'user-1' };
@@ -51,6 +52,30 @@ describe('POST /api/mail/folders/empty — async background empty', () => {
     expect(clearedDb()).toBe(true);
     expect(emittedType('folder_emptied')?.ok).toBe(true);
     expect(emittedType('sync_complete')).toBeTruthy();
+  });
+
+  it.each(['empty', 'delete'])('%s notifies only actual deleted keys after updating folder counts', async action => {
+    imapManager.emptyFolder.mockResolvedValue();
+    imapManager.deleteFolder.mockResolvedValue();
+    query.mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts WHERE id = $1 AND user_id = $2')) return { rows: [ACCOUNT] };
+      if (sql.startsWith('DELETE FROM messages')) return { rows: [{ thread_key: 'deleted' }, { thread_key: 'deleted' }, { thread_key: null }] };
+      return { rows: [] };
+    });
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockImplementation(async name => {
+      if (name === 'messageRowsDeleted') expect(query.mock.calls.some(([sql]) => action === 'empty'
+        ? sql.startsWith('UPDATE folders SET total_count = 0') : sql.startsWith('DELETE FROM folders'))).toBe(true);
+    });
+    try {
+      const response = await fetch(`${base}/api/mail/folders/${action}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: ACCOUNT_ID, path: 'Todo' }),
+      });
+      expect(response.status).toBe(action === 'empty' ? 202 : 200);
+      await tick();
+      expect(hook).toHaveBeenCalledWith('messageRowsDeleted', { account: ACCOUNT, folder: 'Todo', threadKeys: ['deleted'] });
+      expect(query.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM messages'))[0]).toContain('RETURNING thread_key');
+    } finally { hook.mockRestore(); }
   });
 
   it('leaves the DB rows intact and reports failure when the IMAP empty throws', async () => {

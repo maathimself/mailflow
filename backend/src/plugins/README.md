@@ -74,8 +74,12 @@ A plugin exports a manifest (see `gtd/index.js`): `{ id, name, version, tier, ro
 Core mounts the router and fires the hooks through the registry — core never calls a plugin directly.
 `hooks` are the plugin's halves of generic core events (e.g. `inboxIngest`, `afterLabelCopy`,
 `onSentMessage`, `validateAccountSettings`, `enrichAccount`, …); `sync` is an optional periodic tick.
-`messageRowsDeleted` receives `{ account, folder, threadKeys }` when reconciliation removes rows;
+`messageRowsDeleted` receives `{ account, folder, threadKeys }` when reconciliation, a UIDVALIDITY purge, or folder removal deletes cached rows;
 `afterLabelRemove` includes the removed copy’s `threadKey`.
+`syncFolderOnDemand(account, folder, { freshAfterActive: true })` requests a new pass after an
+older folder sync settles, for example after a non-UIDPLUS COPY. Waiting on an active owner is
+bounded to 30 seconds; a timeout warns and returns without releasing that owner's claim or
+starting a competing pass. Freshness then falls back to the next periodic sync.
 
 ### Data
 

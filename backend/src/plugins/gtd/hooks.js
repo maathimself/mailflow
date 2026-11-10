@@ -146,7 +146,7 @@ export async function gtdSyncTick({ mgr, account }) {
 // Gated on gtd_enabled; transition failures are debug-level. Uses only generic mgr primitives
 // (syncFolderOnDemand, broadcast) plus GTD's own DB read + transition engine.
 export function emitAfterDeferredCopySync(mgr, account, toFolder, srcUid, fromFolder) {
-  return mgr.syncFolderOnDemand(account, toFolder)
+  return mgr.syncFolderOnDemand(account, toFolder, { freshAfterActive: true })
     .then(async () => {
       mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
       if (!(await getGtdConfig(account.id)).enabled) return;

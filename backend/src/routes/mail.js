@@ -7,7 +7,7 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { extractImapError } from '../services/imapError.js';
-import { isConnectionRefusal } from '../services/imapManager.js';
+import { isConnectionRefusal, notifyMessageRowsDeleted } from '../services/imapManager.js';
 import { CARRIED_COLUMNS, rememberDroppedRows } from '../services/movedRowCarry.js';
 import { stripEmailHead, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs, splitDarkScheme, proxyRemoteImages, remoteImageRefs } from '../services/emailSanitizer.js';
 import { imageProxyPath, proxyWidth, fetchProxiedImage, createUserLimiter } from '../services/imageProxy.js';
@@ -1312,7 +1312,8 @@ router.post('/folders/delete', async (req, res) => {
     return res.status(500).json({ error: 'Failed to delete folder on server' });
   }
   await query('DELETE FROM folders WHERE account_id = $1 AND path = $2', [accountId, path]);
-  await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [accountId, path]);
+  const deleted = await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2 RETURNING thread_key', [accountId, path]);
+  await notifyMessageRowsDeleted(account, deleted.rows, path);
   res.json({ ok: true });
 });
 
@@ -1419,11 +1420,12 @@ router.post('/folders/empty', async (req, res) => {
   (async () => {
     try {
       await imapManager.emptyFolder(account, path);
-      await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [accountId, path]);
+      const deleted = await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2 RETURNING thread_key', [accountId, path]);
       await query(
         'UPDATE folders SET total_count = 0, unread_count = 0 WHERE account_id = $1 AND path = $2',
         [accountId, path]
       );
+      await notifyMessageRowsDeleted(account, deleted.rows, path);
       imapManager.broadcast({ type: 'folder_emptied', accountId, folder: path, ok: true }, account.user_id);
       imapManager.broadcast({ type: 'sync_complete', accountId }, account.user_id);
     } catch (err) {

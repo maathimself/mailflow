@@ -143,7 +143,7 @@ describe('gtd hooks — emitAfterDeferredCopySync', () => {
     const mgr = { syncFolderOnDemand: vi.fn().mockResolvedValue(undefined), broadcast: vi.fn() };
     const account = { id: 'acct-1', user_id: 'user-1' }; // gtd_enabled falsy → no transition re-run
     await emitAfterDeferredCopySync(mgr, account, 'Todo', 100, 'INBOX');
-    expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(account, 'Todo');
+    expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(account, 'Todo', { freshAfterActive: true });
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'acct-1' }, 'user-1');
     expect(runGtdTransitions).not.toHaveBeenCalled();
   });
@@ -193,7 +193,7 @@ describe('gtd hooks — afterLabelCopy / afterLabelRemove', () => {
     const account = { id: 'a1', user_id: 'u1' };
     await afterLabelCopy({ mgr, account, toFolder: 'Todo', fromFolder: 'INBOX', srcUid: 5, newUid: null });
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'a1' }, 'u1');
-    expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(account, 'Todo');
+    expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(account, 'Todo', { freshAfterActive: true });
   });
 
   it('afterLabelRemove broadcasts the section refresh', async () => {

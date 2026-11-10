@@ -1724,6 +1724,40 @@ export async function rollbackCopiedMessageOnInsertFailure(
   throw insertError;
 }
 
+async function recountFolderRows(accountId, folder) {
+  await query(
+    `UPDATE folders f
+     SET total_count  = (SELECT COUNT(*) FROM messages m WHERE m.account_id = $1 AND m.folder = $2),
+         unread_count = (SELECT COUNT(*) FILTER (WHERE m.is_read = false)
+                         FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
+     WHERE f.account_id = $1 AND f.path = $2`,
+    [accountId, folder]
+  );
+}
+
+export async function notifyMessageRowsDeleted(account, rows, folder) {
+  const byFolder = new Map();
+  for (const row of rows) {
+    if (!row.thread_key) continue;
+    const path = folder ?? row.folder;
+    if (!byFolder.has(path)) byFolder.set(path, new Set());
+    byFolder.get(path).add(row.thread_key);
+  }
+  for (const [path, keys] of byFolder) {
+    await pluginRegistry.runHook('messageRowsDeleted', { account, folder: path, threadKeys: [...keys] });
+  }
+}
+
+async function purgeFolderMessageRows(account, folder) {
+  const deleted = await query(
+    'DELETE FROM messages WHERE account_id = $1 AND folder = $2 RETURNING thread_key',
+    [account.id, folder]
+  );
+  await recountFolderRows(account.id, folder);
+  await notifyMessageRowsDeleted(account, deleted.rows, folder);
+  return deleted;
+}
+
 // Delete the rows identified by reconcileDeletes' IMAP snapshot and report their thread keys to
 // plugins. RETURNING makes the hook reflect only rows that survived the cutoff re-check, not every
 // candidate from the earlier SELECT.
@@ -1735,10 +1769,8 @@ export async function deleteReconciledMessageRows(account, folder, orphanUids, r
      RETURNING thread_key`,
     [account.id, folder, orphanUids, reconcileStartedAt]
   );
-  const threadKeys = [...new Set(deleted.rows.map(row => row.thread_key).filter(Boolean))];
-  if (threadKeys.length > 0) {
-    await pluginRegistry.runHook('messageRowsDeleted', { account, folder, threadKeys });
-  }
+  await recountFolderRows(account.id, folder);
+  await notifyMessageRowsDeleted(account, deleted.rows, folder);
   return deleted.rowCount ?? deleted.rows.length;
 }
 
@@ -4822,7 +4854,9 @@ export class ImapManager {
             : [];
           if (expired) throw new Error('Folder integrity sync expired');
           if (gone.length) {
-            await query('DELETE FROM messages WHERE account_id=$1 AND folder=$2 AND uid=ANY($3::bigint[]) AND (synced_at IS NULL OR synced_at < $4) AND EXISTS (SELECT 1 FROM folders WHERE account_id=$1 AND path=$2 AND uid_validity=$5)', [account.id, path, gone, cutoff, String(observed.uidValidity)]);
+            const deleted = await query('DELETE FROM messages WHERE account_id=$1 AND folder=$2 AND uid=ANY($3::bigint[]) AND (synced_at IS NULL OR synced_at < $4) AND EXISTS (SELECT 1 FROM folders WHERE account_id=$1 AND path=$2 AND uid_validity=$5) RETURNING thread_key', [account.id, path, gone, cutoff, String(observed.uidValidity)]);
+            await recountFolderRows(account.id, path);
+            await notifyMessageRowsDeleted(account, deleted.rows, path);
           }
           if (changed || gone.length) {
             this.broadcast({ type: 'flags_synced', accountId: account.id }, account.user_id);
@@ -4897,9 +4931,10 @@ export class ImapManager {
         if (pruned.rows.length) {
           const paths = pruned.rows.map(r => r.path);
           const dropped = await query(
-            'DELETE FROM messages WHERE account_id = $1 AND folder = ANY($2)',
+            'DELETE FROM messages WHERE account_id = $1 AND folder = ANY($2) RETURNING folder, thread_key',
             [account.id, paths]
           );
+          await notifyMessageRowsDeleted(account, dropped.rows);
           console.log(`Folder sync for ${logAccount(account)}: dropped ${paths.length} folder(s) no longer on the server (${paths.join(', ')}) and ${dropped.rowCount} cached message(s)`);
         }
       }
@@ -4964,7 +4999,7 @@ export class ImapManager {
           }
         },
         // With this account's full row, which the pool needs to log in.
-        syncFolderOnDemand: (_acct, folder) => this.syncFolderOnDemand(account, folder),
+        syncFolderOnDemand: (_acct, folder, options) => this.syncFolderOnDemand(account, folder, options),
         broadcast: (...args) => this.broadcast(...args),
         _guardMoveUid: (...args) => this._guardMoveUid(...args),
         _unguardMoveUid: (...args) => this._unguardMoveUid(...args),
@@ -5011,7 +5046,7 @@ export class ImapManager {
             uidValidityChanged = true;
             recordSyncSignal('uidvalidity_change', { accountId: account.id });
             console.warn(`UIDVALIDITY changed for ${logAccount(account)}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages and re-backfilling.`);
-            const purged = await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [account.id, folder]);
+            const purged = await purgeFolderMessageRows(account, folder);
             // The stored modseq belongs to the OLD UIDVALIDITY epoch and is no longer
             // comparable — clear it so the next sync re-seeds cleanly from the new epoch.
             await query('UPDATE folders SET highest_modseq = NULL WHERE account_id = $1 AND path = $2', [account.id, folder]);
@@ -5720,7 +5755,7 @@ export class ImapManager {
             const storedValidity = foldRow.rows[0]?.uid_validity ? Number(foldRow.rows[0].uid_validity) : null;
             if (storedValidity !== null && storedValidity !== currentValidity) {
               console.warn(`Backfill: UIDVALIDITY changed for ${logAccount(account)}/${folder}: ${storedValidity} → ${currentValidity}. Purging stale messages.`);
-              const purged = await query('DELETE FROM messages WHERE account_id = $1 AND folder = $2', [account.id, folder]);
+              const purged = await purgeFolderMessageRows(account, folder);
               // Same GTD section-data staleness gap as the syncMessages purge path.
               await emitSectionsChanged(this.pluginFacade, account, purged.rowCount);
             }
@@ -6897,7 +6932,14 @@ export class ImapManager {
     const active = this.onDemandSyncing.get(key);
     if (active) {
       console.log(`syncFolderOnDemand waiting (already running): ${logAccount(account)}/${folder}`);
-      await active.promise;
+      try {
+        await raceTimeout(active.promise, 30000, 'Active folder sync');
+      } catch (err) {
+        // A timed-out owner may still be writing. Leave its claim intact rather than start a
+        // competing sync; callers can proceed and the next periodic sync will retry freshness.
+        console.warn(`Active folder sync wait failed for ${logAccount(account)}/${folder}: ${err.message}`);
+        return;
+      }
       if (!freshAfterActive) return;
       // A sync that started before a non-UIDPLUS COPY may not have observed the new destination
       // row. Once that older owner settles, take a new claim and perform one post-copy pass.
@@ -8008,7 +8050,7 @@ export class ImapManager {
       // Servers without UIDPLUS confirm COPY but cannot name its destination UID.
       // Pull the target so ordinary folders (which have no label plugin hook)
       // gain their local sibling row without waiting for the next backfill.
-      this.syncFolderOnDemand(account, toFolder)
+      this.syncFolderOnDemand(account, toFolder, { freshAfterActive: true })
         .catch(err => console.warn(`Post-copy folder sync failed: ${err.message}`));
       return null;
     }
@@ -8814,16 +8856,6 @@ export class ImapManager {
       // Re-assert the cutoff in the DELETE: a row updated to a fresh synced_at between
       // the SELECT above and here (e.g. a concurrent bulk-move reinsert) is spared.
       const deletedHere = await deleteReconciledMessageRows(account, folder, orphanUids, reconcileStartedAt);
-      // Resync cached folder counts from actual row data — reconcile deletes rows
-      // without going through adjustFolderCounts, so counts would otherwise drift.
-      await query(
-        `UPDATE folders f
-         SET total_count  = (SELECT COUNT(*)              FROM messages m WHERE m.account_id = $1 AND m.folder = $2),
-             unread_count = (SELECT COUNT(*) FILTER (WHERE m.is_read = false)
-                                             FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
-         WHERE f.account_id = $1 AND f.path = $2`,
-        [account.id, folder]
-      );
       deletedCount += deletedHere;
     }
 
