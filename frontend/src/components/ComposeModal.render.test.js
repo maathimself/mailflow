@@ -1113,6 +1113,8 @@ describe('Reply with AI', () => {
     });
   }
   async function openAiMenu() {
+    const more = document.querySelector('button[aria-label="message.more"]');
+    if (more?.getAttribute('aria-expanded') === 'false') await press(more);
     await press(document.querySelector('button[title="compose.toolbar.aiAssist"]'));
   }
   async function mount(composeData) {
