@@ -8,7 +8,7 @@ vi.mock('../middleware/auth.js', () => ({
 vi.mock('../index.js', () => ({
   imapManager: {
     _guardMoveUid: vi.fn(), _unguardMoveUid: vi.fn(), moveMessage: vi.fn(),
-    permanentDeleteMessage: vi.fn(), bulkPermanentDelete: vi.fn(), syncFolderOnDemand: vi.fn(),
+    permanentDeleteMessage: vi.fn(), bulkPermanentDelete: vi.fn(), bulkMoveMessages: vi.fn(), syncFolderOnDemand: vi.fn(),
     broadcast: vi.fn(), scheduleCountRefresh: vi.fn(),
   },
 }));
@@ -58,7 +58,7 @@ function reset({ trash = {}, withUidplus = true, folder = 'INBOX' } = {}) {
 // evaluating each query against them, as Postgres would.
 const folderRow = (path, special_use = null) => ({ path, name: path.split('/').pop(), delimiter: '/', special_use });
 const FOLDERS = [
-  folderRow('INBOX'), folderRow('Trash', '\\Trash'), folderRow('Drafts', '\\Drafts'),
+  folderRow('INBOX'), folderRow('Trash', '\\Trash'), folderRow('Drafts', '\\Drafts'), folderRow('Archive', '\\Archive'),
   folderRow('Blog drafts'), folderRow('Deleted clients'), folderRow('Clients/Drafts'), folderRow('Old Account/Trash'),
 ];
 
@@ -90,7 +90,9 @@ function folderCondition(text) {
 }
 
 function selectFolders(rawSql, folders) {
-  const sql = rawSql.replace(/\s+/g, ' ').trim();
+  // These fixtures have a single archive candidate; fold its secondary name rank.
+  const sql = rawSql.replace(/\s+/g, ' ').trim()
+    .replace(" WHEN lower(name) LIKE '%archive%' THEN 1 ELSE 2 END", ' ELSE 1 END');
   const [, where, first, limit] = sql.match(
     /^SELECT path FROM folders WHERE account_id = \$1 AND (.+?)(?: ORDER BY \(CASE WHEN (.+) THEN 0 ELSE 1 END\))?(?: LIMIT (\d+))?$/
   ) ?? [];
@@ -113,6 +115,15 @@ function fakeQuery(rawSql, params = []) {
     const row = rows.get(params[0]);
     return result(row ? [{ ...row, user_id: 'user-1' }] : []);
   }
+  if (sql.startsWith('WITH deleted AS (')) {
+    const deleted = params[0].map(id => rows.get(id)).filter(Boolean);
+    for (const row of deleted) rows.delete(row.id);
+    for (let i = 0; i < params[1].length; i++) {
+      const source = deleted.find(row => row.id === params[1][i]);
+      if (source) { const id = randomUUID(); rows.set(id, { ...source, id, uid: params[2][i], folder: params[3] }); }
+    }
+    return result(deleted.filter(row => !params[1].includes(row.id)));
+  }
   if (sql.startsWith('DELETE FROM messages WHERE id = ANY($1::uuid[])')) {
     const deleted = params[0].map(id => rows.get(id)).filter(Boolean);
     for (const row of deleted) rows.delete(row.id);
@@ -120,6 +131,8 @@ function fakeQuery(rawSql, params = []) {
   }
   if (sql.startsWith('SELECT * FROM email_accounts')) return result([{ id: ACCOUNT_ID, user_id: 'user-1', folder_mappings: null }]);
   if (sql.startsWith('SELECT path FROM folders')) return result(selectFolders(sql, FOLDERS));
+  if (sql.startsWith('SELECT 1 FROM folders')) return result(FOLDERS.filter(f => f.path === params[1]).map(() => ({ exists: 1 })));
+  if (sql.startsWith('SELECT special_use FROM folders')) return result(FOLDERS.filter(f => f.path === params[1]));
   if (sql.startsWith('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4')) {
     const deleted = [...rows.values()].filter(r => r.uid === params[1] && r.folder === params[2] && r.id !== params[3]);
     for (const r of deleted) rows.delete(r.id);
@@ -152,6 +165,7 @@ function wireImap() {
   imapManager.moveMessage.mockImplementation(async (_account, uid, from, to) => {
     if (!server[from].has(uid)) return null;
     const newUid = nextTrashUid++;
+    if (!server[to]) server[to] = new Map();
     server[to].set(newUid, server[from].get(uid));
     server[from].delete(uid);
     return uidplus ? newUid : null;
@@ -181,6 +195,16 @@ function wireImap() {
     const succeeded = uids.filter(uid => !mismatched.includes(uid));
     for (const uid of succeeded) server[folder].delete(Number(uid));
     return { succeeded, failed: [], mismatched };
+  });
+  imapManager.bulkMoveMessages.mockImplementation(async (account, uids, from, to) => {
+    const uidMap = new Map(), succeeded = [], failed = [];
+    for (const uid of uids) {
+      if (!server[from]?.has(uid)) { failed.push(uid); continue; }
+      const newUid = await imapManager.moveMessage(account, uid, from, to);
+      succeeded.push(uid);
+      if (newUid != null) uidMap.set(uid, newUid);
+    }
+    return { uidMap, succeeded, failed };
   });
   imapManager.syncFolderOnDemand.mockResolvedValue(undefined);
 }
@@ -315,6 +339,40 @@ describe('DELETE /api/mail/messages/:id', () => {
 
   const bulkDelete = (ids) => fetch(`${base}/api/mail/messages/bulk-delete`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+  });
+
+  it.each(['single', 'bulk-delete', 'bulk-move', 'bulk-archive'].flatMap(kind => [false, true].map(fails => [kind, fails])))('%s deletion observes its count write before notifying (failure: %s)', async (kind, fails) => {
+    reset({ folder: kind === 'single' ? 'Trash' : 'INBOX', withUidplus: false });
+    let finishCount;
+    let state = 'pending';
+    query.mockImplementation((sql, params) => {
+      if (sql.includes('UPDATE folders f') && !finishCount) return new Promise((resolve, reject) => {
+        finishCount = () => {
+          state = fails ? 'failed' : 'complete';
+          if (fails) reject(new Error('synthetic count failure'));
+          else resolve({ rows: [] });
+        };
+      });
+      return fakeQuery(sql, params);
+    });
+    const observed = [];
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockImplementation(async (name, ctx) => {
+      if (name === 'messageRowsDeleted') observed.push({ state, keys: ctx.threadKeys });
+      return [];
+    });
+    const response = kind === 'single' ? del() : fetch(`${base}/api/mail/messages/${kind}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [MSG_ID], folder: 'Archive' }),
+    });
+    try {
+      try {
+        await vi.waitFor(() => expect(finishCount).toBeTypeOf('function'));
+        expect(observed).toEqual([]);
+      } finally { finishCount?.(); }
+      const result = await response;
+      expect(kind === 'single' ? result : result.status).toBe(200);
+      expect(observed).toEqual([{ state: fails ? 'failed' : 'complete', keys: ['deleted-thread'] }]);
+    } finally { hook.mockRestore(); }
   });
 
   it('bulk delete from Trash expunges only the rows whose server copy is their message', async () => {

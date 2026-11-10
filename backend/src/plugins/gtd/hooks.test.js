@@ -150,6 +150,7 @@ describe('gtd hooks — emitAfterDeferredCopySync', () => {
   it('does not emit when the deferred sync fails', async () => {
     const mgr = { broadcast: vi.fn() };
     const account = { id: 'acct-1', user_id: 'user-1' };
+    getGtdConfig.mockResolvedValue({ enabled: true });
     await emitAfterDeferredCopySync(mgr, account, 'Todo', 100, 'INBOX', Promise.reject(new Error('sync boom')));
     expect(mgr.broadcast).not.toHaveBeenCalled();
     expect(runGtdTransitions).not.toHaveBeenCalled();

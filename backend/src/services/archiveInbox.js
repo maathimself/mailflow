@@ -60,17 +60,17 @@ export async function archiveInboxCopy(imapManager, account, inboxCopy, fromFold
       applied = write.rowCount > 0;
       rememberDroppedRows(archiveFolder, write.rows);
     }
-    if (allMail || newUid == null) notifyMessageRowsDeleted(account, write.rows, fromFolder);
     const uidKnown = allMail || newUid != null;
     if (applied) {
       const unread = write.rows?.[0]?.is_read === false ? 1 : 0;
-      adjustFolderCounts(accountId, fromFolder, -1, unread ? -1 : 0);
-      if (!allMail && uidKnown) adjustFolderCounts(accountId, archiveFolder, 1, unread);
+      await adjustFolderCounts(accountId, fromFolder, -1, unread ? -1 : 0);
+      if (!allMail && uidKnown) await adjustFolderCounts(accountId, archiveFolder, 1, unread);
       if (!uidKnown) {
         imapManager.syncFolderOnDemand(account, archiveFolder)
           .catch(err => console.warn(`Archive: sync of ${archiveFolder} after a move without UIDPLUS failed: ${err.message}`));
       }
     }
+    if (allMail || newUid == null) notifyMessageRowsDeleted(account, write.rows, fromFolder);
     // uidKnown: whether the server named the moved message's new uid. Without it the row was
     // dropped and waits for the destination's sync.
     return { archived: applied, noArchiveFolder: false, uidKnown };

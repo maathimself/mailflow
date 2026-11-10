@@ -79,16 +79,18 @@ removals commit, including reconciliation, UIDVALIDITY purges, folder cleanup, l
 and physical row deletions from user/rule actions. Soft deletion (`is_deleted = true`) retains
 the cached row and is reported only when that row is physically removed. Keys come from deleted rows, grouped and deduplicated per account/folder;
 `account` includes its `id` and owning `user_id` (batch actions may supply only those fields). An atomic relocation that reinserts the same logical copy
-is not a removal. Recounts run first where applicable, and notifications are dispatched even
-if the recount fails. Dispatch is nonblocking; plugin failures are logged.
+is not a removal. Associated count adjustments/recounts settle before notifications; a failed count write is
+logged and the committed deletion is still dispatched. Dispatch is nonblocking; plugin failures are logged.
 `afterLabelRemove` retains its separate contract and includes the removed copy’s `threadKey`.
 Account/user FK cascades are whole-parent lifecycle operations outside this row hook. The
 account-removal hook and account-scoped plugin storage cleanup are follow-up work in #342.
 On a non-UIDPLUS COPY, `afterLabelCopy` receives `destinationSync`, core's single fresh
-post-copy completion promise; GTD observes it before refreshing/re-evaluating the copied thread.
+post-copy completion promise. It rejects on timeout or sync failure, so GTD refreshes/re-evaluates
+the copied thread only after successful sync.
 `syncFolderOnDemand(account, folder, { freshAfterActive: true })` requests a new pass after an
 older folder sync settles, for example after a non-UIDPLUS COPY. Waiting on an active owner is
-bounded to 30 seconds; a timeout warns and returns without releasing that owner's claim or
+bounded to 30 seconds; timeout and sync failure are logged and reject the promise without
+releasing a still-running owner's claim or
 starting a competing pass. Retries can sync only after the active claim releases; a
 never-released claim requires owner cleanup or restart.
 

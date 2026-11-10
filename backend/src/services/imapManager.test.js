@@ -703,7 +703,8 @@ describe('syncFolderOnDemand coalescing', () => {
     try {
       mgr.pluginFacade.tryClaimFolderSync(acct.id, 'Todo');
       let settled = false;
-      const waiting = mgr.syncFolderOnDemand(acct, 'Todo', { freshAfterActive: true }).then(() => { settled = true; });
+      const waiting = mgr.syncFolderOnDemand(acct, 'Todo', { freshAfterActive: true }).finally(() => { settled = true; });
+      const failure = expect(waiting).rejects.toThrow(/timeout/i);
       await vi.advanceTimersByTimeAsync(20000);
       mgr.pluginFacade.releaseFolderSync(acct.id, 'Todo');
       mgr.pluginFacade.tryClaimFolderSync(acct.id, 'Todo');
@@ -711,7 +712,7 @@ describe('syncFolderOnDemand coalescing', () => {
       await vi.advanceTimersByTimeAsync(9999);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
-      await waiting;
+      await failure;
       expect(settled).toBe(true);
       expect(warn).toHaveBeenCalledOnce();
       expect(sync).not.toHaveBeenCalled();
@@ -732,7 +733,8 @@ describe('syncFolderOnDemand coalescing', () => {
       mgr.pluginFacade.tryClaimFolderSync(acct.id, 'Todo');
       const entry = mgr.onDemandSyncing.get(`${acct.id}:Todo`);
       let settled = false;
-      const waiting = mgr.pluginFacade.syncFolderOnDemand(acct, 'Todo').then(() => { settled = true; });
+      const waiting = mgr.pluginFacade.syncFolderOnDemand(acct, 'Todo').finally(() => { settled = true; });
+      const failure = expect(waiting).rejects.toThrow(/timeout/i);
       await vi.advanceTimersByTimeAsync(29999);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
@@ -742,7 +744,7 @@ describe('syncFolderOnDemand coalescing', () => {
       expect(sync).not.toHaveBeenCalled();
       expect(mgr.pluginFacade.tryClaimFolderSync(acct.id, 'Todo')).toBe(false);
       mgr.pluginFacade.releaseFolderSync(acct.id, 'Todo');
-      await waiting;
+      await failure;
       await mgr.syncFolderOnDemand(acct, 'Todo');
       expect(sync).toHaveBeenCalledOnce();
     } finally { vi.useRealTimers(); vi.restoreAllMocks(); }
@@ -6874,6 +6876,23 @@ describe('server copy identity checks', () => {
       expect(sync).toHaveBeenCalledWith(account, 'Todo', { freshAfterActive: true });
       expect(hook).toHaveBeenCalledWith('afterLabelCopy', expect.objectContaining({ destinationSync: sync.mock.results[0].value }));
     } finally { hook.mockRestore(); }
+  });
+
+  it('passes the rejected post-copy sync to observers while logging it without blocking COPY', async () => {
+    const { mgr, account, client } = arrange(new Map());
+    clearInterval(mgr._folderStatusTimer);
+    client.messageCopy = vi.fn().mockResolvedValue({});
+    const error = new Error('destination FETCH failed');
+    const sync = vi.spyOn(mgr, 'syncFolderOnDemand').mockImplementation(() => Promise.reject(error));
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(await mgr.copyMessage(account.id, 7, 'INBOX', 'Todo')).toBeNull();
+      const destinationSync = hook.mock.calls.find(([name]) => name === 'afterLabelCopy')[1].destinationSync;
+      expect(destinationSync).toBe(sync.mock.results[0].value);
+      await expect(destinationSync).rejects.toBe(error);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('destination FETCH failed'));
+    } finally { hook.mockRestore(); warn.mockRestore(); sync.mockRestore(); }
   });
 
   it('rejects and compensates COPY when concurrent source removal leaves no cached destination', async () => {

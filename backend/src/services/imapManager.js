@@ -1788,7 +1788,7 @@ export async function deleteMessageCopyRow(accountId, uid, folder, account = { i
   );
   const row = res.rows[0];
   if (row) {
-    adjustFolderCounts(accountId, folder, -1, row.is_read ? 0 : -1);
+    await adjustFolderCounts(accountId, folder, -1, row.is_read ? 0 : -1);
   }
   notifyMessageRowsDeleted(account, res.rows, folder);
   return row ? 1 : 0;
@@ -6927,7 +6927,7 @@ export class ImapManager {
         // A timed-out owner may still be writing. Leave its claim intact rather than start a
         // competing sync; callers can proceed, but freshness can resume only after this claim releases.
         console.warn(`Active folder sync wait failed for ${logAccount(account)}/${folder}: ${err.message}`);
-        return;
+        throw err;
       }
       if (!freshAfterActive) return;
       // A sync that started before a non-UIDPLUS COPY may not have observed the new destination
@@ -6945,6 +6945,7 @@ export class ImapManager {
         this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
       } catch (err) {
         console.error(`On-demand sync error ${logAccount(account)}/${folder}:`, err.message);
+        throw err;
       }
     })();
     const entry = { promise: task, release: null };
@@ -8035,8 +8036,8 @@ export class ImapManager {
     // One post-copy pass serves core and any plugin observing the deferred sibling.
     const destinationSync = newUid == null
       ? this.syncFolderOnDemand(account, toFolder, { freshAfterActive: true })
-        .catch(err => console.warn(`Post-copy folder sync failed: ${err.message}`))
       : null;
+    destinationSync?.catch(err => console.warn(`Post-copy folder sync failed: ${err.message}`));
     await pluginRegistry.runHook('afterLabelCopy', { mgr: this.pluginFacade, account, toFolder, fromFolder, srcUid: uid, newUid, destinationSync });
 
     return newUid;
@@ -8522,6 +8523,7 @@ export class ImapManager {
       // is in flight.
       this._guardMoveUid(row.account_id, row.snoozed_folder, row.uid);
       let newUid;
+      const removedRows = [];
       // Whether the destination's sync filed the message before this wake repointed its row.
       let filedBySync = false;
       try {
@@ -8571,7 +8573,7 @@ export class ImapManager {
               filedBySync = true;
               const deletedRows = await query('DELETE FROM messages WHERE account_id = $1 AND message_id = $2 AND folder = $3 AND uid = $4 RETURNING thread_key',
                 [row.account_id, row.message_id_header, row.snoozed_folder, row.uid]);
-              notifyMessageRowsDeleted(account, deletedRows.rows, row.snoozed_folder);
+              removedRows.push(...deletedRows.rows);
               if (markUnread) {
                 await query(`UPDATE messages SET is_read = false, read_changed_at = NOW() WHERE account_id = $1 AND folder = $2 AND uid = $3`,
                   [row.account_id, row.original_folder, newUid]);
@@ -8629,11 +8631,15 @@ export class ImapManager {
             'DELETE FROM messages WHERE account_id = $1 AND message_id = $2 AND folder = $3 AND uid = $4 RETURNING thread_key',
             [row.account_id, row.message_id_header, row.snoozed_folder, row.uid]
           );
-          notifyMessageRowsDeleted(account, deletedRows.rows, row.snoozed_folder);
+          removedRows.push(...deletedRows.rows);
           this.syncFolderOnDemand(account, row.original_folder)
             .catch(err => console.warn(`Snooze wakeup: sync of ${row.original_folder} failed: ${err.message}`));
         }
       } finally {
+        if (removedRows.length) {
+          await adjustFolderCounts(row.account_id, row.snoozed_folder, -1, row.is_read ? 0 : -1);
+          notifyMessageRowsDeleted(account, removedRows, row.snoozed_folder);
+        }
         this._unguardMoveUid(row.account_id, row.snoozed_folder, row.uid);
       }
 
@@ -8642,7 +8648,7 @@ export class ImapManager {
 
       // Update folder counts: message leaves Snoozed and re-enters original_folder (unread on its own wake-up).
       // row.is_read reflects the read state in the Snoozed folder before the move.
-      adjustFolderCounts(row.account_id, row.snoozed_folder, -1, row.is_read ? 0 : -1);
+      if (!removedRows.length) await adjustFolderCounts(row.account_id, row.snoozed_folder, -1, row.is_read ? 0 : -1);
       // A message the sync filed was counted by that sync.
       if (newUid != null && !filedBySync) adjustFolderCounts(row.account_id, row.original_folder, 1, markUnread || !row.is_read ? 1 : 0);
 

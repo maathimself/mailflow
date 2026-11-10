@@ -6,7 +6,6 @@ vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req, _res, next) => nex
 vi.mock('../index.js', () => ({ imapManager: {} }));
 import { query } from '../services/db.js';
 import { RELOCATE_INSERT_COLS, relocateRows } from './mail.js';
-import { pluginRegistry } from '../plugins/registry.js';
 import { clearCarries, takeCarry } from '../services/movedRowCarry.js';
 
 // The bulk move, archive and Trash paths relocate rows in one statement: a row whose new uid the
@@ -41,11 +40,8 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('relocateRows on Postgr
   });
 
   it('moves a row with a new uid, and drops one without for the sync to file with its state', async () => {
-    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
-    await relocateRows([A, B], new Map([[A, 500]]), 'INBOX', 'fixture-user');
-    expect(hook).toHaveBeenCalledExactlyOnceWith('messageRowsDeleted', {
-      account: { id: ACC, user_id: 'fixture-user' }, folder: 'Junk', threadKeys: ['<b@x>'],
-    });
+    const dropped = await relocateRows([A, B], new Map([[A, 500]]), 'INBOX');
+    expect(dropped).toMatchObject([{ id: B, account_id: ACC, folder: 'Junk', thread_key: '<b@x>' }]);
 
     const { rows } = await database.query('SELECT uid, folder, subject, spam_user_override, category FROM messages ORDER BY uid');
     expect(rows).toEqual([{ uid: '500', folder: 'INBOX', subject: 'Known', spam_user_override: 'ham', category: 'social' }]);
@@ -56,7 +52,7 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('relocateRows on Postgr
   it('keeps the row a sync already filed at the new uid, with what only MailFlow knew, and does not count it as dropped', async () => {
     await database.query(`INSERT INTO messages (account_id, uid, folder, message_id, subject, spam_verdict, unsubscribed_at)
       VALUES ($1, 500, 'INBOX', '<a@x>', 'Synced', 'spam', '2026-11-01')`, [ACC]);
-    await relocateRows([A], new Map([[A, 500]]), 'INBOX');
+    expect(await relocateRows([A], new Map([[A, 500]]), 'INBOX')).toEqual([]);
 
     const { rows } = await database.query("SELECT subject, spam_user_override, category, spam_verdict, unsubscribed_at FROM messages WHERE folder = 'INBOX'");
     // The server's copy stays (subject); the "Not spam" decision and category come back; what the

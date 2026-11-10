@@ -412,7 +412,7 @@ export async function applyBlockList(messages, account, imapManager) {
           if (!result.failed?.length) {
             const newUid = result.uidMap?.get(Number(msg.uid));
             const wasUnread = !(msg.isRead ?? msg.is_read);
-            adjustFolderCounts(account.id, msg.folder, -1, wasUnread ? -1 : 0);
+            await adjustFolderCounts(account.id, msg.folder, -1, wasUnread ? -1 : 0);
             if (newUid) {
               await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [strategy.destination, newUid, msg.id]);
               adjustFolderCounts(account.id, strategy.destination, 1, wasUnread ? 1 : 0);
@@ -548,7 +548,7 @@ async function applyAction(action, msg, account, imapManager, ruleId, resolverCa
         // the message.
         const newUid = moveResult.uidMap?.get(Number(srcUid));
         const wasUnread = !(msg.isRead ?? msg.is_read);
-        adjustFolderCounts(account.id, srcFolder, -1, wasUnread ? -1 : 0);
+        await adjustFolderCounts(account.id, srcFolder, -1, wasUnread ? -1 : 0);
         if (newUid) {
           await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [destFolder, newUid, msg.id]);
           adjustFolderCounts(account.id, destFolder, 1, wasUnread ? 1 : 0);
@@ -589,17 +589,20 @@ async function applyAction(action, msg, account, imapManager, ruleId, resolverCa
         if (archiveResult.failed?.length) throw new Error(`IMAP archive failed for uid ${srcUid}`);
         const newArchiveUid = archiveResult.uidMap?.get(Number(srcUid));
         const wasUnread = !(msg.isRead ?? msg.is_read);
+        let removedRows;
         if (resolverCache.archiveIsAllMail) {
           // No sync loop maintains a messages row filed under All Mail — the message
           // vanishes from our view instead of getting re-homed there (see mail.js bulk-archive).
           const deletedRows = await query('DELETE FROM messages WHERE id = $1 RETURNING account_id, folder, thread_key', [msg.id]);
-          notifyMessageRowsDeleted(account, deletedRows.rows);
+          removedRows = deletedRows.rows;
         } else if (newArchiveUid) {
           await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [archiveFolder, newArchiveUid, msg.id]);
         } else {
+          await adjustFolderCounts(account.id, srcFolder, -1, wasUnread ? -1 : 0);
           await dropMovedRow(imapManager, account, msg, archiveFolder);
         }
-        adjustFolderCounts(account.id, srcFolder, -1, wasUnread ? -1 : 0);
+        if (resolverCache.archiveIsAllMail || newArchiveUid) await adjustFolderCounts(account.id, srcFolder, -1, wasUnread ? -1 : 0);
+        if (removedRows) notifyMessageRowsDeleted(account, removedRows);
         if (!resolverCache.archiveIsAllMail && newArchiveUid) adjustFolderCounts(account.id, archiveFolder, 1, wasUnread ? 1 : 0);
         msg.folder = archiveFolder;
         msg.uid = newArchiveUid || null;
@@ -631,7 +634,7 @@ async function applyAction(action, msg, account, imapManager, ruleId, resolverCa
           if (deleteResult.failed?.length) throw new Error(`IMAP delete-move failed for uid ${srcUid}`);
           const newDeleteUid = deleteResult.uidMap?.get(Number(srcUid));
           const wasUnread = !(msg.isRead ?? msg.is_read);
-          adjustFolderCounts(account.id, srcFolder, -1, wasUnread ? -1 : 0);
+          await adjustFolderCounts(account.id, srcFolder, -1, wasUnread ? -1 : 0);
           if (newDeleteUid) {
             await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [strategy.destination, newDeleteUid, msg.id]);
             adjustFolderCounts(account.id, strategy.destination, 1, wasUnread ? 1 : 0);
