@@ -46,7 +46,6 @@ const MESSAGE_OPENING_EVENT = 'mailflow:message-opening';
 
 // Module-level regex so the spam-name heuristic isn't recompiled on every
 // render — same heuristic as ContextMenu.jsx, both files read this constant.
-const SPAM_NAME_RE = /(spam|junk|bulk|indesiderata|spamverdacht|courrier\s*ind|posta\s*indesiderata)/i;
 
 // Lazy-load the div-renderer utilities so PostCSS is excluded from the flag-off
 // bundle. Rollup treats the import() calls inside this block as dead code when
@@ -67,6 +66,7 @@ import TodoistTaskModal from './TodoistTaskModal.jsx';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import ContextMenu from './ContextMenu.jsx';
 import { holdUndoable, releaseUndoable, UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
+import { spamFolderPaths as spamFolderPathsFor } from '../utils/spamFolders.js';
 
 function linkifyText(text) {
   const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -163,13 +163,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const [darkChoice, setDarkChoice] = useState({});
   // What the frame last showed, for which message (see MessageBodyView onDarkResult).
   const [darkResult, setDarkResult] = useState(null);
-  const spamFolderPaths = (() => {
-    const mapped = account?.folder_mappings?.spam;
-    if (mapped) return new Set([mapped]);
-    return new Set(accountFolders.filter(f =>
-      f.special_use === '\\Junk' || SPAM_NAME_RE.test(f.name || '')
-    ).map(f => f.path));
-  })();
+  const spamFolderPaths = spamFolderPathsFor(account, accountFolders);
   const inSpamFolder = message ? spamFolderPaths.has(message.folder) : false;
   const hasSpamFolder = spamFolderPaths.size > 0;
 
