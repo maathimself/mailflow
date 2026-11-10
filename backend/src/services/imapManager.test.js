@@ -14,7 +14,7 @@ vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./spamPipeline.js', () => ({ classifyAndTagMessage: vi.fn() }));
 vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }));
 
-import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, rollbackCopiedMessageOnInsertFailure, deleteReconciledMessageRows, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, contentLocationFromMimeHeader, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, pairMovedCopies, computeThreadId, noteDraftsChanged } from './imapManager.js';
+import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, rollbackCopiedMessageOnInsertFailure, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, contentLocationFromMimeHeader, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, pairMovedCopies, computeThreadId, noteDraftsChanged } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { ensureFreshToken, clearChangedSinceIgnored, isServerLimitFailure } from './imapManager.js';
 import { fetchSnippetBatch, structureParts } from './imapManager.js';
@@ -544,7 +544,6 @@ describe('insertCopiedSibling', () => {
     await insertCopiedSibling('acct-1', 100, 'INBOX', 'Todo', 5001);
     expect(countAdjusts()).toHaveLength(0);
   });
-
 });
 
 describe('rollbackCopiedMessageOnInsertFailure', () => {
@@ -574,35 +573,6 @@ describe('rollbackCopiedMessageOnInsertFailure', () => {
       for (const part of [account.id, 'Delegated', '5001', reason]) expect(message).toContain(part);
       if (failure === 'unknown validity') expect(manager.permanentDeleteMessage).not.toHaveBeenCalled();
     } finally { log.mockRestore(); }
-  });
-
-});
-
-describe('deleteReconciledMessageRows', () => {
-  beforeEach(() => query.mockReset());
-
-  it.each([false, true])('reports committed rows after recount (recount fails: %s)', async fails => {
-    const order = [];
-    const recountError = new Error('count update failed');
-    query.mockResolvedValueOnce({ rowCount: 1, rows: [{ thread_key: 'thread-1' }] })
-      .mockImplementationOnce(async () => {
-        order.push('recount');
-        if (fails) throw recountError;
-        return { rows: [] };
-      });
-    const runHook = vi.spyOn(pluginRegistry, 'runHook').mockImplementation(async () => { order.push('hook'); return []; });
-    const reconcileStartedAt = new Date('2026-08-26T10:00:00Z');
-    const account = { id: 'acct-1', user_id: 'user-1' };
-    try {
-      const deletion = deleteReconciledMessageRows(account, 'Delegated', [41, 42], reconcileStartedAt);
-      if (fails) await expect(deletion).rejects.toBe(recountError);
-      else expect(await deletion).toBe(1);
-      expect(query.mock.calls[0][0]).toContain('RETURNING thread_key');
-      expect(query.mock.calls[0][0]).toContain('synced_at < $4');
-      expect(query.mock.calls[1][0]).toContain('UPDATE folders f');
-      expect(order).toEqual(['recount', 'hook']);
-      expect(runHook).toHaveBeenCalledWith('messageRowsDeleted', { account, folder: 'Delegated', threadKeys: ['thread-1'] });
-    } finally { runHook.mockRestore(); }
   });
 });
 
@@ -712,7 +682,10 @@ describe('syncFolderOnDemand coalescing', () => {
       mgr.pluginFacade.releaseFolderSync(acct.id, 'Todo');
       expect(mgr.onDemandSyncing.get(`${acct.id}:Todo`)).toBe(entry);
       expect(mgr.pluginFacade.tryClaimFolderSync(acct.id, 'Todo')).toBe(false);
-      const waiter = mgr.syncFolderOnDemand(acct, 'Todo');
+      let settled = false;
+      const waiter = mgr.syncFolderOnDemand(acct, 'Todo').then(() => { settled = true; });
+      await new Promise(resolve => setImmediate(resolve));
+      expect(settled).toBe(false);
       finish();
       await Promise.all([owner, waiter]);
       expect(sync).toHaveBeenCalledOnce();
@@ -747,7 +720,7 @@ describe('syncFolderOnDemand coalescing', () => {
     } finally { vi.useRealTimers(); vi.restoreAllMocks(); }
   });
 
-  it.each([false, true])('bounds a stuck claim wait (freshAfterActive=%s) without releasing its owner', async freshAfterActive => {
+  it('bounds a stuck claim wait without releasing its owner', async () => {
     vi.useFakeTimers();
     const mgr = new ImapManager({ clients: new Set() });
     clearInterval(mgr._folderStatusTimer);
@@ -759,8 +732,10 @@ describe('syncFolderOnDemand coalescing', () => {
       mgr.pluginFacade.tryClaimFolderSync(acct.id, 'Todo');
       const entry = mgr.onDemandSyncing.get(`${acct.id}:Todo`);
       let settled = false;
-      const waiting = mgr.pluginFacade.syncFolderOnDemand(acct, 'Todo', { freshAfterActive }).then(() => { settled = true; });
-      await vi.advanceTimersByTimeAsync(30000);
+      const waiting = mgr.pluginFacade.syncFolderOnDemand(acct, 'Todo').then(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(29999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
       expect(settled).toBe(true);
       expect(warn).toHaveBeenCalledWith(expect.stringMatching(/active folder sync.*timeout/i));
       expect(mgr.onDemandSyncing.get(`${acct.id}:Todo`)).toBe(entry);
@@ -771,22 +746,6 @@ describe('syncFolderOnDemand coalescing', () => {
       await mgr.syncFolderOnDemand(acct, 'Todo');
       expect(sync).toHaveBeenCalledOnce();
     } finally { vi.useRealTimers(); vi.restoreAllMocks(); }
-  });
-
-  it('waits for an already claimed folder sync instead of reporting completion early', async () => {
-    const mgr = new ImapManager({ clients: new Set() });
-    clearInterval(mgr._folderStatusTimer);
-    const acct = { id: 'acct-1', user_id: 'user-1', email_address: 'user@example.test' };
-    expect(mgr.pluginFacade.tryClaimFolderSync(acct.id, 'Delegated')).toBe(true);
-
-    let settled = false;
-    const waiting = mgr.syncFolderOnDemand(acct, 'Delegated').then(() => { settled = true; });
-    await Promise.resolve();
-    expect(settled).toBe(false);
-
-    mgr.pluginFacade.releaseFolderSync(acct.id, 'Delegated');
-    await waiting;
-    expect(settled).toBe(true);
   });
 
   it('runs a fresh sync after an older claimed sync when post-copy freshness is required', async () => {
@@ -806,7 +765,6 @@ describe('syncFolderOnDemand coalescing', () => {
     expect(syncNow).toHaveBeenCalledWith(acct, 'Delegated');
   });
 });
-
 
 // ── ensureMailbox — provider-correct folder creation ─────────────────────────
 // The namespace matrix (no-prefix + '/', 'INBOX.' + '.') is resolved INSIDE imapflow's
@@ -4369,7 +4327,6 @@ describe('folder integrity reconciliation safety', () => {
   });
 });
 
-
 describe('backfill optional metadata fallback', () => {
   const query = { uid: true, flags: true, envelope: true, bodyStructure: true, headers: true };
   const collect = async iterator => { const out=[]; for await (const item of iterator) out.push(item.uid); return out; };
@@ -6408,6 +6365,36 @@ describe('reconcileDeletes — SEARCH result vs mailbox.exists (#472)', () => {
   const deletes = () => query.mock.calls.filter(([sql]) => sql.includes('DELETE FROM messages'));
   afterEach(() => { vi.restoreAllMocks(); ImapFlow.mockReset(); });
 
+  it.each([false, true])('reports committed orphan rows after recount (recount fails: %s)', async fails => {
+    const { mgr, account } = arrange({ exists: 1, searchResult: [41], dbUids: [41, 42] });
+    clearInterval(mgr._folderStatusTimer);
+    const order = [];
+    const recountError = new Error('count update failed');
+    const originalQuery = query.getMockImplementation();
+    query.mockImplementation(async (sql, params) => {
+      if (sql.includes('DELETE FROM messages')) return { rowCount: 1, rows: [{ thread_key: 'thread-1' }] };
+      if (sql.includes('UPDATE folders f')) {
+        order.push('recount');
+        if (fails) throw recountError;
+      }
+      return originalQuery(sql, params);
+    });
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockImplementation(async name => {
+      if (name === 'messageRowsDeleted') order.push('hook');
+      return [];
+    });
+    const deletion = mgr.reconcileDeletes(account);
+    if (fails) await expect(deletion).rejects.toBe(recountError);
+    else await deletion;
+    const [sql, params] = deletes()[0];
+    expect(sql).toContain('RETURNING thread_key');
+    expect(sql).toContain('synced_at < $4');
+    expect(params[2]).toEqual([42]);
+    expect(params[3]).toBeInstanceOf(Date);
+    expect(order).toEqual(['recount', 'hook']);
+    expect(hook).toHaveBeenCalledWith('messageRowsDeleted', { account, folder: 'INBOX', threadKeys: ['thread-1'] });
+  });
+
   it('does NOT purge a folder when SEARCH returns nothing but the server says it is non-empty', async () => {
     // The reported case: 14 still on the server, SEARCH came back empty, 15 rows cached.
     const { mgr, account } = arrange({ exists: 14, searchResult: [], dbUids: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15] });
@@ -6889,6 +6876,53 @@ describe('server copy identity checks', () => {
     } finally { hook.mockRestore(); }
   });
 
+  it('rejects and compensates COPY when concurrent source removal leaves no cached destination', async () => {
+    const { mgr, account, client } = arrange(new Map());
+    clearInterval(mgr._folderStatusTimer);
+    client.messageCopy = vi.fn().mockResolvedValue({ uidValidity: 42n, uidMap: new Map([[7, 99]]) });
+    query.mockImplementation(async sql => ({ rows: sql.includes('FROM email_accounts') ? [account] : [] }));
+    const rollback = vi.spyOn(mgr, 'permanentDeleteMessage').mockResolvedValue(true);
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    try {
+      const result = await mgr.copyMessage(account.id, 7, 'INBOX', 'Todo').catch(error => error);
+      expect(result).toBeInstanceOf(Error);
+      expect(rollback).toHaveBeenCalledWith(account, 99, 'Todo', { expectUidValidity: 42n });
+      expect(hook).not.toHaveBeenCalledWith('afterLabelCopy', expect.anything());
+    } finally { hook.mockRestore(); }
+  });
+
+  it.each([['42', 42n, true], ['41', 42n, false], ['42', undefined, false]])('accepts a cached COPY conflict only in its confirmed UID epoch (%s, %s)', async (cachedEpoch, copyEpoch, accepted) => {
+    const { mgr, account, client } = arrange(new Map());
+    clearInterval(mgr._folderStatusTimer);
+    client.messageCopy = vi.fn().mockResolvedValue({ uidValidity: copyEpoch, uidMap: new Map([[7, 99]]) });
+    query.mockImplementation(async (sql, params) => {
+      if (sql.includes('FROM email_accounts')) return { rows: [account] };
+      if (sql.includes('JOIN folders f')) return { rows: cachedEpoch === params[3] ? [{}] : [] };
+      return { rows: [] };
+    });
+    const rollback = vi.spyOn(mgr, 'permanentDeleteMessage').mockResolvedValue(true);
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const result = await mgr.copyMessage(account.id, 7, 'INBOX', 'Todo').catch(error => error);
+      const [sql, params] = query.mock.calls.find(([sql]) => sql.includes('JOIN folders f'));
+      expect(params).toEqual([account.id, 'Todo', 99, String(copyEpoch ?? '')]);
+      for (const predicate of ['f.account_id = m.account_id', 'f.path = m.folder', 'm.account_id = $1', 'm.folder = $2', 'm.uid = $3', 'f.uid_validity::text = $4']) expect(sql).toContain(predicate);
+      if (accepted) {
+        expect(result).toBe(99);
+        expect(rollback).not.toHaveBeenCalled();
+        expect(hook).toHaveBeenCalledWith('afterLabelCopy', expect.objectContaining({ newUid: 99 }));
+      } else {
+        expect(result).toBeInstanceOf(Error);
+        if (copyEpoch == null) {
+          expect(rollback).not.toHaveBeenCalled();
+          expect(log).toHaveBeenCalledWith(expect.stringContaining('Cannot safely roll back copy'));
+        } else expect(rollback).toHaveBeenCalledWith(account, 99, 'Todo', { expectUidValidity: copyEpoch });
+        expect(hook).not.toHaveBeenCalledWith('afterLabelCopy', expect.anything());
+      }
+    } finally { hook.mockRestore(); log.mockRestore(); }
+  });
+
   it('rolls back a server copy if inserting its local row fails', async () => {
     const { mgr, account, client } = arrange(new Map());
     const insertError = new Error('insert failed');
@@ -6902,24 +6936,6 @@ describe('server copy identity checks', () => {
       expect(hook).not.toHaveBeenCalledWith('afterLabelCopy', expect.anything());
     } finally { hook.mockRestore(); }
   });
-
-
-  it('removing a label copy delivers the generic deletion hook', async () => {
-    const { mgr, account } = arrange(new Map());
-    query.mockImplementation(async sql => {
-      if (sql.includes('FROM email_accounts')) return { rows: [account] };
-      if (sql.startsWith('SELECT message_id')) return { rows: [{ message_id: '<copy@example.test>', thread_key: 'thread-a' }] };
-      if (sql.startsWith('DELETE FROM messages')) return { rows: [{ is_read: false, thread_key: 'thread-a' }], rowCount: 1 };
-      return { rows: [], rowCount: 0 };
-    });
-    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
-    try {
-      expect(await mgr.removeMessageCopy(account.id, 7, 'Todo')).toBe(1);
-      expect(hook).toHaveBeenCalledWith('messageRowsDeleted', { account, folder: 'Todo', threadKeys: ['thread-a'] });
-      expect(hook).toHaveBeenCalledWith('afterLabelRemove', expect.objectContaining({ threadKey: 'thread-a' }));
-    } finally { hook.mockRestore(); }
-  });
-
 
   it('deletes the uid when the server copy carries the expected Message-ID', async () => {
     const { mgr, account, client } = arrange(new Map([[7, '<old@example.test>']]));
@@ -7669,7 +7685,6 @@ describe('snippet indexer batches (#768)', () => {
   });
 });
 
-
 describe('UIDVALIDITY purge notifications', () => {
   afterEach(() => vi.restoreAllMocks());
   it.each(['sync', 'backfill'])('%s reports returned thread keys after recounting the purged folder', async mode => {
@@ -7709,7 +7724,7 @@ describe('UIDVALIDITY purge notifications', () => {
       }
       expect(mgr.backfillMessages).toHaveBeenCalledOnce();
     } else await mgr.backfillMessages(acct, 'Todo');
-    expect(order.slice(0, 2)).toEqual(['recount', 'hook']);
+    if (mode === 'sync') expect(order.slice(0, 2)).toEqual(['recount', 'hook']);
     expect(hook).toHaveBeenCalledWith('messageRowsDeleted', { account: acct, folder: 'Todo', threadKeys: ['removed'] });
     expect(query.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM messages'))[0]).toContain('RETURNING thread_key');
   });

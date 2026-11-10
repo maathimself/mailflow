@@ -76,7 +76,8 @@ Core mounts the router and fires the hooks through the registry — core never c
 `onSentMessage`, `validateAccountSettings`, `enrichAccount`, …); `sync` is an optional periodic tick.
 `messageRowsDeleted` receives `{ account, folder, threadKeys }` after explicit cached-message
 removals commit, including reconciliation, UIDVALIDITY purges, folder cleanup, labels, drafts,
-and user/rule actions. Keys come from deleted rows, grouped and deduplicated per account/folder;
+and physical row deletions from user/rule actions. Soft deletion (`is_deleted = true`) retains
+the cached row and is reported only when that row is physically removed. Keys come from deleted rows, grouped and deduplicated per account/folder;
 `account` includes its `id` and owning `user_id` (batch actions may supply only those fields). An atomic relocation that reinserts the same logical copy
 is not a removal. Recounts run first where applicable, and notifications are dispatched even
 if the recount fails. Dispatch is nonblocking; plugin failures are logged.

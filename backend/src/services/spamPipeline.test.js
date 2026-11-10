@@ -320,7 +320,7 @@ describe('classifyAndTagMessage — Authentication-Results trust gate', () => {
 
 describe('autoMove deletion notifications', () => {
   it.each([null, 500])('reports actual removed keys for destination UID %s', async newUid => {
-    const source = messageRow({ thread_key: 'source-still-present' });
+    const source = messageRow({ thread_key: 'deleted-source' });
     const removed = { account_id: ACCOUNT_ID, folder: newUid == null ? 'INBOX' : 'Junk', thread_key: newUid == null ? source.thread_key : 'deleted-thread' };
     query.mockResolvedValueOnce({ rows: [removed] }).mockResolvedValueOnce({ rows: [] });
     const imap = imapFacade();
@@ -329,6 +329,7 @@ describe('autoMove deletion notifications', () => {
     const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue();
     try {
       expect(await autoMove(source, 'Junk', imap, MESSAGE_ID)).toBe(true);
+      expect(query.mock.calls.find(([sql]) => sql.includes('DELETE FROM messages'))[0]).toMatch(/RETURNING[\s\S]*(?:thread_key|\*)/);
       expect(hook).toHaveBeenCalledExactlyOnceWith('messageRowsDeleted', {
         account: { id: ACCOUNT_ID, user_id: USER_ID }, folder: removed.folder, threadKeys: [removed.thread_key],
       });

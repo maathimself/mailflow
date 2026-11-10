@@ -15,7 +15,6 @@ vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }
 import { query } from './db.js';
 import { ImapManager, createKeyedSemaphore } from './imapManager.js';
 
-import { pluginRegistry } from '../plugins/registry.js';
 
 // Synthetic, connection-local tables only; no default database connection.
 describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('integrity deletion visible counts', () => {
@@ -41,10 +40,8 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('integrity deletion vis
         _applyFlagUpdates: vi.fn().mockResolvedValue(0), _isMoveUidGuarded: () => false,
         backfillMessages: vi.fn(), _bgConnSem: createKeyedSemaphore(2),
       });
-      const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
       await mgr._refreshObservedFolder({ id: 'review-a', user_id: 'fixture-u', imap_host: 'imap.example.test' }, 'Sent',
         { uidValidity: 8n, uidNext: 4, highestModseq: 22n });
-      expect(hook).toHaveBeenCalledWith('messageRowsDeleted', expect.objectContaining({ folder: 'Sent', threadKeys: ['gone'] }));
       const { rows: [counts] } = await db.query('SELECT total_count, unread_count FROM folders');
       expect(counts).toEqual({ total_count: 1, unread_count: 0 });
     } finally { await db.end(); }

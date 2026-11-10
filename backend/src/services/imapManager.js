@@ -1709,6 +1709,18 @@ export async function insertCopiedSibling(accountId, uid, fromFolder, toFolder, 
   return row ? row.id : null;
 }
 
+// An empty sibling insert succeeds only if the destination row is already cached in the COPYUID
+// epoch, as when the destination sync wins the race. Sync records the folder's epoch before it
+// caches rows. If the source row vanished first, nothing is cached and the caller must compensate.
+async function requireCachedCopy(accountId, toFolder, newUid, uidValidity) {
+  const { rows } = await query(
+    `SELECT 1 FROM messages m JOIN folders f ON f.account_id = m.account_id AND f.path = m.folder
+     WHERE m.account_id = $1 AND m.folder = $2 AND m.uid = $3 AND f.uid_validity::text = $4`,
+    [accountId, toFolder, newUid, String(uidValidity ?? '')]
+  );
+  if (!rows.length) throw new Error('Copied message has no cached destination row in its UID epoch');
+}
+
 export async function rollbackCopiedMessageOnInsertFailure(
   manager, account, toFolder, newUid, insertError, uidValidity,
 ) {
@@ -1749,7 +1761,7 @@ async function purgeFolderMessageRows(account, folder) {
 // Delete the rows identified by reconcileDeletes' IMAP snapshot and report their thread keys to
 // plugins. RETURNING makes the hook reflect only rows that survived the cutoff re-check, not every
 // candidate from the earlier SELECT.
-export async function deleteReconciledMessageRows(account, folder, orphanUids, reconcileStartedAt) {
+async function deleteReconciledMessageRows(account, folder, orphanUids, reconcileStartedAt) {
   const deleted = await query(
     `DELETE FROM messages
      WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[])
@@ -8016,11 +8028,9 @@ export class ImapManager {
     // Persist a known sibling first so those sessions can already see the copy. Without
     // COPYUID, core starts one deferred reconciliation for the hook to observe.
     if (newUid != null) {
-      try {
-        await insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid);
-      } catch (error) {
-        await rollbackCopiedMessageOnInsertFailure(this, account, toFolder, newUid, error, copyUidValidity);
-      }
+      await insertCopiedSibling(accountId, uid, fromFolder, toFolder, newUid)
+        .then(id => id ?? requireCachedCopy(accountId, toFolder, newUid, copyUidValidity))
+        .catch(error => rollbackCopiedMessageOnInsertFailure(this, account, toFolder, newUid, error, copyUidValidity));
     }
     // One post-copy pass serves core and any plugin observing the deferred sibling.
     const destinationSync = newUid == null

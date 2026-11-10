@@ -209,6 +209,7 @@ describe('waking one of two messages that share a Message-ID', () => {
     const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue();
     try {
       expect(await mgr.wakeSnoozed(woken(), { markUnread: false })).toBe(true);
+      expect(query.mock.calls.find(([sql]) => sql.includes('DELETE FROM messages'))[0]).toMatch(/RETURNING[\s\S]*thread_key/);
       expect(messages).toEqual([{ mid: '<dup@x>', folder: 'Snoozed', uid: 11, is_read: false }]);
       expect(hook).toHaveBeenCalledExactlyOnceWith('messageRowsDeleted', {
         account: ACCOUNT, folder: 'Snoozed', threadKeys: ['removed-thread'],

@@ -116,17 +116,18 @@ function fakeQuery(rawSql, params = []) {
   if (sql.startsWith('DELETE FROM messages WHERE id = ANY($1::uuid[])')) {
     const deleted = params[0].map(id => rows.get(id)).filter(Boolean);
     for (const row of deleted) rows.delete(row.id);
-    return result(deleted);
+    return result(/RETURNING.*(?:thread_key|\*)/i.test(sql) ? deleted : [], deleted.length);
   }
   if (sql.startsWith('SELECT * FROM email_accounts')) return result([{ id: ACCOUNT_ID, user_id: 'user-1', folder_mappings: null }]);
   if (sql.startsWith('SELECT path FROM folders')) return result(selectFolders(sql, FOLDERS));
   if (sql.startsWith('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4')) {
-    for (const [id, r] of [...rows]) if (r.uid === params[1] && r.folder === params[2] && id !== params[3]) rows.delete(id);
-    return result([]);
+    const deleted = [...rows.values()].filter(r => r.uid === params[1] && r.folder === params[2] && r.id !== params[3]);
+    for (const r of deleted) rows.delete(r.id);
+    return result(/RETURNING.*(?:thread_key|\*)/i.test(sql) ? deleted : [], deleted.length);
   }
   if (sql.startsWith('DELETE FROM messages WHERE id = $1')) {
     const row = rows.get(params[0]);
-    return result(row ? [row] : [], rows.delete(params[0]) ? 1 : 0);
+    return result(row && /RETURNING.*(?:thread_key|\*)/i.test(sql) ? [row] : [], rows.delete(params[0]) ? 1 : 0);
   }
   // Any "UPDATE messages SET a = $n, ... WHERE id = $m", so the tests pin behaviour rather than SQL text.
   const update = sql.match(/^UPDATE messages SET (.+) WHERE id = \$(\d+)$/);
@@ -222,13 +223,17 @@ describe('DELETE /api/mail/messages/:id', () => {
     } finally { hook.mockRestore(); }
   });
 
-  it('does not report an in-place UIDPLUS move as a row deletion', async () => {
+  it('reports the stale destination removed by a UIDPLUS move, preserving the moved source', async () => {
     reset();
+    const staleId = randomUUID();
+    rows.set(staleId, { ...rows.get(MSG_ID), id: staleId, folder: 'Trash', uid: 900, thread_key: 'stale-destination' });
     const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
     try {
       expect(await del()).toBe(200);
       expect(trashRow()).toBeDefined();
-      expect(hook.mock.calls.filter(([name]) => name === 'messageRowsDeleted')).toEqual([]);
+      expect(hook.mock.calls.filter(([name]) => name === 'messageRowsDeleted')).toEqual([['messageRowsDeleted', {
+        account: expect.objectContaining({ id: ACCOUNT_ID }), folder: 'Trash', threadKeys: ['stale-destination'],
+      }]]);
     } finally { hook.mockRestore(); }
   });
 

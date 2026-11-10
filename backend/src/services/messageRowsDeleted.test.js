@@ -31,11 +31,10 @@ describe('messageRowsDeleted dispatch', () => {
     expect(pluginRegistry.runHook).toHaveBeenCalledWith('messageRowsDeleted', { account, folder: 'Todo', threadKeys: ['one'] });
   });
 
-  it('logs handler failures returned by the registry without blocking the deletion', async () => {
-    pluginRegistry.runHook.mockReset().mockResolvedValue([{ pluginId: 'broken', error: new Error('handler failed') }]);
+  it.each([[new Error('handler failed'), 'handler failed'], [undefined, 'Unknown error'], [null, 'Unknown error'], ['handler failed', 'handler failed']])('logs a handler rejection %j without creating an unhandled rejection', async (error, reason) => {
+    pluginRegistry.runHook.mockReset().mockResolvedValue([{ pluginId: 'broken', error }]);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     notifyMessageRowsDeleted({ id: 'a' }, [{ thread_key: 'one' }], 'Todo');
-    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith('Message deletion hook failed (broken):', 'handler failed'));
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith('Message deletion hook failed (broken):', reason));
   });
-
 });

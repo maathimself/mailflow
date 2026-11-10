@@ -523,6 +523,7 @@ describe('DELETE /api/mail/draft/:uid — Drafts folders only', () => {
     const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue();
     try {
       expect((await del('folder=Drafts')).status).toBe(200);
+      expect(query.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM messages'))[0]).toMatch(/RETURNING[\s\S]*thread_key/);
       expect(hook).toHaveBeenCalledExactlyOnceWith('messageRowsDeleted', {
         account: ACCOUNT_ROW, folder: 'Drafts', threadKeys: ['deleted-draft'],
       });

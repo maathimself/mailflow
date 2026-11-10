@@ -54,12 +54,15 @@ describe('POST /api/mail/folders/empty — async background empty', () => {
     expect(emittedType('sync_complete')).toBeTruthy();
   });
 
-  it.each(['empty', 'delete'])('%s reports the returned deletion keys', async action => {
+  it.each([['empty', false], ['empty', true], ['delete', false]])('%s reports the returned deletion keys (recount fails: %s)', async (action, recountFails) => {
     imapManager.emptyFolder.mockResolvedValue();
     imapManager.deleteFolder.mockResolvedValue();
     const order = [];
     query.mockImplementation(async sql => {
-      if (sql.startsWith('UPDATE folders SET total_count = 0')) order.push('recount');
+      if (sql.startsWith('UPDATE folders SET total_count = 0')) {
+        order.push('recount');
+        if (recountFails) throw new Error('recount failed');
+      }
       if (sql.includes('FROM email_accounts WHERE id = $1 AND user_id = $2')) return { rows: [ACCOUNT] };
       if (sql.startsWith('DELETE FROM messages')) return { rows: [{ thread_key: 'deleted' }] };
       return { rows: [] };
@@ -77,24 +80,8 @@ describe('POST /api/mail/folders/empty — async background empty', () => {
       await tick();
       expect(hook).toHaveBeenCalledWith('messageRowsDeleted', { account: ACCOUNT, folder: 'Todo', threadKeys: ['deleted'] });
       expect(order).toEqual(action === 'empty' ? ['recount', 'hook'] : ['hook']);
+      if (action === 'empty') expect(emittedType('folder_emptied')?.ok).toBe(!recountFails);
       expect(query.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM messages'))[0]).toContain('RETURNING thread_key');
-    } finally { hook.mockRestore(); }
-  });
-
-  it('notifies a committed empty even when the subsequent count update fails', async () => {
-    imapManager.emptyFolder.mockResolvedValue();
-    query.mockImplementation(async sql => {
-      if (sql.includes('FROM email_accounts WHERE id = $1 AND user_id = $2')) return { rows: [ACCOUNT] };
-      if (sql.startsWith('DELETE FROM messages')) return { rows: [{ thread_key: 'removed' }] };
-      if (sql.startsWith('UPDATE folders')) throw new Error('recount failed');
-      return { rows: [] };
-    });
-    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
-    try {
-      expect((await empty('Todo')).status).toBe(202);
-      await tick();
-      expect(hook).toHaveBeenCalledWith('messageRowsDeleted', { account: ACCOUNT, folder: 'Todo', threadKeys: ['removed'] });
-      expect(emittedType('folder_emptied')?.ok).toBe(false);
     } finally { hook.mockRestore(); }
   });
 

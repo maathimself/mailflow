@@ -1,3 +1,4 @@
+import { extractImapError } from './imapError.js';
 import { pluginRegistry } from '../plugins/registry.js';
 
 // Dispatch only after the statement/transaction commits. Hooks cannot hold up a core response
@@ -17,7 +18,7 @@ export function notifyMessageRowsDeleted(account, rows, folder, userId) {
       ...group, threadKeys: [...group.threadKeys],
     }).then(errors => {
       for (const { pluginId, error } of errors || []) {
-        console.warn(`Message deletion hook failed (${pluginId}):`, error.message);
+        console.warn(`Message deletion hook failed (${pluginId}):`, extractImapError(error));
       }
     });
   }

@@ -72,7 +72,7 @@ async function database(sql, params = []) {
     return { rows: [], rowCount: target ? 1 : 0 };
   }
   if (sql.startsWith('SELECT message_id, date, subject, from_email, thread_key FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3')) {
-    return { rows: rows.filter(r => r.account_id === params[0] && Number(r.uid) === Number(params[1]) && r.folder === params[2]).map(r => ({ message_id: r.message_id, date: r.date, subject: r.subject, from_email: r.from_email })) };
+    return { rows: rows.filter(r => r.account_id === params[0] && Number(r.uid) === Number(params[1]) && r.folder === params[2]).map(r => ({ message_id: r.message_id, date: r.date, subject: r.subject, from_email: r.from_email, thread_key: r.thread_key })) };
   }
   if (sql.startsWith('SELECT id, uid, is_read FROM messages')) return { rows: rows.filter(r => r.folder === params[1] && r.message_id === params[2] && !r.is_deleted).map(r => ({ ...r })) };
   if (sql.includes('FROM email_accounts')) return { rows: [otherAccounts.find(a => a.id === params[0]) || account] };
