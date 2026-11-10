@@ -78,6 +78,48 @@ describe('POST /api/mail/folders/empty — async background empty', () => {
     } finally { hook.mockRestore(); }
   });
 
+  it.each(['empty', 'delete'])('%s completes despite a deletion hook that never settles', async action => {
+    imapManager.emptyFolder.mockResolvedValue();
+    imapManager.deleteFolder.mockResolvedValue();
+    query.mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts WHERE id = $1 AND user_id = $2')) return { rows: [ACCOUNT] };
+      if (sql.startsWith('DELETE FROM messages')) return { rows: [{ thread_key: 'removed' }] };
+      return { rows: [] };
+    });
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockImplementation(name => name === 'messageRowsDeleted'
+      ? new Promise(() => {}) : Promise.resolve([]));
+    try {
+      const response = await fetch(`${base}/api/mail/folders/${action}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: ACCOUNT_ID, path: 'Todo' }),
+      });
+      expect(response.status).toBe(action === 'empty' ? 202 : 200);
+      await tick();
+      if (action === 'empty') {
+        expect(query.mock.calls.some(([sql]) => sql.startsWith('UPDATE folders SET total_count = 0'))).toBe(true);
+        expect(emittedType('folder_emptied')?.ok).toBe(true);
+      }
+      expect(hook).toHaveBeenCalledWith('messageRowsDeleted', { account: ACCOUNT, folder: 'Todo', threadKeys: ['removed'] });
+    } finally { hook.mockRestore(); }
+  });
+
+  it('notifies a committed empty even when the subsequent count update fails', async () => {
+    imapManager.emptyFolder.mockResolvedValue();
+    query.mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts WHERE id = $1 AND user_id = $2')) return { rows: [ACCOUNT] };
+      if (sql.startsWith('DELETE FROM messages')) return { rows: [{ thread_key: 'removed' }] };
+      if (sql.startsWith('UPDATE folders')) throw new Error('recount failed');
+      return { rows: [] };
+    });
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    try {
+      expect((await empty('Todo')).status).toBe(202);
+      await tick();
+      expect(hook).toHaveBeenCalledWith('messageRowsDeleted', { account: ACCOUNT, folder: 'Todo', threadKeys: ['removed'] });
+      expect(emittedType('folder_emptied')?.ok).toBe(false);
+    } finally { hook.mockRestore(); }
+  });
+
   it('leaves the DB rows intact and reports failure when the IMAP empty throws', async () => {
     imapManager.emptyFolder.mockRejectedValue(new Error('throttled'));
     const res = await empty('Archive');

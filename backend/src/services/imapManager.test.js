@@ -564,13 +564,32 @@ describe('rollbackCopiedMessageOnInsertFailure', () => {
     expect(insertError.copiedUid).toBeUndefined();
   });
 
-  it('reports the confirmed UID when server rollback also fails', async () => {
+  it.each(['rejects', 'refuses', 'unknown validity'])('logs an uncompensated copy when rollback %s and preserves the insert error', async failure => {
+    const account = { id: 'rollback-log-fixture' };
+    const manager = { permanentDeleteMessage: failure === 'rejects'
+      ? vi.fn().mockRejectedValue(new Error('rollback connection lost'))
+      : vi.fn().mockResolvedValue(false) };
+    const insertError = new Error('insert failed');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(rollbackCopiedMessageOnInsertFailure(manager, account, 'Delegated', 5001, insertError,
+        failure === 'unknown validity' ? null : 42n)).rejects.toBe(insertError);
+      expect(insertError.copiedUid).toBeUndefined();
+      expect(log).toHaveBeenCalledOnce();
+      const message = log.mock.calls[0].join(' ');
+      const reason = failure === 'rejects' ? 'rollback connection lost' : 'Cannot safely roll back copy';
+      for (const part of [account.id, 'Delegated', '5001', reason]) expect(message).toContain(part);
+      if (failure === 'unknown validity') expect(manager.permanentDeleteMessage).not.toHaveBeenCalled();
+    } finally { log.mockRestore(); }
+  });
+
+  it('rethrows the original insert error when server rollback also fails', async () => {
     const rollbackError = new Error('imap unavailable');
     const manager = { permanentDeleteMessage: vi.fn().mockRejectedValue(rollbackError) };
     const insertError = new Error('database unavailable');
     await expect(rollbackCopiedMessageOnInsertFailure(
       manager, { id: 'acct-1' }, 'Delegated', 5001, insertError, 42n,
-    )).rejects.toMatchObject({ copiedUid: 5001, rollbackError });
+    )).rejects.toBe(insertError);
   });
 });
 
@@ -6864,6 +6883,55 @@ describe('server copy identity checks', () => {
     } finally { hook.mockRestore(); }
   });
 
+  it('one non-UIDPLUS copy shares one post-copy sync with the bundled GTD hook', async () => {
+    const { afterLabelCopy } = await import('../plugins/gtd/hooks.js');
+    const { mgr, account, client } = arrange(new Map());
+    client.messageCopy = vi.fn().mockResolvedValue({});
+    let release;
+    const active = new Promise(resolve => { release = resolve; });
+    const sync = vi.spyOn(mgr, '_syncFolderOnDemandNow').mockReturnValueOnce(active).mockResolvedValue(undefined);
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockImplementation(async (name, ctx) => {
+      if (name === 'afterLabelCopy') await afterLabelCopy(ctx);
+      return [];
+    });
+    try {
+      expect(await mgr.copyMessage(account.id, 7, 'INBOX', 'Todo')).toBeNull();
+      expect(sync).toHaveBeenCalledTimes(1);
+      release();
+      for (let i = 0; i < 30; i++) await Promise.resolve();
+      expect(sync).toHaveBeenCalledTimes(1);
+    } finally { release(); hook.mockRestore(); sync.mockRestore(); }
+  });
+
+  it('removing a label copy delivers the generic deletion hook', async () => {
+    const { mgr, account } = arrange(new Map());
+    query.mockImplementation(async sql => {
+      if (sql.includes('FROM email_accounts')) return { rows: [account] };
+      if (sql.startsWith('SELECT message_id')) return { rows: [{ message_id: '<copy@example.test>', thread_key: 'thread-a' }] };
+      if (sql.startsWith('DELETE FROM messages')) return { rows: [{ is_read: false, thread_key: 'thread-a' }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    try {
+      expect(await mgr.removeMessageCopy(account.id, 7, 'Todo')).toBe(1);
+      expect(hook).toHaveBeenCalledWith('messageRowsDeleted', { account, folder: 'Todo', threadKeys: ['thread-a'] });
+    } finally { hook.mockRestore(); }
+  });
+
+  it('failed rollback preserves the original failure and names the retained server copy', async () => {
+    const { mgr, account, client } = arrange(new Map());
+    const insertError = new Error('local insert failed');
+    client.messageCopy = vi.fn().mockResolvedValue({ uidValidity: 42n, uidMap: new Map([[7, 99]]) });
+    client.mailbox = { uidValidity: 43n };
+    query.mockResolvedValueOnce({ rows: [account] }).mockRejectedValueOnce(insertError);
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    try {
+      await expect(mgr.copyMessage(account.id, 7, 'INBOX', 'Todo')).rejects.toBe(insertError);
+      expect(client.messageDelete).not.toHaveBeenCalled();
+      expect(hook).not.toHaveBeenCalledWith('afterLabelCopy', expect.anything());
+    } finally { hook.mockRestore(); }
+  });
+
   it('deletes the uid when the server copy carries the expected Message-ID', async () => {
     const { mgr, account, client } = arrange(new Map([[7, '<old@example.test>']]));
     expect(await mgr.permanentDeleteMessage(account, 7, 'Drafts', { expectMessageId: '<old@example.test>' })).toBe(true);
@@ -7648,5 +7716,19 @@ describe('UIDVALIDITY purge notifications', () => {
     } else await mgr.backfillMessages(acct, 'Todo');
     expect(hook).toHaveBeenCalledWith('messageRowsDeleted', { account: acct, folder: 'Todo', threadKeys: ['removed'] });
     expect(query.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM messages'))[0]).toContain('RETURNING thread_key');
+  });
+});
+
+
+describe('deletion delivery despite partial failure', () => {
+  it('notifies committed deletions even if the subsequent count update fails', async () => {
+    const account = { id: 'review-recount', user_id: 'fixture-user' };
+    query.mockReset().mockResolvedValueOnce({ rows: [{ thread_key: 'thread-a' }], rowCount: 1 })
+      .mockRejectedValueOnce(new Error('count update failed'));
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    try {
+      await expect(deleteReconciledMessageRows(account, 'Todo', [7], new Date())).rejects.toThrow('count update failed');
+      expect(hook).toHaveBeenCalledWith('messageRowsDeleted', { account, folder: 'Todo', threadKeys: ['thread-a'] });
+    } finally { hook.mockRestore(); }
   });
 });

@@ -145,8 +145,8 @@ export async function gtdSyncTick({ mgr, account }) {
 // deferred insert saw stale thread state, so re-running here applies any needed strip immediately.
 // Gated on gtd_enabled; transition failures are debug-level. Uses only generic mgr primitives
 // (syncFolderOnDemand, broadcast) plus GTD's own DB read + transition engine.
-export function emitAfterDeferredCopySync(mgr, account, toFolder, srcUid, fromFolder) {
-  return mgr.syncFolderOnDemand(account, toFolder, { freshAfterActive: true })
+export function emitAfterDeferredCopySync(mgr, account, toFolder, srcUid, fromFolder, destinationSync) {
+  return (destinationSync ?? mgr.syncFolderOnDemand(account, toFolder, { freshAfterActive: true }))
     .then(async () => {
       mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
       if (!(await getGtdConfig(account.id)).enabled) return;
@@ -163,12 +163,12 @@ export function emitAfterDeferredCopySync(mgr, account, toFolder, srcUid, fromFo
 // runHook('afterLabelCopy'): core just COPY'd a message into a label folder. Broadcast the GTD
 // section refresh (unconditional, mirroring the pre-plugin manager-level emit — it carries no row
 // and is safe on both paths), then, on the deferred (non-UIDPLUS) path where the sibling row isn't
-// inserted yet, kick off the deferred reconcile. That reconcile is intentionally NOT awaited so
+// inserted yet, observe core's deferred reconcile (or start one for direct hook calls). It is NOT awaited so
 // the label write never blocks on the destination sync. Never throws into core.
-export async function afterLabelCopy({ mgr, account, toFolder, fromFolder, srcUid, newUid }) {
+export async function afterLabelCopy({ mgr, account, toFolder, fromFolder, srcUid, newUid, destinationSync }) {
   mgr.broadcast({ type: 'gtd_sections_updated', accountId: account.id }, account.user_id);
   if (newUid == null) {
-    emitAfterDeferredCopySync(mgr, account, toFolder, srcUid, fromFolder);
+    emitAfterDeferredCopySync(mgr, account, toFolder, srcUid, fromFolder, destinationSync);
   }
 }
 

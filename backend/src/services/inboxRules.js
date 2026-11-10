@@ -1,3 +1,4 @@
+import { notifyMessageRowsDeleted } from './messageRowsDeleted.js';
 import { query } from './db.js';
 import { rememberDroppedRows } from './movedRowCarry.js';
 import { resolveArchiveFolder, isAllMailFolder, resolveTrashFolder, resolveAllTrashPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
@@ -448,6 +449,7 @@ export const RULE_CATEGORIES = new Set(['primary', 'newsletter', 'promotion', 'a
 // files the message under its real uid. The destination's counts come from that sync.
 async function dropMovedRow(imapManager, account, msg, destination) {
   const dropped = await query('DELETE FROM messages WHERE id = $1 RETURNING *', [msg.id]);
+  notifyMessageRowsDeleted(account, dropped.rows);
   rememberDroppedRows(destination, dropped?.rows);
   imapManager.syncFolderOnDemand(account, destination)
     .catch(err => console.warn(`inboxRules: sync of ${destination} after a move without a new uid failed: ${err.message}`));
@@ -590,7 +592,8 @@ async function applyAction(action, msg, account, imapManager, ruleId, resolverCa
         if (resolverCache.archiveIsAllMail) {
           // No sync loop maintains a messages row filed under All Mail — the message
           // vanishes from our view instead of getting re-homed there (see mail.js bulk-archive).
-          await query('DELETE FROM messages WHERE id = $1', [msg.id]);
+          const deletedRows = await query('DELETE FROM messages WHERE id = $1 RETURNING account_id, folder, thread_key', [msg.id]);
+          notifyMessageRowsDeleted(account, deletedRows.rows);
         } else if (newArchiveUid) {
           await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3', [archiveFolder, newArchiveUid, msg.id]);
         } else {

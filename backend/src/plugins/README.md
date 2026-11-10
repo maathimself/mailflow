@@ -74,8 +74,17 @@ A plugin exports a manifest (see `gtd/index.js`): `{ id, name, version, tier, ro
 Core mounts the router and fires the hooks through the registry — core never calls a plugin directly.
 `hooks` are the plugin's halves of generic core events (e.g. `inboxIngest`, `afterLabelCopy`,
 `onSentMessage`, `validateAccountSettings`, `enrichAccount`, …); `sync` is an optional periodic tick.
-`messageRowsDeleted` receives `{ account, folder, threadKeys }` when reconciliation, a UIDVALIDITY purge, or folder removal deletes cached rows;
-`afterLabelRemove` includes the removed copy’s `threadKey`.
+`messageRowsDeleted` receives `{ account, folder, threadKeys }` after explicit cached-message
+removals commit, including reconciliation, UIDVALIDITY purges, folder cleanup, labels, drafts,
+and user/rule actions. Keys come from deleted rows, grouped and deduplicated per account/folder;
+`account` includes at least its `id`. An atomic relocation that reinserts the same logical copy
+is not a removal. Recounts run first where applicable, and notifications are dispatched even
+if the recount fails. Dispatch is nonblocking; plugin failures are logged.
+`afterLabelRemove` retains its separate contract and includes the removed copy’s `threadKey`.
+Account/user FK cascades are whole-parent lifecycle operations outside this row hook. The
+account-removal hook and account-scoped plugin storage cleanup are follow-up work in #342.
+On a non-UIDPLUS COPY, `afterLabelCopy` receives `destinationSync`, core's single fresh
+post-copy completion promise; GTD observes it before refreshing/re-evaluating the copied thread.
 `syncFolderOnDemand(account, folder, { freshAfterActive: true })` requests a new pass after an
 older folder sync settles, for example after a non-UIDPLUS COPY. Waiting on an active owner is
 bounded to 30 seconds; a timeout warns and returns without releasing that owner's claim or
@@ -85,7 +94,9 @@ starting a competing pass. Freshness then falls back to the next periodic sync.
 
 No plugin-specific columns/tables in core. Plugin data lives in generic stores: `plugin_data`
 (KV/blobs), `plugin_account_config` (per-account config), `messages.plugin_annotations` (per-message,
-namespaced by plugin id). All cascade-clean with their owner.
+namespaced by plugin id). `plugin_account_config` cascades with its account and annotations
+with their message row. `plugin_data.owner_id` refers to a user, so user-owned entries cascade
+on user deletion; account removal does not cascade account-scoped keys in `plugin_data`.
 
 ---
 

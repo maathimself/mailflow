@@ -4,8 +4,10 @@ vi.mock('./db.js', () => ({ query: vi.fn() }));
 vi.mock('./spamModelStore.js', () => ({ getModelForUser: vi.fn() }));
 
 import { query } from './db.js';
+import { pluginRegistry } from '../plugins/registry.js';
 import { getModelForUser } from './spamModelStore.js';
 import {
+  autoMove,
   classifyAndTagMessage,
   SPAM_THRESHOLD,
   AUTO_MOVE_THRESHOLD,
@@ -313,6 +315,24 @@ describe('classifyAndTagMessage — Authentication-Results trust gate', () => {
     expect(details.authservIds).toEqual([]);
     expect(details.trustedAuthservId).toBeNull();
     expect(details.authTrusted).toBe(false);
+  });
+});
+
+describe('autoMove deletion notifications', () => {
+  it.each([null, 500])('reports actual removed keys for destination UID %s', async newUid => {
+    const source = messageRow({ thread_key: 'source-still-present' });
+    const removed = { account_id: ACCOUNT_ID, folder: newUid == null ? 'INBOX' : 'Junk', thread_key: 'deleted-thread' };
+    query.mockResolvedValueOnce({ rows: [removed] }).mockResolvedValueOnce({ rows: [] });
+    const imap = imapFacade();
+    imap.moveMessage.mockResolvedValue(newUid);
+    imap.syncFolderOnDemand = vi.fn(async () => {});
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue();
+    try {
+      expect(await autoMove(source, 'Junk', imap, MESSAGE_ID)).toBe(true);
+      expect(hook).toHaveBeenCalledExactlyOnceWith('messageRowsDeleted', {
+        account: { id: ACCOUNT_ID, user_id: USER_ID }, folder: removed.folder, threadKeys: ['deleted-thread'],
+      });
+    } finally { hook.mockRestore(); }
   });
 });
 

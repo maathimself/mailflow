@@ -18,6 +18,7 @@ import mailRoutes from './mail.js';
 import { query } from '../services/db.js';
 import { imapManager } from '../index.js';
 import { isRowsMessage } from '../services/imapManager.js';
+import { pluginRegistry } from '../plugins/registry.js';
 
 const ACCOUNT_ID = 'a1a1a1a1-1111-4111-8111-a1a1a1a1a1a1';
 const MSG_ID = 'b2b2b2b2-2222-4222-8222-b2b2b2b2b2b2';
@@ -47,7 +48,7 @@ const synced = (name) => ({
 let rows, server, uidplus, nextTrashUid;
 
 function reset({ trash = {}, withUidplus = true, folder = 'INBOX' } = {}) {
-  rows = new Map([[MSG_ID, { id: MSG_ID, account_id: ACCOUNT_ID, uid: 42, folder, is_read: false, ...synced('MAIL-A') }]]);
+  rows = new Map([[MSG_ID, { id: MSG_ID, account_id: ACCOUNT_ID, uid: 42, folder, is_read: false, thread_key: 'deleted-thread', ...synced('MAIL-A') }]]);
   server = { [folder]: new Map([[42, 'MAIL-A']]), Trash: new Map(Object.entries(trash).map(([u, m]) => [Number(u), m])) };
   uidplus = withUidplus;
   nextTrashUid = 900;
@@ -112,8 +113,10 @@ function fakeQuery(rawSql, params = []) {
     const row = rows.get(params[0]);
     return result(row ? [{ ...row, user_id: 'user-1' }] : []);
   }
-  if (sql === 'DELETE FROM messages WHERE id = ANY($1::uuid[])') {
-    return result([], params[0].filter(id => rows.delete(id)).length);
+  if (sql.startsWith('DELETE FROM messages WHERE id = ANY($1::uuid[])')) {
+    const deleted = params[0].map(id => rows.get(id)).filter(Boolean);
+    for (const row of deleted) rows.delete(row.id);
+    return result(deleted);
   }
   if (sql.startsWith('SELECT * FROM email_accounts')) return result([{ id: ACCOUNT_ID, user_id: 'user-1', folder_mappings: null }]);
   if (sql.startsWith('SELECT path FROM folders')) return result(selectFolders(sql, FOLDERS));
@@ -121,7 +124,7 @@ function fakeQuery(rawSql, params = []) {
     for (const [id, r] of [...rows]) if (r.uid === params[1] && r.folder === params[2] && id !== params[3]) rows.delete(id);
     return result([]);
   }
-  if (sql === 'DELETE FROM messages WHERE id = $1' || sql === 'DELETE FROM messages WHERE id = $1 RETURNING *') {
+  if (sql.startsWith('DELETE FROM messages WHERE id = $1')) {
     const row = rows.get(params[0]);
     return result(row ? [row] : [], rows.delete(params[0]) ? 1 : 0);
   }
@@ -205,6 +208,31 @@ describe('DELETE /api/mail/messages/:id', () => {
   });
 
   const del = async (id = MSG_ID) => (await fetch(`${base}/api/mail/messages/${id}`, { method: 'DELETE' })).status;
+
+  it.each(['Trash', 'Drafts', 'INBOX'])('notifies actual cached-row deletion in %s exactly once, preserving ordinary mutations', async folder => {
+    reset({ folder, withUidplus: false });
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    try {
+      expect(await del()).toBe(200);
+      expect(rows.has(MSG_ID)).toBe(false);
+      const notices = hook.mock.calls.filter(([name]) => name === 'messageRowsDeleted');
+      expect(notices).toEqual([['messageRowsDeleted', {
+        account: expect.objectContaining({ id: ACCOUNT_ID }), folder, threadKeys: ['deleted-thread'],
+      }]]);
+      expect(await del()).toBe(404);
+      expect(hook.mock.calls.filter(([name]) => name === 'messageRowsDeleted')).toHaveLength(1);
+    } finally { hook.mockRestore(); }
+  });
+
+  it('does not report an in-place UIDPLUS move as a row deletion', async () => {
+    reset();
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue([]);
+    try {
+      expect(await del()).toBe(200);
+      expect(trashRow()).toBeDefined();
+      expect(hook.mock.calls.filter(([name]) => name === 'messageRowsDeleted')).toEqual([]);
+    } finally { hook.mockRestore(); }
+  });
 
   it('a repeated DELETE does not expunge the message it moved to Trash', async () => {
     reset();

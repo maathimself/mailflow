@@ -1,0 +1,52 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('../plugins/registry.js', () => ({ pluginRegistry: { runHook: vi.fn() } }));
+import { pluginRegistry } from '../plugins/registry.js';
+import { notifyMessageRowsDeleted } from './messageRowsDeleted.js';
+
+afterEach(() => vi.restoreAllMocks());
+
+describe('messageRowsDeleted dispatch', () => {
+  it('groups actual returned rows by account and folder, deduplicating keys within each group', () => {
+    pluginRegistry.runHook.mockReset().mockResolvedValue([]);
+    notifyMessageRowsDeleted(null, [
+      { account_id: 'a', folder: 'Todo', thread_key: 'one' },
+      { account_id: 'a', folder: 'Todo', thread_key: 'one' },
+      { account_id: 'a', folder: 'Done', thread_key: 'one' },
+      { account_id: 'b', folder: 'Todo', thread_key: 'two' },
+      { account_id: 'a', folder: 'Todo', thread_key: null },
+    ]);
+    expect(pluginRegistry.runHook.mock.calls).toEqual([
+      ['messageRowsDeleted', { account: { id: 'a' }, folder: 'Todo', threadKeys: ['one'] }],
+      ['messageRowsDeleted', { account: { id: 'a' }, folder: 'Done', threadKeys: ['one'] }],
+      ['messageRowsDeleted', { account: { id: 'b' }, folder: 'Todo', threadKeys: ['two'] }],
+    ]);
+  });
+
+  it('does not wait for a hanging plugin or dispatch an empty deletion', () => {
+    pluginRegistry.runHook.mockReset().mockReturnValue(new Promise(() => {}));
+    const account = { id: 'a', user_id: 'u' };
+    expect(notifyMessageRowsDeleted(account, [{ thread_key: 'one' }], 'Todo')).toBeUndefined();
+    notifyMessageRowsDeleted(account, [], 'Todo');
+    expect(pluginRegistry.runHook).toHaveBeenCalledOnce();
+    expect(pluginRegistry.runHook).toHaveBeenCalledWith('messageRowsDeleted', { account, folder: 'Todo', threadKeys: ['one'] });
+  });
+
+  it('logs handler failures returned by the registry without blocking the deletion', async () => {
+    pluginRegistry.runHook.mockReset().mockResolvedValue([{ pluginId: 'broken', error: new Error('handler failed') }]);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    notifyMessageRowsDeleted({ id: 'a' }, [{ thread_key: 'one' }], 'Todo');
+    await Promise.resolve();
+    expect(warn).toHaveBeenCalledWith('Message deletion hook failed (broken):', 'handler failed');
+  });
+
+  it.each(['throw', 'reject'])('logs a plugin %s without failing the committed deletion', async mode => {
+    const failure = new Error('plugin failed');
+    pluginRegistry.runHook.mockReset().mockImplementation(() => {
+      if (mode === 'throw') throw failure;
+      return Promise.reject(failure);
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(() => notifyMessageRowsDeleted({ id: 'a' }, [{ thread_key: 'one' }], 'Todo')).not.toThrow();
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith('Message deletion hook failed:', 'plugin failed'));
+  });
+});

@@ -27,6 +27,7 @@ import { getConnectionPolicy } from './connectionPolicy.js';
 import { query } from './db.js';
 import { adjustFolderCounts } from '../utils/mailUtils.js';
 import { takeCarry } from './movedRowCarry.js';
+import { pluginRegistry } from '../plugins/registry.js';
 
 const HOUR = 3_600_000;
 const ACCOUNT = { id: 'acct-1', user_id: 'u1', imap_host: 'imap.example.com', imap_port: 993, imap_tls: true, auth_user: 'u', auth_pass: 'enc' };
@@ -89,10 +90,10 @@ function fakeQuery(sql, params = []) {
   }
   if (sql.startsWith('DELETE FROM messages')) {
     const where = { mid: params[1], folder: params[2], uid: params[3] };
-    const cond = sql.replace(/\s+RETURNING \*$/, '');
+    const cond = sql.replace(/\s+RETURNING[\s\S]*$/, '');
     const gone = messages.filter(m => matches(cond, m, where));
     messages = messages.filter(m => !gone.includes(m));
-    return { rows: gone.map(m => ({ account_id: params[0], message_id: m.mid, uid: m.uid, folder: m.folder, category: m.category ?? null })) };
+    return { rows: gone.map(m => ({ account_id: params[0], message_id: m.mid, uid: m.uid, folder: m.folder, category: m.category ?? null, thread_key: m.thread_key })) };
   }
   if (sql.startsWith('DELETE FROM snoozed_messages WHERE id')) { snoozes.delete(params[0]); return { rows: [] }; }
   return { rows: [] };
@@ -204,8 +205,15 @@ describe('waking one of two messages that share a Message-ID', () => {
 
   it('drops only its own row when the move names no new uid', async () => {
     mgr.moveMessageGetNewUid = vi.fn(async () => null);
-    expect(await mgr.wakeSnoozed(woken(), { markUnread: false })).toBe(true);
-    expect(messages).toEqual([{ mid: '<dup@x>', folder: 'Snoozed', uid: 11, is_read: false }]);
+    messages.find(m => m.uid === 10).thread_key = 'removed-thread';
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue();
+    try {
+      expect(await mgr.wakeSnoozed(woken(), { markUnread: false })).toBe(true);
+      expect(messages).toEqual([{ mid: '<dup@x>', folder: 'Snoozed', uid: 11, is_read: false }]);
+      expect(hook).toHaveBeenCalledExactlyOnceWith('messageRowsDeleted', {
+        account: ACCOUNT, folder: 'Snoozed', threadKeys: ['removed-thread'],
+      });
+    } finally { hook.mockRestore(); }
   });
 
   it('moves only its own row when the move names the new uid', async () => {
