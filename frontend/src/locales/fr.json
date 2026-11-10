@@ -511,6 +511,7 @@
     "noSearchResults": "Aucun résultat trouvé",
     "searching": "Recherche en cours…",
     "noSearchResultsDesc": "Aucun résultat pour {{query}}",
+    "searchScopeNote": "Recherche limitée à « {{folder}} »",
     "searchFailed": "Échec de la recherche",
     "clearSearch": "Effacer la recherche",
     "searchHelp": {
