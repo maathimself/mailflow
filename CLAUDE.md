@@ -128,9 +128,10 @@ MAILFLOW_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/mailflow_
 ```
 
 `npm run dev` in `backend/` is `node --watch`. Startup exits unless `SESSION_SECRET` (at
-least 32 characters), `DB_PASSWORD` and a 64-hex-character `ENCRYPTION_KEY` are set, and it
-applies pending migrations before it listens. Postgres defaults to the compose hostname
-(`DB_HOST` overrides it). The Vite dev server on port 5173 proxies `/api` and `/ws` to
+least 32 characters), `DB_PASSWORD` (or `DATABASE_URL`) and a 64-hex-character
+`ENCRYPTION_KEY` are set, and it applies pending migrations before it listens. Postgres
+defaults to the compose hostname (`DB_HOST` overrides it); `DATABASE_URL`, when set,
+replaces all `DB_*` variables. The Vite dev server on port 5173 proxies `/api` and `/ws` to
 `http://backend:3000`, which is hard-coded, so outside compose `backend` has to resolve.
 
 ## Working on this codebase

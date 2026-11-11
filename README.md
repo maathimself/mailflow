@@ -319,7 +319,10 @@ Edit `.env`. In addition to the required secrets, set these for a native install
 | `DB_NAME` | `mailflow` |
 | `DB_USER` | `mailflow` |
 | `DB_PASSWORD` | password you set in step 2 |
+| `DATABASE_URL` | optional, e.g. `postgres://mailflow:password@localhost:5432/mailflow` |
 | `REDIS_URL` | `redis://localhost:6379` — or `redis+unix:///path/to/redis.sock` for a Unix socket |
+
+When `DATABASE_URL` is set, the backend connects with it alone and ignores `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD`. Connection parameters in the URL, such as `sslmode`, apply as written. The bundled `postgres` service in Docker Compose still takes its password from `DB_PASSWORD`.
 
 For Docker installs, the bundled Postgres/Redis work out of the box. To point at **external** database or cache servers (any host/port), or to store data on a host **bind mount** (e.g. an Unraid appdata share with `PUID`/`PGID`), see the "Database & Redis" and "Storage & permissions" sections of [`.env.example`](.env.example).
 | `ENCRYPTION_KEY` | `openssl rand -hex 32` |
