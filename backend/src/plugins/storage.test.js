@@ -7,6 +7,15 @@ import * as storage from './storage.js';
 describe('plugin storage', () => {
   beforeEach(() => query.mockReset());
 
+  it('lists values for one plugin and owner, rejecting an unscoped list', async () => {
+    query.mockResolvedValue({ rows: [{ key: 'k1', owner_id: 'u1', value: { name: 'Welcome' } }] });
+    expect(await storage.listValues('templates', 'u1')).toHaveLength(1);
+    expect(query.mock.calls[0][0]).toMatch(/WHERE plugin_id = \$1 AND owner_id = \$2/);
+    expect(query.mock.calls[0][1]).toEqual(['templates', 'u1']);
+    await expect(storage.listValues('templates')).rejects.toThrow('owner');
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
   it('put upserts by (plugin_id, key) carrying value/blob/owner/visibility', async () => {
     query.mockResolvedValue({ rows: [] });
     const blob = Buffer.from('x');

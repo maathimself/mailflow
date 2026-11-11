@@ -2424,5 +2424,34 @@
     "formNote": "Caixas do Gmail e do Google Workspace podem entrar com o Google em vez de usar uma senha de app.",
     "appPasswordNote": "O Gmail precisa de uma senha de app, não da sua senha normal. Ative a verificação em duas etapas da sua Conta do Google, crie uma senha de app e digite-a no campo de senha.",
     "createAppPassword": "Criar uma senha de app"
+  },
+  "templates": {
+    "title": "Modelos",
+    "new": "Novo trecho",
+    "name": "Nome",
+    "content": "Conteúdo",
+    "empty": "Nenhum trecho salvo.",
+    "deleteConfirm": "Excluir este trecho?",
+    "insert": "Inserir",
+    "saveContent": "Salvar como trecho",
+    "recipientChanged": "O destinatário mudou. Insira o trecho novamente.",
+    "hint": "As datas são preenchidas ao inserir. Os nomes são preenchidos ao informar o primeiro destinatário Para. Valores ausentes ficam como marcadores.",
+    "variables": {
+      "insert": "Inserir variável",
+      "placeholder": "Inserir marcador",
+      "confirm": "Inserir",
+      "hint": "Escolha uma variável para inserir na posição do cursor.",
+      "date": "Data",
+      "longDate": "Data por extenso",
+      "dateTime": "Data e hora",
+      "month": "Mês",
+      "fullName": "Nome completo",
+      "givenName": "Nome",
+      "surname": "Sobrenome",
+      "groups": {
+        "date": "Data",
+        "contact": "Contato"
+      }
+    }
   }
 }

@@ -99,6 +99,32 @@ Core carries no plugin-specific UI code. A plugin registers into a small in-proc
   message types core doesn't, and resync on reconnect.
 - `registerPluginMeta(pluginId, meta)` — static metadata (e.g. where the plugin's settings live).
 
+The `compose-actions` slot appears in the rich-text toolbar's More submenu and the plain-text
+action strip. Its context exposes `{ editor, sessionId, disabled, htmlMode, plaintextEmail,
+isMobile, captureSelection, getContent, getSubject, getRecipients, insertContent }`. Capture the selection
+before opening a picker. `getContent(selection)` reads selected HTML or the body if nothing is
+selected. `insertContent(html, selection, { subject })` sanitizes and inserts content and optionally
+fills an empty subject. Async pickers must discard results when unmounted or when `sessionId` changes.
+Reusable content editors can use `ComposeContentEditor` and its optional
+`renderActions({ disabled, captureSelection, insertText })` for editor-specific controls.
+
+The `compose-observers` slot stays mounted when toolbar menus close. Its context also exposes
+`getBody()` and `transformContent({ text, html, subject })` to transform the current content without
+replacing intervening edits. Rich-text transforms retain marks and map the selection without taking
+focus. `getRecipients({ committedOnly: true })` excludes unfinished recipient input. Observers must
+cancel stale work on recipient/session changes, deactivation, and unmount; they never run from Send.
+
+Templates is a bundled, per-user opt-in snippet library managed from the composer. Records have
+a name, optional subject, and HTML body and use private `storage.put` / `storage.listValues(pluginId, ownerId)`.
+The plugin fills date tokens (`date.date`, `date.longDate`, `date.dateTime`, `date.month`) and
+contact-name tokens (`contact.fullName`, `contact.givenName`, `contact.surname`) when a snippet
+is inserted, including tokens in its subject. Remaining contact-name tokens also fill after the
+first To recipient is committed, so writing the recipient last works. Existing text and edits are
+preserved, and Undo is not automatically filled again. Existing composer subjects are preserved on insertion. Contact
+lookup matches the first To recipient's email exactly against the existing
+contacts API. Missing values and custom placeholders remain visible. Substitution is limited to
+HTML text nodes so names cannot become markup or URL attributes. No send or sync hooks are used.
+
 The neutral `message-row-meta` slot receives `{ message }` on ordinary flat and threaded rows.
 GTD fills it for inbox/search with its own metadata endpoint, account gating and state chips;
 core message queries remain plugin-agnostic. Waiting ages use the oldest labeled message date,
