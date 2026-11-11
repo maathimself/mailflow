@@ -9,6 +9,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
+import { descaleCss } from '../utils/uiScaleCss.js';
 import { useEditor, EditorContent, useEditorState, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { Extension } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
@@ -2985,7 +2986,7 @@ export default function ComposeModal() {
       } : pos ? {
         position: 'fixed', top: pos.y, left: pos.x,
         width: customSize?.width || 540,
-        ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
+        ...(customSize?.height ? { height: customSize.height } : { maxHeight: descaleCss('75vh') }),
         maxWidth: 'calc(100vw - 16px)',
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10, boxShadow: 'var(--shadow-modal)',
@@ -2993,7 +2994,7 @@ export default function ComposeModal() {
       } : {
         position: 'fixed', bottom: 0, right: 24,
         width: customSize?.width || 540, maxWidth: 'calc(100vw - 48px)',
-        ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
+        ...(customSize?.height ? { height: customSize.height } : { maxHeight: descaleCss('75vh') }),
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10,
         boxShadow: 'var(--shadow-modal)',

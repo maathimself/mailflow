@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useRef } from 'react';
+import { Fragment, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { useStore } from '../store/index.js';
@@ -11,7 +11,8 @@ import { usePluginCollected } from '../plugins/PluginSlot.jsx';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
 import { buildMovePickerSections, movePickerSectionHeading, movePickerFoldersEmpty, runMovePickerAction } from '../utils/folderDisplay.js';
-import { useUiScale, descale } from '../hooks/useUiScale.js';
+import { useUiScale } from '../hooks/useUiScale.js';
+import { descaleCss } from '../utils/uiScaleCss.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { spamFolderPaths as spamFolderPathsFor } from '../utils/spamFolders.js';
 
@@ -67,26 +68,37 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   // mount (folders load async, subviews like Move/Snooze swap in), so re-clamp
   // on every size change — measuring only at open time lets a menu that grows
   // near the bottom edge overflow off-screen.
-  const [pos, setPos] = useState({ x, y });
-  useEffect(() => {
+  // `pos` is in the menu's layout space. Inside the font-size wrapper (transform: scale)
+  // that is the visual position divided by the scale; portaled to <body> (the GTD lists)
+  // it is the visual position itself, so check which one this menu is in.
+  const [pos, setPos] = useState(() => ({ x: x / uiScale, y: y / uiScale }));
+  useLayoutEffect(() => {
     const menu = menuRef.current;
     if (!menu) return;
     // Mobile renders a fixed, vertically-centered slide-out panel (see the
     // container style below), so the tap-point clamp is desktop-only.
     if (isMobile) return;
     const clamp = () => {
-      const rect = menu.getBoundingClientRect();
+      const scale = menu.closest('[data-ui-scale-root]') ? uiScale : 1;
+      // Layout size times the scale, not getBoundingClientRect(): the open animation
+      // starts at scale(0.95), which the rect would include.
+      const rect = { width: menu.offsetWidth * scale, height: menu.offsetHeight * scale };
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      const nx = Math.max(0, x + rect.width  > vw ? x - rect.width  : x);
-      const ny = Math.max(0, y + rect.height > vh ? y - rect.height : y);
+      // Open toward the room there is, then keep every edge on screen (#777): a menu
+      // taller than the space above the pointer used to be pinned to the top with its
+      // bottom rows past the window edge.
+      const fx = x + rect.width  > vw ? x - rect.width  : x;
+      const fy = y + rect.height > vh ? y - rect.height : y;
+      const nx = Math.max(0, Math.min(fx, vw - rect.width)) / scale;
+      const ny = Math.max(0, Math.min(fy, vh - rect.height)) / scale;
       setPos(prev => (prev.x === nx && prev.y === ny ? prev : { x: nx, y: ny }));
     };
     clamp();
     const observer = new ResizeObserver(clamp);
     observer.observe(menu);
     return () => observer.disconnect();
-  }, [x, y, isMobile]);
+  }, [x, y, isMobile, uiScale]);
 
   // Auto-load folders when opened directly in move mode (e.g. from row folder icon)
   useEffect(() => {
@@ -392,12 +404,14 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
             // indicator (bottom inset), so a plain 50% sits visibly too high.
             top: 'calc(50% + (var(--sat) - var(--sab)) / 2)',
             transform: 'translateY(-50%)',
-            width: 'min(340px, calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)))',
-            maxHeight: 'min(80vh, calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px))',
+            // Viewport units are not scaled by the font-size wrapper, so they are
+            // divided by its scale (#777).
+            width: `min(340px, ${descaleCss('100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)')})`,
+            maxHeight: descaleCss('min(80vh, 100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px)'),
             animation: 'contextMenuSlideIn 0.18s ease',
           } : {
-            position: 'fixed', left: descale(pos.x, uiScale), top: descale(pos.y, uiScale),
-            width: 320, maxHeight: 'calc(100vh - 8px)',
+            position: 'fixed', left: pos.x, top: pos.y,
+            width: 320, maxHeight: descaleCss('100vh - 8px'),
             animation: 'contextMenuIn 0.12s ease',
           }),
         }}
