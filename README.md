@@ -539,6 +539,24 @@ Then follow the steps for your account type:
 Any standard IMAP/SMTP server works. Use port 993 for IMAP (TLS) and
 587 (STARTTLS) or 465 (TLS) for SMTP.
 
+### Exchange with ActiveSync only (third-party bridge)
+
+Some on-premises Exchange servers close IMAP and SMTP and allow only Exchange
+ActiveSync. MailFlow does not speak ActiveSync, but
+[EASBridge](https://github.com/Raed-Alghamdi/easbridge) can run next to it: the
+bridge talks ActiveSync to Exchange and offers IMAP, SMTP and a read-only CardDAV
+address book on MailFlow's Docker network. You then add the mailbox as a **Custom**
+account and, optionally, connect the address book under CardDAV Contacts. Its
+[install guide for MailFlow](https://github.com/Raed-Alghamdi/easbridge/blob/main/INSTALL.md)
+covers the compose override and the account settings. MailFlow needs **Allow private /
+local hosts** turned on (Settings → Security, Mail Server Connection Policy, admins
+only) to reach it.
+
+It works with on-premises Exchange that allows Basic authentication for ActiveSync,
+not Microsoft 365, and has no calendar. EASBridge is a separate project: MailFlow's
+maintainers don't maintain or review it, and it handles your Exchange password, so
+decide for yourself whether to trust it.
+
 ---
 
 ## Management
