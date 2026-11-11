@@ -190,6 +190,8 @@ docker compose up -d --remove-orphans
 
 `--remove-orphans` removes containers of services MailFlow no longer uses. Since 4.4 that is the Redis container and, if you used the old `https` profile, the separate Caddy container, which would otherwise keep ports 80 and 443 and stop MailFlow's frontend from starting.
 
+**If you used the `https` profile before 4.4** (`--profile https`, or `-f docker-compose.https.yml`): before updating, add `TLS_MODE=letsencrypt` to `.env` next to your `DOMAIN` and `ACME_EMAIL`, and remove `TRUST_PROXY_HOPS=2` if you set it for that profile. MailFlow's own frontend now gets the Let's Encrypt certificate. Without `TLS_MODE=letsencrypt` it starts with a self-signed certificate instead, which browsers that have visited your site refuse outright, as the site told them to accept only valid HTTPS (HSTS). Keeping `-f docker-compose.https.yml` in your commands also works: it sets the same for you.
+
 To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=4.0.4` to your `.env`.
 
 ---
