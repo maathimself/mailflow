@@ -23,7 +23,7 @@ vi.mock('../services/authLimiter.js', () => ({
   authLimiterConfig: { maxRequests: 10, windowMs: 900000 },
 }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));
-vi.mock('../services/mailer.js', () => ({ sendSystemEmail: vi.fn() }));
+vi.mock('../services/mailer.js', () => ({ sendSystemEmail: vi.fn(), SystemEmailNotConfigured: class SystemEmailNotConfigured extends Error {} }));
 vi.mock('./oidc.js', () => ({ buildEndSessionUrl: vi.fn() }));
 vi.mock('../services/categorizer.js', () => ({
   invalidateGlobalCategorizationCache: vi.fn(),
@@ -123,6 +123,14 @@ describe('PATCH /api/auth/profile/recovery-email', () => {
     const [{ to, text }] = sendSystemEmail.mock.calls[0];
     expect(to).toBe('old@example.com');
     expect(text).toContain('n*w@example.com');
+  });
+
+  it('the notice escapes the new address, so it cannot hide its own warning', async () => {
+    await set('a@<div/style=display:none>.com');
+    await vi.waitFor(() => expect(sendSystemEmail).toHaveBeenCalledTimes(1));
+    const [{ html }] = sendSystemEmail.mock.calls[0];
+    expect(html).not.toContain('<div/style');
+    expect(html).toContain('&lt;div/style=display:none&gt;');
   });
 
   it('the same address, in any case or spacing, keeps them, and needs no confirmation', async () => {

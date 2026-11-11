@@ -11,14 +11,15 @@
 // When the emailed code cannot be sent, the sign-in still waits for one ('email', with
 // sendFailed): it fails closed rather than letting whoever passed the first factor set up an
 // authenticator of their own. The user can resend, or an admin can issue a code from the
-// server (src/cli/authRecovery.js).
+// server (src/cli/authRecovery.js). With no system email configured at all, no code could ever
+// arrive, so that user sets up an authenticator ('enroll'), as one without a recovery email does.
 // Each completion endpoint accepts only its own method. Before this, the emailed-code
 // endpoints accepted any pending sign-in, so an account with an authenticator could be
 // signed in with a code sent to its recovery email instead (GHSA-v67x-j275-jpxj).
 import crypto from 'crypto';
 import { query } from './db.js';
-import { sendSystemEmail } from './mailer.js';
-import { issueSignInCode } from './signInCodes.js';
+import { sendSystemEmail, SystemEmailNotConfigured } from './mailer.js';
+import { newSignInCode, storeSignInCode } from './signInCodes.js';
 
 export function maskEmail(email) {
   if (!email) return '';
@@ -85,8 +86,11 @@ export async function isTrustedDevice(userId, req) {
 }
 
 // Generate and store an email OTP, and send it to the given address.
+// The code is stored, replacing the unused one, only once the email is out: a send that fails
+// leaves the code an admin issued from the server (src/cli/authRecovery.js) working.
 export async function sendEmailOtpCode(userId, toEmail) {
-  const { code } = await issueSignInCode(userId);
+  const signInCode = newSignInCode();
+  const { code } = signInCode;
 
   await sendSystemEmail({
     to: toEmail,
@@ -104,6 +108,7 @@ export async function sendEmailOtpCode(userId, toEmail) {
       </div>
     `,
   });
+  await storeSignInCode(userId, signInCode);
 }
 
 // Decide the second step for `user`, who has just passed the first factor on a freshly
@@ -153,17 +158,26 @@ export async function beginSecondFactor(req, user, { sso = null, idpEnforcesMfa 
 
   // 2FA is required and this user has no authenticator: an emailed code, or, with no recovery
   // email to send one to, setting up an authenticator.
+  // A server with no system email configured can never send one, so those users set up an
+  // authenticator, as users without a recovery email do. A configured one that fails to send
+  // fails closed.
   if (user.recovery_email) {
     const emailHint = maskEmail(user.recovery_email);
     let sendFailed = false;
+    let noSystemEmail = false;
     try {
       await sendEmailOtpCode(user.id, user.recovery_email);
     } catch (err) {
-      console.error(`Sign-in code email to user ${user.id} failed:`, err.message);
-      sendFailed = true;
+      if (err instanceof SystemEmailNotConfigured) noSystemEmail = true;
+      else {
+        console.error(`Sign-in code email to user ${user.id} failed:`, err.message);
+        sendFailed = true;
+      }
     }
-    pend('email', 10 * 60 * 1000, { deviceTrustAvailable, emailHint, ...(sendFailed ? { sendFailed } : {}) });
-    return { step: 'email', deviceTrustAvailable, emailHint, ...(sendFailed ? { sendFailed } : {}) };
+    if (!noSystemEmail) {
+      pend('email', 10 * 60 * 1000, { deviceTrustAvailable, emailHint, ...(sendFailed ? { sendFailed } : {}) });
+      return { step: 'email', deviceTrustAvailable, emailHint, ...(sendFailed ? { sendFailed } : {}) };
+    }
   }
   pend('enroll', 10 * 60 * 1000);
   return { step: 'enroll' };

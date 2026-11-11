@@ -14,7 +14,7 @@ vi.mock('../services/smtpTransport.js', () => ({ createSmtpTransport: vi.fn() })
 vi.mock('../services/connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn(async () => ({ allowPrivateHosts: false })) }));
 vi.mock('../services/authLimiter.js', () => ({ authLimiterConfig: { maxRequests: 1000, windowMs: 900000 } }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));
-vi.mock('../services/mailer.js', () => ({ sendSystemEmail: vi.fn() }));
+vi.mock('../services/mailer.js', () => ({ sendSystemEmail: vi.fn(), SystemEmailNotConfigured: class SystemEmailNotConfigured extends Error {} }));
 vi.mock('../services/categorizer.js', () => ({ invalidateGlobalCategorizationCache: vi.fn() }));
 vi.mock('../services/kvStore.js', () => ({ kv: { set: vi.fn(async () => 'OK') } }));
 vi.mock('../services/rateLimiter.js', () => ({ consume: vi.fn(async () => ({ limited: false })), reset: vi.fn() }));
@@ -28,7 +28,7 @@ import crypto from 'crypto';
 import { authenticator } from 'otplib';
 import { jwtVerify } from 'jose';
 import { query, pool } from '../services/db.js';
-import { sendSystemEmail } from '../services/mailer.js';
+import { sendSystemEmail, SystemEmailNotConfigured } from '../services/mailer.js';
 import { buildSessionOptions } from '../utils/sessionConfig.js';
 import authRoutes from './auth.js';
 import { issueSignInCode } from '../services/signInCodes.js';
@@ -189,6 +189,9 @@ describe('password sign-in: an emailed code never replaces the authenticator', (
 
   it('when the code cannot be emailed, the sign-in fails closed: it waits for a code, and one an admin issues completes it', async () => {
     settings.mfa_enforcement = 'required';
+    // The admin may issue the code before the user tries: a failed send and a failed resend
+    // leave it working.
+    const { code } = await issueSignInCode(user.id); // what src/cli/authRecovery.js sign-in-code does
     sendSystemEmail.mockRejectedValueOnce(new Error('SMTP down'));
     const b = browser();
     expect((await b.post('/api/auth/login', { username: 'alice', password: PASSWORD })).json)
@@ -200,9 +203,16 @@ describe('password sign-in: an emailed code never replaces the authenticator', (
     expect((await b.post('/api/auth/2fa/send-email-otp')).status).toBe(503);
     expect((await b.session()).userId).toBe(null);
 
-    const { code } = await issueSignInCode(user.id); // what src/cli/authRecovery.js sign-in-code does
     expect((await b.post('/api/auth/2fa/verify-email-otp', { code })).status).toBe(200);
     expect((await b.session()).userId).toBe('u1');
+  });
+
+  it('with 2FA required and no system email configured at all, the user sets up an authenticator', async () => {
+    settings.mfa_enforcement = 'required';
+    sendSystemEmail.mockRejectedValueOnce(new SystemEmailNotConfigured());
+    const b = browser();
+    expect((await b.post('/api/auth/login', { username: 'alice', password: PASSWORD })).json).toMatchObject({ requiresMFAEnrollment: true });
+    expect((await b.get('/api/auth/2fa/enrollment/setup')).status).toBe(200);
   });
 
   it('with 2FA required and no recovery email, the user sets up an authenticator and nothing else', async () => {

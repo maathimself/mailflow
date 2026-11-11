@@ -28,7 +28,7 @@ vi.mock('../services/authLimiter.js', () => ({
   authLimiterConfig: { maxRequests: 10, windowMs: 900000 },
 }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));
-vi.mock('../services/mailer.js', () => ({ sendSystemEmail: vi.fn() }));
+vi.mock('../services/mailer.js', () => ({ sendSystemEmail: vi.fn(), SystemEmailNotConfigured: class SystemEmailNotConfigured extends Error {} }));
 vi.mock('./oidc.js', () => ({ buildEndSessionUrl: vi.fn(async () => null) }));
 vi.mock('../services/categorizer.js', () => ({
   invalidateGlobalCategorizationCache: vi.fn(),

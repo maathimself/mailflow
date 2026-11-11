@@ -919,6 +919,8 @@ router.get('/profile/recovery-email', async (req, res) => {
   res.json({ email: result.rows[0]?.recovery_email || null, ...(await reauthState(req, user, await recoveryEmailReauth(user))) });
 });
 
+const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
 // Tells the address being replaced, so a change the owner did not make does not go unnoticed.
 async function noticeRecoveryEmailChange(oldAddress, newAddress, username) {
   const to = newAddress ? `It now goes to ${maskEmail(newAddress)}.` : 'The account no longer has one.';
@@ -929,7 +931,7 @@ async function noticeRecoveryEmailChange(oldAddress, newAddress, username) {
       text: `The recovery email for the MailFlow account ${username} was changed from this address. ${to}\n\nIf you did not make this change, contact your MailFlow administrator.`,
       html: `<div style="font-family:-apple-system,Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;color:#1a1a1a;">
         <h2 style="margin:0 0 12px;font-size:18px;font-weight:600;">Your recovery email was changed</h2>
-        <p style="color:#555;line-height:1.6;margin:0 0 12px;">The recovery email for the MailFlow account <strong>${username.replace(/[<>&"']/g, '')}</strong> was changed from this address. ${to}</p>
+        <p style="color:#555;line-height:1.6;margin:0 0 12px;">The recovery email for the MailFlow account <strong>${escapeHtml(username)}</strong> was changed from this address. ${escapeHtml(to)}</p>
         <p style="color:#555;line-height:1.6;margin:0;">If you did not make this change, contact your MailFlow administrator.</p>
       </div>`,
     });
