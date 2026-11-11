@@ -1113,6 +1113,8 @@ describe('Reply with AI', () => {
     });
   }
   async function openAiMenu() {
+    const more = document.querySelector('button[aria-label="message.more"]');
+    if (more?.getAttribute('aria-expanded') === 'false') await press(more);
     await press(document.querySelector('button[title="compose.toolbar.aiAssist"]'));
   }
   async function mount(composeData) {
@@ -1624,5 +1626,67 @@ describe('locking the screen while composing', () => {
       useStore.getState().setLocked(false);
       useStore.setState({ composing: false, composeData: null, accounts: [{ id: 'acct', enabled: true, email_address: 'me@example.invalid', name: 'Me', color: '#fff' }] });
     }
+  });
+});
+
+describe('AI writing actions and the signature toggle', () => {
+  // The prompt tells the model which signature follows its text, so it does not sign off above it
+  // (utils/aiSenderNote.js). With the signature turned off (#555) handleSend sends none, so the
+  // note has to say so too, or a drafted message goes out with neither a sign-off nor a signature.
+  const Host = () => (useStore(s => s.composing) ? React.createElement(ComposeModal) : null);
+  const mouseDown = el => React.act(async () => { el.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true })); });
+
+  // Opens a new message, turns the signature off when asked, runs Write a draft, and returns the
+  // system prompt the model was given.
+  async function draftSystemPrompt({ signatureOn }) {
+    const chats = [];
+    const realAi = api.ai;
+    const realParser = globalThis.DOMParser;
+    api.ai = { ...realAi, status: async () => ({ enabled: true, features: { compose: true } }), chat: async (messages) => { chats.push(messages); return 'Drafted.'; } };
+    globalThis.DOMParser = window.DOMParser; // signatureText reads the signature through it
+    useStore.setState({
+      plaintextEmail: false, notifications: [], composing: false, composeData: null, prepareComposeSwitch: null,
+      accounts: [{ id: 'acct', enabled: true, email_address: 'me@example.invalid', name: 'Work', sender_name: 'Marty Example', color: '#fff', signature: '<p>Marty Example<br>Rink manager</p>' }],
+    });
+    useStore.getState().openCompose({ accountId: 'acct', to: ['Bob <bob@example.invalid>'], cc: [], subject: 'Ice time', body: '' });
+    const root = createRoot(document.getElementById('root'));
+    try {
+      await React.act(async () => { root.render(React.createElement(Host)); });
+      await React.act(async () => {});
+      const toggle = document.querySelector('button[aria-label="compose.insertSignature"]');
+      assert.ok(toggle, 'precondition: the signature toggle is shown');
+      if (!signatureOn) {
+        await React.act(async () => { toggle.click(); });
+        assert.equal(toggle.getAttribute('aria-pressed'), 'false');
+      }
+      const more = document.querySelector('button[aria-label="message.more"]');
+      if (more?.getAttribute('aria-expanded') === 'false') await mouseDown(more);
+      const aiButton = document.querySelector('button[title="compose.toolbar.aiAssist"]');
+      assert.ok(aiButton, 'precondition: the AI actions are enabled');
+      await mouseDown(aiButton);
+      const draft = [...document.querySelectorAll('button')].find(b => b.textContent === 'compose.toolbar.aiWriteDraft');
+      assert.ok(draft, 'precondition: the AI menu opened');
+      await mouseDown(draft);
+      await React.act(async () => {});
+      assert.equal(chats.length, 1, 'one request went to the model');
+      return chats[0][0].content;
+    } finally {
+      await React.act(async () => root.unmount());
+      api.ai = realAi;
+      globalThis.DOMParser = realParser;
+    }
+  }
+
+  test('with the signature on, the model is told it follows and must not sign off', async () => {
+    const system = await draftSystemPrompt({ signatureOn: true });
+    assert.match(system, /signature is added automatically below/);
+    assert.match(system, /Marty Example\nRink manager/);
+  });
+
+  test('with the signature turned off, the model signs off as the sender instead', async () => {
+    const system = await draftSystemPrompt({ signatureOn: false });
+    assert.doesNotMatch(system, /signature is added automatically/);
+    assert.doesNotMatch(system, /Rink manager/);
+    assert.match(system, /No signature is added, so sign the email off as Marty Example\./);
   });
 });

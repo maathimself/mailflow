@@ -58,6 +58,12 @@ final class MailFlowOidcLogin {
         return "/login".equals(configuredPath(host, url));
     }
 
+    // App-side failures have no server redirect to lean on. Link and reauth start from a signed-in
+    // session and go back to the app; login and logout land on the login page.
+    static String errorReturnPath(boolean logout, String action) {
+        return logout || !("link".equals(action) || "reauth".equals(action)) ? "/login" : "/";
+    }
+
     static void open(MainActivity activity, WebView appView, String host, String startUrl) {
         open(activity, appView, host, startUrl, false);
     }
@@ -82,7 +88,7 @@ final class MailFlowOidcLogin {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         CookieManager.getInstance().setAcceptThirdPartyCookies(loginView, false);
 
-        String errorPath = logout || !"link".equals(Uri.parse(startUrl).getQueryParameter("action")) ? "/login" : "/";
+        String errorPath = errorReturnPath(logout, Uri.parse(startUrl).getQueryParameter("action"));
         Consumer<String> fail = message -> {
             if (!dialog.isShowing()) return;
             dialog.dismiss();
