@@ -51,6 +51,7 @@
     "emailOtp": {
       "title": "Verifique seu e-mail",
       "desc": "Um código de verificação foi enviado para {{email}}",
+      "sendFailed": "Não foi possível enviar o código para {{email}}. Tente Reenviar código ou peça um código de login ao seu administrador.",
       "codePh": "Código de 6 dígitos",
       "resend": "Reenviar código",
       "sending": "Enviando…",
@@ -1515,6 +1516,7 @@
       "eventApiTokenCreated": "Token de API criado",
       "eventApiTokenRevoked": "Token de API revogado",
       "eventApiTokenAuthFail": "Token de API inválido",
+      "eventAdminSignInCode": "Código de login emitido",
       "byActor": "por {{actor}}",
       "qrCodeAlt": "QR code",
       "mailPolicyTitle": "Política de conexão com servidores de e-mail",
@@ -1537,8 +1539,11 @@
       "mfaDeviceTrustForever": "Permanente",
       "mfaSsoLockedNotice": "A exigência de MFA não se aplica quando o login com senha está desativado. Os usuários se autenticam via SSO, que gerencia seus próprios requisitos de MFA.",
       "recoveryEmailTitle": "E-mail de recuperação",
-      "recoveryEmailDesc": "Receba um código de acesso por e-mail caso perca o acesso ao seu aplicativo autenticador.",
-      "recoveryEmailPh": "seu@email.com"
+      "recoveryEmailDesc": "Os links de redefinição de senha chegam aqui, assim como os códigos de login quando a autenticação de dois fatores é obrigatória e você não tem um app autenticador. Um código nunca substitui um app autenticador; se você perder o seu, um administrador pode desativá-lo.",
+      "recoveryEmailPh": "seu@email.com",
+      "recoveryConfirmPassword": "Confirme a alteração com sua senha",
+      "recoveryConfirmTotp": "Confirme a alteração com seu código de dois fatores atual",
+      "recoveryConfirmOidc": "Confirme primeiro a alteração pelo login único. O botão leva você ao provedor para entrar novamente e depois de volta aqui para salvar."
     },
     "apiTokens": {
       "title": "Tokens de API",

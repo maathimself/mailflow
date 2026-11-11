@@ -15,7 +15,7 @@ import { unlinkUserIdentity } from '../services/userIdentities.js';
 import { isUuid } from '../utils/uuid.js';
 import { recordOidcConfirmation } from '../services/oidcConfirmation.js';
 import { revokedTokensNote } from '../services/apiTokens.js';
-import { confirmReauth, oidcConfirmationState, reauthFor, userForReauth } from '../services/apiTokenReauth.js';
+import { confirmReauth, reauthFor, reauthState, userForReauth } from '../services/apiTokenReauth.js';
 import { beginSecondFactor } from '../services/secondFactor.js';
 
 // In-memory OIDC discovery cache keyed by issuerUrl
@@ -289,11 +289,9 @@ oidcApiRouter.get('/identities', requireAuth, async (req, res) => {
        ORDER BY ui.created_at ASC`,
       [req.session.userId]
     );
-    const reauth = await reauthFor(user);
     res.json({
       identities: result.rows,
-      reauth,
-      ...(reauth === 'oidc' ? { oidc: await oidcConfirmationState(req, user) } : {}),
+      ...(await reauthState(req, user, await reauthFor(user))),
     });
   } catch {
     res.status(500).json({ error: 'Failed to load identities' });

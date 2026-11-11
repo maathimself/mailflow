@@ -51,6 +51,7 @@
     "emailOtp": {
       "title": "Zkontrolujte svůj e-mail",
       "desc": "Ověřovací kód byl odeslán na adresu {{email}}",
+      "sendFailed": "Kód na {{email}} se nepodařilo odeslat. Zkuste Odeslat kód znovu, nebo požádejte správce o přihlašovací kód.",
       "codePh": "Šestimístný kód",
       "resend": "Odeslat kód znovu",
       "sending": "Odesílání…",
@@ -1874,6 +1875,7 @@
       "eventApiTokenCreated": "Token API vytvořen",
       "eventApiTokenRevoked": "Token API odvolán",
       "eventApiTokenAuthFail": "Neplatný token API",
+      "eventAdminSignInCode": "Vydán přihlašovací kód",
       "byActor": "uživatelem {{actor}}",
       "qrCodeAlt": "QR kód",
       "mailPolicyTitle": "Zásady připojení k poštovním serverům",
@@ -1896,8 +1898,11 @@
       "mfaDeviceTrustForever": "Trvale",
       "mfaSsoLockedNotice": "Vynucení MFA se nepoužije, pokud je přihlašování heslem vypnuté. Uživatelé se ověřují přes SSO, které spravuje vlastní požadavky MFA.",
       "recoveryEmailTitle": "E-mail pro obnovení",
-      "recoveryEmailDesc": "Pokud ztratíte přístup k ověřovací aplikaci, obdržíte přihlašovací kód e-mailem.",
-      "recoveryEmailPh": "uzivatel@example.com"
+      "recoveryEmailDesc": "Sem chodí odkazy pro obnovení hesla a přihlašovací kódy, když je vyžadováno dvoufázové ověření a nemáte ověřovací aplikaci. Kód nikdy nenahrazuje ověřovací aplikaci; pokud ji ztratíte, může ji správce vypnout.",
+      "recoveryEmailPh": "uzivatel@example.com",
+      "recoveryConfirmPassword": "Potvrďte změnu svým heslem",
+      "recoveryConfirmTotp": "Potvrďte změnu aktuálním dvoufázovým kódem",
+      "recoveryConfirmOidc": "Nejprve změnu potvrďte jednotným přihlášením. Tlačítko vás pošle k poskytovateli, kde se znovu přihlásíte, a pak zpět sem změnu uložit."
     },
     "apiTokens": {
       "title": "Tokeny API",

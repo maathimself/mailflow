@@ -30,18 +30,23 @@ vi.mock('../services/categorizer.js', () => ({
 }));
 vi.mock('../services/kvStore.js', () => ({ kv: {} }));
 vi.mock('../services/rateLimiter.js', () => ({
-  consume: vi.fn(),
+  consume: vi.fn(async () => ({ limited: false })),
+  release: vi.fn(),
   reset: vi.fn(),
 }));
 
 import express from 'express';
+import bcrypt from 'bcryptjs';
 import authRoutes from './auth.js';
 import { query } from '../services/db.js';
+import { sendSystemEmail } from '../services/mailer.js';
 
 // Changing your own recovery email (Settings → Security) cancels what was already sent to the
 // old address, as an admin change does: a reset link there would still set a new password, and
-// the address may be changing because someone else has it.
+// the address may be changing because someone else has it. The change is confirmed as an API
+// token is (here, a user with a password: the password), and the old address is told.
 const USER = 'aaaaaaaa-0000-4000-8000-000000000001';
+const PASSWORD_HASH = bcrypt.hashSync('right', 4);
 let server;
 let base;
 let stored;
@@ -63,16 +68,20 @@ beforeEach(() => {
   vi.clearAllMocks();
   stored = 'old@example.com';
   query.mockImplementation(async (sql, params) => {
+    if (sql.startsWith('SELECT id, username, password_hash, totp_enabled, totp_secret FROM users')) {
+      return { rows: [{ id: USER, username: 'alice', password_hash: PASSWORD_HASH, totp_enabled: false, totp_secret: null }] };
+    }
     if (sql.startsWith('SELECT recovery_email FROM users')) return { rows: [{ recovery_email: stored }] };
     if (sql.startsWith('UPDATE users SET recovery_email')) stored = params[0];
     return { rows: [] };
   });
 });
 
-const set = email => fetch(`${base}/api/auth/profile/recovery-email`, {
-  method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email }),
+const set = (email, confirm = { password: 'right' }) => fetch(`${base}/api/auth/profile/recovery-email`, {
+  method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, ...confirm }),
 });
 const deletes = () => query.mock.calls.map(([sql, params]) => [sql, params]).filter(([sql]) => sql.startsWith('DELETE'));
+const updates = () => query.mock.calls.filter(([sql]) => sql.startsWith('UPDATE users SET recovery_email'));
 
 describe('PATCH /api/auth/profile/recovery-email', () => {
   it('a new address cancels pending reset links and login codes, after saving it', async () => {
@@ -96,8 +105,28 @@ describe('PATCH /api/auth/profile/recovery-email', () => {
     expect(deletes()).toHaveLength(2);
   });
 
-  it('the same address, in any case or spacing, keeps them', async () => {
-    const res = await set(' OLD@example.com');
+  it('a change is refused without the password, or with a wrong one, and changes nothing', async () => {
+    for (const confirm of [{}, { password: 'wrong' }]) {
+      const res = await set('new@example.com', confirm);
+      expect(res.status).toBe(400);
+      expect((await res.json()).reauth).toBe('password');
+    }
+    expect(stored).toBe('old@example.com');
+    expect(updates()).toEqual([]);
+    expect(deletes()).toEqual([]);
+    expect(sendSystemEmail).not.toHaveBeenCalled();
+  });
+
+  it('the old address is told where the recovery email went', async () => {
+    await set('new@example.com');
+    await vi.waitFor(() => expect(sendSystemEmail).toHaveBeenCalledTimes(1));
+    const [{ to, text }] = sendSystemEmail.mock.calls[0];
+    expect(to).toBe('old@example.com');
+    expect(text).toContain('n*w@example.com');
+  });
+
+  it('the same address, in any case or spacing, keeps them, and needs no confirmation', async () => {
+    const res = await set(' OLD@example.com', {});
     expect(res.status).toBe(200);
     expect(deletes()).toEqual([]);
   });

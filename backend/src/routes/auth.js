@@ -24,6 +24,8 @@ import { aiEnabledForNewUser } from '../services/aiNewUsers.js';
 import { firstUserRegistrationAllowed } from '../services/firstUserRegistration.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 import { beginSecondFactor, completePendingLogin, createTrustedDevice, maskEmail, pendingSignIn, sendEmailOtpCode } from '../services/secondFactor.js';
+import { confirmReauth, reauthFor, reauthState, userForReauth } from '../services/apiTokenReauth.js';
+import { sendSystemEmail } from '../services/mailer.js';
 
 const router = Router();
 
@@ -208,7 +210,10 @@ router.post('/login', authLimiter, async (req, res) => {
       return res.json({ requiresTOTP: true, deviceTrustAvailable: second.deviceTrustAvailable });
     }
     if (second.step === 'email') {
-      return res.json({ requiresEmailOTP: true, emailHint: second.emailHint, deviceTrustAvailable: second.deviceTrustAvailable });
+      return res.json({
+        requiresEmailOTP: true, emailHint: second.emailHint, deviceTrustAvailable: second.deviceTrustAvailable,
+        ...(second.sendFailed ? { emailSendFailed: true } : {}),
+      });
     }
     if (second.step === 'enroll') {
       return res.json({ requiresMFAEnrollment: true });
@@ -242,6 +247,7 @@ router.get('/2fa/pending', (req, res) => {
     step,
     deviceTrustAvailable: prompt.deviceTrustAvailable === true,
     ...(step === 'email' && prompt.emailHint ? { emailHint: prompt.emailHint } : {}),
+    ...(step === 'email' && prompt.sendFailed ? { emailSendFailed: true } : {}),
   });
 });
 
@@ -326,10 +332,11 @@ router.post('/2fa/send-email-otp', authLimiter, async (req, res) => {
 
   try {
     await sendEmailOtpCode(uid, recoveryEmail);
+    if (req.session.pendingPrompt) req.session.pendingPrompt.sendFailed = false;
     res.json({ ok: true, emailHint: maskEmail(recoveryEmail) });
   } catch (err) {
     console.error('Email OTP send failed:', err.message);
-    res.status(500).json({ error: 'Failed to send verification code. Check system email configuration.' });
+    res.status(503).json({ error: 'The sign-in code could not be sent. Try again later, or ask your administrator for a code.' });
   }
 });
 
@@ -895,11 +902,41 @@ router.post('/preferences/whitelist-add', async (req, res) => {
 
 // ── Recovery email ────────────────────────────────────────────────────────────
 
+// Changing the recovery email takes the confirmation an API token takes (apiTokenReauth.js):
+// the address receives password resets and, when two-factor is required, sign-in codes, so a
+// session left open, or taken, must not be able to redirect them. A user whose second factor is
+// that emailed code ('totpSetup' there) confirms with their password.
+async function recoveryEmailReauth(user) {
+  const reauth = await reauthFor(user);
+  return reauth === 'totpSetup' ? 'password' : reauth;
+}
+
 router.get('/profile/recovery-email', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const result = await query('SELECT recovery_email FROM users WHERE id = $1', [req.session.userId]);
-  res.json({ email: result.rows[0]?.recovery_email || null });
+  const user = await userForReauth(req.session.userId);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  const result = await query('SELECT recovery_email FROM users WHERE id = $1', [user.id]);
+  res.json({ email: result.rows[0]?.recovery_email || null, ...(await reauthState(req, user, await recoveryEmailReauth(user))) });
 });
+
+// Tells the address being replaced, so a change the owner did not make does not go unnoticed.
+async function noticeRecoveryEmailChange(oldAddress, newAddress, username) {
+  const to = newAddress ? `It now goes to ${maskEmail(newAddress)}.` : 'The account no longer has one.';
+  try {
+    await sendSystemEmail({
+      to: oldAddress,
+      subject: 'Your MailFlow recovery email was changed',
+      text: `The recovery email for the MailFlow account ${username} was changed from this address. ${to}\n\nIf you did not make this change, contact your MailFlow administrator.`,
+      html: `<div style="font-family:-apple-system,Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;color:#1a1a1a;">
+        <h2 style="margin:0 0 12px;font-size:18px;font-weight:600;">Your recovery email was changed</h2>
+        <p style="color:#555;line-height:1.6;margin:0 0 12px;">The recovery email for the MailFlow account <strong>${username.replace(/[<>&"']/g, '')}</strong> was changed from this address. ${to}</p>
+        <p style="color:#555;line-height:1.6;margin:0;">If you did not make this change, contact your MailFlow administrator.</p>
+      </div>`,
+    });
+  } catch (err) {
+    console.error('Recovery email change notice failed:', err.message);
+  }
+}
 
 router.patch('/profile/recovery-email', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
@@ -911,16 +948,23 @@ router.patch('/profile/recovery-email', async (req, res) => {
   }
   const userId = req.session.userId;
   const current = await query('SELECT recovery_email FROM users WHERE id = $1', [userId]);
-  const changed = (trimmed || null) !== (current.rows[0]?.recovery_email ?? null);
+  const previous = current.rows[0]?.recovery_email ?? null;
+  const changed = (trimmed || null) !== previous;
+  if (!changed) return res.json({ ok: true });
+
+  const user = await userForReauth(userId);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  const { refusal } = await confirmReauth(req, user, await recoveryEmailReauth(user));
+  if (refusal) return res.status(refusal.status).set(refusal.headers ?? {}).json(refusal.body);
+
   await withTransaction(async client => {
     await client.query('UPDATE users SET recovery_email = $1 WHERE id = $2', [trimmed || null, userId]);
     // A reset link or login code already sent to the old address must stop working, as when
     // an admin changes it (routes/admin.js): the old address may be why it is changing.
-    if (changed) {
-      await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [userId]);
-      await client.query('DELETE FROM email_otp_tokens WHERE user_id = $1', [userId]);
-    }
+    await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM email_otp_tokens WHERE user_id = $1', [userId]);
   });
+  if (previous) noticeRecoveryEmailChange(previous, trimmed || null, user.username);
   res.json({ ok: true });
 });
 

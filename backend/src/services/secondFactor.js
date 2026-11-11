@@ -6,14 +6,19 @@
 //   'totp'   the user turned on an authenticator app: only /2fa/challenge completes it
 //   'email'  an admin requires 2FA and the user has no authenticator yet: only the emailed
 //            code (/2fa/verify-email-otp) completes it
-//   'enroll' an admin requires 2FA and there is no usable recovery email: the user sets up
-//            an authenticator (/2fa/enrollment/*)
+//   'enroll' an admin requires 2FA and the user has no recovery email: the user sets up an
+//            authenticator (/2fa/enrollment/*)
+// When the emailed code cannot be sent, the sign-in still waits for one ('email', with
+// sendFailed): it fails closed rather than letting whoever passed the first factor set up an
+// authenticator of their own. The user can resend, or an admin can issue a code from the
+// server (src/cli/authRecovery.js).
 // Each completion endpoint accepts only its own method. Before this, the emailed-code
 // endpoints accepted any pending sign-in, so an account with an authenticator could be
 // signed in with a code sent to its recovery email instead (GHSA-v67x-j275-jpxj).
 import crypto from 'crypto';
 import { query } from './db.js';
 import { sendSystemEmail } from './mailer.js';
+import { issueSignInCode } from './signInCodes.js';
 
 export function maskEmail(email) {
   if (!email) return '';
@@ -81,17 +86,7 @@ export async function isTrustedDevice(userId, req) {
 
 // Generate and store an email OTP, and send it to the given address.
 export async function sendEmailOtpCode(userId, toEmail) {
-  const codeNum = crypto.randomBytes(3).readUIntBE(0, 3) % 900000 + 100000;
-  const code = String(codeNum);
-  const codeHash = crypto.createHash('sha256').update(code).digest('hex');
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10-minute window
-
-  // Remove any previous unused OTPs for this user to prevent confusion
-  await query('DELETE FROM email_otp_tokens WHERE user_id = $1 AND used_at IS NULL', [userId]);
-  await query(
-    'INSERT INTO email_otp_tokens (user_id, code_hash, expires_at) VALUES ($1, $2, $3)',
-    [userId, codeHash, expiresAt]
-  );
+  const { code } = await issueSignInCode(userId);
 
   await sendSystemEmail({
     to: toEmail,
@@ -115,7 +110,7 @@ export async function sendEmailOtpCode(userId, toEmail) {
 // regenerated session. Returns one of
 //   { step: 'none' }                                   sign the user in now
 //   { step: 'totp',  deviceTrustAvailable }
-//   { step: 'email', deviceTrustAvailable, emailHint }
+//   { step: 'email', deviceTrustAvailable, emailHint, sendFailed? }
 //   { step: 'enroll' }
 // and, for every step but 'none', records the pending sign-in in the session.
 // `sso` ({ providerId, idToken }) is carried through a pending step so that the session the
@@ -156,17 +151,19 @@ export async function beginSecondFactor(req, user, { sso = null, idpEnforcesMfa 
 
   if (enforcement !== 'required') return { step: 'none' };
 
-  // 2FA is required and this user has no authenticator: an emailed code, or set one up.
+  // 2FA is required and this user has no authenticator: an emailed code, or, with no recovery
+  // email to send one to, setting up an authenticator.
   if (user.recovery_email) {
+    const emailHint = maskEmail(user.recovery_email);
+    let sendFailed = false;
     try {
       await sendEmailOtpCode(user.id, user.recovery_email);
-      const emailHint = maskEmail(user.recovery_email);
-      pend('email', 10 * 60 * 1000, { deviceTrustAvailable, emailHint });
-      return { step: 'email', deviceTrustAvailable, emailHint };
     } catch (err) {
-      console.error('Email OTP auto-send failed, falling back to enrollment:', err.message);
-      // System email not configured: direct the user to enrollment.
+      console.error(`Sign-in code email to user ${user.id} failed:`, err.message);
+      sendFailed = true;
     }
+    pend('email', 10 * 60 * 1000, { deviceTrustAvailable, emailHint, ...(sendFailed ? { sendFailed } : {}) });
+    return { step: 'email', deviceTrustAvailable, emailHint, ...(sendFailed ? { sendFailed } : {}) };
   }
   pend('enroll', 10 * 60 * 1000);
   return { step: 'enroll' };

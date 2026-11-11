@@ -250,7 +250,8 @@ export const api = {
 
   // Recovery email (profile security)
   getRecoveryEmail: () => request('GET', '/auth/profile/recovery-email'),
-  updateRecoveryEmail: (email) => request('PATCH', '/auth/profile/recovery-email', { email }),
+  // `confirm` is what the server asked for: { password } or { totpCode } (apiTokenReauth.js).
+  updateRecoveryEmail: (email, confirm = {}) => request('PATCH', '/auth/profile/recovery-email', { email, ...confirm }),
 
   // TOTP / 2FA
   totp: {

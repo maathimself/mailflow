@@ -55,6 +55,7 @@
       "sending": "보내는 중…",
       "verify": "확인",
       "desc": "인증 코드가 {{email}}(으)로 전송되었습니다.",
+      "sendFailed": "{{email}}(으)로 코드를 보내지 못했습니다. 코드 다시 보내기를 시도하거나 관리자에게 로그인 코드를 요청하세요.",
       "verifying": "확인 중…",
       "codePh": "6자리 코드"
     },
@@ -1516,6 +1517,7 @@
       "eventApiTokenCreated": "API 토큰 생성됨",
       "eventApiTokenRevoked": "API 토큰 폐기됨",
       "eventApiTokenAuthFail": "잘못된 API 토큰",
+      "eventAdminSignInCode": "로그인 코드 발급됨",
       "byActor": "({{actor}})",
       "allowInsecureTls": "안전하지 않은 TLS 허용",
       "mailPolicyDesc": "사용자가 구성할 수 있는 연결 유형을 제어합니다. 인터넷 연결 배포의 경우 이를 비활성화합니다.",
@@ -1535,9 +1537,12 @@
       "allowNonstandardPorts": "비표준 포트 허용",
       "recoveryEmailTitle": "복구 이메일",
       "recoveryEmailPh": "your@email.com",
+      "recoveryConfirmPassword": "비밀번호로 변경을 확인하세요",
+      "recoveryConfirmTotp": "현재 2단계 인증 코드로 변경을 확인하세요",
+      "recoveryConfirmOidc": "먼저 싱글 사인온으로 변경을 확인하세요. 버튼을 누르면 공급자에서 다시 로그인한 뒤 저장하기 위해 이곳으로 돌아옵니다.",
       "mfaDeviceTrustDesc": "2단계 인증을 다시 요구하기 전까지 인증된 기기를 신뢰할 기간입니다. MFA가 활성화된 경우에만 적용됩니다.",
       "mfaDeviceTrustTitle": "기기 신뢰 기간",
-      "recoveryEmailDesc": "인증 앱에 액세스할 수 없는 경우 이메일로 로그인 코드를 받으세요.",
+      "recoveryEmailDesc": "비밀번호 재설정 링크와, 2단계 인증이 필수이고 인증 앱이 없을 때의 로그인 코드가 이 주소로 전송됩니다. 코드는 인증 앱을 대신하지 않습니다. 인증 앱을 잃어버린 경우 관리자가 끌 수 있습니다.",
       "mfaSsoLockedNotice": "비밀번호 로그인이 비활성화된 경우 MFA 적용이 적용되지 않습니다. 사용자는 자체 MFA 요구 사항을 관리하는 SSO를 통해 인증합니다."
     },
     "apiTokens": {

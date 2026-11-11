@@ -51,6 +51,7 @@
     "emailOtp": {
       "title": "Sprawdź pocztę e-mail",
       "desc": "Kod weryfikacyjny został wysłany na adres {{email}}",
+      "sendFailed": "Nie udało się wysłać kodu na {{email}}. Spróbuj Wyślij kod ponownie albo poproś administratora o kod logowania.",
       "codePh": "6-cyfrowy kod",
       "resend": "Wyślij kod ponownie",
       "sending": "Wysyłanie…",
@@ -1534,6 +1535,7 @@
       "eventApiTokenCreated": "Utworzono token API",
       "eventApiTokenRevoked": "Unieważniono token API",
       "eventApiTokenAuthFail": "Nieprawidłowy token API",
+      "eventAdminSignInCode": "Wydano kod logowania",
       "byActor": "przez {{actor}}",
       "qrCodeAlt": "Kod QR",
       "mailPolicyTitle": "Zasady połączeń z serwerem pocztowym",
@@ -1556,8 +1558,11 @@
       "mfaDeviceTrustForever": "Na stałe",
       "mfaSsoLockedNotice": "Wymuszanie MFA nie ma zastosowania, gdy logowanie hasłem jest wyłączone. Użytkownicy uwierzytelniają się przez SSO, które zarządza własnymi wymaganiami MFA.",
       "recoveryEmailTitle": "Adres e-mail do odzyskiwania",
-      "recoveryEmailDesc": "Odbierz kod logowania pocztą e-mail, jeśli utracisz dostęp do aplikacji uwierzytelniającej.",
-      "recoveryEmailPh": "twoj@e-mail.com"
+      "recoveryEmailDesc": "Tu trafiają linki do resetowania hasła oraz kody logowania, gdy uwierzytelnianie dwuskładnikowe jest wymagane, a nie masz aplikacji uwierzytelniającej. Kod nigdy nie zastępuje aplikacji uwierzytelniającej; jeśli ją zgubisz, administrator może ją wyłączyć.",
+      "recoveryEmailPh": "twoj@e-mail.com",
+      "recoveryConfirmPassword": "Potwierdź zmianę swoim hasłem",
+      "recoveryConfirmTotp": "Potwierdź zmianę aktualnym kodem dwuskładnikowym",
+      "recoveryConfirmOidc": "Najpierw potwierdź zmianę logowaniem jednokrotnym. Przycisk przeniesie Cię do dostawcy, aby zalogować się ponownie, a potem z powrotem tutaj, aby zapisać."
     },
     "apiTokens": {
       "title": "Tokeny API",

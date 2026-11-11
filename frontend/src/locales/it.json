@@ -51,6 +51,7 @@
     "emailOtp": {
       "title": "Controlla la tua email",
       "desc": "Un codice di verifica è stato inviato a {{email}}",
+      "sendFailed": "Non è stato possibile inviare il codice a {{email}}. Prova Invia di nuovo il codice, o chiedi al tuo amministratore un codice di accesso.",
       "codePh": "Codice a 6 cifre",
       "resend": "Reinvia codice",
       "sending": "Invio…",
@@ -1513,6 +1514,7 @@
       "eventApiTokenCreated": "Token API creato",
       "eventApiTokenRevoked": "Token API revocato",
       "eventApiTokenAuthFail": "Token API non valido",
+      "eventAdminSignInCode": "Codice di accesso emesso",
       "byActor": "da {{actor}}",
       "activityTitle": "Attività di accesso",
       "loginProtectionTitle": "Protezione accesso",
@@ -1537,8 +1539,11 @@
       "mfaDeviceTrustForever": "Permanente",
       "mfaSsoLockedNotice": "L'applicazione MFA non è applicabile quando l'accesso con password è disabilitato. Gli utenti si autenticano tramite SSO, che gestisce i propri requisiti MFA.",
       "recoveryEmailTitle": "Email di recupero",
-      "recoveryEmailDesc": "Ricevi un codice di accesso via email se perdi l’accesso alla tua app di autenticazione.",
-      "recoveryEmailPh": "tua@email.it"
+      "recoveryEmailDesc": "Qui arrivano i link per reimpostare la password e i codici di accesso quando l’autenticazione a due fattori è obbligatoria e non hai un’app di autenticazione. Un codice non sostituisce mai un’app di autenticazione; se perdi la tua, un amministratore può disattivarla.",
+      "recoveryEmailPh": "tua@email.it",
+      "recoveryConfirmPassword": "Conferma la modifica con la tua password",
+      "recoveryConfirmTotp": "Conferma la modifica con il tuo codice a due fattori attuale",
+      "recoveryConfirmOidc": "Conferma prima la modifica con il Single Sign-On. Il pulsante ti porta al provider per accedere di nuovo, poi di nuovo qui per salvare."
     },
     "apiTokens": {
       "title": "Token API",

@@ -51,6 +51,7 @@
     "emailOtp": {
       "title": "查看您的邮件",
       "desc": "验证码已发送至 {{email}}",
+      "sendFailed": "无法将验证码发送到 {{email}}。请尝试“重新发送验证码”，或向管理员索取登录验证码。",
       "codePh": "6位数字码",
       "resend": "重新发送",
       "sending": "发送中…",
@@ -1513,6 +1514,7 @@
       "eventApiTokenCreated": "已创建 API 令牌",
       "eventApiTokenRevoked": "已撤销 API 令牌",
       "eventApiTokenAuthFail": "无效的 API 令牌",
+      "eventAdminSignInCode": "已签发登录验证码",
       "byActor": "（由 {{actor}} 操作）",
       "activityTitle": "登录活动",
       "loginProtectionTitle": "登录保护",
@@ -1537,8 +1539,11 @@
       "mfaDeviceTrustForever": "永久",
       "mfaSsoLockedNotice": "当密码登录被禁用时，MFA 强制不适用。用户通过 SSO 进行身份验证，SSO 管理自己的 MFA 要求。",
       "recoveryEmailTitle": "恢复邮箱",
-      "recoveryEmailDesc": "如果您失去对认证器应用的访问权限，可通过电子邮件接收登录码。",
-      "recoveryEmailPh": "you@email.com"
+      "recoveryEmailDesc": "密码重置链接会发送到此地址；当要求双因素认证而您没有认证器应用时，登录验证码也会发送到这里。验证码绝不会代替认证器应用；如果您丢失了认证器，管理员可以将其关闭。",
+      "recoveryEmailPh": "you@email.com",
+      "recoveryConfirmPassword": "请使用密码确认此更改",
+      "recoveryConfirmTotp": "请使用当前的双因素验证码确认此更改",
+      "recoveryConfirmOidc": "请先通过单点登录确认此更改。按钮会将你带到提供商重新登录，然后返回此处保存。"
     },
     "apiTokens": {
       "title": "API 令牌",

@@ -51,6 +51,7 @@
     "emailOtp": {
       "title": "E-Mail prüfen",
       "desc": "Ein Bestätigungscode wurde an {{email}} gesendet",
+      "sendFailed": "Der Code an {{email}} konnte nicht gesendet werden. Versuchen Sie „Code erneut senden“ oder bitten Sie Ihren Administrator um einen Anmeldecode.",
       "codePh": "6-stelliger Code",
       "resend": "Code erneut senden",
       "sending": "Senden…",
@@ -1440,6 +1441,7 @@
       "eventApiTokenCreated": "API-Token erstellt",
       "eventApiTokenRevoked": "API-Token widerrufen",
       "eventApiTokenAuthFail": "Ungültiges API-Token",
+      "eventAdminSignInCode": "Anmeldecode ausgestellt",
       "byActor": "von {{actor}}",
       "qrCodeAlt": "QR-Code",
       "mailPolicyTitle": "Verbindungsrichtlinie für Mailserver",
@@ -1462,8 +1464,11 @@
       "mfaDeviceTrustForever": "Dauerhaft",
       "mfaSsoLockedNotice": "MFA-Durchsetzung ist nicht anwendbar, wenn die Passwortanmeldung deaktiviert ist. Benutzer authentifizieren sich über SSO, das seine eigenen MFA-Anforderungen verwaltet.",
       "recoveryEmailTitle": "Wiederherstellungs-E-Mail",
-      "recoveryEmailDesc": "Erhalten Sie einen Anmeldecode per E-Mail, wenn Sie den Zugang zur Authentifizierungs-App verlieren.",
-      "recoveryEmailPh": "ihre@email.de"
+      "recoveryEmailDesc": "Hierhin gehen Links zum Zurücksetzen des Passworts und Anmeldecodes, wenn die Zwei-Faktor-Authentifizierung vorgeschrieben ist und Sie keine Authenticator-App haben. Ein Code ersetzt nie eine Authenticator-App; wenn Sie Ihre verlieren, kann ein Administrator sie ausschalten.",
+      "recoveryEmailPh": "ihre@email.de",
+      "recoveryConfirmPassword": "Bestätigen Sie die Änderung mit Ihrem Passwort",
+      "recoveryConfirmTotp": "Bestätigen Sie die Änderung mit Ihrem aktuellen Zwei-Faktor-Code",
+      "recoveryConfirmOidc": "Bestätigen Sie die Änderung zuerst per Single Sign-On. Die Schaltfläche führt Sie zum Anbieter, wo Sie sich erneut anmelden, und dann zum Speichern hierher zurück."
     },
     "apiTokens": {
       "title": "API-Tokens",

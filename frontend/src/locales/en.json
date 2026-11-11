@@ -51,6 +51,7 @@
     "emailOtp": {
       "title": "Check your email",
       "desc": "A verification code has been sent to {{email}}",
+      "sendFailed": "The code to {{email}} could not be sent. Try Resend code, or ask your administrator for a sign-in code.",
       "codePh": "6-digit code",
       "resend": "Resend code",
       "sending": "Sending…",
@@ -1515,6 +1516,7 @@
       "eventApiTokenCreated": "API token created",
       "eventApiTokenRevoked": "API token revoked",
       "eventApiTokenAuthFail": "Invalid API token",
+      "eventAdminSignInCode": "Sign-in code issued",
       "byActor": "by {{actor}}",
       "qrCodeAlt": "QR code",
       "mailPolicyTitle": "Mail Server Connection Policy",
@@ -1537,8 +1539,11 @@
       "mfaDeviceTrustForever": "Permanent",
       "mfaSsoLockedNotice": "MFA enforcement is not applicable when password login is disabled. Users authenticate via SSO, which manages its own MFA requirements.",
       "recoveryEmailTitle": "Recovery email",
-      "recoveryEmailDesc": "Receive a sign-in code by email if you lose access to your authenticator app.",
-      "recoveryEmailPh": "your@email.com"
+      "recoveryEmailDesc": "Password reset links go here, and sign-in codes when two-factor authentication is required and you have no authenticator app. A code never replaces an authenticator app; if you lose yours, an administrator can turn it off.",
+      "recoveryEmailPh": "your@email.com",
+      "recoveryConfirmPassword": "Confirm the change with your password",
+      "recoveryConfirmTotp": "Confirm the change with your current two-factor code",
+      "recoveryConfirmOidc": "Confirm the change through single sign-on first. The button sends you to the provider to sign in again, then back here to save."
     },
     "apiTokens": {
       "title": "API tokens",

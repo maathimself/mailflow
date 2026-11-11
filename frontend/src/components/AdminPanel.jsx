@@ -7667,6 +7667,11 @@ function SecurityTab() {
   const [recoverySaving, setRecoverySaving] = useState(false);
   const [recoverySaved, setRecoverySaved] = useState(false);
   const [recoveryError, setRecoveryError] = useState('');
+  // Changing it is confirmed as an API token is (the server says how: GET answers `reauth`).
+  const [recoveryReauth, setRecoveryReauth] = useState(null); // 'password' | 'totp' | 'oidc'
+  const [recoveryOidc, setRecoveryOidc] = useState(null); // with 'oidc': { providers, confirmedUntil, totpToo }
+  const [recoveryPassword, setRecoveryPassword] = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
 
   // Admin-only: auth activity log
   const [authEvents, setAuthEvents] = useState([]);
@@ -7694,8 +7699,13 @@ function SecurityTab() {
     }
     api.getRecoveryEmail()
       .then(d => {
-        setRecoveryEmail(d.email || '');
+        // An address typed before confirming through single sign-on, which left the page.
+        let draft = null;
+        try { draft = sessionStorage.getItem(RECOVERY_DRAFT_KEY); sessionStorage.removeItem(RECOVERY_DRAFT_KEY); } catch { /* unavailable */ }
+        setRecoveryEmail(draft ?? (d.email || ''));
         setRecoveryEmailLoaded(d.email || '');
+        setRecoveryReauth(d.reauth ?? null);
+        setRecoveryOidc(d.oidc ?? null);
       })
       .catch(() => {});
   }, [user?.isAdmin]);
@@ -7750,17 +7760,33 @@ function SecurityTab() {
     }
   };
 
+  const recoveryChanging = recoveryEmail.trim() !== recoveryEmailLoaded;
+  const recoveryOidcConfirmed = recoveryReauth === 'oidc' && !!recoveryOidc?.confirmedUntil && new Date(recoveryOidc.confirmedUntil) > new Date();
+  const recoveryAsksCode = recoveryReauth === 'totp' || (recoveryReauth === 'oidc' && recoveryOidc?.totpToo === true && recoveryOidcConfirmed);
+  const recoveryConfirmed = recoveryReauth === 'password' ? !!recoveryPassword
+    : recoveryReauth === 'totp' ? recoveryCode.length === 6
+      : recoveryReauth === 'oidc' ? recoveryOidcConfirmed && (!recoveryAsksCode || recoveryCode.length === 6) : false;
+  const recoveryCanSave = !recoverySaving && recoveryChanging && recoveryConfirmed;
+
   const saveRecoveryEmail = async () => {
     setRecoverySaving(true);
     setRecoveryError('');
     try {
-      await api.updateRecoveryEmail(recoveryEmail.trim() || null);
+      await api.updateRecoveryEmail(recoveryEmail.trim() || null, {
+        ...(recoveryAsksCode ? { totpCode: recoveryCode } : {}),
+        ...(recoveryReauth === 'password' ? { password: recoveryPassword } : {}),
+      });
       setRecoveryEmailLoaded(recoveryEmail.trim());
       setRecoverySaved(true);
       setTimeout(() => setRecoverySaved(false), 3000);
     } catch (err) {
       setRecoveryError(err.message);
+      // A code works once, and a refused password is typed again; the server's answer may have
+      // changed (a confirmation spent, two-factor turned on), so ask it again.
+      api.getRecoveryEmail().then(d => { setRecoveryReauth(d.reauth ?? null); setRecoveryOidc(d.oidc ?? null); }).catch(() => {});
     } finally {
+      setRecoveryPassword('');
+      setRecoveryCode('');
       setRecoverySaving(false);
     }
   };
@@ -7781,6 +7807,7 @@ function SecurityTab() {
       api_token_created:   t('admin.security.eventApiTokenCreated'),
       api_token_revoked:   t('admin.security.eventApiTokenRevoked'),
       api_token_auth_fail: t('admin.security.eventApiTokenAuthFail'),
+      admin_sign_in_code:  t('admin.security.eventAdminSignInCode'),
     };
     return map[type] || type;
   };
@@ -8293,20 +8320,79 @@ function SecurityTab() {
           onFocus={e => e.target.style.borderColor = 'var(--accent)'}
           onBlur={e => e.target.style.borderColor = 'var(--border)'}
         />
+        {recoveryChanging && recoveryReauth === 'password' && (
+          <div style={{ marginBottom: 10 }}>
+            <label htmlFor="recovery-confirm-password" style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              {t('admin.security.recoveryConfirmPassword')}
+            </label>
+            <PasswordInput
+              id="recovery-confirm-password"
+              autoComplete="current-password"
+              value={recoveryPassword}
+              onChange={e => setRecoveryPassword(e.target.value)}
+              placeholder={t('admin.security.totpDisablePh')}
+              style={recoveryFieldStyle}
+            />
+          </div>
+        )}
+        {recoveryChanging && recoveryReauth === 'oidc' && !recoveryOidcConfirmed && (
+          (recoveryOidc?.providers || []).length ? (
+            <div style={{ marginBottom: 10 }}>
+              <div id="recovery-confirm-oidc-hint" style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                {t('admin.security.recoveryConfirmOidc')}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {recoveryOidc.providers.map(p => (
+                  <a
+                    key={p.slug}
+                    href={`/auth/oidc/${p.slug}/start?action=reauth`}
+                    aria-describedby="recovery-confirm-oidc-hint"
+                    onClick={() => { try { sessionStorage.setItem(RECOVERY_DRAFT_KEY, recoveryEmail.trim()); } catch { /* unavailable */ } }}
+                    style={ssoProviderButtonStyle}
+                  >
+                    {t('admin.apiTokens.reauthOidcButton', { provider: p.name })}
+                  </a>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>{t('admin.security.ssoLinkConfirmNoProvider')}</div>
+          )
+        )}
+        {recoveryChanging && recoveryOidcConfirmed && (
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
+            {t('admin.apiTokens.reauthOidcDone', { time: formatTime(recoveryOidc.confirmedUntil) })}
+          </div>
+        )}
+        {recoveryChanging && recoveryAsksCode && (
+          <div style={{ marginBottom: 10 }}>
+            <label htmlFor="recovery-confirm-code" style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              {t('admin.security.recoveryConfirmTotp')}
+            </label>
+            <input
+              id="recovery-confirm-code"
+              type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
+              value={recoveryCode}
+              onChange={e => setRecoveryCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder={t('admin.security.totpVerifyPh')}
+              style={{ ...recoveryFieldStyle, letterSpacing: '0.3em', fontVariantNumeric: 'tabular-nums' }}
+            />
+          </div>
+        )}
         {recoveryError && (
-          <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>{recoveryError}</div>
+          <div role="alert" style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>{recoveryError}</div>
         )}
         <button
           onClick={saveRecoveryEmail}
-          disabled={recoverySaving || recoveryEmail.trim() === recoveryEmailLoaded}
+          disabled={!recoveryCanSave}
           style={{
             padding: '8px 18px',
             background: recoverySaved ? 'rgba(34,197,94,0.15)' : 'var(--accent)',
             border: recoverySaved ? '1px solid rgba(34,197,94,0.4)' : 'none',
             borderRadius: 7, color: recoverySaved ? '#22c55e' : 'white',
             fontSize: 13, fontWeight: 500,
-            cursor: (recoverySaving || recoveryEmail.trim() === recoveryEmailLoaded) ? 'not-allowed' : 'pointer',
-            opacity: (recoverySaving || recoveryEmail.trim() === recoveryEmailLoaded) ? 0.6 : 1,
+            cursor: recoveryCanSave ? 'pointer' : 'not-allowed',
+            opacity: recoveryCanSave || recoverySaved ? 1 : 0.6,
           }}
         >
           {recoverySaving ? t('common.saving') : recoverySaved ? t('admin.security.protectionSaved') : t('common.save')}
@@ -8403,6 +8489,14 @@ function SecurityTab() {
   );
 }
 
+// The recovery email typed before confirming through single sign-on, which leaves the page.
+const RECOVERY_DRAFT_KEY = 'mailflow_recovery_email_draft';
+const recoveryFieldStyle = {
+  width: '100%', padding: '8px 10px', borderRadius: 8,
+  border: '1px solid var(--border)', background: 'var(--bg-primary)',
+  color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box',
+};
+
 const ssoProviderButtonStyle = {
   padding: '7px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
   background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
@@ -8442,7 +8536,10 @@ export function LinkedIdentitiesSection({ navigate = (url) => { window.location.
   // has (the buttons in the form below); the server says until when the last one counts.
   const oidcProviders = Array.isArray(oidc?.providers) ? oidc.providers : [];
   const oidcConfirmed = reauth === 'oidc' && !!oidc?.confirmedUntil && new Date(oidc.confirmedUntil) > new Date();
-  const canContinue = !checking && (reauth === 'totp' ? code.length === 6 : reauth === 'password' ? !!password : false);
+  // With two-factor on, the sign-in through single sign-on is confirmed with the code as well.
+  const totpToo = reauth === 'oidc' && oidc?.totpToo === true;
+  const asksCode = reauth === 'totp' || (totpToo && oidcConfirmed);
+  const canContinue = !checking && (asksCode ? code.length === 6 : reauth === 'password' ? !!password : false);
 
   const openLinkForm = (provider) => { setLinking(provider); setPassword(''); setCode(''); setLinkError(''); };
   const closeLinkForm = () => openLinkForm(null);
@@ -8466,11 +8563,11 @@ export function LinkedIdentitiesSection({ navigate = (url) => { window.location.
     }
   };
   // With a sign-in through single sign-on already made, there is nothing left to ask for.
-  const startLink = (provider) => (oidcConfirmed ? confirmAndLink(provider, {}) : openLinkForm(provider));
+  const startLink = (provider) => (oidcConfirmed && !totpToo ? confirmAndLink(provider, {}) : openLinkForm(provider));
   const submitLinkForm = (e) => {
     e.preventDefault();
     if (!canContinue) return;
-    confirmAndLink(linking, reauth === 'totp' ? { totpCode: code } : { password });
+    confirmAndLink(linking, asksCode ? { totpCode: code } : { password });
   };
 
   const handleUnlink = (identity) => {
@@ -8561,7 +8658,7 @@ export function LinkedIdentitiesSection({ navigate = (url) => { window.location.
                 />
               </>
             )}
-            {reauth === 'totp' && (
+            {asksCode && (
               <>
                 <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>
                   {t('admin.security.ssoLinkConfirmTotp', { provider: linking.name })}
@@ -8581,7 +8678,7 @@ export function LinkedIdentitiesSection({ navigate = (url) => { window.location.
                 />
               </>
             )}
-            {reauth === 'oidc' && (
+            {reauth === 'oidc' && !asksCode && (
               <>
                 <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>
                   {oidcProviders.length > 0
@@ -8613,7 +8710,7 @@ export function LinkedIdentitiesSection({ navigate = (url) => { window.location.
               </div>
             )}
             <div style={{ display: 'flex', gap: 8 }}>
-              {(reauth === 'password' || reauth === 'totp') && (
+              {(reauth === 'password' || asksCode) && (
                 <button
                   type="submit"
                   disabled={!canContinue}

@@ -24,6 +24,8 @@ export default function LoginPage() {
   const [emailOtpCode, setEmailOtpCode] = useState('');
   const [emailHint, setEmailHint] = useState('');
   const [emailOtpResending, setEmailOtpResending] = useState(false);
+  // The code could not be sent: the sign-in still waits for one (resend, or one from an admin).
+  const [emailSendFailed, setEmailSendFailed] = useState(false);
   const [mfaEnrollRequired, setMfaEnrollRequired] = useState(false);
   const [enrollData, setEnrollData] = useState(null); // { qrCode, secret }
   const [enrollStep, setEnrollStep] = useState('intro'); // intro | scan | verify
@@ -86,6 +88,7 @@ export default function LoginPage() {
           if (data.step === 'totp') setTotpRequired(true);
           else if (data.step === 'email') {
             setEmailHint(data.emailHint || '');
+            setEmailSendFailed(data.emailSendFailed === true);
             setEmailOtpRequired(true);
           } else if (data.step === 'enroll') {
             setEnrollStep('intro');
@@ -128,6 +131,7 @@ export default function LoginPage() {
         if (data.requiresEmailOTP) {
           setDeviceTrustAvailable(data.deviceTrustAvailable || false);
           setEmailHint(data.emailHint || '');
+          setEmailSendFailed(data.emailSendFailed === true);
           setEmailOtpRequired(true);
           setLoading(false);
           return;
@@ -192,6 +196,7 @@ export default function LoginPage() {
     try {
       const data = await api.totp.sendEmailOtp();
       setEmailHint(data.emailHint || emailHint);
+      setEmailSendFailed(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -450,7 +455,7 @@ export default function LoginPage() {
                 </h2>
               </div>
               <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--text-tertiary)' }}>
-                {t('login.emailOtp.desc', { email: emailHint })}
+                {emailSendFailed ? t('login.emailOtp.sendFailed', { email: emailHint }) : t('login.emailOtp.desc', { email: emailHint })}
               </p>
               <form onSubmit={submitEmailOtp} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <input

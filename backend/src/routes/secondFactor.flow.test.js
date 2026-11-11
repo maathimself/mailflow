@@ -31,6 +31,7 @@ import { query, pool } from '../services/db.js';
 import { sendSystemEmail } from '../services/mailer.js';
 import { buildSessionOptions } from '../utils/sessionConfig.js';
 import authRoutes from './auth.js';
+import { issueSignInCode } from '../services/signInCodes.js';
 import { oidcBrowserRouter } from './oidc.js';
 
 const realFetch = global.fetch;
@@ -183,6 +184,24 @@ describe('password sign-in: an emailed code never replaces the authenticator', (
     expect((await b.get('/api/auth/2fa/enrollment/setup')).status).toBe(400);
     const ok = await b.post('/api/auth/2fa/verify-email-otp', { code });
     expect(ok.status).toBe(200);
+    expect((await b.session()).userId).toBe('u1');
+  });
+
+  it('when the code cannot be emailed, the sign-in fails closed: it waits for a code, and one an admin issues completes it', async () => {
+    settings.mfa_enforcement = 'required';
+    sendSystemEmail.mockRejectedValueOnce(new Error('SMTP down'));
+    const b = browser();
+    expect((await b.post('/api/auth/login', { username: 'alice', password: PASSWORD })).json)
+      .toMatchObject({ requiresEmailOTP: true, emailSendFailed: true });
+    // Never the authenticator setup that whoever has the password could finish.
+    expect((await b.get('/api/auth/2fa/enrollment/setup')).status).toBe(400);
+    expect((await b.get('/api/auth/2fa/pending')).json).toMatchObject({ step: 'email', emailSendFailed: true });
+    sendSystemEmail.mockRejectedValueOnce(new Error('SMTP down'));
+    expect((await b.post('/api/auth/2fa/send-email-otp')).status).toBe(503);
+    expect((await b.session()).userId).toBe(null);
+
+    const { code } = await issueSignInCode(user.id); // what src/cli/authRecovery.js sign-in-code does
+    expect((await b.post('/api/auth/2fa/verify-email-otp', { code })).status).toBe(200);
     expect((await b.session()).userId).toBe('u1');
   });
 
