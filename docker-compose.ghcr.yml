@@ -80,6 +80,8 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      # false: the first account is a normal one, and registration starts closed (see .env.example).
+      FIRST_USER_REGISTRATION: ${FIRST_USER_REGISTRATION:-}
     depends_on:
       postgres:
         condition: service_healthy

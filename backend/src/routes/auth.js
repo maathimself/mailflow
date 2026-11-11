@@ -22,6 +22,7 @@ import { destroyUserSessions } from '../services/userSessions.js';
 import { touchLastSeen } from '../services/lastSeen.js';
 import { removeIdentitiesForPasswordReset } from '../services/userIdentities.js';
 import { aiEnabledForNewUser } from '../services/aiNewUsers.js';
+import { firstUserRegistrationAllowed } from '../services/firstUserRegistration.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
 
 const router = Router();
@@ -117,9 +118,9 @@ router.post('/register', authLimiter, async (req, res) => {
     await client.query('SELECT pg_advisory_xact_lock(7936352)');
 
     const countResult = await client.query('SELECT COUNT(*) as count FROM users');
-    const isFirstUser = parseInt(countResult.rows[0].count) === 0;
+    const isSetupAccount = parseInt(countResult.rows[0].count) === 0 && firstUserRegistrationAllowed();
 
-    if (!isFirstUser) {
+    if (!isSetupAccount) {
       const settingResult = await client.query(
         "SELECT key, value FROM system_settings WHERE key IN ('registration_open', 'internal_auth_disabled')"
       );
@@ -166,11 +167,11 @@ router.post('/register', authLimiter, async (req, res) => {
 
     const result = await client.query(
       'INSERT INTO users (username, password_hash, is_admin, ai_enabled) VALUES ($1, $2, $3, $4) RETURNING id, username, is_admin',
-      [username.toLowerCase().trim(), hash, isFirstUser, await aiEnabledForNewUser(client)]
+      [username.toLowerCase().trim(), hash, isSetupAccount, await aiEnabledForNewUser(client)]
     );
     const newUser = result.rows[0];
 
-    if (isFirstUser) {
+    if (isSetupAccount) {
       await client.query(
         `INSERT INTO system_settings (key, value, updated_at) VALUES ('registration_open', 'false', NOW())
          ON CONFLICT (key) DO UPDATE SET value = 'false', updated_at = NOW()`
