@@ -40,7 +40,7 @@ vi.mock('../services/db.js', () => {
   });
   return { query, pool: {}, withTransaction: vi.fn(async fn => fn({ query })) };
 });
-vi.mock('../services/encryption.js', () => ({ decrypt: value => value, isEncrypted: () => false }));
+vi.mock('../services/encryption.js', () => ({ decrypt: value => value, encrypt: value => value, isEncrypted: () => false }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
 vi.mock('../services/hostValidation.js', () => ({ validateHost: vi.fn(async () => null) }));
 vi.mock('../services/connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn(async () => ({ allowPrivateHosts: false })) }));

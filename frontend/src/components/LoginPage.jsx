@@ -75,6 +75,30 @@ export default function LoginPage() {
       window.history.replaceState({}, '', '/');
     }
 
+    // A single sign-on that still needs MailFlow's second step (the user's authenticator, or
+    // the admin's 2FA policy) lands here instead of signing in: show that step, as password
+    // login does.
+    if (params.get('oidc_mfa')) {
+      window.history.replaceState({}, '', '/login');
+      api.totp.pending()
+        .then(data => {
+          setDeviceTrustAvailable(data.deviceTrustAvailable || false);
+          if (data.step === 'totp') setTotpRequired(true);
+          else if (data.step === 'email') {
+            setEmailHint(data.emailHint || '');
+            setEmailOtpRequired(true);
+          } else if (data.step === 'enroll') {
+            setEnrollStep('intro');
+            setEnrollCode('');
+            setEnrollData(null);
+            setMfaEnrollRequired(true);
+          } else {
+            setOidcError(t('login.ssoSecondStepExpired'));
+          }
+        })
+        .catch(() => setOidcError(t('login.ssoSecondStepExpired')));
+    }
+
     // Handle password reset link: ?reset_token= in URL or sessionStorage (set by App.jsx
     // when the user was not logged in and the URL contained a reset token)
     const resetTokenParam = params.get('reset_token') || sessionStorage.getItem('mailflow_reset_token');

@@ -3195,7 +3195,7 @@ const emptyProvider = {
   name: '', slug: '', issuer_url: '', client_id: '', client_secret: '',
   scopes: 'openid email profile', provisioning_mode: 'login_existing_only',
   allowed_domains: '', enabled: true, require_email_verified: true, allow_insecure: false,
-  admin_group_claim: '', admin_group_value: '', rp_initiated_logout: false,
+  admin_group_claim: '', admin_group_value: '', rp_initiated_logout: false, idp_enforces_mfa: false,
   login_match_claim: 'email',
 };
 
@@ -3302,6 +3302,7 @@ function SSOTab() {
         admin_group_claim: form.admin_group_claim.trim() || null,
         admin_group_value: form.admin_group_value.trim() || null,
         rp_initiated_logout: !!form.rp_initiated_logout,
+        idp_enforces_mfa: !!form.idp_enforces_mfa,
         login_match_claim: (form.login_match_claim || '').trim() || 'email',
         ...(form.client_secret && form.client_secret !== '••••••••' ? { client_secret: form.client_secret } : {}),
       };
@@ -3723,6 +3724,30 @@ function SSOTab() {
             <div>
               <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.sso.rpLogout')}</div>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.sso.rpLogoutDesc')}</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 16 }}>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!!form.idp_enforces_mfa}
+              aria-label={t('admin.sso.idpEnforcesMfa')}
+              onClick={() => setForm(f => ({ ...f, idp_enforces_mfa: !f.idp_enforces_mfa }))}
+              style={{
+                width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
+                background: form.idp_enforces_mfa ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2, left: form.idp_enforces_mfa ? 18 : 2, width: 16, height: 16,
+                borderRadius: '50%', background: 'white', transition: 'left 0.2s',
+              }} />
+            </button>
+            <div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.sso.idpEnforcesMfa')}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.sso.idpEnforcesMfaDesc')}</div>
             </div>
           </div>
 
