@@ -1562,7 +1562,8 @@
       "recoveryEmailPh": "twoj@e-mail.com",
       "recoveryConfirmPassword": "Potwierdź zmianę swoim hasłem",
       "recoveryConfirmTotp": "Potwierdź zmianę aktualnym kodem dwuskładnikowym",
-      "recoveryConfirmOidc": "Najpierw potwierdź zmianę logowaniem jednokrotnym. Przycisk przeniesie Cię do dostawcy, aby zalogować się ponownie, a potem z powrotem tutaj, aby zapisać."
+      "recoveryConfirmOidc": "Najpierw potwierdź zmianę logowaniem jednokrotnym. Przycisk przeniesie Cię do dostawcy, aby zalogować się ponownie, a potem z powrotem tutaj, aby zapisać.",
+      "recoveryLoadFailed": "Nie udało się wczytać Twojego adresu e-mail do odzyskiwania. Odśwież stronę, aby go zmienić."
     },
     "apiTokens": {
       "title": "Tokeny API",

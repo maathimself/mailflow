@@ -1543,7 +1543,8 @@
       "recoveryEmailPh": "tua@email.it",
       "recoveryConfirmPassword": "Conferma la modifica con la tua password",
       "recoveryConfirmTotp": "Conferma la modifica con il tuo codice a due fattori attuale",
-      "recoveryConfirmOidc": "Conferma prima la modifica con il Single Sign-On. Il pulsante ti porta al provider per accedere di nuovo, poi di nuovo qui per salvare."
+      "recoveryConfirmOidc": "Conferma prima la modifica con il Single Sign-On. Il pulsante ti porta al provider per accedere di nuovo, poi di nuovo qui per salvare.",
+      "recoveryLoadFailed": "Non è stato possibile caricare la tua email di recupero. Ricarica la pagina per modificarla."
     },
     "apiTokens": {
       "title": "Token API",

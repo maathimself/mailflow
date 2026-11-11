@@ -1543,7 +1543,8 @@
       "recoveryEmailPh": "you@email.com",
       "recoveryConfirmPassword": "请使用密码确认此更改",
       "recoveryConfirmTotp": "请使用当前的双因素验证码确认此更改",
-      "recoveryConfirmOidc": "请先通过单点登录确认此更改。按钮会将你带到提供商重新登录，然后返回此处保存。"
+      "recoveryConfirmOidc": "请先通过单点登录确认此更改。按钮会将你带到提供商重新登录，然后返回此处保存。",
+      "recoveryLoadFailed": "无法加载您的恢复邮箱。请重新加载页面后再修改。"
     },
     "apiTokens": {
       "title": "API 令牌",

@@ -1540,6 +1540,7 @@
       "recoveryConfirmPassword": "비밀번호로 변경을 확인하세요",
       "recoveryConfirmTotp": "현재 2단계 인증 코드로 변경을 확인하세요",
       "recoveryConfirmOidc": "먼저 싱글 사인온으로 변경을 확인하세요. 버튼을 누르면 공급자에서 다시 로그인한 뒤 저장하기 위해 이곳으로 돌아옵니다.",
+      "recoveryLoadFailed": "복구 이메일을 불러오지 못했습니다. 변경하려면 페이지를 새로 고치세요.",
       "mfaDeviceTrustDesc": "2단계 인증을 다시 요구하기 전까지 인증된 기기를 신뢰할 기간입니다. MFA가 활성화된 경우에만 적용됩니다.",
       "mfaDeviceTrustTitle": "기기 신뢰 기간",
       "recoveryEmailDesc": "비밀번호 재설정 링크와, 2단계 인증이 필수이고 인증 앱이 없을 때의 로그인 코드가 이 주소로 전송됩니다. 코드는 인증 앱을 대신하지 않습니다. 인증 앱을 잃어버린 경우 관리자가 끌 수 있습니다.",

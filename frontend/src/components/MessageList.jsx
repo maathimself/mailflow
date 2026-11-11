@@ -422,13 +422,18 @@ function MailboxList() {
     lastSelectIdxRef.current = -1;
   }, [messagesRefreshToken]);
 
-  // Escape clears selection; click-outside closes folder picker
+  // Escape closes an open menu, or else clears the selection; click-outside closes folder picker.
+  // Closing the selection bar's More menu must not throw away what was selected.
+  const popupOpenRef = useRef(false);
+  popupOpenRef.current = showFolderPicker || showBulkMore || showLayoutPicker;
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') {
+        const closingMenu = popupOpenRef.current;
         setShowFolderPicker(false);
         setShowBulkMore(false);
         setShowLayoutPicker(false);
+        if (closingMenu) return;
         setSelectedIds(new Set());
         setSelectionModeActive(false);
       }

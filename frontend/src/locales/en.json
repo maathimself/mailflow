@@ -1543,7 +1543,8 @@
       "recoveryEmailPh": "your@email.com",
       "recoveryConfirmPassword": "Confirm the change with your password",
       "recoveryConfirmTotp": "Confirm the change with your current two-factor code",
-      "recoveryConfirmOidc": "Confirm the change through single sign-on first. The button sends you to the provider to sign in again, then back here to save."
+      "recoveryConfirmOidc": "Confirm the change through single sign-on first. The button sends you to the provider to sign in again, then back here to save.",
+      "recoveryLoadFailed": "Your recovery email could not be loaded. Reload the page to change it."
     },
     "apiTokens": {
       "title": "API tokens",

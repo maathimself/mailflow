@@ -1543,7 +1543,8 @@
       "recoveryEmailPh": "vous@email.fr",
       "recoveryConfirmPassword": "Confirmez la modification avec votre mot de passe",
       "recoveryConfirmTotp": "Confirmez la modification avec votre code à deux facteurs actuel",
-      "recoveryConfirmOidc": "Confirmez d’abord la modification par l’authentification unique. Le bouton vous envoie chez le fournisseur pour vous reconnecter, puis ici pour enregistrer."
+      "recoveryConfirmOidc": "Confirmez d’abord la modification par l’authentification unique. Le bouton vous envoie chez le fournisseur pour vous reconnecter, puis ici pour enregistrer.",
+      "recoveryLoadFailed": "Votre e-mail de récupération n’a pas pu être chargé. Rechargez la page pour le modifier."
     },
     "apiTokens": {
       "title": "Jetons d'API",

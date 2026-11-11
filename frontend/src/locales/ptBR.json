@@ -1543,7 +1543,8 @@
       "recoveryEmailPh": "seu@email.com",
       "recoveryConfirmPassword": "Confirme a alteração com sua senha",
       "recoveryConfirmTotp": "Confirme a alteração com seu código de dois fatores atual",
-      "recoveryConfirmOidc": "Confirme primeiro a alteração pelo login único. O botão leva você ao provedor para entrar novamente e depois de volta aqui para salvar."
+      "recoveryConfirmOidc": "Confirme primeiro a alteração pelo login único. O botão leva você ao provedor para entrar novamente e depois de volta aqui para salvar.",
+      "recoveryLoadFailed": "Não foi possível carregar seu e-mail de recuperação. Recarregue a página para alterá-lo."
     },
     "apiTokens": {
       "title": "Tokens de API",

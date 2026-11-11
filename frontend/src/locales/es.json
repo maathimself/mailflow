@@ -1543,7 +1543,8 @@
       "recoveryEmailPh": "tu@correo.com",
       "recoveryConfirmPassword": "Confirma el cambio con tu contraseña",
       "recoveryConfirmTotp": "Confirma el cambio con tu código de dos factores actual",
-      "recoveryConfirmOidc": "Confirma primero el cambio con el inicio de sesión único. El botón te lleva al proveedor para volver a iniciar sesión y luego de vuelta aquí para guardar."
+      "recoveryConfirmOidc": "Confirma primero el cambio con el inicio de sesión único. El botón te lleva al proveedor para volver a iniciar sesión y luego de vuelta aquí para guardar.",
+      "recoveryLoadFailed": "No se pudo cargar tu correo de recuperación. Recarga la página para cambiarlo."
     },
     "apiTokens": {
       "title": "Tokens de API",

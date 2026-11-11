@@ -1902,7 +1902,8 @@
       "recoveryEmailPh": "uzivatel@example.com",
       "recoveryConfirmPassword": "Potvrďte změnu svým heslem",
       "recoveryConfirmTotp": "Potvrďte změnu aktuálním dvoufázovým kódem",
-      "recoveryConfirmOidc": "Nejprve změnu potvrďte jednotným přihlášením. Tlačítko vás pošle k poskytovateli, kde se znovu přihlásíte, a pak zpět sem změnu uložit."
+      "recoveryConfirmOidc": "Nejprve změnu potvrďte jednotným přihlášením. Tlačítko vás pošle k poskytovateli, kde se znovu přihlásíte, a pak zpět sem změnu uložit.",
+      "recoveryLoadFailed": "Obnovovací e-mail se nepodařilo načíst. Pro jeho změnu načtěte stránku znovu."
     },
     "apiTokens": {
       "title": "Tokeny API",

@@ -1468,7 +1468,8 @@
       "recoveryEmailPh": "ihre@email.de",
       "recoveryConfirmPassword": "Bestätigen Sie die Änderung mit Ihrem Passwort",
       "recoveryConfirmTotp": "Bestätigen Sie die Änderung mit Ihrem aktuellen Zwei-Faktor-Code",
-      "recoveryConfirmOidc": "Bestätigen Sie die Änderung zuerst per Single Sign-On. Die Schaltfläche führt Sie zum Anbieter, wo Sie sich erneut anmelden, und dann zum Speichern hierher zurück."
+      "recoveryConfirmOidc": "Bestätigen Sie die Änderung zuerst per Single Sign-On. Die Schaltfläche führt Sie zum Anbieter, wo Sie sich erneut anmelden, und dann zum Speichern hierher zurück.",
+      "recoveryLoadFailed": "Ihre Wiederherstellungs-E-Mail konnte nicht geladen werden. Laden Sie die Seite neu, um sie zu ändern."
     },
     "apiTokens": {
       "title": "API-Tokens",

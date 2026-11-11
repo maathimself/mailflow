@@ -7707,8 +7707,8 @@ function SecurityTab() {
         setRecoveryReauth(d.reauth ?? null);
         setRecoveryOidc(d.oidc ?? null);
       })
-      .catch(() => {});
-  }, [user?.isAdmin]);
+      .catch(() => setRecoveryError(t('admin.security.recoveryLoadFailed')));
+  }, [user?.isAdmin, t]);
 
   const loadAuthEvents = () => {
     setEventsLoading(true);
@@ -7781,10 +7781,10 @@ function SecurityTab() {
       setTimeout(() => setRecoverySaved(false), 3000);
     } catch (err) {
       setRecoveryError(err.message);
-      // A code works once, and a refused password is typed again; the server's answer may have
-      // changed (a confirmation spent, two-factor turned on), so ask it again.
-      api.getRecoveryEmail().then(d => { setRecoveryReauth(d.reauth ?? null); setRecoveryOidc(d.oidc ?? null); }).catch(() => {});
     } finally {
+      // A code works once, a single sign-on confirmation confirms one change, and a refused
+      // password is typed again: ask the server what the next change needs.
+      api.getRecoveryEmail().then(d => { setRecoveryReauth(d.reauth ?? null); setRecoveryOidc(d.oidc ?? null); }).catch(() => {});
       setRecoveryPassword('');
       setRecoveryCode('');
       setRecoverySaving(false);
