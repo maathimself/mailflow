@@ -7667,6 +7667,7 @@ function SecurityTab() {
   const [recoverySaving, setRecoverySaving] = useState(false);
   const [recoverySaved, setRecoverySaved] = useState(false);
   const [recoveryError, setRecoveryError] = useState('');
+  const [recoveryLoadFailed, setRecoveryLoadFailed] = useState(false);
   // Changing it is confirmed as an API token is (the server says how: GET answers `reauth`).
   const [recoveryReauth, setRecoveryReauth] = useState(null); // 'password' | 'totp' | 'oidc'
   const [recoveryOidc, setRecoveryOidc] = useState(null); // with 'oidc': { providers, confirmedUntil, totpToo }
@@ -7706,9 +7707,11 @@ function SecurityTab() {
         setRecoveryEmailLoaded(d.email || '');
         setRecoveryReauth(d.reauth ?? null);
         setRecoveryOidc(d.oidc ?? null);
+        setRecoveryLoadFailed(false);
       })
-      .catch(() => setRecoveryError(t('admin.security.recoveryLoadFailed')));
-  }, [user?.isAdmin, t]);
+      // A flag, translated as it renders: t is not a dependency, so no load runs per render.
+      .catch(() => setRecoveryLoadFailed(true));
+  }, [user?.isAdmin]);
 
   const loadAuthEvents = () => {
     setEventsLoading(true);
@@ -7784,7 +7787,7 @@ function SecurityTab() {
     } finally {
       // A code works once, a single sign-on confirmation confirms one change, and a refused
       // password is typed again: ask the server what the next change needs.
-      api.getRecoveryEmail().then(d => { setRecoveryReauth(d.reauth ?? null); setRecoveryOidc(d.oidc ?? null); }).catch(() => {});
+      api.getRecoveryEmail().then(d => { setRecoveryReauth(d.reauth ?? null); setRecoveryOidc(d.oidc ?? null); setRecoveryLoadFailed(false); }).catch(() => {});
       setRecoveryPassword('');
       setRecoveryCode('');
       setRecoverySaving(false);
@@ -8379,8 +8382,8 @@ function SecurityTab() {
             />
           </div>
         )}
-        {recoveryError && (
-          <div role="alert" style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>{recoveryError}</div>
+        {(recoveryError || recoveryLoadFailed) && (
+          <div role="alert" style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>{recoveryError || t('admin.security.recoveryLoadFailed')}</div>
         )}
         <button
           onClick={saveRecoveryEmail}
