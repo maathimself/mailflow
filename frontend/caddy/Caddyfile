@@ -18,12 +18,21 @@
 }
 
 # Security headers on every response. HSTS only over HTTPS; over HTTP the proxy in front owns it.
+# The others are defaults (?): a stricter one the backend sets wins, as the sandboxed policy on
+# proxied images and contact photos, X-Frame-Options DENY and Referrer-Policy same-origin on the
+# API (nginx sent both; with one header, the backend's is the one that has to stay).
 (headers-https) {
 	header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
-	header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data: https:; img-src 'self' data: https: blob:; connect-src 'self' wss:; frame-src 'self'; object-src 'none'; base-uri 'self';"
+	header {
+		?Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data: https:; img-src 'self' data: https: blob:; connect-src 'self' wss:; frame-src 'self'; object-src 'none'; base-uri 'self';"
+		defer
+	}
 }
 (headers-http) {
-	header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data: https:; img-src 'self' data: https: blob:; connect-src 'self' wss: ws:; frame-src 'self'; object-src 'none'; base-uri 'self';"
+	header {
+		?Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data: https:; img-src 'self' data: https: blob:; connect-src 'self' wss: ws:; frame-src 'self'; object-src 'none'; base-uri 'self';"
+		defer
+	}
 }
 
 # What the backend is told about the request. Over HTTPS this server terminated TLS itself, so
@@ -38,14 +47,31 @@
 
 # {args[0]} is https or http: the scheme this server answers in.
 (app) {
-	encode zstd gzip
+	# What nginx compressed, from 1 KiB up. Not text/event-stream: AI replies stream as they are
+	# written, and a compressor would hold them back.
+	encode {
+		zstd
+		gzip 5
+		minimum_length 1024
+		match {
+			header Content-Type text/html*
+			header Content-Type text/css*
+			header Content-Type text/plain*
+			header Content-Type text/javascript*
+			header Content-Type application/javascript*
+			header Content-Type application/json*
+			header Content-Type image/svg+xml*
+			header Content-Type application/manifest+json*
+		}
+	}
 	import headers-{args[0]}
 	header {
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "SAMEORIGIN"
-		Referrer-Policy "strict-origin-when-cross-origin"
-		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		?X-Content-Type-Options "nosniff"
+		?X-Frame-Options "SAMEORIGIN"
+		?Referrer-Policy "strict-origin-when-cross-origin"
+		?Permissions-Policy "camera=(), microphone=(), geolocation=()"
 		-Server
+		defer
 	}
 
 	# Backup download and restore upload: the whole database can pass through over minutes, so

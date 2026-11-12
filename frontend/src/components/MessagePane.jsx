@@ -67,6 +67,7 @@ import SenderAvatarImage from './SenderAvatarImage.jsx';
 import ContextMenu from './ContextMenu.jsx';
 import { holdUndoable, releaseUndoable, UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
 import { spamFolderPaths as spamFolderPathsFor } from '../utils/spamFolders.js';
+import { descaleCss } from '../utils/uiScaleCss.js';
 
 function linkifyText(text) {
   const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -2042,7 +2043,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                 }}
               />
             </div>
-            <div style={{ borderTop: '1px solid var(--border-subtle)', overflowY: 'auto', maxHeight: '60vh' }}>
+            <div style={{ borderTop: '1px solid var(--border-subtle)', overflowY: 'auto', maxHeight: descaleCss('60vh') }}>
               {movePickerLoading ? (
                 <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
                   {t('contextMenu.folders.loading')}

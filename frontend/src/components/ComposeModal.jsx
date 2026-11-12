@@ -9,6 +9,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
+import { descaleCss } from '../utils/uiScaleCss.js';
 import { useEditor, EditorContent, useEditorState, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { Extension } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
@@ -25,6 +26,7 @@ import { PasteWithoutPageColors } from '../utils/editorPaste.js';
 import { pasteWithoutPageColors } from '../utils/contentEditablePaste.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { resolveInitialFrom } from '../utils/defaultSender.js';
+import { aiSenderNote, signatureText } from '../utils/aiSenderNote.js';
 import { initialComposeFocus, isComposeSendShortcut, isSendLaterShortcut } from '../utils/composeFromMessage.js';
 import { unproxyImages } from '../utils/imageProxy.js';
 import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } from '../utils/autoRecipients.js';
@@ -967,8 +969,17 @@ export default function ComposeModal() {
       setAiPanel({ action, status: 'error', text: t('compose.toolbar.aiTooLong', { count: fmt.format(user.length), max: fmt.format(AI_MESSAGE_MAX_CHARS) }) });
       return;
     }
+    // The signature handleSend will add (none while the toggle is off, #555), and the sender's
+    // name, so the model neither adds a sign-off above the real signature nor invents a
+    // [Your Name]. See utils/aiSenderNote.js. The name skips the account's display name, which
+    // is a label such as "Work Gmail".
+    const senderNote = aiSenderNote({
+      name: fromAlias ? fromAlias.name : fromAccount?.sender_name,
+      signature: !signatureEnabled ? '' : plaintextEmail ? plainSig : signatureText(signatureContentRef.current),
+      rewriting: action !== 'draft',
+    });
     const messages = [
-      { role: 'system', content: system },
+      { role: 'system', content: `${system}\n\n${senderNote}` },
       { role: 'user', content: user },
     ];
 
@@ -2975,7 +2986,7 @@ export default function ComposeModal() {
       } : pos ? {
         position: 'fixed', top: pos.y, left: pos.x,
         width: customSize?.width || 540,
-        ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
+        ...(customSize?.height ? { height: customSize.height } : { maxHeight: descaleCss('75vh') }),
         maxWidth: 'calc(100vw - 16px)',
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10, boxShadow: 'var(--shadow-modal)',
@@ -2983,7 +2994,7 @@ export default function ComposeModal() {
       } : {
         position: 'fixed', bottom: 0, right: 24,
         width: customSize?.width || 540, maxWidth: 'calc(100vw - 48px)',
-        ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
+        ...(customSize?.height ? { height: customSize.height } : { maxHeight: descaleCss('75vh') }),
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10,
         boxShadow: 'var(--shadow-modal)',

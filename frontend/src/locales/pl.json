@@ -36,6 +36,7 @@
     "signInWith": "Zaloguj się za pomocą {{name}}",
     "inviteEmail": "Zaproszenie dla",
     "inviteExpired": "Ten link z zaproszeniem jest nieprawidłowy lub wygasł.",
+    "ssoSecondStepExpired": "Logowanie jednokrotne trwało zbyt długo. Zaloguj się ponownie.",
     "ssoOnly": "Zaloguj się przez SSO",
     "ssoOnlyDesc": "Logowanie hasłem jest wyłączone na tym serwerze.",
     "totp": {
@@ -50,6 +51,7 @@
     "emailOtp": {
       "title": "Sprawdź pocztę e-mail",
       "desc": "Kod weryfikacyjny został wysłany na adres {{email}}",
+      "sendFailed": "Nie udało się wysłać kodu na {{email}}. Spróbuj Wyślij kod ponownie albo poproś administratora o kod logowania.",
       "codePh": "6-cyfrowy kod",
       "resend": "Wyślij kod ponownie",
       "sending": "Wysyłanie…",
@@ -1533,6 +1535,7 @@
       "eventApiTokenCreated": "Utworzono token API",
       "eventApiTokenRevoked": "Unieważniono token API",
       "eventApiTokenAuthFail": "Nieprawidłowy token API",
+      "eventAdminSignInCode": "Wydano kod logowania",
       "byActor": "przez {{actor}}",
       "qrCodeAlt": "Kod QR",
       "mailPolicyTitle": "Zasady połączeń z serwerem pocztowym",
@@ -1544,7 +1547,7 @@
       "allowNonstandardPorts": "Zezwalaj na niestandardowe porty",
       "allowNonstandardPortsDesc": "Zezwala na używanie dowolnego portu IMAP lub SMTP, nie tylko 143/993 (IMAP) i 465/587 (SMTP). Wymagane w przypadku serwerów takich jak protonmail-bridge, które używają niestandardowych portów.",
       "mfaEnforcementTitle": "Wymuszanie MFA",
-      "mfaEnforcementDesc": "Wymagaj od wszystkich użytkowników weryfikacji drugim składnikiem podczas logowania. Włączenie wymogu usuwa tokeny API potwierdzone tylko hasłem.",
+      "mfaEnforcementDesc": "Wymagaj od wszystkich użytkowników weryfikacji drugim składnikiem podczas logowania. Włączenie wymogu usuwa tokeny API potwierdzone tylko hasłem. Dotyczy to też logowania jednokrotnego, chyba że dostawca ma ustawione samodzielne wymuszanie MFA.",
       "mfaEnforcementOff": "Opcjonalne",
       "mfaEnforcementRequired": "Wymagane",
       "mfaDeviceTrustTitle": "Czas zaufania urządzenia",
@@ -1555,8 +1558,12 @@
       "mfaDeviceTrustForever": "Na stałe",
       "mfaSsoLockedNotice": "Wymuszanie MFA nie ma zastosowania, gdy logowanie hasłem jest wyłączone. Użytkownicy uwierzytelniają się przez SSO, które zarządza własnymi wymaganiami MFA.",
       "recoveryEmailTitle": "Adres e-mail do odzyskiwania",
-      "recoveryEmailDesc": "Odbierz kod logowania pocztą e-mail, jeśli utracisz dostęp do aplikacji uwierzytelniającej.",
-      "recoveryEmailPh": "twoj@e-mail.com"
+      "recoveryEmailDesc": "Tu trafiają linki do resetowania hasła oraz kody logowania, gdy uwierzytelnianie dwuskładnikowe jest wymagane, a nie masz aplikacji uwierzytelniającej. Kod nigdy nie zastępuje aplikacji uwierzytelniającej; jeśli ją zgubisz, administrator może ją wyłączyć.",
+      "recoveryEmailPh": "twoj@e-mail.com",
+      "recoveryConfirmPassword": "Potwierdź zmianę swoim hasłem",
+      "recoveryConfirmTotp": "Potwierdź zmianę aktualnym kodem dwuskładnikowym",
+      "recoveryConfirmOidc": "Najpierw potwierdź zmianę logowaniem jednokrotnym. Przycisk przeniesie Cię do dostawcy, aby zalogować się ponownie, a potem z powrotem tutaj, aby zapisać.",
+      "recoveryLoadFailed": "Nie udało się wczytać Twojego adresu e-mail do odzyskiwania. Odśwież stronę, aby go zmienić."
     },
     "apiTokens": {
       "title": "Tokeny API",
@@ -1887,6 +1894,8 @@
       "allowInsecureDesc": "Pomija weryfikację hosta i certyfikatu TLS. Używaj tylko dla dostawców dostępnych wyłącznie w sieci LAN (np. pocketid.internal). Nie jest to zalecane w przypadku wdrożeń dostępnych z Internetu.",
       "rpLogout": "SSO wylogowanie (RP-initiated)",
       "rpLogoutDesc": "Włącz wylogowanie SSO, które kończy również sesję u dostawcy przez przekierowanie do jego punktu końcowego wylogowania, a nie tylko usuwa plik cookie MailFlow. Wymaga to, aby dostawca udostępniał end_session_endpoint i miał zarejestrowany adres logowania MailFlow (…/logowanie) jako URI przekierowania po wylogowaniu.",
+      "idpEnforcesMfa": "Dostawca wymusza MFA",
+      "idpEnforcesMfaDesc": "Włącz tylko wtedy, gdy ten dostawca już przy każdym logowaniu wymaga drugiego składnika. Jego logowania pomijają wtedy drugi krok MailFlow: kod z aplikacji uwierzytelniającej użytkownika i wymóg MFA z sekcji Bezpieczeństwo.",
       "adminGroupClaim": "Deklaracja grupy administratorów",
       "adminGroupClaimPh": "grupy",
       "adminGroupClaimDesc": "Nazwa claimu JWT zawierającego grupy użytkownika (np. groups). Pozostaw puste, aby wyłączyć nadawanie uprawnień administratora na podstawie grupy.",

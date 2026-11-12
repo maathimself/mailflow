@@ -3,19 +3,28 @@ package sh.mailflow.app;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
 import android.net.Uri;
+import android.net.http.SslError;
 import android.webkit.ClientCertRequest;
+import android.webkit.SslErrorHandler;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import com.getcapacitor.Bridge;
+import androidx.webkit.WebViewCompat;
 import com.getcapacitor.BridgeWebViewClient;
 
 public class MailFlowWebViewClient extends BridgeWebViewClient {
     // Served by Capacitor's local server, not from file://: its "Change host" button needs the
     // Capacitor bridge, which a file:// page does not get.
     private static final String FALLBACK_PATH = "/host-unavailable.html";
+    static final String REASON_CERTIFICATE = "certificate";
+    static final String REASON_WEBVIEW = "webview";
+    // The web app is built with Vite's default target, 'baseline-widely-available' (Chrome 111
+    // in Vite 8). An older WebView fails on its syntax and shows a blank page (#776).
+    static final int MIN_WEBVIEW_MAJOR = 111;
     private final Bridge bridge;
     private final Context context;
     private final MainActivity activity;
@@ -35,6 +44,10 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
 
         String url = uri.toString();
         if (request.isForMainFrame() && openOidcLogin(view, url)) return true;
+        if (request.isForMainFrame() && isConfiguredHost(url) && isWebViewTooOld(context)) {
+            loadFallback(view, REASON_WEBVIEW);
+            return true;
+        }
         if (isConfiguredHost(url) || isAppPage(url)) return false;
         if (!request.isForMainFrame()) return isWebUrl(uri);
         if (openExternallyIfNeeded(url)) return true;
@@ -45,6 +58,10 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, String url) {
         if (openOidcLogin(view, url)) return true;
+        if (isConfiguredHost(url) && isWebViewTooOld(context)) {
+            loadFallback(view, REASON_WEBVIEW);
+            return true;
+        }
         if (isConfiguredHost(url) || isAppPage(url)) return false;
         if (openExternallyIfNeeded(url)) {
             return true;
@@ -69,6 +86,16 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
         }
     }
 
+    // The default cancels silently, which left a host with an untrusted certificate on a blank
+    // screen (#776). Still cancelled, but the host's own failures now say why.
+    @Override
+    public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+        handler.cancel();
+        if (error != null && isConfiguredHost(error.getUrl())) {
+            loadFallback(view, REASON_CERTIFICATE);
+        }
+    }
+
     @Override
     public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
         super.onReceivedError(view, request, error);
@@ -87,7 +114,7 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
 
         if (!isConfiguredHost(url)) return;
 
-        MailFlowNativePlugin.injectCapacitorCompat(view);
+        MailFlowNativePlugin.injectCapacitorCompat(view, MailFlowNativePlugin.getSavedHost(context));
         MailFlowNativePlugin.injectPendingActions(view, context);
 
         view.evaluateJavascript("(document.body ? document.body.innerText : '')", (text) -> {
@@ -149,8 +176,30 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
     }
 
     private void loadFallback(WebView view) {
+        loadFallback(view, null);
+    }
+
+    void loadFallback(WebView view, String reason) {
         if (loadingFallback) return;
         loadingFallback = true;
-        view.post(() -> view.loadUrl(bridge.getLocalUrl() + FALLBACK_PATH));
+        String query = reason == null ? "" : "?reason=" + reason;
+        view.post(() -> view.loadUrl(bridge.getLocalUrl() + FALLBACK_PATH + query));
+    }
+
+    static boolean isWebViewTooOld(Context context) {
+        try {
+            PackageInfo webView = WebViewCompat.getCurrentWebViewPackage(context);
+            return webView != null && isOlderThanSupported(webView.versionName);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    // "83.0.4103.106" -> too old. Anything unparseable is given the benefit of the doubt.
+    static boolean isOlderThanSupported(String versionName) {
+        if (versionName == null) return false;
+        String major = versionName.split("\\.", 2)[0].trim();
+        if (!major.matches("\\d{1,4}")) return false;
+        return Integer.parseInt(major) < MIN_WEBVIEW_MAJOR;
     }
 }

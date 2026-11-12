@@ -74,19 +74,43 @@
   <body>
     <main>
       <img src="../electron/icons/512x512.png" alt="MailFlow" />
-      <h1>Host is not available</h1>
-      <p>MailFlow could not reach the configured server. Check the host address or choose a different MailFlow server.</p>
+      <h1 id="title">Host is not available</h1>
+      <p id="message">MailFlow could not reach the configured server. Check the host address or choose a different MailFlow server.</p>
       <button id="change-host-button" type="button">Change host</button>
     </main>
 
     <script>
       const button = document.querySelector('#change-host-button');
 
+      // Set by the Android app when it knows why the host didn't load (#776).
+      const REASONS = {
+        certificate: {
+          title: 'Certificate not trusted',
+          message:
+            "MailFlow reached the server, but this device doesn't trust its HTTPS certificate. " +
+            "Use a certificate from a public authority, such as Let's Encrypt or Tailscale's, " +
+            'or choose a different MailFlow server.',
+        },
+        webview: {
+          title: 'Update Android System WebView',
+          message:
+            'MailFlow needs Android System WebView 111 or later. Update it from the Play Store, ' +
+            'then open MailFlow again.',
+        },
+      };
+      const reason = REASONS[new URLSearchParams(window.location.search).get('reason')];
+      if (reason) {
+        document.querySelector('#title').textContent = reason.title;
+        document.querySelector('#message').textContent = reason.message;
+      }
+
       function installCapacitorNativeBridge() {
+        // As on the setup page: a partial window.mailflowNative may be here already (#776).
         const plugin = window.Capacitor?.Plugins?.MailFlowNative;
-        if (!plugin || window.mailflowNative) return;
+        if (!plugin) return;
 
         window.mailflowNative = {
+          ...window.mailflowNative,
           resetHost: async () => plugin.resetHost(),
         };
       }

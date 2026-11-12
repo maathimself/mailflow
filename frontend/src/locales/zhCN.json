@@ -36,6 +36,7 @@
     "signInWith": "使用 {{name}} 登录",
     "inviteEmail": "受邀邮箱",
     "inviteExpired": "此邀请链接无效或已过期。",
+    "ssoSecondStepExpired": "单点登录完成时间过长。请重新登录。",
     "totp": {
       "title": "双重验证",
       "instructions": "请输入身份验证器应用中的 6 位验证码。",
@@ -50,6 +51,7 @@
     "emailOtp": {
       "title": "查看您的邮件",
       "desc": "验证码已发送至 {{email}}",
+      "sendFailed": "无法将验证码发送到 {{email}}。请尝试“重新发送验证码”，或向管理员索取登录验证码。",
       "codePh": "6位数字码",
       "resend": "重新发送",
       "sending": "发送中…",
@@ -1512,6 +1514,7 @@
       "eventApiTokenCreated": "已创建 API 令牌",
       "eventApiTokenRevoked": "已撤销 API 令牌",
       "eventApiTokenAuthFail": "无效的 API 令牌",
+      "eventAdminSignInCode": "已签发登录验证码",
       "byActor": "（由 {{actor}} 操作）",
       "activityTitle": "登录活动",
       "loginProtectionTitle": "登录保护",
@@ -1525,7 +1528,7 @@
       "allowNonstandardPorts": "允许非标准端口",
       "allowNonstandardPortsDesc": "允许任意 IMAP 或 SMTP 端口，而不仅限于 143/993（IMAP）和 465/587（SMTP）。protonmail-bridge 等使用非标准端口的服务器需要此选项。",
       "mfaEnforcementTitle": "MFA强制要求",
-      "mfaEnforcementDesc": "要求所有用户登录时使用第二因素验证。设为必需后，仅通过密码确认的 API 令牌将被删除。",
+      "mfaEnforcementDesc": "要求所有用户登录时使用第二因素验证。设为必需后，仅通过密码确认的 API 令牌将被删除。这也适用于单点登录，除非该提供商被设置为自行强制 MFA。",
       "mfaEnforcementOff": "可选",
       "mfaEnforcementRequired": "必需",
       "mfaDeviceTrustTitle": "设备信任时长",
@@ -1536,8 +1539,12 @@
       "mfaDeviceTrustForever": "永久",
       "mfaSsoLockedNotice": "当密码登录被禁用时，MFA 强制不适用。用户通过 SSO 进行身份验证，SSO 管理自己的 MFA 要求。",
       "recoveryEmailTitle": "恢复邮箱",
-      "recoveryEmailDesc": "如果您失去对认证器应用的访问权限，可通过电子邮件接收登录码。",
-      "recoveryEmailPh": "you@email.com"
+      "recoveryEmailDesc": "密码重置链接会发送到此地址；当要求双因素认证而您没有认证器应用时，登录验证码也会发送到这里。验证码绝不会代替认证器应用；如果您丢失了认证器，管理员可以将其关闭。",
+      "recoveryEmailPh": "you@email.com",
+      "recoveryConfirmPassword": "请使用密码确认此更改",
+      "recoveryConfirmTotp": "请使用当前的双因素验证码确认此更改",
+      "recoveryConfirmOidc": "请先通过单点登录确认此更改。按钮会将你带到提供商重新登录，然后返回此处保存。",
+      "recoveryLoadFailed": "无法加载您的恢复邮箱。请重新加载页面后再修改。"
     },
     "apiTokens": {
       "title": "API 令牌",
@@ -1871,6 +1878,8 @@
       "allowInsecureDesc": "绕过主机验证和 TLS 证书检查。仅用于局域网专用提供商（例如 pocketid.internal）。不建议用于面向互联网的部署。",
       "rpLogout": "SSO 注销（RP-initiated）",
       "rpLogoutDesc": "注销时，除了清除 MailFlow 的 cookie，还会重定向到该提供商的 end-session endpoint 以结束其会话。要求提供商公布 end_session_endpoint，并将 MailFlow 的登录 URL（…/login）注册为 post-logout redirect URI。",
+      "idpEnforcesMfa": "提供商强制 MFA",
+      "idpEnforcesMfaDesc": "仅当此提供商已在每次登录时要求第二因素时才开启。开启后，其登录将跳过 MailFlow 自身的第二步：用户的身份验证器代码，以及“安全”中的 MFA 必需设置。",
       "adminGroupClaim": "管理员组声明",
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "包含用户组的 JWT 声明名称（例如 groups）。留空可禁用基于组的管理员分配。",
