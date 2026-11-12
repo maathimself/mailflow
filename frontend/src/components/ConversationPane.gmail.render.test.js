@@ -78,6 +78,7 @@ const { createRoot } = await import('react-dom/client');
 const ConversationPane = (await import('./ConversationPane.jsx')).default;
 const { useStore } = await import('../store/index.js');
 const { bodyCache } = await import('../utils/bodyCache.js');
+const { formatDateTime, formatMessageDateTime } = await import('../utils/formatDate.js');
 
 let root;
 let mounts = 0;
@@ -267,6 +268,24 @@ describe('trimmed quoted history', () => {
     await open();
     assert.equal(document.querySelector('details'), null);
     assert.match(document.querySelector('[data-message-id="m5"]').textContent, /> Lunch\?/);
+  });
+});
+
+describe('card dates', () => {
+  const dates = () => [...document.querySelectorAll('.mail-conversation-sender > span:last-child')].map(el => el.textContent);
+
+  test('open and closed cards are dated as the reader\'s header dates a message', async () => {
+    thread = threadOf(3);
+    await open();
+    assert.deepEqual(dates(), thread.map(m => formatMessageDateTime(m.date)));
+    assert.notEqual(dates()[0], formatDateTime(thread[0].date), 'not the long locale string');
+  });
+
+  test('outside the Gmail layout they keep the full date and time', async () => {
+    useStore.setState({ layout: 'comfortable' });
+    thread = threadOf(3);
+    await open();
+    assert.deepEqual(dates(), thread.map(m => formatDateTime(m.date)));
   });
 });
 

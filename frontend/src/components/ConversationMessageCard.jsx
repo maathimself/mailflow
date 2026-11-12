@@ -17,7 +17,7 @@ import { isDarkTheme, canShowDark, showDark } from '../utils/darkScheme.js';
 import AiResultBox from './AiResultBox.jsx';
 import { useAiActions } from '../hooks/useAiActions.js';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
-import { formatDateTime } from '../utils/formatDate.js';
+import { formatDateTime, formatMessageDateTime } from '../utils/formatDate.js';
 import { bodyCache } from '../utils/bodyCache.js';
 import { isForwardSubject, splitQuotedText } from '../utils/quotedHistory.js';
 import { useMobile } from '../hooks/useMobile.js';
@@ -38,9 +38,9 @@ import {
 
 // Design from #317 by YunQue0912.
 // `onUpdate(id, patch)` applies a flag change to the conversation's own copy of the message and to
-// the list's, since the pane holds the thread apart from the list. `trimQuoted` (the Gmail layout)
-// hides the body's trailing quoted history behind a toggle.
-export default function ConversationMessageCard({ message, expanded, onToggle, onUpdate, aiEnabled = false, aiReplyEnabled = false, selected = false, trimQuoted = false }) {
+// the list's, since the pane holds the thread apart from the list. `gmail` (the Gmail layout) hides
+// the body's trailing quoted history behind a toggle and dates the card as the reader's header does.
+export default function ConversationMessageCard({ message, expanded, onToggle, onUpdate, aiEnabled = false, aiReplyEnabled = false, selected = false, gmail = false }) {
   const { t } = useTranslation();
   const accounts = useStore(s => s.accounts);
   const openCompose = useStore(s => s.openCompose);
@@ -307,10 +307,10 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
     onManage: () => { const st = useStore.getState(); st.setAdminTab('ai-actions'); st.setShowAdmin(true); },
   } : null;
 
-  const trim = trimQuoted && !isForwardSubject(message.subject);
+  const trim = gmail && !isForwardSubject(message.subject);
   const textParts = trim && !body?.html ? splitQuotedText(body?.text) : null;
 
-  const when = formatDateTime(message.date);
+  const when = gmail ? formatMessageDateTime(message.date, { withYear: !isMobile }) : formatDateTime(message.date);
   const who = message.from_name || message.from_email || '';
 
   return (
