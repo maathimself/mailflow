@@ -24,6 +24,9 @@ import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFromMessage, rowOwnMessage } from '../utils/composeFromMessage.js';
 import { aiReplyAvailable } from '../utils/aiReply.js';
 import MessageBodyView from './MessageBodyView.jsx';
+import TrimmedToggle from './TrimmedToggle.jsx';
+import { isForwardSubject, splitQuotedText } from '../utils/quotedHistory.js';
+import { normalizeLayout } from '../layouts.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { saveSenderCategory } from '../utils/senderCategory.js';
 import { buildMovePickerSections, movePickerSectionHeading, movePickerFoldersEmpty, runMovePickerAction } from '../utils/folderDisplay.js';
@@ -160,6 +163,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const accountFolders = useStore(s => s.folders[message?.account_id] || []);
   // Dark email bodies (#228): the setting, and each message's own choice made with the toggle.
   const theme = useStore(s => s.theme);
+  const gmail = useStore(s => normalizeLayout(s.layout) === 'gmail');
   const darkEmailBodies = useStore(s => s.darkEmailBodies);
   const [darkChoice, setDarkChoice] = useState({});
   // What the frame last showed, for which message (see MessageBodyView onDarkResult).
@@ -1287,6 +1291,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // body that can be shown dark (utils/darkScheme.js). The experimental div renderer does not
   // apply a sender's dark design, so with it HTML stays as sent.
   const darkCapable = Boolean(message) && !(USE_DIV_RENDER && body?.html);
+  // The Gmail layout folds a reply's trailing quoted history behind a toggle; a forward is shown whole.
+  const trimQuoted = gmail && !isForwardSubject(message?.subject);
+  const textParts = trimQuoted && body && !body.html ? splitQuotedText(body.text) : null;
   const bodyDark = darkCapable && showDark({ body, themeKey: theme, setting: darkEmailBodies, override: darkChoice[message.id] });
   const darkToggleShown = darkCapable && isDarkTheme(theme) && canShowDark(body);
   // What the frame actually shows: HTML asked for dark is left as sent when showing it dark would
@@ -1950,6 +1957,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                 emailScaleRef={emailScaleRef}
                 hasNativeContextTarget={hasNativeContextTarget}
                 onContextMenu={openPaneContextMenu}
+                trimQuoted={trimQuoted}
               />
             )}
           </div>
@@ -1997,9 +2005,18 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
             // index.html). A message someone sent in another language should still translate,
             // and React writes this body in one piece, so the translator has nothing of React's
             // to break in here.
-            translate="yes"
-            dangerouslySetInnerHTML={{ __html: linkifyText(body.text) }}
-          />
+            translate={textParts ? undefined : 'yes'}
+            dangerouslySetInnerHTML={textParts ? undefined : { __html: linkifyText(body.text) }}
+          >
+            {textParts && (
+              <>
+                <div translate="yes" dangerouslySetInnerHTML={{ __html: linkifyText(textParts.body) }} />
+                <TrimmedToggle light={!bodyDark}>
+                  <div translate="yes" dangerouslySetInnerHTML={{ __html: linkifyText(textParts.quoted) }} />
+                </TrimmedToggle>
+              </>
+            )}
+          </div>
         </div>
       )}
       </div>{/* end single scroll container */}

@@ -11,6 +11,7 @@ import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/pri
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import MessageBodyView from './MessageBodyView.jsx';
+import TrimmedToggle from './TrimmedToggle.jsx';
 import AttachmentStrip from './AttachmentStrip.jsx';
 import { isDarkTheme, canShowDark, showDark } from '../utils/darkScheme.js';
 import AiResultBox from './AiResultBox.jsx';
@@ -71,7 +72,6 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
   const darkRefused = Boolean(body?.html) && bodyDark && darkResult?.requested === true && darkResult.outcome === 'light';
   const shownDark = bodyDark && !darkRefused;
   const [loading, setLoading] = useState(false);
-  const [quoteOpen, setQuoteOpen] = useState(false);
   const iframeRef = useRef(null);
   const emailScaleRef = useRef(1);
   const remoteRequestedRef = useRef(null);
@@ -309,7 +309,6 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
 
   const trim = trimQuoted && !isForwardSubject(message.subject);
   const textParts = trim && !body?.html ? splitQuotedText(body?.text) : null;
-  const trimmedTitle = quoteOpen ? t('message.hideTrimmed') : t('message.showTrimmed');
 
   const when = formatDateTime(message.date);
   const who = message.from_name || message.from_email || '';
@@ -462,14 +461,9 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
             }}>{textParts ? (
               <>
                 <div translate="yes">{textParts.body}</div>
-                <details className="mail-trimmed-text" onToggle={e => setQuoteOpen(e.currentTarget.open)}>
-                  <summary title={trimmedTitle} aria-label={trimmedTitle} style={{
-                    display: 'inline-block', listStyle: 'none', cursor: 'pointer', margin: '8px 0',
-                    padding: '0 6px', height: 12, lineHeight: '6px', borderRadius: 6, fontSize: 12, letterSpacing: 1,
-                    background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
-                  }}>•••</summary>
+                <TrimmedToggle light={darkToggleShown && !bodyDark}>
                   <div translate="yes">{textParts.quoted}</div>
-                </details>
+                </TrimmedToggle>
               </>
             ) : body.text}</div>
           )}
