@@ -431,7 +431,9 @@
     "olderMessages_one": "{{count}} message plus ancien",
     "olderMessages_other": "{{count}} messages plus anciens",
     "expandAll": "Tout développer",
-    "collapseAll": "Tout réduire"
+    "collapseAll": "Tout réduire",
+    "showTrimmed": "Afficher le contenu masqué",
+    "hideTrimmed": "Masquer le contenu"
   },
   "messageList": {
     "replyDraftChanged": "Le brouillon de réponse a changé. Essayez de le rouvrir.",

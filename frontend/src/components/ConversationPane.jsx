@@ -475,6 +475,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
               onUpdate={updateConversationMessage}
               aiEnabled={aiEnabled}
               aiReplyEnabled={aiReplyEnabled}
+              trimQuoted={gmail}
             />
           )))}
       </div>

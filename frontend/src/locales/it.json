@@ -431,7 +431,9 @@
     "olderMessages_one": "{{count}} messaggio meno recente",
     "olderMessages_other": "{{count}} messaggi meno recenti",
     "expandAll": "Espandi tutto",
-    "collapseAll": "Comprimi tutto"
+    "collapseAll": "Comprimi tutto",
+    "showTrimmed": "Mostra contenuto tagliato",
+    "hideTrimmed": "Nascondi contenuto tagliato"
   },
   "messageList": {
     "replyDraftChanged": "La bozza di risposta è cambiata. Prova ad aprirla di nuovo.",

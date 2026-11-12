@@ -431,7 +431,9 @@
     "olderMessages_one": "{{count}} mensagem mais antiga",
     "olderMessages_other": "{{count}} mensagens mais antigas",
     "expandAll": "Expandir tudo",
-    "collapseAll": "Recolher tudo"
+    "collapseAll": "Recolher tudo",
+    "showTrimmed": "Mostrar conteúdo cortado",
+    "hideTrimmed": "Ocultar conteúdo cortado"
   },
   "messageList": {
     "replyDraftChanged": "O rascunho de resposta mudou. Tente abri-lo novamente.",

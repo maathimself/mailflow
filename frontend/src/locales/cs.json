@@ -636,7 +636,9 @@
     "olderMessages_many": "{{count}} starší zprávy",
     "olderMessages_other": "{{count}} starších zpráv",
     "expandAll": "Rozbalit vše",
-    "collapseAll": "Sbalit vše"
+    "collapseAll": "Sbalit vše",
+    "showTrimmed": "Zobrazit zkrácený obsah",
+    "hideTrimmed": "Skrýt zkrácený obsah"
   },
   "compose": {
     "unsupportedDraftFrom": "Před uložením nebo odesláním tohoto konceptu vyberte nastaveného odesílatele.",

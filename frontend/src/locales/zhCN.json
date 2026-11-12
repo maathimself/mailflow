@@ -431,7 +431,9 @@
     "olderMessages_one": "{{count}} 封较早的邮件",
     "olderMessages_other": "{{count}} 封较早的邮件",
     "expandAll": "全部展开",
-    "collapseAll": "全部收起"
+    "collapseAll": "全部收起",
+    "showTrimmed": "显示被截断的内容",
+    "hideTrimmed": "隐藏被截断的内容"
   },
   "messageList": {
     "replyDraftChanged": "回复草稿已更改。请尝试重新打开。",

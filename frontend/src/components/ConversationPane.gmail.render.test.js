@@ -212,3 +212,58 @@ describe('Expand all and Collapse all', () => {
     assert.equal(toolbarButton('message.collapseAll'), null);
   });
 });
+
+describe('trimmed quoted history', () => {
+  const REPLY = '<div>Sure</div><div class="gmail_quote"><div class="gmail_attr">On 6 Jan 2026, Ana wrote:</div><blockquote>Lunch?</blockquote></div>';
+  const frameDoc = () => document.querySelector('[data-message-id="m7"] iframe').getAttribute('srcdoc');
+
+  test('an HTML body\'s trailing quote is behind a toggle in its frame', async () => {
+    bodies.m7 = { html: REPLY, text: '', attachments: [] };
+    await open();
+    const { document: frame } = new JSDOM(frameDoc()).window;
+    const details = frame.querySelector('#mf-scale-wrapper details.mf-trimmed');
+    assert.ok(details);
+    assert.equal(details.querySelector('.mf-trimmed-show').title, 'message.showTrimmed');
+    assert.equal(details.querySelector('.mf-trimmed-hide').title, 'message.hideTrimmed');
+  });
+
+  test('a forward is shown whole', async () => {
+    thread = threadOf(7, { 7: { subject: 'Fwd: Plans' } });
+    bodies.m7 = { html: REPLY, text: '', attachments: [] };
+    await open();
+    assert.doesNotMatch(frameDoc(), /<details/);
+  });
+
+  test('a plain-text body\'s "> " lines are behind a toggle whose title follows it', async () => {
+    bodies.m7 = { html: '', text: 'Sure\n\nOn 6 Jan 2026, Ana wrote:\n> Lunch?', attachments: [] };
+    await open();
+    const card = document.querySelector('[data-message-id="m7"]');
+    const details = card.querySelector('details.mail-trimmed-text');
+    assert.match(details.textContent, /> Lunch\?/);
+    assert.doesNotMatch(card.textContent.replace(details.textContent, ''), /Lunch/);
+    const summary = details.querySelector('summary');
+    assert.equal(summary.textContent, '•••');
+    assert.equal(summary.title, 'message.showTrimmed');
+    await React.act(async () => {
+      details.open = true;
+      details.dispatchEvent(new window.Event('toggle'));
+    });
+    assert.equal(summary.title, 'message.hideTrimmed');
+  });
+
+  test('outside the Gmail layout the body is shown whole', async () => {
+    useStore.setState({ layout: 'comfortable' });
+    bodies.m7 = { html: REPLY, text: '', attachments: [] };
+    await open();
+    assert.doesNotMatch(frameDoc(), /<details/);
+  });
+
+  test('outside the Gmail layout a plain-text body is shown whole', async () => {
+    useStore.setState({ layout: 'comfortable' });
+    bodies.m5 = { html: '', text: 'Sure\n> Lunch?', attachments: [] };
+    thread = threadOf(5);
+    await open();
+    assert.equal(document.querySelector('details'), null);
+    assert.match(document.querySelector('[data-message-id="m5"]').textContent, /> Lunch\?/);
+  });
+});

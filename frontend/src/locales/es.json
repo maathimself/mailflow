@@ -431,7 +431,9 @@
     "olderMessages_one": "{{count}} mensaje anterior",
     "olderMessages_other": "{{count}} mensajes anteriores",
     "expandAll": "Mostrar todo",
-    "collapseAll": "Contraer todo"
+    "collapseAll": "Contraer todo",
+    "showTrimmed": "Mostrar contenido recortado",
+    "hideTrimmed": "Ocultar contenido recortado"
   },
   "messageList": {
     "replyDraftChanged": "El borrador de respuesta ha cambiado. Intenta abrirlo de nuevo.",

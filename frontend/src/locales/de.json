@@ -431,7 +431,9 @@
     "olderMessages_one": "{{count}} ältere Nachricht",
     "olderMessages_other": "{{count}} ältere Nachrichten",
     "expandAll": "Alle maximieren",
-    "collapseAll": "Alle minimieren"
+    "collapseAll": "Alle minimieren",
+    "showTrimmed": "Gekürzten Inhalt anzeigen",
+    "hideTrimmed": "Gekürzten Inhalt ausblenden"
   },
   "messageList": {
     "replyDraftChanged": "Der Antwortentwurf wurde geändert. Öffne ihn erneut.",

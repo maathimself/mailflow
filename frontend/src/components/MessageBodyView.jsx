@@ -55,7 +55,8 @@ let frameDocCount = 0;
 //
 // The experimental div renderer (VITE_EMAIL_DIV_RENDER) is deliberately NOT here: it is off
 // by default and untested, and moving it would double the size of this change.
-function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarget, onContextMenu, iframeRef, dark = false, onDarkResult }) {
+// `trimQuoted` folds the trailing quoted history behind a toggle (utils/quotedHistory.js).
+function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarget, onContextMenu, iframeRef, dark = false, onDarkResult, trimQuoted = false }) {
   const { t } = useTranslation();
   // Holds the ResizeObserver watching the frame's document, so the effect can disconnect the
   // previous one before observing a new document.
@@ -86,7 +87,7 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
   const shownDocRef = useRef(null);
   // A new key for each email shown in the frame (see onLoaded).
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new key whenever the email changes
-  const docKey = useMemo(() => String(++frameDocCount), [body?.html, messageId]);
+  const docKey = useMemo(() => String(++frameDocCount), [body?.html, messageId, trimQuoted]);
 
   function showDarkOrNot(doc) {
     let outcome = 'light';
@@ -429,7 +430,8 @@ function MessageBodyView({ body, messageId, emailScaleRef, hasNativeContextTarge
 
   // The frame's document (utils/emailFrameDoc.js): the email as sent, carrying the theme's dark
   // colors and the sender's own dark design switched off until showDarkOrNot uses them.
-  const srcDoc = buildFrameDoc({ html: body.html, palette, darkCss: body.darkCss, remoteImagesBlocked: body.remoteImagesBlocked, remoteImagesProxied: body.remoteImagesProxied, docKey });
+  const trimLabels = trimQuoted ? { show: t('message.showTrimmed'), hide: t('message.hideTrimmed') } : null;
+  const srcDoc = buildFrameDoc({ html: body.html, palette, darkCss: body.darkCss, remoteImagesBlocked: body.remoteImagesBlocked, remoteImagesProxied: body.remoteImagesProxied, docKey, trimLabels });
 
   return (
     <iframe

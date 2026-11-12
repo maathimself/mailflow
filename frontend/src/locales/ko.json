@@ -431,7 +431,9 @@
     "olderMessages_one": "이전 메일 {{count}}개",
     "olderMessages_other": "이전 메일 {{count}}개",
     "expandAll": "모두 펼치기",
-    "collapseAll": "모두 접기"
+    "collapseAll": "모두 접기",
+    "showTrimmed": "잘린 콘텐츠 표시",
+    "hideTrimmed": "잘린 콘텐츠 숨기기"
   },
   "messageList": {
     "replyDraftChanged": "답장 초안이 변경되었습니다. 다시 열어 보세요.",

@@ -435,7 +435,9 @@
     "olderMessages_many": "{{count}} starszych wiadomości",
     "olderMessages_other": "{{count}} starszych wiadomości",
     "expandAll": "Rozwiń wszystkie",
-    "collapseAll": "Zwiń wszystkie"
+    "collapseAll": "Zwiń wszystkie",
+    "showTrimmed": "Pokaż przyciętą treść",
+    "hideTrimmed": "Ukryj przyciętą treść"
   },
   "messageList": {
     "replyDraftChanged": "Szkic odpowiedzi się zmienił. Spróbuj otworzyć go ponownie.",

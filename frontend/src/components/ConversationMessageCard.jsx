@@ -18,6 +18,7 @@ import { useAiActions } from '../hooks/useAiActions.js';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
 import { formatDateTime } from '../utils/formatDate.js';
 import { bodyCache } from '../utils/bodyCache.js';
+import { isForwardSubject, splitQuotedText } from '../utils/quotedHistory.js';
 import { useMobile } from '../hooks/useMobile.js';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import TodoistTaskModal from './TodoistTaskModal.jsx';
@@ -36,8 +37,9 @@ import {
 
 // Design from #317 by YunQue0912.
 // `onUpdate(id, patch)` applies a flag change to the conversation's own copy of the message and to
-// the list's, since the pane holds the thread apart from the list.
-export default function ConversationMessageCard({ message, expanded, onToggle, onUpdate, aiEnabled = false, aiReplyEnabled = false, selected = false }) {
+// the list's, since the pane holds the thread apart from the list. `trimQuoted` (the Gmail layout)
+// hides the body's trailing quoted history behind a toggle.
+export default function ConversationMessageCard({ message, expanded, onToggle, onUpdate, aiEnabled = false, aiReplyEnabled = false, selected = false, trimQuoted = false }) {
   const { t } = useTranslation();
   const accounts = useStore(s => s.accounts);
   const openCompose = useStore(s => s.openCompose);
@@ -69,6 +71,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
   const darkRefused = Boolean(body?.html) && bodyDark && darkResult?.requested === true && darkResult.outcome === 'light';
   const shownDark = bodyDark && !darkRefused;
   const [loading, setLoading] = useState(false);
+  const [quoteOpen, setQuoteOpen] = useState(false);
   const iframeRef = useRef(null);
   const emailScaleRef = useRef(1);
   const remoteRequestedRef = useRef(null);
@@ -304,6 +307,10 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
     onManage: () => { const st = useStore.getState(); st.setAdminTab('ai-actions'); st.setShowAdmin(true); },
   } : null;
 
+  const trim = trimQuoted && !isForwardSubject(message.subject);
+  const textParts = trim && !body?.html ? splitQuotedText(body?.text) : null;
+  const trimmedTitle = quoteOpen ? t('message.hideTrimmed') : t('message.showTrimmed');
+
   const when = formatDateTime(message.date);
   const who = message.from_name || message.from_email || '';
 
@@ -437,13 +444,14 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
                 onDarkResult={setDarkResult}
                 messageId={message.id}
                 emailScaleRef={emailScaleRef}
+                trimQuoted={trim}
               />
             </div>
           )}
           {!body?.html && body?.text && (
             // translate="yes" undoes <body>'s translate="no" for the message itself; React writes
             // it as the element's whole text, so a translator has no React text node to break.
-            <div translate="yes" style={{
+            <div translate={textParts ? undefined : 'yes'} style={{
               whiteSpace: 'pre-wrap', wordBreak: 'break-word',
               // Plain text follows a dark theme; switched to its original colors it gets the
               // reading pane's white card (#228). A light theme leaves it as it always was.
@@ -451,7 +459,19 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
                 padding: '14px 16px 12px', background: 'white', color: '#1a1a1a',
                 borderRadius: 4, border: '1px solid var(--border-subtle)',
               } : {}),
-            }}>{body.text}</div>
+            }}>{textParts ? (
+              <>
+                <div translate="yes">{textParts.body}</div>
+                <details className="mail-trimmed-text" onToggle={e => setQuoteOpen(e.currentTarget.open)}>
+                  <summary title={trimmedTitle} aria-label={trimmedTitle} style={{
+                    display: 'inline-block', listStyle: 'none', cursor: 'pointer', margin: '8px 0',
+                    padding: '0 6px', height: 12, lineHeight: '6px', borderRadius: 6, fontSize: 12, letterSpacing: 1,
+                    background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
+                  }}>•••</summary>
+                  <div translate="yes">{textParts.quoted}</div>
+                </details>
+              </>
+            ) : body.text}</div>
           )}
 
         </div>

@@ -431,7 +431,9 @@
     "olderMessages_one": "{{count}} older message",
     "olderMessages_other": "{{count}} older messages",
     "expandAll": "Expand all",
-    "collapseAll": "Collapse all"
+    "collapseAll": "Collapse all",
+    "showTrimmed": "Show trimmed content",
+    "hideTrimmed": "Hide trimmed content"
   },
   "messageList": {
     "replyDraftChanged": "The reply draft changed. Try opening it again.",
