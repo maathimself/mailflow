@@ -431,7 +431,9 @@
     "olderMessages_one": "Более ранние сообщения: {{count}}",
     "olderMessages_few": "Более ранние сообщения: {{count}}",
     "olderMessages_many": "Более ранние сообщения: {{count}}",
-    "olderMessages_other": "Более ранние сообщения: {{count}}"
+    "olderMessages_other": "Более ранние сообщения: {{count}}",
+    "expandAll": "Развернуть все",
+    "collapseAll": "Свернуть все"
   },
   "messageList": {
     "replyDraftChanged": "Черновик ответа изменился. Попробуйте открыть его снова.",

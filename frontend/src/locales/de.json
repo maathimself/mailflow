@@ -429,7 +429,9 @@
       "failBody": "Der bisherige Zeitpunkt bleibt. Bitte erneut versuchen."
     },
     "olderMessages_one": "{{count}} ältere Nachricht",
-    "olderMessages_other": "{{count}} ältere Nachrichten"
+    "olderMessages_other": "{{count}} ältere Nachrichten",
+    "expandAll": "Alle maximieren",
+    "collapseAll": "Alle minimieren"
   },
   "messageList": {
     "replyDraftChanged": "Der Antwortentwurf wurde geändert. Öffne ihn erneut.",

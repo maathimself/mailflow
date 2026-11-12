@@ -429,7 +429,9 @@
       "failBody": "保留原来的时间。请重试。"
     },
     "olderMessages_one": "{{count}} 封较早的邮件",
-    "olderMessages_other": "{{count}} 封较早的邮件"
+    "olderMessages_other": "{{count}} 封较早的邮件",
+    "expandAll": "全部展开",
+    "collapseAll": "全部收起"
   },
   "messageList": {
     "replyDraftChanged": "回复草稿已更改。请尝试重新打开。",

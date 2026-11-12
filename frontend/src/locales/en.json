@@ -429,7 +429,9 @@
       "failBody": "It keeps its earlier time. Try again."
     },
     "olderMessages_one": "{{count}} older message",
-    "olderMessages_other": "{{count}} older messages"
+    "olderMessages_other": "{{count}} older messages",
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all"
   },
   "messageList": {
     "replyDraftChanged": "The reply draft changed. Try opening it again.",

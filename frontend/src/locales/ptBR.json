@@ -429,7 +429,9 @@
       "failBody": "O horário anterior foi mantido. Tente novamente."
     },
     "olderMessages_one": "{{count}} mensagem mais antiga",
-    "olderMessages_other": "{{count}} mensagens mais antigas"
+    "olderMessages_other": "{{count}} mensagens mais antigas",
+    "expandAll": "Expandir tudo",
+    "collapseAll": "Recolher tudo"
   },
   "messageList": {
     "replyDraftChanged": "O rascunho de resposta mudou. Tente abri-lo novamente.",

@@ -105,6 +105,7 @@ const shownIds = () => [...document.querySelectorAll('[data-message-id]')].map(c
 const openIds = () => [...document.querySelectorAll('[data-message-id] > button[aria-expanded="true"]')]
   .map(button => button.closest('[data-message-id]').dataset.messageId);
 const folds = () => [...document.querySelectorAll('.mail-conversation-fold')];
+const toolbarButton = label => document.querySelector(`.mail-reader-toolbar button[aria-label="${label}"]`);
 
 describe('older messages fold', () => {
   test('with 5 or more, the collapsed ones between the first and the last two are one row', async () => {
@@ -180,5 +181,34 @@ describe('unread messages open', () => {
     thread = threadOf(5, { 2: { is_read: false } });
     await open();
     assert.deepEqual(openIds(), ['m5']);
+  });
+});
+
+describe('Expand all and Collapse all', () => {
+  test('Expand all opens every message, folded ones too; Collapse all leaves the newest open', async () => {
+    await open();
+    assert.equal(toolbarButton('message.collapseAll'), null);
+    await click(toolbarButton('message.expandAll'));
+    assert.equal(folds().length, 0);
+    assert.deepEqual(openIds(), ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7']);
+    assert.equal(toolbarButton('message.expandAll'), null);
+    await click(toolbarButton('message.collapseAll'));
+    assert.deepEqual(openIds(), ['m7']);
+    assert.deepEqual(shownIds(), ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7'], 'what the reader opened is not folded again');
+    assert.ok(toolbarButton('message.expandAll'));
+  });
+
+  test('outside the Gmail layout there is neither', async () => {
+    useStore.setState({ layout: 'comfortable' });
+    await open();
+    assert.equal(toolbarButton('message.expandAll'), null);
+    assert.equal(toolbarButton('message.collapseAll'), null);
+  });
+
+  test('a single message has neither', async () => {
+    thread = threadOf(1);
+    await open();
+    assert.equal(toolbarButton('message.expandAll'), null);
+    assert.equal(toolbarButton('message.collapseAll'), null);
   });
 });

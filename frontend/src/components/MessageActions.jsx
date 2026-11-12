@@ -14,6 +14,8 @@ const svg = { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke:
 export const ReplyIcon = () => <svg {...svg}><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/></svg>;
 export const ReplyAllIcon = () => <svg {...svg}><polyline points="7 17 2 12 7 7"/><polyline points="13 17 8 12 13 7"/><path d="M20 18v-2a4 4 0 00-4-4H2"/></svg>;
 export const ForwardIcon = () => <svg {...svg}><polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 014-4h12"/></svg>;
+export const ExpandAllIcon = () => <svg {...svg}><polyline points="7 15 12 20 17 15"/><polyline points="7 9 12 4 17 9"/></svg>;
+export const CollapseAllIcon = () => <svg {...svg}><polyline points="7 20 12 15 17 20"/><polyline points="7 4 12 9 17 4"/></svg>;
 export const ArchiveIcon = () => (
   <svg {...svg}>
     <rect x="2" y="3" width="20" height="5" rx="1"/>

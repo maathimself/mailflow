@@ -25,7 +25,10 @@ import ContextMenu from './ContextMenu.jsx';
 import { prefetchBody } from '../utils/bodyCache.js';
 import { applyReadGuard } from '../utils/pendingReads.js';
 import { applyDeleteGuard } from '../utils/pendingDeletes.js';
-import { ActionBtn, ArchiveIcon, MoveIcon, SnoozeIcon, SpamIcon, PrintIcon, TrashIcon, useShortcutTitle } from './MessageActions.jsx';
+import {
+  ActionBtn, ArchiveIcon, MoveIcon, SnoozeIcon, SpamIcon, PrintIcon, TrashIcon, ExpandAllIcon, CollapseAllIcon,
+  useShortcutTitle,
+} from './MessageActions.jsx';
 import { PluginSlot } from '../plugins/PluginSlot.jsx';
 
 // What the reader is told when an action finds nothing to take (runAction below). In the unified
@@ -206,6 +209,15 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
     return next;
   });
 
+  // Expand all and Collapse all (the Gmail layout) keep to accountId's copies, as opening does:
+  // opening a card marks it read.
+  const ownMessages = inAccount(messages, accountId);
+  const allExpanded = ownMessages.length > 0 && ownMessages.every(message => expanded.has(message.id));
+  const expandAll = () => {
+    setExpanded(prev => new Set([...prev, ...ownMessages.map(message => message.id)]));
+    setFolded(new Set());
+  };
+  const collapseAll = () => setExpanded(initialExpandedMessageIds(ownMessages));
   const unfold = ids => setFolded(prev => {
     const next = new Set(prev);
     for (const id of ids) next.delete(id);
@@ -382,6 +394,15 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         <ActionBtn onClick={() => runAction('spam', spamThread)} label={t('contextMenu.markAsSpam')} touch={isMobile}>
           <SpamIcon />
         </ActionBtn>
+        {gmail && messages.length > 1 && (allExpanded ? (
+          <ActionBtn onClick={collapseAll} label={t('message.collapseAll')} touch={isMobile}>
+            <CollapseAllIcon />
+          </ActionBtn>
+        ) : (
+          <ActionBtn onClick={expandAll} label={t('message.expandAll')} touch={isMobile}>
+            <ExpandAllIcon />
+          </ActionBtn>
+        ))}
         <ActionBtn onClick={printConversation} label={t('message.printConversation')} touch={isMobile}>
           <PrintIcon />
         </ActionBtn>

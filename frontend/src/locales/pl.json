@@ -433,7 +433,9 @@
     "olderMessages_one": "{{count}} starsza wiadomość",
     "olderMessages_few": "{{count}} starsze wiadomości",
     "olderMessages_many": "{{count}} starszych wiadomości",
-    "olderMessages_other": "{{count}} starszych wiadomości"
+    "olderMessages_other": "{{count}} starszych wiadomości",
+    "expandAll": "Rozwiń wszystkie",
+    "collapseAll": "Zwiń wszystkie"
   },
   "messageList": {
     "replyDraftChanged": "Szkic odpowiedzi się zmienił. Spróbuj otworzyć go ponownie.",
