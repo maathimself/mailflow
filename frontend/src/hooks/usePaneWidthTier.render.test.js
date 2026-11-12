@@ -74,3 +74,16 @@ test('outside the Gmail layout the pane is left alone', async () => {
   assert.equal(document.getElementById('pane').hasAttribute('data-pane-width'), false);
   await act(async () => { root.unmount(); });
 });
+
+test('leaving the Gmail layout takes the tier off and stops watching the pane', async () => {
+  width = 383;
+  const root = await mount(true);
+  const pane = document.getElementById('pane');
+  const observer = observers.at(-1);
+  assert.equal(pane.getAttribute('data-pane-width'), 'narrow');
+
+  await act(async () => { root.render(createElement(Pane, { enabled: false })); });
+  assert.equal(pane.hasAttribute('data-pane-width'), false);
+  assert.equal(observer.connected, false);
+  await act(async () => { root.unmount(); });
+});
