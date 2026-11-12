@@ -108,8 +108,13 @@
   margin-bottom: 16px !important;
 }
 
-[data-mailflow-layout="gmail"] .mail-conversation-fold:hover .mail-conversation-fold-count {
+[data-mailflow-layout="gmail"] .mail-conversation-fold:hover .mail-conversation-fold-count,
+[data-mailflow-layout="gmail"] .mail-conversation-reply:hover {
   background: var(--bg-tertiary) !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-conversation-reply:hover {
+  color: var(--text-primary) !important;
 }
 
 [data-mailflow-layout="gmail"] .mail-trimmed-text > summary::-webkit-details-marker {
@@ -182,6 +187,7 @@
 [data-mailflow-layout="gmail"] .mail-conversation-sender:focus-visible,
 [data-mailflow-layout="gmail"] .mail-conversation-actions button:focus-visible,
 [data-mailflow-layout="gmail"] .mail-conversation-fold:focus-visible,
+[data-mailflow-layout="gmail"] .mail-conversation-reply:focus-visible,
 [data-mailflow-layout="gmail"] .mail-trimmed-text > summary:focus-visible,
 [data-mailflow-layout="gmail"] .mail-compose-titlebar button:focus-visible,
 [data-mailflow-layout="gmail"] .mail-compose-footer button:focus-visible,

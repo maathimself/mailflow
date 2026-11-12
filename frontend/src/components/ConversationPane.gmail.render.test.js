@@ -54,6 +54,7 @@ globalThis.__VITE_ENV__ = { MODE: 'test', DEV: false, PROD: true };
 
 const ME = { email: 'me@x.z', name: 'Me' };
 const ANA = { email: 'a@x.z', name: 'Ana' };
+const BO = { email: 'bo@x.z', name: 'Bo' };
 const message = (n, extra = {}) => ({
   id: `m${n}`, account_id: 'acct', folder: 'INBOX', message_id: `<${n}@x>`, subject: n === 1 ? 'Plans' : 'Re: Plans',
   from_email: ANA.email, from_name: ANA.name, to_addresses: JSON.stringify([ME]), cc_addresses: '[]',
@@ -106,6 +107,7 @@ const openIds = () => [...document.querySelectorAll('[data-message-id] > button[
   .map(button => button.closest('[data-message-id]').dataset.messageId);
 const folds = () => [...document.querySelectorAll('.mail-conversation-fold')];
 const toolbarButton = label => document.querySelector(`.mail-reader-toolbar button[aria-label="${label}"]`);
+const replyButtons = () => [...document.querySelectorAll('.mail-conversation-replies button')].map(b => b.textContent);
 
 describe('older messages fold', () => {
   test('with 5 or more, the collapsed ones between the first and the last two are one row', async () => {
@@ -265,5 +267,47 @@ describe('trimmed quoted history', () => {
     await open();
     assert.equal(document.querySelector('details'), null);
     assert.match(document.querySelector('[data-message-id="m5"]').textContent, /> Lunch\?/);
+  });
+});
+
+describe('reply row under the last message', () => {
+  test('Reply and Forward, and no Reply all for a message to the reader alone', async () => {
+    await open();
+    assert.deepEqual(replyButtons(), ['message.reply', 'message.forward']);
+    const stack = document.querySelector('.mail-conversation-stack');
+    assert.equal(stack.lastElementChild.className, 'mail-conversation-replies', 'under the last message');
+  });
+
+  test('Reply all when the newest message has another recipient besides its sender', async () => {
+    thread = threadOf(5, { 5: { cc_addresses: JSON.stringify([BO]) } });
+    await open();
+    assert.deepEqual(replyButtons(), ['message.reply', 'message.replyAll', 'message.forward']);
+  });
+
+  test('each acts on the newest message', async () => {
+    thread = threadOf(5, { 5: { cc_addresses: JSON.stringify([BO]) } });
+    await open();
+    const [reply, replyAll, forward] = document.querySelectorAll('.mail-conversation-replies button');
+    const closeCompose = () => useStore.setState({ composing: false, composeData: null });
+    await click(reply);
+    let data = useStore.getState().composeData;
+    assert.equal(data.inReplyTo, '<5@x>');
+    assert.deepEqual(data.to.map(a => a.email), [ANA.email]);
+    assert.deepEqual(data.cc, []);
+    closeCompose();
+    await click(replyAll);
+    data = useStore.getState().composeData;
+    assert.equal(data.inReplyTo, '<5@x>');
+    assert.deepEqual(data.cc.map(a => a.email), [BO.email]);
+    closeCompose();
+    await click(forward);
+    data = useStore.getState().composeData;
+    assert.match(data.subject, /^Fwd: Re: Plans/);
+  });
+
+  test('outside the Gmail layout there is no reply row', async () => {
+    useStore.setState({ layout: 'comfortable' });
+    await open();
+    assert.equal(document.querySelector('.mail-conversation-replies'), null);
   });
 });

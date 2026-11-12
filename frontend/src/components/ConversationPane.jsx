@@ -14,6 +14,7 @@ import {
   newestConversationMessage,
 } from '../utils/conversation.js';
 import { normalizeLayout } from '../layouts.js';
+import { openReplyFromMessage, openForwardFromMessage, resolveReplyRecipients } from '../utils/composeFromMessage.js';
 import { archiveThread, deleteThread, spamThread, moveThread, snoozeThread, inAccount, otherAccountsDraft } from '../utils/threadActions.js';
 import { advanceSelectionAfterRemoval, adjacentRow, openAdjacentRow } from '../utils/listSelection.js';
 import { useSwipeBack } from '../hooks/useSwipeBack.js';
@@ -22,12 +23,12 @@ import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/pri
 import ConversationMessageCard from './ConversationMessageCard.jsx';
 import { aiReplyAvailable } from '../utils/aiReply.js';
 import ContextMenu from './ContextMenu.jsx';
-import { prefetchBody } from '../utils/bodyCache.js';
+import { prefetchBody, bodyCache } from '../utils/bodyCache.js';
 import { applyReadGuard } from '../utils/pendingReads.js';
 import { applyDeleteGuard } from '../utils/pendingDeletes.js';
 import {
   ActionBtn, ArchiveIcon, MoveIcon, SnoozeIcon, SpamIcon, PrintIcon, TrashIcon, ExpandAllIcon, CollapseAllIcon,
-  useShortcutTitle,
+  ReplyIcon, ReplyAllIcon, ForwardIcon, useShortcutTitle,
 } from './MessageActions.jsx';
 import { PluginSlot } from '../plugins/PluginSlot.jsx';
 
@@ -77,6 +78,8 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   const updateMessage = useStore(s => s.updateMessage);
   const plaintextEmail = useStore(s => s.plaintextEmail);
   const gmail = useStore(s => normalizeLayout(s.layout) === 'gmail');
+  const openCompose = useStore(s => s.openCompose);
+  const folders = useStore(s => s.folders);
   const [messages, setMessages] = useState([]);
   const [expanded, setExpanded] = useState(() => new Set());
   // The messages folded into "N older messages" (the Gmail layout), until the reader opens the fold.
@@ -223,6 +226,16 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
     for (const id of ids) next.delete(id);
     return next;
   });
+
+  // The reply row under the last message (the Gmail layout) answers the newest of accountId's copies.
+  const newestOwn = newestConversationMessage(ownMessages);
+  const replyRecipients = newestOwn
+    ? resolveReplyRecipients(newestOwn, accounts.find(account => account.id === newestOwn.account_id), folders)
+    : null;
+  const canReplyAll = Boolean(replyRecipients) && replyRecipients.to.length + replyRecipients.cc.length > 1;
+  const cachedBody = async id => bodyCache.get(id) ?? api.getMessageBody(id);
+  const replyToNewest = replyAll => openReplyFromMessage(newestOwn, { accounts, folders, openCompose, getMessageBody: cachedBody, replyAll });
+  const forwardNewest = () => openForwardFromMessage(newestOwn, { openCompose, getMessageBody: cachedBody });
 
   // An action can find nothing to take: no copy of accountId at all (a link to a message of an
   // account the thread route leaves out, a disabled one), no INBOX copy to snooze, only mail the
@@ -478,6 +491,13 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
               trimQuoted={gmail}
             />
           )))}
+        {gmail && newestOwn && (
+          <div className="mail-conversation-replies" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, padding: '16px 16px 24px' }}>
+            <ReplyPill onClick={() => replyToNewest(false)} label={t('message.reply')}><ReplyIcon /></ReplyPill>
+            {canReplyAll && <ReplyPill onClick={() => replyToNewest(true)} label={t('message.replyAll')}><ReplyAllIcon /></ReplyPill>}
+            <ReplyPill onClick={forwardNewest} label={t('message.forward')}><ForwardIcon /></ReplyPill>
+          </div>
+        )}
       </div>
       </SwipePager>
     </div>
@@ -510,6 +530,25 @@ function FoldRow({ count, onOpen }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 500,
       }}>{count}</span>
       <span style={{ position: 'relative', background: 'var(--bg-primary)', padding: '0 6px' }}>{label}</span>
+    </button>
+  );
+}
+
+// Reply, Reply all and Forward under the last message (the Gmail layout): outlined pills.
+function ReplyPill({ children, label, onClick }) {
+  return (
+    <button
+      type="button"
+      className="btn-press mail-conversation-reply"
+      onClick={onClick}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8, minHeight: 36, padding: '0 20px 0 16px',
+        background: 'transparent', border: '1px solid var(--border)', borderRadius: 18, cursor: 'pointer',
+        color: 'var(--text-secondary)', font: 'inherit', fontSize: 14, fontWeight: 500,
+      }}
+    >
+      {children}
+      {label}
     </button>
   );
 }
