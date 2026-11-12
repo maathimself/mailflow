@@ -25,7 +25,7 @@ const STUBS = {
   '/components/NotificationToasts.jsx': 'export default function NotificationToasts() { return null; }',
   '/components/CommandPalette.jsx': 'export default function CommandPalette() { return null; }',
   '/components/ComposeModal.jsx': 'export default function ComposeModal() { return null; }',
-  '/components/ContactsPage.jsx': 'export default function ContactsPage() { return null; }',
+  '/components/ContactsPage.jsx': 'export default function ContactsPage() { return "CONTACTS_PAGE"; }',
   '/components/WindowLayer.jsx': 'export default function WindowLayer() { return null; }',
   '/components/AdminPanel.jsx': 'export default function AdminPanel() { return null; }',
   '/components/ElectronNotificationBridge.jsx': 'export default function ElectronNotificationBridge() { return null; }',
@@ -87,6 +87,7 @@ const { api } = await import('../utils/api.js');
 const { useStore } = await import('../store/index.js');
 const { RESUME_RETRY_MS } = await import('../utils/resumeRefresh.js');
 const MailApp = (await import('./MailApp.jsx')).default;
+const { startBootPrefetch, resetBootPrefetchForTests } = await import('../utils/bootPrefetch.js');
 
 const original = { ...api, todoist: api.todoist };
 let root;
@@ -118,6 +119,8 @@ afterEach(async () => {
   dom.window.removeEventListener('mailflow:refresh', countRefresh);
   await React.act(async () => root.unmount());
   Object.assign(api, original);
+  resetBootPrefetchForTests();
+  useStore.setState({ showContacts: false });
 });
 
 async function hideFor(t, ms) {
@@ -188,5 +191,55 @@ describe('MailApp: the account list', () => {
     await React.act(async () => { root.render(React.createElement(MailApp)); });
     await React.act(async () => { t.mock.timers.tick(120_000); });
     assert.equal(calls, 1);
+  });
+});
+
+describe('MailApp: a cold launch', () => {
+  const remount = async () => {
+    await React.act(async () => root.unmount());
+    root = createRoot(document.getElementById('root'));
+    await React.act(async () => { root.render(React.createElement(MailApp)); });
+    await React.act(async () => { await new Promise(r => queueMicrotask(r)); });
+  };
+
+  test('takes the accounts asked for alongside the session instead of asking again', async () => {
+    let calls = 0;
+    api.getAccounts = async () => { calls += 1; return [{ id: 'a1', email_address: 'a@example.invalid' }]; };
+    api.getPreferences = async () => ({});
+    resetBootPrefetchForTests();
+    startBootPrefetch();
+    assert.equal(calls, 1, 'the launch asked once');
+    await remount();
+    assert.equal(calls, 1, 'MailApp did not ask again');
+    assert.deepEqual(useStore.getState().accounts.map(a => a.id), ['a1']);
+    assert.equal(useStore.getState().accountsReady, true);
+  });
+
+  test('asks again the usual way when that early answer failed', async () => {
+    let calls = 0;
+    api.getAccounts = async () => {
+      calls += 1;
+      if (calls === 1) throw Object.assign(new Error('Failed to fetch'), { status: 502 });
+      return [{ id: 'a2', email_address: 'b@example.invalid' }];
+    };
+    api.getPreferences = async () => ({});
+    resetBootPrefetchForTests();
+    startBootPrefetch();
+    await remount();
+    assert.equal(calls, 2);
+    assert.deepEqual(useStore.getState().accounts.map(a => a.id), ['a2']);
+  });
+
+  test('Contacts is loaded when first opened, not with the app, and kept after', async () => {
+    const text = () => document.getElementById('root').textContent;
+    const flush = () => React.act(async () => { for (let i = 0; i < 5; i++) await new Promise(r => queueMicrotask(r)); });
+    await flush();
+    assert.ok(!text().includes('CONTACTS_PAGE'), 'not mounted on launch');
+    await React.act(async () => { useStore.setState({ showContacts: true }); });
+    await flush();
+    assert.ok(text().includes('CONTACTS_PAGE'), 'mounted when opened');
+    await React.act(async () => { useStore.setState({ showContacts: false }); });
+    await flush();
+    assert.ok(text().includes('CONTACTS_PAGE'), 'kept, hidden, after it is closed');
   });
 });

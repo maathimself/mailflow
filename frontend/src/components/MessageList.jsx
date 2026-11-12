@@ -3801,7 +3801,8 @@ function MailboxList() {
           </div>
         )}
 
-        {loadingMessages && displayMessages.length === 0 && (
+        {/* Before the accounts are in, the list has not been asked for yet: loading, not empty. */}
+        {(loadingMessages || !accountsReady) && displayMessages.length === 0 && (
           <div>
             {Array.from({ length: 7 }).map((_, i) => (
               <div key={i} style={{
@@ -3845,7 +3846,7 @@ function MailboxList() {
           </div>
         )}
 
-        {!loadingMessages && displayMessages.length === 0 && (
+        {!loadingMessages && accountsReady && displayMessages.length === 0 && (
           <EmptyState
             folderSyncing={folderSyncing}
             searchQuery={searchQuery}

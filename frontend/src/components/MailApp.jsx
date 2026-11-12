@@ -31,6 +31,7 @@ import { noticeToast, scheduledLinkId } from '../utils/scheduledView.js';
 import { openScheduledView } from '../utils/scheduledCompose.js';
 import { openSentMessage } from '../utils/openSentMessage.js';
 import { descaleCss } from '../utils/uiScaleCss.js';
+import { prefetchedOr } from '../utils/bootPrefetch.js';
 
 // Opens the Scheduled view at one message, highlighted (a notification link or a toast's Open).
 function openScheduledMessage(id) {
@@ -68,6 +69,10 @@ export default function MailApp() {
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     rightSidebarHidden, toggleRightSidebarHidden,
   } = useStore();
+  // Contacts loads when it is first opened, not with every launch; once open it stays mounted,
+  // keeping its place.
+  const [contactsOpened, setContactsOpened] = useState(showContacts);
+  if (showContacts && !contactsOpened) setContactsOpened(true);
   const syncInterval = useStore(s => s.syncInterval);
   const autoLockMinutes = useStore(s => s.autoLockMinutes);
   const lockScreen = useStore(s => s.lockScreen);
@@ -458,7 +463,8 @@ export default function MailApp() {
     let accountsAttempt = 0;
     const loadAccounts = () => {
       clearTimeout(accountsRetry);
-      return api.getAccounts()
+      // The first load takes the launch's answer, asked alongside the session (bootPrefetch.js).
+      return prefetchedOr('accounts', () => api.getAccounts())
         .then(accounts => {
           accountsLoaded = true;
           setAccounts(accounts); // also sets accountsReady:true in the store
@@ -892,9 +898,9 @@ export default function MailApp() {
           >
             <Sidebar />
           </div>
-          {/* Keep all three mounted so scroll/state survive navigation. */}
+          {/* Kept mounted so scroll/state survive navigation (Contacts from its first opening). */}
           <div style={{ flex: 1, overflow: 'hidden', height: '100%', display: showContacts ? 'flex' : 'none' }}>
-            <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
+            {contactsOpened && <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>}
           </div>
           <div style={{ flex: 1, display: !showContacts && !selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <MessageList />
@@ -926,9 +932,9 @@ export default function MailApp() {
             // A standalone PWA draws under the status bar; the sidebar header already clears it.
             paddingTop: 'var(--sat)',
           }}>
-            {/* Keep all three mounted so scroll/state survive navigation. */}
+            {/* Kept mounted so scroll/state survive navigation (Contacts from its first opening). */}
             <div style={{ display: showContacts ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
-              <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>
+              {contactsOpened && <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>}
             </div>
             <div style={{ display: showContacts ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayout.direction }}>
               {listFirst ? (
