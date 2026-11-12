@@ -91,14 +91,31 @@ describe('trimQuotedHtml: what counts as quoted history', () => {
   });
 });
 
-describe('trimQuotedHtml: what is never trimmed', () => {
-  test('a forwarded message', () => {
-    assert.equal(trim(
-      '<div>FYI</div><div class="gmail_quote gmail_quote_container"><div class="gmail_attr">---------- Forwarded message ---------<br>From: Ana</div>'
-      + '<div>The plan</div></div>'), null);
-    assert.equal(trim('<div>FYI</div><div><br><blockquote type="cite"><div>Begin forwarded message:</div><div>The plan</div></blockquote></div>'), null);
+describe('trimQuotedHtml: forwards', () => {
+  test('a reply whose quoted history holds an earlier forward is trimmed', () => {
+    const trimmed = trim(
+      '<div dir="ltr">Thanks, booked.</div><br><div class="gmail_quote gmail_quote_container">'
+      + '<div dir="ltr" class="gmail_attr">On Tue, Nov 10, 2026 at 12:25 PM Ana &lt;a@x.z&gt; wrote:<br></div>'
+      + '<blockquote class="gmail_quote"><div dir="ltr">See the plan below.</div><br><div class="gmail_quote">'
+      + '<div dir="ltr" class="gmail_attr">---------- Forwarded message ---------<br>From: Bo &lt;bo@x.z&gt;</div>'
+      + '<div>The plan</div></div></blockquote></div>');
+    assert.equal(trimmed?.shown, 'Thanks, booked.');
+    assert.match(trimmed.hidden, /^On Tue, Nov 10, 2026[\s\S]*Forwarded message[\s\S]*The plan$/);
   });
 
+  test('a Gmail forward is shown whole', () => {
+    assert.equal(trim(
+      '<div>FYI</div><div class="gmail_quote gmail_quote_container"><div class="gmail_attr">---------- Forwarded message ---------<br>From: Ana</div>'
+      + '<div>The plan</div><blockquote class="gmail_quote">Earlier</blockquote></div>'), null);
+  });
+
+  test('an Apple Mail forward is shown whole, its header above the quote or opening it', () => {
+    assert.equal(trim('<div>FYI</div><div><br><div>Begin forwarded message:</div><br><blockquote type="cite"><div>From: Ana</div><div>The plan</div></blockquote></div>'), null);
+    assert.equal(trim('<div>FYI</div><div><br><blockquote type="cite"><div>Begin forwarded message:</div><div>The plan</div></blockquote></div>'), null);
+  });
+});
+
+describe('trimQuotedHtml: what is never trimmed', () => {
   test('a body that is nothing but the quote', () => {
     assert.equal(trim('<div class="gmail_quote"><blockquote>Lunch?</blockquote></div>'), null);
     assert.equal(trim('<style>p{color:red}</style><br><div class="yahoo_quoted">On 5 Jan 2026, Ana wrote: Lunch?</div>'), null);
@@ -138,11 +155,17 @@ describe('splitQuotedText', () => {
     assert.deepEqual(splitQuotedText('Yes\n> Lunch?'), { body: 'Yes', quoted: '> Lunch?' });
   });
 
+  test('a quote that holds an earlier forward', () => {
+    assert.deepEqual(splitQuotedText('Thanks, booked.\n\nOn Tue, Nov 10, 2026 at 12:25 PM Ana <a@x.z> wrote:\n> See the plan below.\n>\n> ---------- Forwarded message ---------\n> From: Bo\n> The plan'),
+      { body: 'Thanks, booked.', quoted: 'On Tue, Nov 10, 2026 at 12:25 PM Ana <a@x.z> wrote:\n> See the plan below.\n>\n> ---------- Forwarded message ---------\n> From: Bo\n> The plan' });
+  });
+
   test('nothing to split: no quote, a quote in the middle, the quote alone, a forward', () => {
     assert.equal(splitQuotedText('Hello'), null);
     assert.equal(splitQuotedText('> Lunch?\nYes'), null);
     assert.equal(splitQuotedText('On 5 Jan 2026, Ana wrote:\n> Lunch?'), null);
-    assert.equal(splitQuotedText('FYI\n> ---------- Forwarded message ---------\n> From: Ana'), null);
+    assert.equal(splitQuotedText('FYI\n\n---------- Forwarded message ---------\nFrom: Ana\n\nThe plan\n> Lunch?'), null);
+    assert.equal(splitQuotedText('FYI\n\n-------- Forwarded Message --------\nSubject: Plan\n\nOn 5 Jan 2026, Ana wrote:\n> Lunch?'), null);
   });
 });
 

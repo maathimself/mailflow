@@ -116,6 +116,20 @@ function historyNodes(start, toEnd, root) {
   return nodes;
 }
 
+// The message's own text, where a forward's header would be: the body outside the history and
+// outside any quote, and the history's opening line (an attribution, or a forward's header).
+// What the history quotes, an earlier forward included, is not this message's.
+function ownText(root, start, history) {
+  const skip = new Set(history);
+  const walk = node => {
+    if (skip.has(node) || node.nodeName === 'BLOCKQUOTE') return '';
+    const container = node.nodeType === 11 || (node.nodeType === 1 && node.nodeName !== 'STYLE' && node.nodeName !== 'BR');
+    return container ? [...node.childNodes].map(walk).join('') : textOf(node);
+  };
+  const opening = start.nodeType === 1 ? [...start.childNodes].find(hasContent) ?? start : start;
+  return `${walk(root)}\n${textOf(opening)}`;
+}
+
 function trimmedToggle(doc, labels) {
   const details = doc.createElement('details');
   details.className = TRIMMED_CLASS;
@@ -143,7 +157,7 @@ export function trimQuotedHtml(html, labels, doc = globalThis.document) {
   const quote = findQuote(root);
   if (!quote || !contentBefore(quote.start, root)) return null;
   const nodes = historyNodes(quote.start, quote.toEnd, root);
-  if (FORWARD_HEADER.test(nodes.map(textOf).join('').slice(0, 600))) return null;
+  if (FORWARD_HEADER.test(ownText(root, quote.start, nodes))) return null;
   const details = trimmedToggle(root.ownerDocument, labels);
   quote.start.parentNode.insertBefore(details, quote.start);
   for (const node of nodes) details.appendChild(node);
@@ -170,6 +184,8 @@ export function splitQuotedText(text) {
   }
   const body = lines.slice(0, start).join('\n').replace(/\s+$/, '');
   const quoted = lines.slice(start, end).join('\n');
-  if (!/\S/.test(body) || FORWARD_HEADER.test(quoted.slice(0, 600))) return null;
+  // The forward header that matters is the message's own, not one in the lines it quotes.
+  const own = [body, ...lines.slice(start, end).filter(line => !/^\s*>/.test(line))].join('\n');
+  if (!/\S/.test(body) || FORWARD_HEADER.test(own)) return null;
   return { body, quoted };
 }
