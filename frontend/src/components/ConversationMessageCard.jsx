@@ -12,6 +12,7 @@ import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFr
 import { shortcutBus } from '../utils/shortcutBus.js';
 import MessageBodyView from './MessageBodyView.jsx';
 import TrimmedToggle from './TrimmedToggle.jsx';
+import SenderAvatar from './SenderAvatar.jsx';
 import AttachmentStrip from './AttachmentStrip.jsx';
 import { isDarkTheme, canShowDark, showDark } from '../utils/darkScheme.js';
 import AiResultBox from './AiResultBox.jsx';
@@ -38,8 +39,9 @@ import {
 
 // Design from #317 by YunQue0912.
 // `onUpdate(id, patch)` applies a flag change to the conversation's own copy of the message and to
-// the list's, since the pane holds the thread apart from the list. `gmail` (the Gmail layout) hides
-// the body's trailing quoted history behind a toggle and dates the card as the reader's header does.
+// the list's, since the pane holds the thread apart from the list. `gmail` (the Gmail layout) puts the
+// sender's avatar at the card's left, hides the body's trailing quoted history behind a toggle and
+// dates the card as the reader's header does.
 export default function ConversationMessageCard({ message, expanded, onToggle, onUpdate, aiEnabled = false, aiReplyEnabled = false, selected = false, gmail = false }) {
   const { t } = useTranslation();
   const accounts = useStore(s => s.accounts);
@@ -335,6 +337,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
           color: 'var(--text-primary)', font: 'inherit',
         }}
       >
+        {gmail && <SenderAvatar message={message} className="mail-conversation-avatar" />}
         <span style={{ fontWeight: message.is_read ? 400 : 600, flex: '0 1 auto' }}>{who}</span>
         {!expanded && (
           <span style={{ color: 'var(--text-secondary)', fontSize: 13, flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

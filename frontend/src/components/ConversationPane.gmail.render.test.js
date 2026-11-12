@@ -79,6 +79,8 @@ const ConversationPane = (await import('./ConversationPane.jsx')).default;
 const { useStore } = await import('../store/index.js');
 const { bodyCache } = await import('../utils/bodyCache.js');
 const { formatDateTime, formatMessageDateTime } = await import('../utils/formatDate.js');
+const { senderColor } = await import('../themes.js');
+const postcss = (await import('postcss')).default;
 
 let root;
 let mounts = 0;
@@ -286,6 +288,48 @@ describe('card dates', () => {
     thread = threadOf(3);
     await open();
     assert.deepEqual(dates(), thread.map(m => formatDateTime(m.date)));
+  });
+});
+
+describe('sender avatars', () => {
+  const avatar = id => document.querySelector(`[data-message-id="${id}"] > .mail-conversation-sender > .mail-conversation-avatar`);
+  const colorOf = value => { const el = document.createElement('div'); el.style.background = value; return el.style.background; };
+
+  test('every card, open or closed, starts with the reader\'s letter avatar', async () => {
+    thread = threadOf(3, { 2: { from_email: BO.email, from_name: BO.name } });
+    await open();
+    assert.deepEqual(openIds(), ['m3']);
+    for (const [id, letter, email] of [['m1', 'A', ANA.email], ['m2', 'B', BO.email], ['m3', 'A', ANA.email]]) {
+      const el = avatar(id);
+      assert.ok(el, `${id} has an avatar`);
+      assert.equal(el.parentElement.firstElementChild, el, 'at the left of the header');
+      assert.equal(el.textContent, letter);
+      assert.equal(el.style.background, colorOf(senderColor(email)));
+      assert.equal(el.getAttribute('aria-hidden'), 'true', 'the name beside it is what is read out');
+    }
+  });
+
+  test('the skin\'s name rules still reach the name, past the avatar', async () => {
+    thread = threadOf(3);
+    await open();
+    const css = postcss.parse(readFileSync(new URL('../gmail-reader-compose.css', import.meta.url), 'utf8'));
+    const nameSelectors = [];
+    css.walkRules(rule => rule.selectors
+      .filter(selector => /\.mail-conversation-sender > span/.test(selector))
+      .forEach(selector => nameSelectors.push(selector.slice(selector.indexOf('.mail-conversation-card') >= 0
+        ? selector.indexOf('.mail-conversation-card') : selector.indexOf('.mail-conversation-sender')))));
+    assert.ok(nameSelectors.length >= 2);
+    for (const selector of nameSelectors) {
+      const matched = document.querySelector(selector);
+      assert.equal(matched?.textContent, ANA.name, selector);
+    }
+  });
+
+  test('outside the Gmail layout cards have no avatar', async () => {
+    useStore.setState({ layout: 'comfortable' });
+    thread = threadOf(3);
+    await open();
+    assert.equal(document.querySelector('.mail-conversation-avatar'), null);
   });
 });
 

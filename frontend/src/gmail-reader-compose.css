@@ -89,19 +89,22 @@
 
 [data-mailflow-layout="gmail"] .mail-conversation-sender {
   padding: 18px 16px !important;
+  align-items: center !important;
+  gap: 12px !important;
 }
 
-[data-mailflow-layout="gmail"] .mail-conversation-sender > span:first-child {
+[data-mailflow-layout="gmail"] .mail-conversation-sender > span:first-of-type {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-[data-mailflow-layout="gmail"] .mail-conversation-card[data-expanded="true"] > .mail-conversation-sender > span:first-child {
+[data-mailflow-layout="gmail"] .mail-conversation-card[data-expanded="true"] > .mail-conversation-sender > span:first-of-type {
   font-weight: 600 !important;
 }
 
+/* Under the sender's name, past the avatar (40px) and the gap beside it. */
 [data-mailflow-layout="gmail"] .mail-conversation-content {
-  padding: 0 16px 24px !important;
+  padding: 0 16px 24px 68px !important;
 }
 
 [data-mailflow-layout="gmail"] .mail-conversation-actions {
@@ -322,6 +325,10 @@
 
 [data-mailflow-layout="gmail"] [data-pane-width="narrow"] .mail-reader-body-wrap {
   padding: 0 12px 16px !important;
+}
+
+[data-mailflow-layout="gmail"] [data-pane-width="narrow"] .mail-conversation-content {
+  padding-left: 12px !important;
 }
 
 [data-mailflow-layout="gmail"] [data-pane-width="narrow"] .mail-conversation-subject {
