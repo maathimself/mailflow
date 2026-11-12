@@ -427,7 +427,11 @@
       "title": "Отложено до {{when}}",
       "failTitle": "Не удалось изменить время возврата",
       "failBody": "Остаётся прежнее время. Попробуйте ещё раз."
-    }
+    },
+    "olderMessages_one": "Более ранние сообщения: {{count}}",
+    "olderMessages_few": "Более ранние сообщения: {{count}}",
+    "olderMessages_many": "Более ранние сообщения: {{count}}",
+    "olderMessages_other": "Более ранние сообщения: {{count}}"
   },
   "messageList": {
     "replyDraftChanged": "Черновик ответа изменился. Попробуйте открыть его снова.",

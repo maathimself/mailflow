@@ -46,6 +46,39 @@ export const initialExpandedMessageIds = messages => {
   return new Set(newest ? [newest.id] : []);
 };
 
+// The Gmail layout opens every unread message too, as Gmail does.
+export const gmailExpandedMessageIds = messages => {
+  const ids = initialExpandedMessageIds(messages);
+  for (const message of normalizeConversation(messages)) if (!message.is_read) ids.add(message.id);
+  return ids;
+};
+
+// With FOLD_MIN messages or more, the Gmail layout folds the collapsed ones between the first and
+// the last two into "N older messages". Decided when the conversation opens: a reply read in later
+// folds nothing the reader has already seen.
+export const FOLD_MIN = 5;
+export const foldedMessageIds = (messages, expandedIds) => (messages.length < FOLD_MIN
+  ? new Set()
+  : new Set(messages.slice(1, -2).filter(message => !expandedIds.has(message.id)).map(message => message.id)));
+
+// The stack as shown: each run of two or more folded messages is one row, { fold: [ids] }; an open
+// message is never folded, and a lone one shows as its card, which takes no more room than the row.
+export function foldConversation(messages, { foldedIds, expandedIds }) {
+  const items = [];
+  let run = [];
+  const flush = () => {
+    if (run.length > 1) items.push({ fold: run.map(message => message.id) });
+    else for (const message of run) items.push({ message });
+    run = [];
+  };
+  for (const message of messages) {
+    if (foldedIds.has(message.id) && !expandedIds.has(message.id)) run.push(message);
+    else { flush(); items.push({ message }); }
+  }
+  flush();
+  return items;
+}
+
 export function reconcileExpandedMessageIds({ previousMessages = [], nextMessages = [], expandedIds = new Set(), automaticExpandedId = null }) {
   const previousIds = new Set(normalizeConversation(previousMessages).map(message => message.id));
   const normalizedNext = normalizeConversation(nextMessages);

@@ -8,8 +8,12 @@ import { useStore } from '../store/index.js';
 import {
   normalizeConversation,
   initialExpandedMessageIds,
+  gmailExpandedMessageIds,
+  foldedMessageIds,
+  foldConversation,
   newestConversationMessage,
 } from '../utils/conversation.js';
+import { normalizeLayout } from '../layouts.js';
 import { archiveThread, deleteThread, spamThread, moveThread, snoozeThread, inAccount, otherAccountsDraft } from '../utils/threadActions.js';
 import { advanceSelectionAfterRemoval, adjacentRow, openAdjacentRow } from '../utils/listSelection.js';
 import { useSwipeBack } from '../hooks/useSwipeBack.js';
@@ -69,8 +73,11 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   const setSelectedMessage = useStore(s => s.setSelectedMessage);
   const updateMessage = useStore(s => s.updateMessage);
   const plaintextEmail = useStore(s => s.plaintextEmail);
+  const gmail = useStore(s => normalizeLayout(s.layout) === 'gmail');
   const [messages, setMessages] = useState([]);
   const [expanded, setExpanded] = useState(() => new Set());
+  // The messages folded into "N older messages" (the Gmail layout), until the reader opens the fold.
+  const [folded, setFolded] = useState(() => new Set());
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   // { x, y, view, message } — the move and snooze pickers are ContextMenu's, opened straight
@@ -90,6 +97,8 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   // Read when the conversation arrives, without making the pick a reason to fetch it again.
   const pickedRef = useRef(selectedMessageId);
   pickedRef.current = selectedMessageId;
+  const gmailRef = useRef(gmail);
+  gmailRef.current = gmail;
 
   useEffect(() => {
     if (!threadId) { setMessages([]); return; }
@@ -111,10 +120,13 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         // read. When the reader picked the other account's copy under the row, that copy opens on
         // its own (the effect below): opening the row's copy beside it would mark that read too,
         // behind a list row whose unread count does not follow.
+        // The Gmail layout opens the unread ones too, as Gmail does.
         const picked = ordered.find(message => message.id === pickedRef.current);
-        setExpanded(accountId && picked && picked.account_id !== accountId
+        const opened = accountId && picked && picked.account_id !== accountId
           ? new Set()
-          : initialExpandedMessageIds(inAccount(ordered, accountId)));
+          : (gmailRef.current ? gmailExpandedMessageIds : initialExpandedMessageIds)(inAccount(ordered, accountId));
+        setExpanded(opened);
+        setFolded(foldedMessageIds(ordered, opened));
       })
       .catch(err => { if (!cancelled) setError(err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -191,6 +203,12 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   const toggle = (id) => setExpanded(prev => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const unfold = ids => setFolded(prev => {
+    const next = new Set(prev);
+    for (const id of ids) next.delete(id);
     return next;
   });
 
@@ -423,20 +441,53 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         <h1 className="mail-conversation-subject" style={{ display: 'none' }}>
           {newestConversationMessage(messages)?.subject || t('message.noSubject')}
         </h1>
-        {messages.map(message => (
-          <ConversationMessageCard
-            key={message.id}
-            message={message}
-            expanded={expanded.has(message.id)}
-            selected={message.id === focusedId}
-            onToggle={toggle}
-            onUpdate={updateConversationMessage}
-            aiEnabled={aiEnabled}
-            aiReplyEnabled={aiReplyEnabled}
-          />
-        ))}
+        {(gmail ? foldConversation(messages, { foldedIds: folded, expandedIds: expanded }) : messages.map(message => ({ message })))
+          .map(item => (item.fold ? (
+            <FoldRow key={`fold-${item.fold[0]}`} count={item.fold.length} onOpen={() => unfold(item.fold)} />
+          ) : (
+            <ConversationMessageCard
+              key={item.message.id}
+              message={item.message}
+              expanded={expanded.has(item.message.id)}
+              selected={item.message.id === focusedId}
+              onToggle={toggle}
+              onUpdate={updateConversationMessage}
+              aiEnabled={aiEnabled}
+              aiReplyEnabled={aiReplyEnabled}
+            />
+          )))}
       </div>
       </SwipePager>
     </div>
+  );
+}
+
+// "N older messages" (the Gmail layout): Gmail's count circle on a rule, which opens the fold.
+function FoldRow({ count, onOpen }) {
+  const { t } = useTranslation();
+  const label = t('message.olderMessages', { count });
+  return (
+    <button
+      type="button"
+      className="mail-conversation-fold"
+      onClick={onOpen}
+      title={label}
+      style={{
+        position: 'relative', width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+        minHeight: 44, padding: '4px 16px', background: 'none', border: 'none', cursor: 'pointer',
+        color: 'var(--text-secondary)', font: 'inherit', fontSize: 13, textAlign: 'left',
+      }}
+    >
+      <span aria-hidden="true" style={{
+        position: 'absolute', left: 0, right: 0, top: '50%', height: 3, transform: 'translateY(-50%)',
+        borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)',
+      }} />
+      <span aria-hidden="true" className="mail-conversation-fold-count" style={{
+        position: 'relative', flexShrink: 0, width: 36, height: 36, borderRadius: '50%',
+        border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 500,
+      }}>{count}</span>
+      <span style={{ position: 'relative', background: 'var(--bg-primary)', padding: '0 6px' }}>{label}</span>
+    </button>
   );
 }

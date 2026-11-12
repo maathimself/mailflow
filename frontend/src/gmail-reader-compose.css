@@ -108,6 +108,10 @@
   margin-bottom: 16px !important;
 }
 
+[data-mailflow-layout="gmail"] .mail-conversation-fold:hover .mail-conversation-fold-count {
+  background: var(--bg-tertiary) !important;
+}
+
 [data-mailflow-layout="gmail"] .compose-window {
   background: var(--bg-primary) !important;
   border-radius: 10px 10px 0 0 !important;
@@ -173,6 +177,7 @@
 [data-mailflow-layout="gmail"] .mail-reader-backbar button:focus-visible,
 [data-mailflow-layout="gmail"] .mail-conversation-sender:focus-visible,
 [data-mailflow-layout="gmail"] .mail-conversation-actions button:focus-visible,
+[data-mailflow-layout="gmail"] .mail-conversation-fold:focus-visible,
 [data-mailflow-layout="gmail"] .mail-compose-titlebar button:focus-visible,
 [data-mailflow-layout="gmail"] .mail-compose-footer button:focus-visible,
 [data-mailflow-layout="gmail"] .mail-compose-footer select:focus-visible,

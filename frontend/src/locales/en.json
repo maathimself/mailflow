@@ -427,7 +427,9 @@
       "title": "Snoozed until {{when}}",
       "failTitle": "Could not change the snooze time",
       "failBody": "It keeps its earlier time. Try again."
-    }
+    },
+    "olderMessages_one": "{{count}} older message",
+    "olderMessages_other": "{{count}} older messages"
   },
   "messageList": {
     "replyDraftChanged": "The reply draft changed. Try opening it again.",

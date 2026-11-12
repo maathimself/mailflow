@@ -427,7 +427,9 @@
       "title": "Pospuesto hasta {{when}}",
       "failTitle": "No se pudo cambiar la hora",
       "failBody": "Mantiene la hora anterior. Inténtalo de nuevo."
-    }
+    },
+    "olderMessages_one": "{{count}} mensaje anterior",
+    "olderMessages_other": "{{count}} mensajes anteriores"
   },
   "messageList": {
     "replyDraftChanged": "El borrador de respuesta ha cambiado. Intenta abrirlo de nuevo.",

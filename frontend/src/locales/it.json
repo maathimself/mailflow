@@ -427,7 +427,9 @@
       "title": "Posticipato fino a {{when}}",
       "failTitle": "Impossibile cambiare l'orario",
       "failBody": "Resta l'orario precedente. Riprova."
-    }
+    },
+    "olderMessages_one": "{{count}} messaggio meno recente",
+    "olderMessages_other": "{{count}} messaggi meno recenti"
   },
   "messageList": {
     "replyDraftChanged": "La bozza di risposta è cambiata. Prova ad aprirla di nuovo.",

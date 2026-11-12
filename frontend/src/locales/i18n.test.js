@@ -611,6 +611,7 @@ const SAME_VALUE_ALLOWED = {
 const LOCALE_SPECIFIC_KEYS_BY_LOCALE = {
   cs: new Set([
     'message.attachment_few', 'message.attachment_many',
+    'message.olderMessages_few', 'message.olderMessages_many',
     'messageList.bulkDeleted.title_few', 'messageList.bulkDeleted.title_many',
     'messageList.bulkDeleted.failBody_few', 'messageList.bulkDeleted.failBody_many',
     'messageList.bulkMoved.title_few', 'messageList.bulkMoved.title_many',
@@ -624,6 +625,7 @@ const LOCALE_SPECIFIC_KEYS_BY_LOCALE = {
   ]),
   pl: new Set([
     'message.attachment_few', 'message.attachment_many',
+    'message.olderMessages_few', 'message.olderMessages_many',
     'messageList.bulkDeleted.title_few', 'messageList.bulkDeleted.title_many',
     'messageList.bulkDeleted.failBody_few', 'messageList.bulkDeleted.failBody_many',
     'messageList.bulkMoved.title_few', 'messageList.bulkMoved.title_many',
@@ -635,6 +637,7 @@ const LOCALE_SPECIFIC_KEYS_BY_LOCALE = {
     'admin.messageList.markReadDelaySeconds_few',
     'admin.messageList.markReadDelaySeconds_many',
   ]),
+  ru: new Set(['message.olderMessages_few', 'message.olderMessages_many']),
 };
 const LOCALE_SPECIFIC_KEYS = new Set(
   Object.values(LOCALE_SPECIFIC_KEYS_BY_LOCALE).flatMap(keys => [...keys]),

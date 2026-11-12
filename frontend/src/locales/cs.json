@@ -630,7 +630,11 @@
       "title": "Odloženo do {{when}}",
       "failTitle": "Čas návratu se nepodařilo změnit",
       "failBody": "Zůstává původní čas. Zkuste to znovu."
-    }
+    },
+    "olderMessages_one": "{{count}} starší zpráva",
+    "olderMessages_few": "{{count}} starší zprávy",
+    "olderMessages_many": "{{count}} starší zprávy",
+    "olderMessages_other": "{{count}} starších zpráv"
   },
   "compose": {
     "unsupportedDraftFrom": "Před uložením nebo odesláním tohoto konceptu vyberte nastaveného odesílatele.",

@@ -429,7 +429,11 @@
       "title": "Odłożone do {{when}}",
       "failTitle": "Nie udało się zmienić czasu powrotu",
       "failBody": "Pozostaje poprzedni czas. Spróbuj ponownie."
-    }
+    },
+    "olderMessages_one": "{{count}} starsza wiadomość",
+    "olderMessages_few": "{{count}} starsze wiadomości",
+    "olderMessages_many": "{{count}} starszych wiadomości",
+    "olderMessages_other": "{{count}} starszych wiadomości"
   },
   "messageList": {
     "replyDraftChanged": "Szkic odpowiedzi się zmienił. Spróbuj otworzyć go ponownie.",
