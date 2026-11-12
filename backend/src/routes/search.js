@@ -106,16 +106,14 @@ export function trashFolderExclusionCondition() {
       )`;
 }
 
-// Postgres refuses to build a tsvector larger than ~1MB of packed lexemes
-// (SQLSTATE 54000), so an oversized body would 500 the whole search. Cap the
-// text fed to to_tsvector at 600k chars — matching msgvault's maxFTSBodyChars
-// (internal/store/dialect_pg.go) — so one huge email can't crash the query.
-// Exported because slice 02's search_fts trigger caps the same way.
+// The simple-dictionary fallback has no expression index bounding its vector size.
+// Keep its existing limit; English uses the exact indexed expression below.
 export const FTS_BODY_CHAR_CAP = 600000;
 
 // Builds the per-term free-text OR-condition: a term matches if it appears in
-// the sender, the subject, the stored search_vector, or the length-capped body.
-// Extracted so the body cap is a single, testable source of truth.
+// the sender, the subject, the stored search_vector, or the body.
+// The English expression must match idx_messages_body. That index already rejects
+// stored bodies with oversized English vectors.
 export function freeTextTermCondition(likeIdx, ftsIdx) {
   return `(
         m.from_name ILIKE $${likeIdx}
@@ -123,7 +121,7 @@ export function freeTextTermCondition(likeIdx, ftsIdx) {
         OR m.subject ILIKE $${likeIdx}
         OR m.search_vector @@ plainto_tsquery('english', $${ftsIdx})
         OR CASE WHEN numnode(plainto_tsquery('english', $${ftsIdx})) > 0
-          THEN to_tsvector('english', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('english', $${ftsIdx})
+          THEN to_tsvector('english', coalesce(m.body_text,'')) @@ plainto_tsquery('english', $${ftsIdx})
           ELSE to_tsvector('simple', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('simple', $${ftsIdx})
         END
       )`;

@@ -93,7 +93,7 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('stop-word body search 
     expect(result.rows[0].matched).toBe(true);
   });
 
-  it('caps simple-dictionary matching at the same character boundary as English', async () => {
+  it('retains the existing simple-dictionary character boundary', async () => {
     const condition = freeTextTermCondition(1, 2);
     for (const [padding, expected] of [[599997, true], [599998, false], [600000, false]]) {
       const result = await database.query(`SELECT ${condition} AS matched FROM
