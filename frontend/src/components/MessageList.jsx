@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useState } from 'react';
+import { closeOpenMessage } from '../utils/closeMessage.js';
+import SearchPlacement from './SearchPlacement.jsx';
 import AccountMark from './AccountMark.jsx';
 import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid, selectSelectedMessageAccountId } from '../store/index.js';
@@ -142,9 +144,9 @@ function SwipeBackground({ side, actionView, innerRef }) {
 // The center column: a mailbox's messages, or the Scheduled view (#543, design 5.2), whose rows are
 // not messages and which has a list of its own. It has no account selected, so its id cannot be a
 // folder's.
-export default function MessageList() {
+export default function MessageList({ searchTarget = null }) {
   const scheduledView = useStore(s => s.selectedAccountId === null && s.selectedFolder === SCHEDULED_VIEW);
-  return scheduledView ? <ScheduledList /> : <MailboxList />;
+  return scheduledView ? <ScheduledList /> : <MailboxList searchTarget={searchTarget} />;
 }
 
 // Whether the query names its own folder scope. The server's search route lets an in: operator
@@ -170,7 +172,7 @@ function allFolderSearchSkips(folder, path) {
   return name.includes('trash') || name.includes('deleted');
 }
 
-function MailboxList() {
+function MailboxList({ searchTarget }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const {
@@ -2877,9 +2879,17 @@ function MailboxList() {
   }) : [];
   const bulkMoveFoldersEmpty = movePickerFoldersEmpty(bulkMoveSections, pickerFolders);
   const closeBulkPickerAfterAction = () => { setShowFolderPicker(false); clearSelection(); };
+  const changeDesktopSearch = (query) => {
+    setSearchQuery(query);
+    if (searchTarget) {
+      if (selectedMessageId) closeOpenMessage();
+      useStore.getState().setShowContacts(false);
+    }
+  };
+
 
   return (
-    <div style={{
+    <div className="mail-message-list" style={{
       width: isMobile || isColumn || listFirst ? '100%' : 'var(--list-width)',
       minWidth: isMobile ? undefined : (isColumn ? undefined : 180),
       flex: isMobile ? 1 : (isColumn ? '0 0 42%' : undefined),
@@ -2893,7 +2903,7 @@ function MailboxList() {
 
       {/* ── Mobile header ───────────────────────────────────────────────── */}
       {isMobile && (
-        <div style={{
+        <div className="mail-mobile-header" style={{
           display: 'flex', alignItems: 'center', gap: 4,
           paddingTop: 'calc(var(--sat) + 10px)',
           paddingBottom: 'calc(10px - var(--sat-trim))', paddingLeft: 12, paddingRight: 12,
@@ -3051,7 +3061,7 @@ function MailboxList() {
       )}
 
       {/* ── Desktop header ──────────────────────────────────────────────── */}
-      {!isMobile && <div style={{
+      {!isMobile && <div className="mail-list-header" style={{
         padding: '14px 16px 10px', borderBottom: '1px solid var(--border-subtle)',
         boxShadow: listScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
         transition: 'box-shadow 0.2s ease',
@@ -3060,7 +3070,7 @@ function MailboxList() {
             row, the header takes its two-row form (headerCompact), with Sort, Unread, page size and layout
             on the row below. In a list narrower still, the controls wrap below the title, right-aligned,
             instead of squeezing the title away (#766). */}
-        <div ref={headerFit.rowRef} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 6, rowGap: 6, marginBottom: headerCompact ? 6 : 10 }}>
+        <div className="mail-list-toolbar" ref={headerFit.rowRef} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 6, rowGap: 6, marginBottom: headerCompact ? 6 : 10 }}>
           <h2 ref={headerFit.titleRef} style={{
             margin: 0, fontSize: 15, fontWeight: 600,
             color: 'var(--text-primary)',
@@ -3369,8 +3379,9 @@ function MailboxList() {
           </div>
         )}
 
+        <SearchPlacement target={searchTarget}>
         {/* Search */}
-        <div style={{ position: 'relative' }}>
+        <div className="mail-search" style={{ position: 'relative' }}>
           <div style={{
             position: 'absolute', left: 10, top: '50%',
             transform: 'translateY(-50%)', color: 'var(--text-tertiary)',
@@ -3382,10 +3393,11 @@ function MailboxList() {
           </div>
           <input
             ref={searchInputRef}
+            aria-label={t('messageList.search')}
             type="text"
             placeholder={t('messageList.search')}
             value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            onChange={e => changeDesktopSearch(e.target.value)}
             style={{
               width: '100%', padding: '8px 10px 8px 32px',
               background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
@@ -3397,7 +3409,8 @@ function MailboxList() {
           />
           {searchQuery && (
             <button
-              onClick={() => setSearchQuery('')}
+              aria-label={t('messageList.clearSearch')}
+              onClick={() => changeDesktopSearch('')}
               style={{
                 position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
                 background: 'none', border: 'none', color: 'var(--text-tertiary)',
@@ -3437,7 +3450,7 @@ function MailboxList() {
               ].map(({ op, desc }) => (
                 <div
                   key={op}
-                  onMouseDown={e => { e.preventDefault(); setSearchQuery(op.endsWith(':') ? op : op.split(':')[0] + ':'); searchInputRef.current?.focus(); }}
+                  onMouseDown={e => { e.preventDefault(); changeDesktopSearch(op.endsWith(':') ? op : op.split(':')[0] + ':'); searchInputRef.current?.focus(); }}
                   style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     padding: '3px 0', cursor: 'pointer', borderRadius: 4,
@@ -3453,6 +3466,7 @@ function MailboxList() {
             </div>
           )}
         </div>
+        </SearchPlacement>
       </div>}
 
       {/* Mobile search bar (rendered outside the scrollable list so it stays pinned) */}
@@ -3866,7 +3880,7 @@ function MailboxList() {
 
         {/* ── Bulk-action toolbar ───────────────────────────── */}
         {selectionMode && (
-          <div style={{
+          <div className="mail-bulk-toolbar" style={{
             position: 'sticky', top: 0, zIndex: 10,
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '7px 10px',
@@ -4749,6 +4763,7 @@ function EmptyState({ folderSyncing, searchQuery, searching, searchError, unread
 
 function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, selectedAcct, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, hoverActionSet, onArchive, onSnooze, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onModifierSelect, onLongPress, onExplainSpam }) {
   const { t } = useTranslation();
+  const gmailRow = useStore(s => s.layout === 'gmail') && !isMobile;
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
   const unreadCount  = parseInt(message.unread_count) || 0;
@@ -4793,7 +4808,9 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
       {/* Thread header row */}
       <div
         ref={isMobile ? contentRef : undefined}
-        className={isMobile ? 'no-callout' : undefined}
+        className={isMobile ? 'no-callout' : 'mail-list-row'}
+        data-unread={unreadCount > 0 || undefined}
+        data-checked={isChecked || undefined}
         // Drag-to-folder (#130). Threading renders every row through ThreadRow, which never
         // had drag wired up — so with conversations on, no row was draggable and the browser
         // fell back to selecting the row's text. Never a regression: the two features simply
@@ -4827,8 +4844,10 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           willChange: isMobile ? 'transform' : undefined,
         }}
       >
+      {gmailRow && <GmailRowControls message={message} checked={isChecked}
+        onToggleSelect={onToggleSelect} onRangeSelect={onRangeSelect} onStar={onStar} />}
         {/* Left indicator: checkbox in selection mode (narrow/mobile), unread dot otherwise */}
-        {!hasAvatar ? (
+        {!gmailRow && (!hasAvatar ? (
           selectionMode ? (
             <div style={{
               position: 'absolute', left: 4, top: '50%', transform: 'translateY(-50%)',
@@ -4857,10 +4876,10 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)',
             }} />
           )
-        )}
+        ))}
 
         {/* Avatar — morphs into a checkbox when in selection mode (desktop); display-only on mobile */}
-        {showAvatar && (
+        {!gmailRow && showAvatar && (
           <div
             onClick={selectionMode ? e => { e.stopPropagation(); onToggleSelect(message.id); } : undefined}
             style={{
@@ -4902,10 +4921,10 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           </div>
         )}
 
-        <div style={{ paddingLeft: (!hasAvatar && selectionMode) ? 22 : 0, flex: 1, minWidth: 0 }}>
+        <div className="mail-row-content" style={{ paddingLeft: (!hasAvatar && selectionMode) ? 22 : 0, flex: 1, minWidth: 0 }}>
           {/* Row 1: sender + badge + date */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+          <div className="mail-row-heading" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+            <div className="mail-row-sender" style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
               {showAccount && (
                 <AccountMark accountId={message.account_id} color={message.account_color || '#6366f1'} size={6} />
               )}
@@ -4938,7 +4957,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 </button>
               )}
             </div>
-            <div style={{
+            <div className="mail-row-date" style={{
               display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 8,
             }}>
               {message.has_attachments && (
@@ -4946,7 +4965,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                   <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
                 </svg>
               )}
-              {message.is_starred && (
+              {!gmailRow && message.is_starred && (
                 <button
                   onClick={e => { e.stopPropagation(); onStar(e, message); }}
                   style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
@@ -4963,7 +4982,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             </div>
           </div>
           {/* Row 2: subject */}
-          <div style={{
+          <div className="mail-row-subject" style={{
             display: 'flex', alignItems: 'center', gap: 4,
             fontSize: 12, fontWeight: unreadCount > 0 ? 500 : 400,
             color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
@@ -4978,7 +4997,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
           </div>
           {/* Row 3: snippet */}
           {showMessagePreviews && (
-            <div style={{
+            <div className="mail-row-snippet" style={{
               fontSize: 12, color: 'var(--text-tertiary)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
@@ -5070,6 +5089,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
 
 function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, showAccount, isNarrow, onSelect, onOpenWindow, onToggleSelect, onRangeSelect, onModifierSelect, onAvatarClick, showMobileAvatars, showMessagePreviews, onMarkRead, onStar, onDelete, hoverQuickActions, hoverActionSet, onArchive, onSnooze, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, onLongPress, onExplainSpam }) {
   const { t } = useTranslation();
+  const gmailRow = useStore(s => s.layout === 'gmail') && !isMobile;
   const [hovered, setHovered] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
   const { contentRef, swipeBgLeftRef, swipeBgRightRef, tappedRef } = useSwipeRow({
@@ -5147,7 +5167,9 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       {/* Foreground row content */}
       <div
         ref={isMobile ? contentRef : undefined}
-        className={isMobile ? 'no-callout' : undefined}
+        className={isMobile ? 'no-callout' : 'mail-list-row'}
+        data-unread={!message.is_read || undefined}
+        data-checked={isChecked || undefined}
         draggable={!isMobile}
         onDragStart={!isMobile ? (e) => onDragStart(e, message) : undefined}
         onClick={handleClick}
@@ -5163,6 +5185,8 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
             : undefined,
         }}
       >
+      {gmailRow && <GmailRowControls message={message} checked={isChecked}
+        onToggleSelect={onToggleSelect} onRangeSelect={onRangeSelect} onStar={onStar} />}
       {/* Selected row left accent rail */}
       {selected && !selectionMode && (
         <div style={{
@@ -5173,7 +5197,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       )}
       {/* Left indicator: for narrow/mobile layouts show checkbox or unread dot.
           Wide layouts use the avatar area instead (see below). */}
-      {(!hasInteractiveAvatar) && (
+      {!gmailRow && (!hasInteractiveAvatar) && (
         selectionMode ? (
           <div style={{
             position: 'absolute', left: 4, top: '50%', transform: 'translateY(-50%)',
@@ -5198,7 +5222,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         )
       )}
       {/* Unread dot for wide layouts — always shown (avatar is separate, doesn't conflict) */}
-      {hasInteractiveAvatar && !selectionMode && !message.is_read && (
+      {!gmailRow && hasInteractiveAvatar && !selectionMode && !message.is_read && (
         <div style={{
           position: 'absolute', left: 3, top: '50%', transform: 'translateY(-50%)',
           width: 7, height: 7, borderRadius: '50%',
@@ -5206,10 +5230,10 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         }} />
       )}
 
-      <div style={{ paddingLeft: (!hasInteractiveAvatar && selectionMode) ? 22 : 0, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+      <div className="mail-row-wrap" style={{ paddingLeft: (!hasInteractiveAvatar && selectionMode) ? 22 : 0, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
         {/* Sender avatar — desktop always, or opted-in on mobile (#213). Interactive (click-to-select,
             hover-to-checkbox) on desktop only; a plain display avatar on mobile. */}
-        {showAvatar && (
+        {!gmailRow && showAvatar && (
           <div
             onClick={hasInteractiveAvatar ? handleAvatarAreaClick : undefined}
             onMouseEnter={hasInteractiveAvatar ? () => setAvatarHovered(true) : undefined}
@@ -5251,10 +5275,10 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
             )}
           </div>
         )}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="mail-row-content" style={{ flex: 1, minWidth: 0 }}>
         {/* Row 1: From + date */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
+        <div className="mail-row-heading" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+          <div className="mail-row-sender" style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
             {showAccount && (
               <AccountMark accountId={message.account_id} color={message.account_color || '#6366f1'} size={6} />
             )}
@@ -5267,13 +5291,13 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
               {message.from_name || message.from_email || t('common.unknown')}
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 8 }}>
+          <div className="mail-row-date" style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 8 }}>
             {message.has_attachments && (
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
               </svg>
             )}
-            {message.is_starred && (
+            {!gmailRow && message.is_starred && (
               <button
                 onClick={e => { e.stopPropagation(); onStar(e, message); }}
                 style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
@@ -5293,7 +5317,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         </div>
 
         {/* Row 2: Subject */}
-        <div style={{
+        <div className="mail-row-subject" style={{
           display: 'flex', alignItems: 'center', gap: 4,
           fontSize: 13, fontWeight: message.is_read ? 400 : 500,
           color: message.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
@@ -5309,7 +5333,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
 
         {/* Row 3: Snippet */}
         {showMessagePreviews && (
-          <div style={{ display: 'flex', alignItems: 'center' }}>
+          <div className="mail-row-snippet" style={{ display: 'flex', alignItems: 'center' }}>
             <span style={{
               fontSize: 12, color: 'var(--text-tertiary)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -5393,4 +5417,19 @@ function RowMenuButton({ onOpen, label }) {
       </svg>
     </button>
   );
+}
+
+function GmailRowControls({ message, checked, onToggleSelect, onRangeSelect, onStar }) {
+  const { t } = useTranslation();
+  return <div className="gmail-row-controls">
+    <input type="checkbox" checked={checked} aria-label={`${t('messageList.selectMessages')}: ${message.subject || t('common.noSubject')}`}
+      onChange={() => {}}
+      onClick={e => { e.stopPropagation(); if (e.shiftKey && onRangeSelect) onRangeSelect(message.id); else onToggleSelect(message.id); }} />
+    <button type="button" aria-label={t(message.is_starred ? 'contextMenu.unstar' : 'contextMenu.star')}
+      aria-pressed={Boolean(message.is_starred)} onClick={e => { e.stopPropagation(); onStar(e, message); }}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill={message.is_starred ? 'var(--amber)' : 'none'} stroke={message.is_starred ? 'var(--amber)' : 'currentColor'} strokeWidth="1.7" aria-hidden="true">
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+      </svg>
+    </button>
+  </div>;
 }

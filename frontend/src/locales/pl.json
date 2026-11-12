@@ -565,6 +565,10 @@
     "changeLayout": "Zmień układ",
     "layout": "Układ",
     "layouts": {
+      "gmail": {
+        "label": "Gmail",
+        "description": "Skrzynka odbiorcza i widok czytania na pełnej szerokości w stylu Gmaila"
+      },
       "focused": {
         "label": "Skupiony",
         "description": "Minimalny panel listy, maksymalny obszar czytania"

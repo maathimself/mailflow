@@ -290,7 +290,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   const headerContext = { message: headerMessage, account: accounts.find(account => account.id === headerMessage?.account_id) };
   const hasBackBar = isMobile || listFirst;
   const mobileBackBar = hasBackBar && (
-    <div style={{
+    <div className="mail-reader-backbar" style={{
       display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8,
       paddingTop: 'calc(var(--sat) + 10px)', paddingBottom: 'calc(10px - var(--sat-trim))', paddingLeft: 14, paddingRight: 14,
       borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', flexShrink: 0,
@@ -308,7 +308,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         </svg>
         {t('common.back')}
       </button>
-      <div style={{
+      <div className="mail-reader-back-subject" style={{
         flex: '1 1 120px', minWidth: 0,
         fontSize: 14, fontWeight: 500, color: 'var(--text-primary)',
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -339,13 +339,13 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   if (!messages.length) return null;
 
   return (
-    <div ref={paneRef} style={{ ...fill, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div className="mail-conversation-pane" ref={paneRef} style={{ ...fill, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {mobileBackBar}
       {/* Thread-level actions, the way Gmail does it: archiving a conversation archives all of it,
           so the reader does not file the same thread message by message. The reading pane's buttons,
           in its order and pinned at the top as its toolbar is (#650); snooze, which the reading pane
           keeps in its menu, sits with the other ways of putting the conversation away. */}
-      <div role="group" aria-label={t('message.conversationActions')} style={{
+      <div className="mail-reader-toolbar" role="group" aria-label={t('message.conversationActions')} style={{
         padding: isMobile ? '0 8px' : '8px 16px', borderBottom: '1px solid var(--border-subtle)',
         display: 'flex', alignItems: 'center', gap: isMobile ? 0 : 6, flexShrink: 0,
         background: 'var(--bg-primary)',
@@ -407,6 +407,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         // cards stay on screen until the next one lands, and a remount would mark them read again.
         key={loadedConversation ?? ''}
         ref={stackRef}
+        className="mail-conversation-stack"
         // flex: 1 and minWidth: 0 are load-bearing. The reading area is a flex row, so
         // without them this pane is sized shrink-to-fit by its contents: collapsed cards
         // are narrow, an expanded newsletter is as wide as the newsletter, and the pane
@@ -419,6 +420,9 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
           background: 'var(--bg-primary)',
         }}
       >
+        <h1 className="mail-conversation-subject" style={{ display: 'none' }}>
+          {newestConversationMessage(messages)?.subject || t('message.noSubject')}
+        </h1>
         {messages.map(message => (
           <ConversationMessageCard
             key={message.id}

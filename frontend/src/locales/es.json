@@ -551,6 +551,10 @@
     "changeLayout": "Cambiar diseño",
     "layout": "Diseño",
     "layouts": {
+      "gmail": {
+        "label": "Gmail",
+        "description": "Bandeja de entrada y lectura a ancho completo al estilo de Gmail"
+      },
       "focused": {
         "label": "Enfocado",
         "description": "Panel de lista mínimo, área de lectura máxima"

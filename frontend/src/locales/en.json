@@ -551,6 +551,10 @@
     "changeLayout": "Change layout",
     "layout": "Layout",
     "layouts": {
+      "gmail": {
+        "label": "Gmail",
+        "description": "Gmail-inspired full-width inbox and reading view"
+      },
       "focused": {
         "label": "Focused",
         "description": "Minimal list panel, maximum reading area"

@@ -551,6 +551,10 @@
     "changeLayout": "Changer la disposition",
     "layout": "Disposition",
     "layouts": {
+      "gmail": {
+        "label": "Gmail",
+        "description": "Boîte de réception et lecture pleine largeur inspirées de Gmail"
+      },
       "focused": {
         "label": "Concentré",
         "description": "Panneau de liste minimal, zone de lecture maximale"

@@ -170,7 +170,7 @@ export function ActionBtn({
       aria-haspopup={popup ? 'menu' : undefined}
       aria-expanded={popup ? Boolean(expanded) : undefined}
       aria-disabled={disabled || undefined}
-      className="btn-press"
+      className="btn-press mail-message-action"
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
@@ -252,7 +252,7 @@ export function ReplySplitButton({ defaultReplyAll, onReply, title, touch = fals
     ? { label: t('message.reply'), replyAll: false }
     : { label: t('message.replyAll'), replyAll: true };
   return (
-    <div style={{ position: 'relative', display: 'flex', ...(touch ? { minWidth: REPLY_SPLIT_MIN } : {}) }}>
+    <div className="mail-reply-split" style={{ position: 'relative', display: 'flex', ...(touch ? { minWidth: REPLY_SPLIT_MIN } : {}) }}>
       <ActionBtn onClick={() => { setOpen(false); onReply(defaultReplyAll); }} label={label} title={title ?? label} touch={touch} style={{ borderRadius: '6px 0 0 6px' }}>
         {defaultReplyAll ? <ReplyAllIcon /> : <ReplyIcon />}
       </ActionBtn>

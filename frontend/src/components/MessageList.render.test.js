@@ -1544,3 +1544,122 @@ describe('MessageList — a cold launch', () => {
     assert.ok(!container.querySelector('.skeleton-line'), 'the loading rows go once the list is in');
   });
 });
+
+describe('Gmail skin keeps existing mailbox actions', () => {
+  for (const threadedView of [false, true]) {
+    test(`checkbox selection and star use upstream handlers (${threadedView ? 'conversation' : 'message'})`, async () => {
+      const row = threadedView ? THREAD : MESSAGE;
+      try {
+        await React.act(async () => useStore.setState({ layout: 'gmail', selectedMessageId: null }));
+        await mount({ rows: [row], threadedView });
+        const control = container.querySelector('.gmail-row-controls');
+        assert.ok(control, 'Gmail shows persistent checkbox and star controls');
+        await React.act(async () => control.querySelector('input').click());
+        assert.equal(control.querySelector('input').checked, true);
+        assert.equal(useStore.getState().selectedMessageId, null, 'selecting does not open mail');
+        assert.ok(container.querySelector('.mail-bulk-toolbar'), 'existing bulk toolbar opens');
+        await React.act(async () => control.querySelector('input').click());
+        assert.equal(control.querySelector('input').checked, false);
+        assert.equal(container.querySelector('.mail-bulk-toolbar'), null);
+        CALLS = [];
+        await React.act(async () => control.querySelector('button').click());
+        assert.ok(CALLS.some(c => c.path.includes('/star')), 'existing star endpoint is used');
+        assert.equal(useStore.getState().selectedMessageId, null, 'starring does not open mail');
+        await React.act(async () => useStore.setState({ layout: 'comfortable' }));
+        assert.equal(container.querySelector('.gmail-row-controls'), null, 'other layouts keep their own row presentation');
+      } finally {
+        await React.act(async () => useStore.setState({ layout: 'comfortable' }));
+      }
+    });
+  }
+});
+
+test('search placement preserves input identity, focus and selection across target changes', async () => {
+  if (root) await React.act(async () => root.unmount());
+  const SearchPlacement = (await import('./SearchPlacement.jsx')).default;
+  const slot = document.createElement('div');
+  document.body.appendChild(slot);
+  root = createRoot(document.getElementById('root'));
+  const render = target => React.act(async () => root.render(React.createElement(SearchPlacement, { target },
+    React.createElement('input', { defaultValue: 'from:friend subject:hello', 'aria-label': 'Search fixture' }))));
+  try {
+    await render(null);
+    const input = document.querySelector('[aria-label="Search fixture"]');
+    input.focus();
+    input.setSelectionRange(5, 11);
+    for (const target of [slot, null, slot, null]) {
+      await render(target);
+      assert.equal(document.querySelector('[aria-label="Search fixture"]'), input);
+      assert.equal(document.activeElement, input);
+      assert.equal(input.selectionStart, 5);
+      assert.equal(input.selectionEnd, 11);
+      assert.equal(input.value, 'from:friend subject:hello');
+    }
+    await React.act(async () => root.unmount());
+    root = null;
+    assert.equal(slot.children.length, 0, 'portal leaves no stale header nodes');
+  } finally { slot.remove(); }
+});
+
+
+test('Gmail header search stays mounted behind reader navigation and reveals its results', async () => {
+  const slot = document.createElement('div');
+  document.body.appendChild(slot);
+  try {
+    await React.act(async () => useStore.setState({ layout: 'gmail', selectedMessageId: null, searchQuery: '' }));
+    await mount({ rows: [MESSAGE], threadedView: false });
+    const render = hidden => React.act(async () => root.render(React.createElement('div', { style: { display: hidden ? 'none' : 'flex' } },
+      React.createElement(MessageList, { searchTarget: slot }))));
+    await render(false);
+    const input = slot.querySelector('input');
+    assert.ok(input, 'same mailbox search is placed in the header');
+    for (let i = 0; i < 3; i++) {
+      await React.act(async () => useStore.setState({ selectedMessageId: MESSAGE.id, showContacts: true }));
+      await render(true);
+      assert.equal(slot.querySelector('input'), input, 'reader navigation does not remount the search');
+      await React.act(async () => input.focus());
+      assert.equal(useStore.getState().selectedMessageId, MESSAGE.id, 'tabbing to header search does not close the reader');
+      assert.equal(useStore.getState().showContacts, true, 'focus alone does not navigate');
+      await React.act(async () => {
+        Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(input, `from:friend${i}`);
+        input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+      });
+      assert.equal(useStore.getState().selectedMessageId, null, 'editing header search closes the reader');
+      assert.equal(useStore.getState().showContacts, false, 'results are not hidden behind Contacts');
+      await render(false);
+      assert.equal(slot.querySelector('input'), input);
+      await React.act(async () => input.blur());
+    }
+    await React.act(async () => root.unmount());
+    root = null;
+    assert.equal(slot.children.length, 0);
+  } finally {
+    slot.remove();
+    await React.act(async () => useStore.setState({ layout: 'comfortable', selectedMessageId: null, showContacts: false, searchQuery: '' }));
+  }
+});
+
+
+test('Gmail mobile toolbar exposes every existing action at enlarged text', async () => {
+  const previousWidth = window.innerWidth;
+  const previousFontSize = useStore.getState().fontSize;
+  try {
+    window.innerWidth = 390;
+    await React.act(async () => useStore.setState({ layout: 'gmail', fontSize: 150 }));
+    await mount({ rows: [MESSAGE], threadedView: false });
+    const header = container.querySelector('.mail-mobile-header');
+    assert.ok(header, 'mobile header carries the scoped wrapping hook');
+    for (const label of ['Menu', 'messageList.sync', 'contacts.title', 'messageList.selectMessages']) {
+      const button = header.querySelector(`[aria-label="${label}"]`);
+      assert.ok(button, `${label} remains available`);
+      assert.equal(button.style.minWidth, '44px');
+      assert.equal(button.style.minHeight, '44px');
+    }
+    await React.act(async () => header.querySelector('[aria-label="messageList.selectMessages"]').click());
+    assert.ok(container.querySelector('.mail-bulk-toolbar'), 'Select keeps its existing handler');
+  } finally {
+    window.innerWidth = previousWidth;
+    if (root) { await React.act(async () => root.unmount()); root = null; }
+    await React.act(async () => useStore.setState({ layout: 'comfortable', fontSize: previousFontSize }));
+  }
+});

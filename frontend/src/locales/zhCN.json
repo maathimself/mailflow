@@ -551,6 +551,10 @@
     "changeLayout": "更改布局",
     "layout": "布局",
     "layouts": {
+      "gmail": {
+        "label": "Gmail",
+        "description": "Gmail 风格的全宽收件箱与阅读视图"
+      },
       "focused": {
         "label": "专注",
         "description": "列表面板最小，阅读区域最大"

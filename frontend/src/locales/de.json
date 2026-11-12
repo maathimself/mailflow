@@ -551,6 +551,10 @@
     "changeLayout": "Layout ändern",
     "layout": "Layout",
     "layouts": {
+      "gmail": {
+        "label": "Gmail",
+        "description": "Posteingang und Leseansicht in voller Breite im Gmail-Stil"
+      },
       "focused": {
         "label": "Fokussiert",
         "description": "Minimale Listenspalte, maximaler Lesebereich"

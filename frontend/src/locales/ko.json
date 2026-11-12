@@ -548,6 +548,10 @@
     "composeAriaLabel": "새 메시지 작성",
     "noAccounts": "아직 계정이 없습니다",
     "layouts": {
+      "gmail": {
+        "label": "Gmail",
+        "description": "Gmail 스타일의 전체 너비 받은편지함 및 읽기 화면"
+      },
       "compact": {
         "label": "좁게",
         "description": "행 간격을 좁혀 한 화면에 더 많은 메일을 표시합니다"

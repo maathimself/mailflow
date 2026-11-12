@@ -437,6 +437,10 @@
     "changeLayout": "Změnit rozvržení",
     "layout": "Rozložení",
     "layouts": {
+      "gmail": {
+        "label": "Gmail",
+        "description": "Doručená pošta a čtení přes celou šířku ve stylu Gmailu"
+      },
       "focused": {
         "label": "Soustředěné",
         "description": "Minimální panel se seznamem, maximum prostoru pro čtení"

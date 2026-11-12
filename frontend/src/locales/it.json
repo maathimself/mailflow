@@ -551,6 +551,10 @@
     "changeLayout": "Cambia disposizione",
     "layout": "Layout",
     "layouts": {
+      "gmail": {
+        "label": "Gmail",
+        "description": "Posta in arrivo e lettura a tutta larghezza in stile Gmail"
+      },
       "focused": {
         "label": "Concentrato",
         "description": "Pannello elenco minimo, area di lettura massima"

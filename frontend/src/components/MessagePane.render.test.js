@@ -102,6 +102,14 @@ describe('MessagePane renders', () => {
     assert.ok(document.getElementById('root').innerHTML.length > 0, 'rendered something');
   });
 
+  test('reader presentation hooks retain the existing subject, sender and actions', () => {
+    assert.ok(document.querySelector('.mail-reader-subject'));
+    assert.match(document.querySelector('.mail-reader-subject').textContent, /First/);
+    assert.match(document.querySelector('.mail-reader-sender').textContent, /X/);
+    assert.ok(document.querySelector('.mail-reader-toolbar .mail-message-action[aria-label="message.archive"]'));
+    assert.ok(document.querySelector('.mail-reader-toolbar .mail-reply-split'));
+  });
+
   test('changing the selected message re-renders without throwing', async () => {
     await React.act(async () => { useStore.getState().setSelectedMessage('b2'); });
     assert.ok(document.getElementById('root').innerHTML.length > 0);

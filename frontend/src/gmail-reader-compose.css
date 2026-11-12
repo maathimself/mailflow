@@ -1,0 +1,275 @@
+/* Presentation only: the existing reader, editor and mail actions stay mounted. */
+[data-mailflow-layout="gmail"] .mail-reader-backbar {
+  background: var(--bg-secondary) !important;
+  border-bottom: 0 !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-reader-toolbar {
+  min-height: 44px;
+  padding: 2px 16px !important;
+  gap: 4px !important;
+  background: var(--bg-secondary) !important;
+  border-bottom: 0 !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-message-action {
+  border-radius: 50% !important;
+  min-height: 36px;
+  min-width: 36px;
+}
+
+[data-mailflow-layout="gmail"] .mail-reply-split > .mail-message-action {
+  border-radius: 18px 0 0 18px !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-reply-split > button + button {
+  border-radius: 0 18px 18px 0 !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-reader-header {
+  padding: 24px 24px 0 !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-reader-sender-card {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  margin-bottom: 8px !important;
+  overflow: visible !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-reader-subject {
+  border-bottom: 0 !important;
+  padding: 0 0 24px 52px !important;
+  font-size: 1.5rem !important;
+  font-weight: 400 !important;
+  line-height: 1.4 !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-reader-sender {
+  padding: 0 0 16px !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-reader-body-wrap {
+  padding: 0 24px 24px 60px !important;
+}
+
+/* Keep the email's own surface, containment and renderer untouched. */
+[data-mailflow-layout="gmail"] .mail-reader-body-card {
+  border-radius: 0 !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-conversation-stack {
+  padding: 24px !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-conversation-subject {
+  display: block !important;
+  margin: 0 16px 24px;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 400;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+[data-mailflow-layout="gmail"] .mail-conversation-card {
+  border-width: 0 0 1px !important;
+  border-radius: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-conversation-card[data-selected="true"] {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+[data-mailflow-layout="gmail"] .mail-conversation-sender {
+  padding: 18px 16px !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-conversation-sender > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+[data-mailflow-layout="gmail"] .mail-conversation-card[data-expanded="true"] > .mail-conversation-sender > span:first-child {
+  font-weight: 600 !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-conversation-content {
+  padding: 0 16px 24px !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-conversation-actions {
+  margin-bottom: 16px !important;
+}
+
+[data-mailflow-layout="gmail"] .compose-window {
+  background: var(--bg-primary) !important;
+  border-radius: 10px 10px 0 0 !important;
+}
+
+[data-mailflow-layout="gmail"] .compose-window[data-compose-placement="docked"][data-compose-resized="false"] {
+  width: 600px !important;
+  min-height: min(600px, 75vh);
+}
+
+[data-mailflow-layout="gmail"] .compose-window[data-compose-placement="floating"],
+[data-mailflow-layout="gmail"] .compose-window[data-compose-placement="maximized"] {
+  border-radius: 10px !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-compose-titlebar {
+  background: var(--bg-tertiary);
+  border-bottom: 0 !important;
+  border-radius: 10px 10px 0 0;
+  padding: 10px 16px !important;
+  min-height: 40px;
+  box-sizing: border-box;
+}
+
+[data-mailflow-layout="gmail"] .mail-compose-fields {
+  padding: 0 16px;
+}
+
+[data-mailflow-layout="gmail"] .mail-compose-fields > div {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  min-height: 38px;
+}
+
+[data-mailflow-layout="gmail"] .mail-compose-fields input,
+[data-mailflow-layout="gmail"] .mail-compose-fields select {
+  min-width: 0;
+}
+
+[data-mailflow-layout="gmail"] .mail-compose-footer {
+  border-top: 0 !important;
+  padding: 12px 16px 16px !important;
+  flex-wrap: wrap;
+}
+
+[data-mailflow-layout="gmail"] .mail-compose-send > button:first-child {
+  border-radius: 20px 0 0 20px !important;
+  min-height: 36px;
+}
+
+[data-mailflow-layout="gmail"] .mail-compose-send > button:nth-child(2) {
+  border-radius: 0 20px 20px 0 !important;
+  min-height: 36px;
+  padding-right: 12px !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-compose-minimized {
+  background: var(--bg-tertiary) !important;
+  border-radius: 10px 10px 0 0 !important;
+}
+
+[data-mailflow-layout="gmail"] .mail-reader-toolbar button:focus-visible,
+[data-mailflow-layout="gmail"] .mail-reader-backbar button:focus-visible,
+[data-mailflow-layout="gmail"] .mail-conversation-sender:focus-visible,
+[data-mailflow-layout="gmail"] .mail-conversation-actions button:focus-visible,
+[data-mailflow-layout="gmail"] .mail-compose-titlebar button:focus-visible,
+[data-mailflow-layout="gmail"] .mail-compose-footer button:focus-visible,
+[data-mailflow-layout="gmail"] .mail-compose-footer select:focus-visible,
+[data-mailflow-layout="gmail"] .mail-compose-fields :is(input, select, button):focus-visible {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px;
+}
+
+@media (max-width: 767px) {
+  [data-mailflow-layout="gmail"] .mail-reader-toolbar {
+    padding: 0 8px !important;
+    gap: 0 !important;
+  }
+
+  [data-mailflow-layout="gmail"] .mail-message-action {
+    min-width: 28px;
+  }
+
+  [data-mailflow-layout="gmail"] .mail-reader-header,
+  [data-mailflow-layout="gmail"] .mail-conversation-stack {
+    padding: 16px 12px 0 !important;
+  }
+
+  [data-mailflow-layout="gmail"] .mail-reader-subject {
+    padding: 0 0 20px !important;
+    font-size: 1.25rem !important;
+  }
+
+  [data-mailflow-layout="gmail"] .mail-reader-sender {
+    flex-wrap: wrap;
+  }
+
+  [data-mailflow-layout="gmail"] .mail-reader-date {
+    margin-left: 52px;
+    text-align: left !important;
+  }
+
+  [data-mailflow-layout="gmail"] .mail-reader-body-wrap {
+    padding: 0 0 16px !important;
+  }
+
+  [data-mailflow-layout="gmail"] .mail-conversation-subject {
+    margin: 0 12px 20px;
+    font-size: 1.25rem;
+  }
+
+  [data-mailflow-layout="gmail"] .mail-conversation-sender {
+    flex-wrap: wrap;
+    padding: 16px 12px !important;
+  }
+
+  [data-mailflow-layout="gmail"] .mail-conversation-content {
+    padding: 0 12px 16px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-mailflow-layout="gmail"] .mail-message-pane,
+  [data-mailflow-layout="gmail"] .compose-window,
+  [data-mailflow-layout="gmail"] .mail-compose-phone {
+    animation: none !important;
+  }
+}
+
+@media (min-width: 768px) {
+  /* One desktop action row, without moving or remounting its existing controls. */
+  [data-mailflow-layout="gmail"] .mail-message-pane:has(> .mail-reader-backbar),
+  [data-mailflow-layout="gmail"] .mail-conversation-pane:has(> .mail-reader-backbar) {
+    display: grid !important;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  [data-mailflow-layout="gmail"] .mail-reader-backbar {
+    grid-column: 1;
+    grid-row: 1;
+    padding: 4px 8px 4px 16px !important;
+    min-height: 48px;
+    box-sizing: border-box;
+  }
+
+  [data-mailflow-layout="gmail"] .mail-reader-back-subject {
+    display: none;
+  }
+
+  [data-mailflow-layout="gmail"] .mail-reader-toolbar {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    min-height: 48px;
+    flex-wrap: wrap;
+  }
+
+  [data-mailflow-layout="gmail"] .mail-reader-scroll,
+  [data-mailflow-layout="gmail"] .mail-conversation-stack {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-height: 0;
+  }
+}

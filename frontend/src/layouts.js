@@ -65,6 +65,18 @@ export const LAYOUTS = {
     rowPx: 20,
   },
 
+  gmail: {
+    labelKey: 'messageList.layouts.gmail.label',
+    label: 'Gmail',
+    descriptionKey: 'messageList.layouts.gmail.description',
+    description: 'Gmail-inspired full-width inbox and reading view',
+    direction: 'row',
+    listWidth: null,
+    listFirst: true,
+    rowPy: 10,
+    rowPx: 16,
+  },
+
   vertical: {
     labelKey: 'messageList.layouts.vertical.label',
     label: 'Vertical Split',
@@ -92,6 +104,8 @@ export function normalizeLayout(layoutKey) {
 export function applyLayout(layoutKey, customListWidth) {
   const layout = LAYOUTS[normalizeLayout(layoutKey)];
   const root = document.documentElement;
+  if (normalizeLayout(layoutKey) === 'gmail') root.dataset.mailflowLayout = 'gmail';
+  else delete root.dataset.mailflowLayout;
   root.style.setProperty('--layout-row-py', layout.rowPy + 'px');
   root.style.setProperty('--layout-row-px', layout.rowPx + 'px');
   if (layout.listWidth != null) {

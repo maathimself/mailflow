@@ -1840,7 +1840,7 @@ function FontsTab() {
 }
 
 // ─── Layout Diagram ───────────────────────────────────────────────────────────
-function LayoutDiagram({ layoutConfig, active }) {
+function LayoutDiagram({ layoutKey, layoutConfig, active }) {
   const isColumn = layoutConfig.direction === 'column';
   const accent = active ? 'var(--accent)' : 'var(--border)';
   const bg1 = active ? 'var(--accent-dim)' : 'var(--bg-elevated)';
@@ -1851,6 +1851,28 @@ function LayoutDiagram({ layoutConfig, active }) {
   // List width fraction: derived from listWidth relative to 340 baseline
   const lw = isColumn ? 50 : Math.round(10 + (layoutConfig.listWidth / 460) * 32);
   const rw = 72 - lw; // reading pane width
+
+  if (layoutKey === 'gmail') {
+    return (
+      <svg data-layout-preview="gmail" aria-hidden="true" width="80" height="52" viewBox="0 0 80 52" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0.5" y="0.5" width="79" height="51" rx="4" fill="var(--bg-secondary)" stroke={accent} strokeWidth={active ? 1.5 : 1}/>
+        <rect x="18" y="4" width="47" height="6" rx="3" fill={bg1}/>
+        <rect x="4" y="5" width="9" height="2" rx="1" fill={accent} opacity="0.5"/>
+        <rect x="3" y="14" width="12" height="7" rx="3" fill={bg1}/>
+        <rect x="2" y="25" width="14" height="4" rx="2" fill={accent} opacity="0.25"/>
+        {[32, 37, 42].map(y => <rect key={y} x="4" y={y} width="9" height="1.5" rx="0.75" fill={accent} opacity="0.3"/>)}
+        <rect x="18" y="13" width="59" height="36" rx="4" fill={bg2}/>
+        <rect x="22" y="17" width="16" height="1.5" rx="0.75" fill={accent} opacity="0.4"/>
+        {[24, 30, 36, 42].map((y, i) => (
+          <g key={y}>
+            <rect x="22" y={y} width="11" height="1.5" rx="0.75" fill={accent} opacity={i === 1 ? 0.7 : 0.4}/>
+            <rect x="36" y={y} width="30" height="1.5" rx="0.75" fill={accent} opacity={i === 1 ? 0.7 : 0.25}/>
+            <line x1="20" y1={y + 4} x2="75" y2={y + 4} stroke={accent} strokeWidth="0.5" opacity="0.2"/>
+          </g>
+        ))}
+      </svg>
+    );
+  }
 
   if (layoutConfig.listFirst) {
     // List first (#596): sidebar left, the list across the rest, no reading pane.

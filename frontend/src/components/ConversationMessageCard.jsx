@@ -311,12 +311,16 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
     <div
       // The pane scrolls to this when the reader picks this message in the list.
       data-message-id={message.id}
+      className="mail-conversation-card"
+      data-expanded={expanded}
+      data-selected={selected}
       style={{
         border: `1px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
         borderRadius: 6, marginBottom: 8, background: 'var(--bg-primary)',
       }}
     >
       <button
+        className="mail-conversation-sender"
         onClick={() => onToggle(message.id)}
         aria-expanded={expanded}
         style={{
@@ -335,7 +339,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
       </button>
 
       {expanded && (
-        <div style={{ padding: '0 12px 12px' }}>
+        <div className="mail-conversation-content" style={{ padding: '0 12px 12px' }}>
           {/* The reading pane's toolbar, from the same buttons in the same order (#650), less what the
               conversation's own bar does for all of it. Reply and forward are per message, not per
               thread: replying to a conversation means replying to one message in it, and which one
@@ -343,7 +347,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
               it is handed over, not refetched. Keyed by message, as the reading pane's. In a pane
               too narrow for all of them (about 370 px) they wrap to a second line, rather than
               make the whole conversation scroll sideways. */}
-          <div role="group" aria-label={t('shortcuts.groups.messageActions')} style={{
+          <div className="mail-conversation-actions" role="group" aria-label={t('shortcuts.groups.messageActions')} style={{
             display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: isMobile ? 0 : 6, rowGap: 4, margin: '0 -4px 8px',
           }}>
             <ReplySplitButton
@@ -417,7 +421,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
             // the frame edge. Now both views agree, and newsletters and fixed layouts are
             // untouched — they keep whatever padding their own HTML carries, inside the
             // same card the reading pane already gives them.
-            <div className="msg-card" style={{
+            <div className="msg-card mail-reader-body-card" style={{
               padding: '14px 16px 12px',
               // The frame's own background, so the card and the body read as one surface: the
               // sender's dark background where their design sets one, otherwise the theme's.

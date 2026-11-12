@@ -1333,6 +1333,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   return (
     <div
       ref={paneRef}
+      className="mail-message-pane"
       style={{
         flex: 1, display: 'flex', flexDirection: 'column',
         overflow: 'hidden', background: 'var(--bg-primary)',
@@ -1343,7 +1344,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
       {/* Back bar: on a phone, and in List first (#596) */}
       {(isMobile || listFirst) && !windowMode && (
-        <div style={{
+        <div className="mail-reader-backbar" style={{
           display: 'flex', alignItems: 'center', gap: 8,
           paddingTop: 'calc(var(--sat) + 10px)',
           paddingBottom: 'calc(10px - var(--sat-trim))', paddingLeft: 14, paddingRight: 14,
@@ -1365,7 +1366,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
             </svg>
             {t('common.back')}
           </button>
-          <div style={{
+          <div className="mail-reader-back-subject" style={{
             flex: 1, minWidth: 0,
             fontSize: 14, fontWeight: 500, color: 'var(--text-primary)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -1410,7 +1411,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           giving way down to TOUCH_MIN when a larger font size leaves the row too narrow.
           A labeled group of plain buttons, each its own Tab stop, rather than role="toolbar", which
           promises arrow-key movement between them that the pane has never had. */}
-      <div role="group" aria-label={t('shortcuts.groups.messageActions')} style={{
+      <div className="mail-reader-toolbar" role="group" aria-label={t('shortcuts.groups.messageActions')} style={{
         padding: isMobile ? '0 8px' : '8px 16px', borderBottom: '1px solid var(--border-subtle)',
         display: 'flex', alignItems: 'center', gap: isMobile ? 0 : 6, flexShrink: 0,
         boxShadow: paneScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
@@ -1547,14 +1548,15 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       {/* Single scroll container — sender card + email body scroll together */}
       <div
         ref={scrollContainerRef}
+        className="mail-reader-scroll"
         onScroll={e => setPaneScrolled(e.currentTarget.scrollTop > 4)}
         onContextMenu={handlePaneContextMenu}
         style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', background: 'var(--bg-primary)' }}
       >
-      <div style={{ padding: isMobile ? '12px 0 0' : '24px 28px 0' }}>
+      <div className="mail-reader-header" style={{ padding: isMobile ? '12px 0 0' : '24px 28px 0' }}>
 
         {/* Sender card — subject lives here as the card header */}
-        <div className="msg-card" style={{
+        <div className="msg-card mail-reader-sender-card" style={{
           marginBottom: isMobile ? 12 : 24,
           marginLeft: isMobile ? 0 : undefined,
           marginRight: isMobile ? 0 : undefined,
@@ -1567,7 +1569,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           boxShadow: isMobile ? 'none' : 'var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,0.04)',
         }}>
           {/* Subject */}
-          <div style={{
+          <div className="mail-reader-subject" style={{
             padding: '14px 16px 12px',
             borderBottom: '1px solid var(--border-subtle)',
             fontSize: 17, fontWeight: 600,
@@ -1588,7 +1590,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px' }}>
+          <div className="mail-reader-sender" style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px' }}>
             {/* Avatar */}
             <div style={{
               width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
@@ -1727,7 +1729,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
             </div>
 
             {/* Date + account */}
-            <div style={{ flexShrink: 0, textAlign: 'right' }}>
+            <div className="mail-reader-date" style={{ flexShrink: 0, textAlign: 'right' }}>
               <div style={{ fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
                 {formatMessageDateTime(message.date, { withYear: !isMobile })}
               </div>
@@ -1855,7 +1857,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
       {/* HTML email — iframe sized to full content height; outer container scrolls */}
       {!loadingBody && !bodyError && body?.html && (
-        <div style={{ padding: isMobile ? '0 0 16px' : '0 28px 24px' }}>
+        <div className="mail-reader-body-wrap" style={{ padding: isMobile ? '0 0 16px' : '0 28px 24px' }}>
           {/* Unsubscribe banner — shown for newsletter messages that have a List-Unsubscribe header */}
           {message.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'done' && (
             <UnsubscribeNotice status={unsubscribeStatus} onUnsubscribe={handleUnsubscribe} />
@@ -1899,7 +1901,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
               saving={savingAllow}
             />
           )}
-          <div className="msg-card" style={{
+          <div className="msg-card mail-reader-body-card" style={{
             position: 'relative',
             padding: '14px 16px 12px',
             // The frame's own background, so the card and the body read as one surface: the
@@ -1956,7 +1958,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
       {/* Plain-text email — no internal scroll, outer container handles it */}
       {!loadingBody && !bodyError && body?.text && !body?.html && (
-        <div style={{
+        <div className="mail-reader-body-wrap" style={{
           padding: isMobile ? '0 0px 16px' : '0 28px 24px',
         }}>
           {message.list_unsubscribe && !message.unsubscribed_at && unsubscribeStatus !== 'done' && (
@@ -1982,7 +1984,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
               </button>
             </div>
           )}
-          <div className="msg-card" style={{
+          <div className="msg-card mail-reader-body-card" style={{
             margin: 0, padding: '14px 16px 12px',
             whiteSpace: 'pre-wrap', wordBreak: 'break-word',
             fontSize: 14, color: bodyDark ? 'var(--text-primary)' : '#1a1a1a', lineHeight: 1.7,
