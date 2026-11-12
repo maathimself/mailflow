@@ -136,10 +136,24 @@
 [data-mailflow-layout="gmail"] .gmail-shell :is(button, input, select, [tabindex]):focus-visible { outline: 2px solid var(--accent) !important; outline-offset: 2px; }
 @media (max-width: 1100px) {
   [data-mailflow-layout="gmail"] .gmail-shell { --gmail-sidebar-width: 220px; }
-  [data-mailflow-layout="gmail"] .gmail-shell .mail-row-sender { flex-basis: 144px !important; }
-  [data-mailflow-layout="gmail"] .gmail-shell .mail-row-snippet { display: none !important; }
-  [data-mailflow-layout="gmail"] .gmail-shell .mail-row-subject { flex: 1; max-width: none; }
 }
+
+/* Row columns follow the list's measured width (usePaneWidthTier), not the viewport: both
+   sidebars and the font scale take their share before the list gets any. */
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="medium"] .mail-row-sender { flex-basis: 144px !important; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="medium"] .mail-row-snippet { display: none !important; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="medium"] .mail-row-subject { flex: 1; max-width: none; }
+
+/* Too narrow for one line: sender and date above, subject and its badges below, which is
+   the row MailFlow already draws without the skin. */
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .mail-list-row { gap: 8px !important; padding: 8px 12px !important; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .gmail-row-controls { flex-basis: 44px; gap: 8px; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .mail-row-content { display: block; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .mail-row-heading { display: flex !important; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .mail-row-sender { flex: 1 1 0 !important; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .mail-row-date { order: 0; min-width: 0; padding-left: 8px; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .mail-row-subject { max-width: none; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .mail-row-snippet { display: none !important; }
 @media (prefers-reduced-motion: reduce) {
   [data-mailflow-layout="gmail"] .gmail-shell * { transition: none !important; }
 }
@@ -148,3 +162,4 @@
    clipping the existing mobile controls, when their touch targets no longer fit. */
 [data-mailflow-layout="gmail"] .mail-mobile-header { flex-wrap: wrap; }
 [data-mailflow-layout="gmail"] .mail-mobile-header > button { min-width: 44px; min-height: 44px; }
+[data-mailflow-layout="gmail"] .mail-bulk-toolbar { flex-wrap: wrap; row-gap: 4px; }

@@ -237,39 +237,78 @@
   }
 }
 
-@media (min-width: 768px) {
-  /* One desktop action row, without moving or remounting its existing controls. */
-  [data-mailflow-layout="gmail"] .mail-message-pane:has(> .mail-reader-backbar),
-  [data-mailflow-layout="gmail"] .mail-conversation-pane:has(> .mail-reader-backbar) {
-    display: grid !important;
-    grid-template-columns: auto minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
-  }
+/* The desktop reader follows its measured width (usePaneWidthTier), not the viewport. */
+[data-mailflow-layout="gmail"] [data-pane-width] .mail-reader-backbar {
+  padding: 4px 8px 4px 16px !important;
+  min-height: 48px;
+  box-sizing: border-box;
+}
 
-  [data-mailflow-layout="gmail"] .mail-reader-backbar {
-    grid-column: 1;
-    grid-row: 1;
-    padding: 4px 8px 4px 16px !important;
-    min-height: 48px;
-    box-sizing: border-box;
-  }
+[data-mailflow-layout="gmail"] [data-pane-width] .mail-reader-back-subject {
+  display: none;
+}
 
-  [data-mailflow-layout="gmail"] .mail-reader-back-subject {
-    display: none;
-  }
+[data-mailflow-layout="gmail"] [data-pane-width] .mail-reader-toolbar {
+  min-width: 0;
+  min-height: 48px;
+  flex-wrap: wrap;
+}
 
-  [data-mailflow-layout="gmail"] .mail-reader-toolbar {
-    grid-column: 2;
-    grid-row: 1;
-    min-width: 0;
-    min-height: 48px;
-    flex-wrap: wrap;
-  }
+/* One action row beside Back, without moving or remounting its existing controls. In a
+   narrower pane Back keeps its own row and the actions wrap across the full width below. */
+[data-mailflow-layout="gmail"] [data-pane-width="wide"] .mail-message-pane:has(> .mail-reader-backbar),
+[data-mailflow-layout="gmail"] [data-pane-width="wide"] .mail-conversation-pane:has(> .mail-reader-backbar) {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
 
-  [data-mailflow-layout="gmail"] .mail-reader-scroll,
-  [data-mailflow-layout="gmail"] .mail-conversation-stack {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    min-height: 0;
-  }
+[data-mailflow-layout="gmail"] [data-pane-width="wide"] .mail-reader-backbar {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+[data-mailflow-layout="gmail"] [data-pane-width="wide"] .mail-reader-toolbar {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+[data-mailflow-layout="gmail"] [data-pane-width="wide"] .mail-reader-scroll,
+[data-mailflow-layout="gmail"] [data-pane-width="wide"] .mail-conversation-stack {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-height: 0;
+}
+
+[data-mailflow-layout="gmail"] [data-pane-width="narrow"] .mail-reader-header,
+[data-mailflow-layout="gmail"] [data-pane-width="narrow"] .mail-conversation-stack {
+  padding: 16px 12px 0 !important;
+}
+
+[data-mailflow-layout="gmail"] [data-pane-width="narrow"] .mail-reader-subject {
+  padding: 0 0 20px !important;
+  font-size: 1.25rem !important;
+  overflow-wrap: anywhere;
+}
+
+[data-mailflow-layout="gmail"] [data-pane-width="narrow"] .mail-reader-sender,
+[data-mailflow-layout="gmail"] [data-pane-width="narrow"] .mail-conversation-sender {
+  flex-wrap: wrap;
+}
+
+/* On its own line under the name, so the name keeps the row's width. The basis leaves room
+   for the margin: the block does not shrink, so a full-width basis would overhang the pane. */
+[data-mailflow-layout="gmail"] [data-pane-width="narrow"] .mail-reader-date {
+  flex-basis: calc(100% - 52px);
+  margin-left: 52px;
+  text-align: left !important;
+}
+
+[data-mailflow-layout="gmail"] [data-pane-width="narrow"] .mail-reader-body-wrap {
+  padding: 0 12px 16px !important;
+}
+
+[data-mailflow-layout="gmail"] [data-pane-width="narrow"] .mail-conversation-subject {
+  margin: 0 12px 20px;
+  font-size: 1.25rem;
 }

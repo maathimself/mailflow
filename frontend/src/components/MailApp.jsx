@@ -20,6 +20,7 @@ import { applyMarkRead } from '../utils/markRead.js';
 import { buildKeyMap, resolveShortcutAction, shortcutActionText, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
 import GmailHeader from './GmailHeader.jsx';
+import { usePaneWidthTier } from '../hooks/usePaneWidthTier.js';
 import MessageList from './MessageList.jsx';
 import ReadingPane from './ReadingPane.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
@@ -130,6 +131,8 @@ export default function MailApp() {
   const isMobile = useMobile();
   const gmailDesktop = layout === 'gmail' && !isMobile;
   const [searchTarget, setSearchTarget] = useState(null);
+  const listPaneRef = usePaneWidthTier(gmailDesktop);
+  const readerPaneRef = usePaneWidthTier(gmailDesktop);
   const sidebarDragRef = useRef(null);
   const sidebarResizeRef = useRef(null);
   const listResizeRef = useRef(null);
@@ -944,10 +947,10 @@ export default function MailApp() {
               {listFirst ? (
                 <>
                   {/* Both stay mounted, as on a phone, so the list keeps its place behind a message. */}
-                  <div style={{ display: selectedMessageId ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+                  <div ref={listPaneRef} style={{ display: selectedMessageId ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
                     <MessageList searchTarget={gmailDesktop ? searchTarget : null} />
                   </div>
-                  <div style={{ display: selectedMessageId ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+                  <div ref={readerPaneRef} style={{ display: selectedMessageId ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
                     <ReadingPane />
                   </div>
                 </>
