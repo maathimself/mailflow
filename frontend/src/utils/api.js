@@ -47,7 +47,8 @@ async function request(method, path, body, extraHeaders, { quiet = false } = {})
     // (and the server's clock, for a scheduled time it refused) which refusal it was.
     throw Object.assign(new Error(err.error || 'Request failed'), {
       status: res.status,
-      ...(typeof err.code === 'string' ? { code: err.code } : {}),
+      ...(typeof err.code === 'string' ? { code: err.code } :
+        path === '/webhooks/test' && typeof err.skipped === 'string' ? { code: err.skipped } : {}),
       ...(typeof err.serverNow === 'string' ? { serverNow: err.serverNow } : {}),
       // What a scheduled message is doing when the server refused to change it (sending, sent...).
       ...(typeof err.status === 'string' ? { state: err.status } : {}),
@@ -188,6 +189,14 @@ async function endPushSubscription() {
 }
 
 export const api = {
+  webhooks: {
+    get: () => request('GET', '/webhooks'),
+    save: data => request('PUT', '/webhooks', data),
+    test: () => request('POST', '/webhooks/test'),
+    remove: () => request('DELETE', '/webhooks'),
+    getAdmin: () => request('GET', '/webhooks/admin'),
+    saveAdmin: data => request('PUT', '/webhooks/admin', data),
+  },
   get: (path) => request('GET', path),
   post: (path, body, extraHeaders) => request('POST', path, body, extraHeaders),
   put: (path, body) => request('PUT', path, body),
