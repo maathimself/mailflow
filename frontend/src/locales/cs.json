@@ -2444,6 +2444,35 @@
     "appPasswordNote": "Gmail vyžaduje heslo aplikace, ne vaše běžné heslo. Zapněte pro účet Google dvoufázové ověření, vytvořte heslo aplikace a zadejte ho do pole pro heslo.",
     "createAppPassword": "Vytvořit heslo aplikace"
   },
+  "templates": {
+    "title": "Šablony",
+    "new": "Nový úryvek",
+    "name": "Název",
+    "content": "Obsah",
+    "empty": "Zatím žádné úryvky.",
+    "deleteConfirm": "Smazat tento úryvek?",
+    "insert": "Vložit",
+    "saveContent": "Uložit jako úryvek",
+    "recipientChanged": "Příjemce se změnil. Vložte úryvek znovu.",
+    "hint": "Datum se doplní při vložení, jména po zadání prvního příjemce Komu. Chybějící hodnoty zůstanou jako proměnné.",
+    "variables": {
+      "insert": "Vložit proměnnou",
+      "placeholder": "Vložit zástupný text",
+      "confirm": "Vložit",
+      "hint": "Vyberte proměnnou, kterou chcete vložit na pozici kurzoru.",
+      "date": "Datum",
+      "longDate": "Dlouhé datum",
+      "dateTime": "Datum a čas",
+      "month": "Měsíc",
+      "fullName": "Celé jméno",
+      "givenName": "Křestní jméno",
+      "surname": "Příjmení",
+      "groups": {
+        "date": "Datum",
+        "contact": "Kontakt"
+      }
+    }
+  },
   "webhooks": {
     "useToken": "Použít ověřovací token",
     "removeConfirm": "Smazat toto nastavení? Oznámení se vypnou a uložená adresa URL i token se odstraní.",

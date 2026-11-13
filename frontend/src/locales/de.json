@@ -2425,6 +2425,35 @@
     "appPasswordNote": "Gmail braucht ein App-Passwort, nicht Ihr normales Passwort. Schalten Sie die Bestätigung in zwei Schritten für Ihr Google-Konto ein, erstellen Sie dann ein App-Passwort und geben Sie es im Passwortfeld ein.",
     "createAppPassword": "App-Passwort erstellen"
   },
+  "templates": {
+    "title": "Vorlagen",
+    "new": "Neuer Textbaustein",
+    "name": "Name",
+    "content": "Inhalt",
+    "empty": "Noch keine Textbausteine.",
+    "deleteConfirm": "Diesen Textbaustein löschen?",
+    "insert": "Einfügen",
+    "saveContent": "Als Textbaustein speichern",
+    "recipientChanged": "Der Empfänger hat sich geändert. Füge den Textbaustein erneut ein.",
+    "hint": "Datumswerte werden beim Einfügen ausgefüllt, Kontaktnamen nach Eingabe des ersten An-Empfängers. Fehlende Werte bleiben als Platzhalter.",
+    "variables": {
+      "insert": "Variable einfügen",
+      "placeholder": "Platzhalter einfügen",
+      "confirm": "Einfügen",
+      "hint": "Wähle eine Variable zum Einfügen an der Cursorposition.",
+      "date": "Datum",
+      "longDate": "Langes Datum",
+      "dateTime": "Datum und Uhrzeit",
+      "month": "Monat",
+      "fullName": "Vollständiger Name",
+      "givenName": "Vorname",
+      "surname": "Nachname",
+      "groups": {
+        "date": "Datum",
+        "contact": "Kontakt"
+      }
+    }
+  },
   "webhooks": {
     "useToken": "Authentifizierungstoken verwenden",
     "removeConfirm": "Diese Benachrichtigungskonfiguration löschen? Benachrichtigungen werden beendet und die gespeicherte URL sowie das Token entfernt.",

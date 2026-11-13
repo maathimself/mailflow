@@ -2425,6 +2425,35 @@
     "appPasswordNote": "Gmail demande un mot de passe d'application, pas votre mot de passe habituel. Activez la validation en deux étapes de votre compte Google, puis créez un mot de passe d'application et saisissez-le dans le champ du mot de passe.",
     "createAppPassword": "Créer un mot de passe d'application"
   },
+  "templates": {
+    "title": "Modèles",
+    "new": "Nouvel extrait",
+    "name": "Nom",
+    "content": "Contenu",
+    "empty": "Aucun extrait pour le moment.",
+    "deleteConfirm": "Supprimer cet extrait ?",
+    "insert": "Insérer",
+    "saveContent": "Enregistrer comme extrait",
+    "recipientChanged": "Le destinataire a changé. Insérez à nouveau l’extrait.",
+    "hint": "Les dates sont renseignées à l’insertion, les noms après la saisie du premier destinataire À. Les valeurs manquantes restent des variables.",
+    "variables": {
+      "insert": "Insérer une variable",
+      "placeholder": "Insérer un espace réservé",
+      "confirm": "Insérer",
+      "hint": "Choisissez une variable à insérer à la position du curseur.",
+      "date": "Date",
+      "longDate": "Date longue",
+      "dateTime": "Date et heure",
+      "month": "Mois",
+      "fullName": "Nom complet",
+      "givenName": "Prénom",
+      "surname": "Nom de famille",
+      "groups": {
+        "date": "Date",
+        "contact": "Contact"
+      }
+    }
+  },
   "webhooks": {
     "useToken": "Utiliser un jeton d’authentification",
     "removeConfirm": "Supprimer cette configuration ? Les notifications seront arrêtées et l’URL ainsi que le jeton enregistrés seront supprimés.",

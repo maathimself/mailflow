@@ -2425,6 +2425,35 @@
     "appPasswordNote": "Gmail needs an app password, not your regular password. Turn on 2-Step Verification for your Google account, then create an app password and enter it in the password field.",
     "createAppPassword": "Create an app password"
   },
+  "templates": {
+    "title": "Templates",
+    "new": "New Snippet",
+    "name": "Name",
+    "content": "Content",
+    "empty": "No snippets yet.",
+    "deleteConfirm": "Delete this snippet?",
+    "insert": "Insert",
+    "saveContent": "Save As Snippet",
+    "recipientChanged": "The recipient changed. Insert the snippet again.",
+    "hint": "Dates fill when inserted. Contact names fill once the first To recipient is entered. Missing values stay as tokens.",
+    "variables": {
+      "insert": "Insert variable",
+      "placeholder": "Insert placeholder",
+      "confirm": "Insert",
+      "hint": "Choose a variable to insert at the cursor.",
+      "date": "Date",
+      "longDate": "Long Date",
+      "dateTime": "Date and Time",
+      "month": "Month",
+      "fullName": "Full Name",
+      "givenName": "Given Name",
+      "surname": "Surname",
+      "groups": {
+        "date": "Date",
+        "contact": "Contact"
+      }
+    }
+  },
   "webhooks": {
     "useToken": "Use authentication token",
     "removeConfirm": "Delete this notification configuration? Notifications will stop, and the saved URL and token will be removed.",

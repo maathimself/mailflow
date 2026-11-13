@@ -115,6 +115,13 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Two locales sharing a value is only allowed if both appear in the same group.
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
+  'templates.name': [['en', 'de'], ['it', 'ptBR']],
+  'templates.variables.date': [['en', 'fr'], ['it', 'ptBR', 'pl'], ['de', 'cs']],
+  'templates.variables.groups.date': [['en', 'fr'], ['it', 'ptBR', 'pl'], ['de', 'cs']],
+  'templates.variables.groups.contact': [['en', 'fr'], ['de', 'cs', 'pl']],
+  'templates.variables.fullName': [['it', 'ptBR']],
+  'templates.variables.givenName': [['it', 'ptBR']],
+
   // ── List sort menu (#528) ───────────────────────────────────────────────────
   'messageList.sortSummary':                'any', // "{{sort}}, {{dir}}": only the placeholders and a comma
   'messageList.sortDate':                   [['en', 'fr'], ['it', 'ptBR', 'pl'], ['cs', 'de']], // Date / Data / Datum

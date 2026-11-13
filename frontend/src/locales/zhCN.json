@@ -2425,6 +2425,35 @@
     "appPasswordNote": "Gmail 需要应用专用密码，而不是你的常用密码。请为 Google 帐号开启两步验证，然后创建应用专用密码并填入密码栏。",
     "createAppPassword": "创建应用专用密码"
   },
+  "templates": {
+    "title": "模板",
+    "new": "新建片段",
+    "name": "名称",
+    "content": "内容",
+    "empty": "暂无已保存的片段。",
+    "deleteConfirm": "删除此片段？",
+    "insert": "插入",
+    "saveContent": "另存为片段",
+    "recipientChanged": "收件人已更改。请重新插入片段。",
+    "hint": "插入时填写日期，输入第一位收件人后填写联系人姓名。缺失的值保留为变量。",
+    "variables": {
+      "insert": "插入变量",
+      "placeholder": "插入占位符",
+      "confirm": "插入",
+      "hint": "选择要在光标处插入的变量。",
+      "date": "日期",
+      "longDate": "完整日期",
+      "dateTime": "日期和时间",
+      "month": "月份",
+      "fullName": "全名",
+      "givenName": "名字",
+      "surname": "姓氏",
+      "groups": {
+        "date": "日期",
+        "contact": "联系人"
+      }
+    }
+  },
   "webhooks": {
     "useToken": "使用认证令牌",
     "removeConfirm": "删除此通知配置？此操作将关闭通知，并清除已保存的地址和令牌。",

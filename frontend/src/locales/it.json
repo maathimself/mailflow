@@ -2425,6 +2425,35 @@
     "appPasswordNote": "Gmail richiede una password per le app, non la tua password abituale. Attiva la verifica in due passaggi per il tuo account Google, poi crea una password per le app e inseriscila nel campo della password.",
     "createAppPassword": "Crea una password per le app"
   },
+  "templates": {
+    "title": "Modelli",
+    "new": "Nuovo frammento",
+    "name": "Nome",
+    "content": "Contenuto",
+    "empty": "Nessun frammento salvato.",
+    "deleteConfirm": "Eliminare questo frammento?",
+    "insert": "Inserisci",
+    "saveContent": "Salva come frammento",
+    "recipientChanged": "Il destinatario è cambiato. Inserisci di nuovo il frammento.",
+    "hint": "Le date vengono compilate all’inserimento. I nomi vengono compilati dopo aver inserito il primo destinatario A. I valori mancanti restano segnaposto.",
+    "variables": {
+      "insert": "Inserisci variabile",
+      "placeholder": "Inserisci segnaposto",
+      "confirm": "Inserisci",
+      "hint": "Scegli una variabile da inserire nella posizione del cursore.",
+      "date": "Data",
+      "longDate": "Data estesa",
+      "dateTime": "Data e ora",
+      "month": "Mese",
+      "fullName": "Nome completo",
+      "givenName": "Nome",
+      "surname": "Cognome",
+      "groups": {
+        "date": "Data",
+        "contact": "Contatto"
+      }
+    }
+  },
   "webhooks": {
     "useToken": "Usa un token di autenticazione",
     "removeConfirm": "Eliminare questa configurazione? Le notifiche verranno disattivate e URL e token salvati saranno rimossi.",
