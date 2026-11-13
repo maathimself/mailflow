@@ -100,28 +100,60 @@ function providerRequestError(error, request, callerSignal) {
   );
 }
 
-// Redirects are not followed. The base URL's host is checked against the private-host policy when
-// it is saved (saveConfig); a redirect would send the request, with a 307 its body (the email text
-// being summarized or drafted) too, to a host that was never checked, one the policy forbids among
-// them. fetch drops the API key on a redirect to another origin.
+// A redirect is followed only within the base URL's own origin, and only as a 307 or 308, which
+// keep the method and body. The base URL's host is checked against the private-host policy when it
+// is saved (saveConfig); a redirect elsewhere would send the request, with a 307 its body (the
+// email text being summarized or drafted) too, to a host that was never checked, one the policy
+// forbids among them. Those still fail, naming the target so it can be entered as the base URL
+// instead. Some providers redirect within their API (#401), which failed outright after e32c678f.
+const MAX_SAME_ORIGIN_REDIRECTS = 3;
+
+function redirectTarget(location, from) {
+  if (!location) return null;
+  try {
+    return new URL(location, from);
+  } catch {
+    return null;
+  }
+}
+
+// Origin and path only: a query string could carry a token.
+function describeTarget(target) {
+  if (!target || !['http:', 'https:'].includes(target.protocol)) return '';
+  return sanitizeText(`${target.origin}${target.pathname}`).slice(0, 300);
+}
+
 async function openProviderRequest(fetchFn, url, init, { signal, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const request = createRequestSignal(signal, timeoutMs, 'AI request timed out');
-  let response;
-  try {
-    response = await fetchFn(url, { ...init, redirect: 'manual', signal: request.signal });
-  } catch (error) {
-    request.cleanup();
-    throw providerRequestError(error, request, signal);
-  }
-  if (response.status >= 300 && response.status < 400) {
-    request.cleanup();
+  const origin = new URL(url).origin;
+  let current = url;
+  for (let hop = 0; ; hop += 1) {
+    let response;
+    try {
+      response = await fetchFn(current, { ...init, redirect: 'manual', signal: request.signal });
+    } catch (error) {
+      request.cleanup();
+      throw providerRequestError(error, request, signal);
+    }
+    if (response.status < 300 || response.status >= 400) return { ...request, response };
+
     response.body?.cancel().catch(() => {});
-    throw new AiProviderError(
-      `AI provider redirected the request (${response.status}); set the API base URL to the address it redirects to`,
-      { status: 502, expose: true },
-    );
+    const target = redirectTarget(response.headers?.get?.('location'), current);
+    const sameOrigin = target?.origin === origin;
+    if (sameOrigin && (response.status === 307 || response.status === 308) && hop < MAX_SAME_ORIGIN_REDIRECTS) {
+      current = target.href;
+      continue;
+    }
+
+    request.cleanup();
+    const where = describeTarget(target);
+    const message = sameOrigin
+      ? `AI provider redirected the request (${response.status}) to ${where}, which MailFlow does not follow; set the API base URL to that address`
+      : where
+        ? `AI provider redirected the request (${response.status}) to ${where}; set the API base URL to that address if it is the provider's`
+        : `AI provider redirected the request (${response.status}); set the API base URL to the address it redirects to`;
+    throw new AiProviderError(message, { status: 502, expose: true });
   }
-  return { ...request, response };
 }
 
 async function* parseChatCompletionsSse(response, { signal, secrets } = {}) {

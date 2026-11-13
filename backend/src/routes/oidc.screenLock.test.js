@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 // keyboard could link their own IdP identity to the account (and later sign in as its owner from
 // anywhere), or sign in again and swap the locked session for an unlocked one.
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: { connect: vi.fn() } }));
-vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, isEncrypted: () => false }));
+vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, encrypt: (v) => v, isEncrypted: () => false }));
 vi.mock('../index.js', () => ({ imapManager: { connectAllForUser: vi.fn() } }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req, _res, next) => next() }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));

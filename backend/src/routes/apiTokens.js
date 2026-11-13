@@ -7,7 +7,7 @@ import {
   apiTokensEnabled, countTokens, createToken, deleteToken, expiryDate, listTokens, MAX_TOKENS_PER_USER,
   normalizeIp, normalizeScopes, normalizeTokenName, TOKENS_OFF_ERROR,
 } from '../services/apiTokens.js';
-import { confirmReauth, expiryChoicesFor, oidcConfirmationState, reauthFor, userForReauth } from '../services/apiTokenReauth.js';
+import { confirmReauth, expiryChoicesFor, reauthFor, reauthState, userForReauth } from '../services/apiTokenReauth.js';
 
 // Personal API tokens (#617): Settings → Security lists, creates and revokes them with the browser
 // session. A token itself can only ask who it is.
@@ -35,8 +35,7 @@ router.get('/', async (req, res) => {
   const reauth = await reauthFor(user);
   res.json({
     enabled: await apiTokensEnabled(),
-    reauth,
-    ...(reauth === 'oidc' ? { oidc: await oidcConfirmationState(req, user) } : {}),
+    ...(await reauthState(req, user, reauth)),
     expiryChoices: expiryChoicesFor(reauth),
     maxTokens: MAX_TOKENS_PER_USER,
     tokens: await listTokens(user.id),

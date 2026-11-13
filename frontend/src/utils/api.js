@@ -20,7 +20,9 @@ export function setPageClosing(closing) {
   pageClosing = Boolean(closing);
 }
 
-async function request(method, path, body, extraHeaders) {
+// quiet: a refusal raises no lock or session event (bootPrefetch.js asks before the session is
+// confirmed, and its caller asks again the usual way when it was refused).
+async function request(method, path, body, extraHeaders, { quiet = false } = {}) {
   const opts = {
     method,
     credentials: 'include',
@@ -33,11 +35,11 @@ async function request(method, path, body, extraHeaders) {
   }
   const res = await fetch(BASE + path, opts);
   if (!res.ok) {
-    if (res.status === 423) {
+    if (res.status === 423 && !quiet) {
       // Server-enforced screen lock (#235) — surface the lock overlay from any call.
       window.dispatchEvent(new CustomEvent('mailflow:locked'));
     }
-    if (res.status === 401 && !path.startsWith('/auth/')) {
+    if (res.status === 401 && !path.startsWith('/auth/') && !quiet) {
       window.dispatchEvent(new CustomEvent('mailflow:session_expired'));
     }
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
@@ -228,7 +230,7 @@ export const api = {
   me: () => request('GET', '/auth/me'),
   forgotPassword: (email) => request('POST', '/auth/forgot-password', { email }),
   resetPassword: (token, password) => request('POST', '/auth/reset-password', { token, password }),
-  getPreferences: () => request('GET', '/auth/preferences'),
+  getPreferences: (opts) => request('GET', '/auth/preferences', undefined, undefined, opts),
   savePreferences: (prefs) => request('PATCH', '/auth/preferences', prefs),
   // The same write, but issued while the page is going away. keepalive lets the browser
   // finish the request after the document is gone; an ordinary fetch is cancelled and the
@@ -250,7 +252,8 @@ export const api = {
 
   // Recovery email (profile security)
   getRecoveryEmail: () => request('GET', '/auth/profile/recovery-email'),
-  updateRecoveryEmail: (email) => request('PATCH', '/auth/profile/recovery-email', { email }),
+  // `confirm` is what the server asked for: { password } or { totpCode } (apiTokenReauth.js).
+  updateRecoveryEmail: (email, confirm = {}) => request('PATCH', '/auth/profile/recovery-email', { email, ...confirm }),
 
   // TOTP / 2FA
   totp: {
@@ -259,6 +262,8 @@ export const api = {
     disable: (password) => request('POST', '/totp/disable', { password }),
     cancel: () => request('POST', '/totp/cancel'),
     challenge: (code, rememberDevice) => request('POST', '/auth/2fa/challenge', { code, rememberDevice }),
+    // The second step a pending sign-in waits for, after a single sign-on redirect.
+    pending: () => request('GET', '/auth/2fa/pending'),
     sendEmailOtp: () => request('POST', '/auth/2fa/send-email-otp'),
     verifyEmailOtp: (code, rememberDevice) => request('POST', '/auth/2fa/verify-email-otp', { code, rememberDevice }),
     enrollmentSetup: () => request('GET', '/auth/2fa/enrollment/setup'),
@@ -367,7 +372,7 @@ export const api = {
   },
 
   // Accounts
-  getAccounts: () => request('GET', '/accounts'),
+  getAccounts: (opts) => request('GET', '/accounts', undefined, undefined, opts),
   addAccount: (data) => request('POST', '/accounts', data),
   updateAccount: (id, data) => request('PUT', `/accounts/${id}`, data),
   reorderAccounts: (ids) => request('PATCH', '/accounts/order', { ids }),

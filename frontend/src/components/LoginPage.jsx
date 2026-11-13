@@ -24,6 +24,8 @@ export default function LoginPage() {
   const [emailOtpCode, setEmailOtpCode] = useState('');
   const [emailHint, setEmailHint] = useState('');
   const [emailOtpResending, setEmailOtpResending] = useState(false);
+  // The code could not be sent: the sign-in still waits for one (resend, or one from an admin).
+  const [emailSendFailed, setEmailSendFailed] = useState(false);
   const [mfaEnrollRequired, setMfaEnrollRequired] = useState(false);
   const [enrollData, setEnrollData] = useState(null); // { qrCode, secret }
   const [enrollStep, setEnrollStep] = useState('intro'); // intro | scan | verify
@@ -75,6 +77,31 @@ export default function LoginPage() {
       window.history.replaceState({}, '', '/');
     }
 
+    // A single sign-on that still needs MailFlow's second step (the user's authenticator, or
+    // the admin's 2FA policy) lands here instead of signing in: show that step, as password
+    // login does.
+    if (params.get('oidc_mfa')) {
+      window.history.replaceState({}, '', '/login');
+      api.totp.pending()
+        .then(data => {
+          setDeviceTrustAvailable(data.deviceTrustAvailable || false);
+          if (data.step === 'totp') setTotpRequired(true);
+          else if (data.step === 'email') {
+            setEmailHint(data.emailHint || '');
+            setEmailSendFailed(data.emailSendFailed === true);
+            setEmailOtpRequired(true);
+          } else if (data.step === 'enroll') {
+            setEnrollStep('intro');
+            setEnrollCode('');
+            setEnrollData(null);
+            setMfaEnrollRequired(true);
+          } else {
+            setOidcError(t('login.ssoSecondStepExpired'));
+          }
+        })
+        .catch(() => setOidcError(t('login.ssoSecondStepExpired')));
+    }
+
     // Handle password reset link: ?reset_token= in URL or sessionStorage (set by App.jsx
     // when the user was not logged in and the URL contained a reset token)
     const resetTokenParam = params.get('reset_token') || sessionStorage.getItem('mailflow_reset_token');
@@ -104,6 +131,7 @@ export default function LoginPage() {
         if (data.requiresEmailOTP) {
           setDeviceTrustAvailable(data.deviceTrustAvailable || false);
           setEmailHint(data.emailHint || '');
+          setEmailSendFailed(data.emailSendFailed === true);
           setEmailOtpRequired(true);
           setLoading(false);
           return;
@@ -168,6 +196,7 @@ export default function LoginPage() {
     try {
       const data = await api.totp.sendEmailOtp();
       setEmailHint(data.emailHint || emailHint);
+      setEmailSendFailed(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -426,7 +455,7 @@ export default function LoginPage() {
                 </h2>
               </div>
               <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--text-tertiary)' }}>
-                {t('login.emailOtp.desc', { email: emailHint })}
+                {emailSendFailed ? t('login.emailOtp.sendFailed', { email: emailHint }) : t('login.emailOtp.desc', { email: emailHint })}
               </p>
               <form onSubmit={submitEmailOtp} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <input

@@ -6,7 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 // session; the id_token's auth_time proves the provider did ask. An ordinary sign-in counts for
 // nothing here: the provider may have kept its own session.
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: { connect: vi.fn() } }));
-vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, isEncrypted: () => false }));
+vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, encrypt: (v) => v, isEncrypted: () => false }));
 vi.mock('../index.js', () => ({ imapManager: { connectAllForUser: vi.fn() } }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req, _res, next) => next() }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));

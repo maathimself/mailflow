@@ -40,7 +40,7 @@ vi.mock('../services/db.js', () => {
   });
   return { query, pool: {}, withTransaction: vi.fn(async fn => fn({ query })) };
 });
-vi.mock('../services/encryption.js', () => ({ decrypt: value => value, isEncrypted: () => false }));
+vi.mock('../services/encryption.js', () => ({ decrypt: value => value, encrypt: value => value, isEncrypted: () => false }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
 vi.mock('../services/hostValidation.js', () => ({ validateHost: vi.fn(async () => null) }));
 vi.mock('../services/connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn(async () => ({ allowPrivateHosts: false })) }));
@@ -219,14 +219,14 @@ describe('GET /api/auth/oidc/identities', () => {
         provider_name: 'Corp SSO', provider_slug: 'corp',
       }],
       reauth: 'oidc',
-      oidc: { providers: [{ slug: 'corp', name: 'Corp SSO' }], confirmedUntil: null },
+      oidc: { providers: [{ slug: 'corp', name: 'Corp SSO' }], confirmedUntil: null, totpToo: false },
     });
     expect(await (await identitiesOf('u-pw')).json()).toEqual({ identities: [], reauth: 'password' });
     expect(await (await identitiesOf('u-totp')).json()).toEqual({ identities: [], reauth: 'totp' });
     db.mfaEnforcement = 'required';
     expect(await (await identitiesOf('u-pw')).json()).toEqual({ identities: [], reauth: 'totpSetup' });
     db.internalAuthDisabled = true;
-    expect(await (await identitiesOf('u-pw')).json()).toEqual({ identities: [], reauth: 'oidc', oidc: { providers: [], confirmedUntil: null } });
+    expect(await (await identitiesOf('u-pw')).json()).toEqual({ identities: [], reauth: 'oidc', oidc: { providers: [], confirmedUntil: null, totpToo: false } });
   });
 
   it('says until when a sign-in through single sign-on counts', async () => {

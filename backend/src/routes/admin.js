@@ -774,14 +774,14 @@ router.get('/oidc', async (req, res) => {
     `SELECT id, name, slug, issuer_url, client_id, scopes, provisioning_mode,
             allowed_domains, enabled, require_email_verified, allow_insecure,
             admin_group_claim, admin_group_value, rp_initiated_logout, login_match_claim,
-            created_at, updated_at
+            idp_enforces_mfa, created_at, updated_at
      FROM oidc_providers ORDER BY name ASC`
   );
   res.json({ providers: result.rows });
 });
 
 router.post('/oidc', async (req, res) => {
-  const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure, admin_group_claim, admin_group_value, rp_initiated_logout, login_match_claim } = req.body;
+  const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure, admin_group_claim, admin_group_value, rp_initiated_logout, login_match_claim, idp_enforces_mfa } = req.body;
   if (!name || !slug || !issuer_url || !client_id || !client_secret) {
     return res.status(400).json({ error: 'name, slug, issuer_url, client_id and client_secret are required' });
   }
@@ -813,9 +813,9 @@ router.post('/oidc', async (req, res) => {
   }
   try {
     const result = await query(
-      `INSERT INTO oidc_providers (name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure, admin_group_claim, admin_group_value, rp_initiated_logout, login_match_claim)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-       RETURNING id, name, slug, issuer_url, client_id, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure, admin_group_claim, admin_group_value, rp_initiated_logout, login_match_claim`,
+      `INSERT INTO oidc_providers (name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure, admin_group_claim, admin_group_value, rp_initiated_logout, login_match_claim, idp_enforces_mfa)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+       RETURNING id, name, slug, issuer_url, client_id, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure, admin_group_claim, admin_group_value, rp_initiated_logout, login_match_claim, idp_enforces_mfa`,
       [
         name.trim(), slug.trim(), issuer_url.trim(), client_id.trim(),
         encrypt(client_secret),
@@ -829,6 +829,7 @@ router.post('/oidc', async (req, res) => {
         admin_group_value?.trim() || null,
         rp_initiated_logout === true,
         loginMatchClaim,
+        idp_enforces_mfa === true,
       ]
     );
     res.json({ provider: result.rows[0] });
@@ -855,7 +856,7 @@ async function wouldLockOut(providerId) {
 
 router.patch('/oidc/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure, admin_group_claim, admin_group_value, rp_initiated_logout, login_match_claim } = req.body;
+  const { name, slug, issuer_url, client_id, client_secret, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure, admin_group_claim, admin_group_value, rp_initiated_logout, login_match_claim, idp_enforces_mfa } = req.body;
 
   const existingResult = await query('SELECT allow_insecure, issuer_url, client_id FROM oidc_providers WHERE id = $1', [id]);
   if (!existingResult.rows.length) return res.status(404).json({ error: 'Provider not found' });
@@ -927,9 +928,10 @@ router.patch('/oidc/:id', async (req, res) => {
           admin_group_value = CASE WHEN $14::text IS DISTINCT FROM '__keep__' THEN $14::text ELSE admin_group_value END,
           rp_initiated_logout = COALESCE($15, rp_initiated_logout),
           login_match_claim = COALESCE($16, login_match_claim),
+          idp_enforces_mfa = COALESCE($17, idp_enforces_mfa),
           updated_at = NOW()
          WHERE id = $1
-         RETURNING id, name, slug, issuer_url, client_id, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure, admin_group_claim, admin_group_value, rp_initiated_logout, login_match_claim`,
+         RETURNING id, name, slug, issuer_url, client_id, scopes, provisioning_mode, allowed_domains, enabled, require_email_verified, allow_insecure, admin_group_claim, admin_group_value, rp_initiated_logout, login_match_claim, idp_enforces_mfa`,
         [
           id,
           name?.trim() || null,
@@ -947,6 +949,7 @@ router.patch('/oidc/:id', async (req, res) => {
           admin_group_value !== undefined ? (admin_group_value?.trim() || null) : '__keep__',
           rp_initiated_logout !== undefined ? rp_initiated_logout : null,
           loginMatchClaimParam,
+          typeof idp_enforces_mfa === 'boolean' ? idp_enforces_mfa : null,
         ]
       );
       if (updated.rows.length && (enabled === false || identityChanged)) revoked = await revokeProviderTokens(client, id);

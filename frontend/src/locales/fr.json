@@ -36,6 +36,7 @@
     "signInWith": "Se connecter avec {{name}}",
     "inviteEmail": "Invité en tant que",
     "inviteExpired": "Ce lien d'invitation est invalide ou a expiré.",
+    "ssoSecondStepExpired": "L’authentification unique a pris trop de temps. Reconnectez-vous.",
     "totp": {
       "title": "Double authentification",
       "instructions": "Entrez le code à 6 chiffres de votre application d'authentification.",
@@ -50,6 +51,7 @@
     "emailOtp": {
       "title": "Vérifiez votre email",
       "desc": "Un code de vérification a été envoyé à {{email}}",
+      "sendFailed": "Le code n’a pas pu être envoyé à {{email}}. Essayez Renvoyer le code, ou demandez un code de connexion à votre administrateur.",
       "codePh": "Code à 6 chiffres",
       "resend": "Renvoyer le code",
       "sending": "Envoi…",
@@ -511,6 +513,7 @@
     "noSearchResults": "Aucun résultat trouvé",
     "searching": "Recherche en cours…",
     "noSearchResultsDesc": "Aucun résultat pour {{query}}",
+    "searchScopeNote": "Recherche limitée à « {{folder}} »",
     "searchFailed": "Échec de la recherche",
     "clearSearch": "Effacer la recherche",
     "searchHelp": {
@@ -1511,6 +1514,7 @@
       "eventApiTokenCreated": "Jeton d'API créé",
       "eventApiTokenRevoked": "Jeton d'API révoqué",
       "eventApiTokenAuthFail": "Jeton d'API invalide",
+      "eventAdminSignInCode": "Code de connexion émis",
       "byActor": "par {{actor}}",
       "activityTitle": "Activité de connexion",
       "loginProtectionTitle": "Protection de connexion",
@@ -1524,7 +1528,7 @@
       "allowNonstandardPorts": "Autoriser les ports non standard",
       "allowNonstandardPortsDesc": "Autorise n'importe quel port IMAP ou SMTP, pas seulement 143/993 (IMAP) et 465/587 (SMTP). Nécessaire pour les serveurs comme protonmail-bridge qui utilisent des ports non standard.",
       "mfaEnforcementTitle": "Application de la MFA",
-      "mfaEnforcementDesc": "Obliger tous les utilisateurs à vérifier avec un deuxième facteur à la connexion. L'exiger supprime les jetons d'API confirmés uniquement par mot de passe.",
+      "mfaEnforcementDesc": "Obliger tous les utilisateurs à vérifier avec un deuxième facteur à la connexion. L'exiger supprime les jetons d'API confirmés uniquement par mot de passe. Cela inclut l’authentification unique, sauf si le fournisseur est configuré pour imposer lui-même la MFA.",
       "mfaEnforcementOff": "Facultatif",
       "mfaEnforcementRequired": "Obligatoire",
       "mfaDeviceTrustTitle": "Durée de confiance de l’appareil",
@@ -1535,8 +1539,12 @@
       "mfaDeviceTrustForever": "Permanent",
       "mfaSsoLockedNotice": "L'application MFA n'est pas applicable lorsque la connexion par mot de passe est désactivée. Les utilisateurs s'authentifient via SSO, qui gère ses propres exigences MFA.",
       "recoveryEmailTitle": "Email de récupération",
-      "recoveryEmailDesc": "Recevez un code de connexion par email si vous perdez accès à votre application d’authentification.",
-      "recoveryEmailPh": "vous@email.fr"
+      "recoveryEmailDesc": "Les liens de réinitialisation du mot de passe arrivent ici, ainsi que les codes de connexion quand l’authentification à deux facteurs est obligatoire et que vous n’avez pas d’application d’authentification. Un code ne remplace jamais une application d’authentification ; si vous perdez la vôtre, un administrateur peut la désactiver.",
+      "recoveryEmailPh": "vous@email.fr",
+      "recoveryConfirmPassword": "Confirmez la modification avec votre mot de passe",
+      "recoveryConfirmTotp": "Confirmez la modification avec votre code à deux facteurs actuel",
+      "recoveryConfirmOidc": "Confirmez d’abord la modification par l’authentification unique. Le bouton vous envoie chez le fournisseur pour vous reconnecter, puis ici pour enregistrer.",
+      "recoveryLoadFailed": "Votre e-mail de récupération n’a pas pu être chargé. Rechargez la page pour le modifier."
     },
     "apiTokens": {
       "title": "Jetons d'API",
@@ -1870,6 +1878,8 @@
       "allowInsecureDesc": "Contourne la validation de l'hôte et les vérifications du certificat TLS. À utiliser uniquement pour les fournisseurs en réseau local (ex. pocketid.internal). Déconseillé pour les déploiements accessibles depuis Internet.",
       "rpLogout": "Déconnexion SSO (RP-initiated)",
       "rpLogoutDesc": "À la déconnexion, met aussi fin à la session chez ce fournisseur en redirigeant vers son end-session endpoint, et pas seulement le cookie MailFlow. Nécessite que le fournisseur expose un end_session_endpoint et que l’URL de connexion MailFlow (…/login) soit enregistrée comme post-logout redirect URI.",
+      "idpEnforcesMfa": "Le fournisseur impose la MFA",
+      "idpEnforcesMfaDesc": "À activer seulement si ce fournisseur demande déjà un second facteur à chaque connexion. Ses connexions sautent alors la seconde étape de MailFlow : le code de l’application d’authentification de l’utilisateur et la MFA obligatoire de Sécurité.",
       "adminGroupClaim": "Claim de groupe administrateur",
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "Nom du claim JWT contenant les groupes de l'utilisateur (ex. groups). Laisser vide pour désactiver l'attribution du rôle admin par groupe.",

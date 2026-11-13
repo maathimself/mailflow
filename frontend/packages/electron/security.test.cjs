@@ -9,7 +9,7 @@ test('normalizes HTTPS hosts to an origin', () => {
   );
 });
 
-test('allows cleartext only for localhost, loopback, and RFC 1918 literals', () => {
+test('allows cleartext only for localhost, loopback, RFC 1918 and Tailscale (100.64.0.0/10) literals', () => {
   for (const host of [
     'http://localhost:3000',
     'http://127.0.0.1',
@@ -18,6 +18,9 @@ test('allows cleartext only for localhost, loopback, and RFC 1918 literals', () 
     'http://172.31.255.255',
     'http://192.168.1.20',
     'http://[::1]:8080',
+    'http://100.64.0.1',
+    'http://100.101.102.103:9080',
+    'http://100.127.255.255',
   ]) {
     assert.equal(security.normalizeHost(host), host);
   }
@@ -31,6 +34,8 @@ test('rejects cleartext public, lookalike, and non-RFC 1918 hosts', () => {
     'http://172.32.0.1',
     'http://192.169.0.1',
     'http://169.254.1.1',
+    'http://100.63.255.255',
+    'http://100.128.0.1',
   ]) {
     assert.throws(() => security.normalizeHost(host), /https/i);
   }

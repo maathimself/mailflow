@@ -169,9 +169,12 @@ export default function ApiTokensSection() {
   // While the time the server gave has not passed: a form left open can outlive a confirmation.
   const confirmedUntil = data?.oidc?.confirmedUntil ?? null;
   const oidcUntil = confirmedUntil && new Date(confirmedUntil).getTime() > Date.now() ? confirmedUntil : null;
+  // With two-factor on, single sign-on is confirmed with the code as well, as it signs in.
+  const totpToo = reauth === 'oidc' && data?.oidc?.totpToo === true;
+  const asksCode = reauth === 'totp' || (totpToo && !!oidcUntil);
   const confirmed = reauth === 'totp' ? form.code.length === 6
     : reauth === 'password' ? !!form.password
-      : reauth === 'oidc' ? !!oidcUntil : false;
+      : reauth === 'oidc' ? !!oidcUntil && (!totpToo || form.code.length === 6) : false;
   const canCreate = !creating && !!form.name.trim() && scopes.length > 0 && expiry !== undefined && confirmed;
 
   const setField = (field, value) => setForm(f => ({ ...f, [field]: value }));
@@ -196,7 +199,7 @@ export default function ApiTokensSection() {
         name: form.name.trim(),
         scopes,
         expiresInDays: expiry,
-        ...(reauth === 'totp' ? { totpCode: form.code } : {}),
+        ...(reauth === 'totp' || totpToo ? { totpCode: form.code } : {}),
         ...(reauth === 'password' ? { password: form.password } : {}),
       });
       unseen = { userId, name: res.apiToken?.name ?? form.name.trim(), token: res.token };
@@ -211,7 +214,7 @@ export default function ApiTokensSection() {
       setCreateError(err.message);
       // A code works once, and a refused password is typed again, as when turning 2FA off.
       setForm(f => ({ ...f, code: '', password: '' }));
-      const field = reauth === 'totp' ? `${ids}-code` : reauth === 'password' ? `${ids}-password` : null;
+      const field = asksCode ? `${ids}-code` : reauth === 'password' ? `${ids}-password` : null;
       // With nothing to type again, the refusal itself takes focus: Create may be disabled by now.
       focusNext.current = () => (field ? document.getElementById(field) : errorRef.current);
       // A refusal can mean the server's answer changed: tokens turned off, or 2FA turned on.
@@ -339,7 +342,7 @@ export default function ApiTokensSection() {
         </select>
       </div>
 
-      {reauth === 'totp' && (
+      {asksCode && (
         <div>
           <label htmlFor={`${ids}-code`} style={labelStyle}>{t('admin.apiTokens.totpLabel')}</label>
           <input
