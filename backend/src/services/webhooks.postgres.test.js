@@ -24,7 +24,7 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('webhook persistence an
     database = new pg.Pool({ connectionString: process.env.MAILFLOW_TEST_DATABASE_URL, options: `-c search_path=${schema}` });
     await database.query(`CREATE SCHEMA ${schema}`);
     await database.query('CREATE TABLE users (id uuid PRIMARY KEY, preferences jsonb DEFAULT \'{}\'::jsonb); CREATE TABLE system_settings (key text PRIMARY KEY, value text, updated_at timestamptz DEFAULT NOW())');
-    const migration = await readFile(new URL('../../migrations/0077_notification_webhooks.sql', import.meta.url), 'utf8');
+    const migration = await readFile(new URL('../../migrations/0078_notification_webhooks.sql', import.meta.url), 'utf8');
     await database.query(migration);
     // Idempotence matters when startup rechecks migration files.
     await database.query(migration);
