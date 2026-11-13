@@ -8,7 +8,7 @@ vi.mock('../db.js', () => ({ query: vi.fn() }));
 import { query } from '../db.js';
 import * as store from './store.js';
 
-const migration = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../migrations/0077_tags.sql'), 'utf8');
+const migration = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../migrations/0079_tags.sql'), 'utf8');
 const U1 = '00000000-0000-4000-8000-000000000001';
 const U2 = '00000000-0000-4000-8000-000000000002';
 const A1 = '00000000-0000-4000-8000-0000000000a1';
