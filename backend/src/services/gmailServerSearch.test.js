@@ -4,7 +4,7 @@ vi.mock('./imapManager.js', () => ({
   providerProfile: account => ((account.imap_host || '').includes('.gmail.com') ? { labelStore: true } : { labelStore: false }),
   withFreshClient: vi.fn(),
 }));
-import { gmailRawQuery, gmailServerMatches, GMAIL_SEARCH_MAX_RESULTS, _resetGmailSearchCache } from './gmailServerSearch.js';
+import { gmailRawQuery, gmailServerMatches, GMAIL_SEARCH_MAX_RESULTS, _resetGmailSearchCache, _setEngineLoader } from './gmailServerSearch.js';
 
 const GMAIL = { id: 'g1', imap_host: 'imap.gmail.com' };
 const OTHER = { id: 'o1', imap_host: 'mail.example.com' };
@@ -135,5 +135,25 @@ describe('gmailServerMatches', () => {
     const results = await Promise.all(['50', '503', '5037'].map(t => gmailServerMatches([GMAIL], [t], { withClient })));
     expect(client.searches).toEqual(['"5037"']);
     expect(results.map(r => r?.providerIds ?? null)).toEqual([null, null, ['1801']]);
+  });
+
+  it('tries loading the IMAP engine again after a failed load', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let attempts = 0;
+    _setEngineLoader(async () => {
+      attempts++;
+      if (attempts === 1) throw new Error("Cannot access 'ImapManager' before initialization");
+      return import('./imapManager.js');
+    });
+    try {
+      const withClient = withClientFor(fakeClient(alerts));
+      expect(await gmailServerMatches([GMAIL], ['5037'], { withClient })).toBeNull();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Gmail search skipped'));
+      expect((await gmailServerMatches([GMAIL], ['5037'], { withClient })).providerIds).toEqual(['1801']);
+      expect(attempts).toBe(2);
+    } finally {
+      _setEngineLoader(() => import('./imapManager.js'));
+      warn.mockRestore();
+    }
   });
 });

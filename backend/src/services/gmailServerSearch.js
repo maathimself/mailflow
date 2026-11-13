@@ -1,8 +1,21 @@
 import { extractImapError } from './imapError.js';
 
 // Loaded on first use, so the search route does not pull the IMAP engine in at import time.
+// A failed load is forgotten, so the next search tries again instead of Gmail search staying
+// off until a restart. `load` is replaceable for tests.
 let enginePromise = null;
-const engine = () => (enginePromise ??= import('./imapManager.js'));
+let loadEngine = () => import('./imapManager.js');
+const engine = () => {
+  if (!enginePromise) {
+    enginePromise = loadEngine();
+    enginePromise.catch(() => { enginePromise = null; });
+  }
+  return enginePromise;
+};
+export function _setEngineLoader(load) {
+  loadEngine = load;
+  enginePromise = null;
+}
 
 // Body search on Gmail's own copy (D#320). MailFlow does not download Gmail bodies in the
 // background (Gmail throttles BODY[] fetches), so a Gmail message nobody has opened is in the
