@@ -2425,6 +2425,21 @@
     "appPasswordNote": "Gmail richiede una password per le app, non la tua password abituale. Attiva la verifica in due passaggi per il tuo account Google, poi crea una password per le app e inseriscila nel campo della password.",
     "createAppPassword": "Crea una password per le app"
   },
+  "tags": {
+    "title": "Tag",
+    "header": {
+      "hide": "Nascondi i tag",
+      "none": "Nessun tag definito. Creane alcuni nelle impostazioni."
+    },
+    "settings": {
+      "note": "I tag sono salvati solo in MailFlow; non viene scritto nulla sui tuoi server di posta.",
+      "name": "Nome",
+      "color": "Colore",
+      "confirmDelete": "Eliminare il tag «{{name}}» e rimuoverlo da tutti i messaggi?",
+      "add": "Aggiungi un tag",
+      "create": "Crea"
+    }
+  },
   "templates": {
     "title": "Modelli",
     "new": "Nuovo frammento",

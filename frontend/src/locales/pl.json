@@ -2444,6 +2444,21 @@
     "appPasswordNote": "Gmail wymaga hasła aplikacji, a nie zwykłego hasła. Włącz weryfikację dwuetapową na koncie Google, utwórz hasło aplikacji i wpisz je w polu hasła.",
     "createAppPassword": "Utwórz hasło aplikacji"
   },
+  "tags": {
+    "title": "Tagi",
+    "header": {
+      "hide": "Ukryj tagi",
+      "none": "Nie zdefiniowano jeszcze tagów. Utwórz je w ustawieniach."
+    },
+    "settings": {
+      "note": "Tagi są przechowywane tylko w MailFlow; nic nie jest zapisywane na Twoich serwerach pocztowych.",
+      "name": "Nazwa",
+      "color": "Kolor",
+      "confirmDelete": "Usunąć tag „{{name}}” i usunąć go ze wszystkich wiadomości?",
+      "add": "Dodaj tag",
+      "create": "Utwórz"
+    }
+  },
   "templates": {
     "title": "Szablony",
     "new": "Nowy fragment",

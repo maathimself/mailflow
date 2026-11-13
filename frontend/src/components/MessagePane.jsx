@@ -68,6 +68,7 @@ import ContextMenu from './ContextMenu.jsx';
 import { holdUndoable, releaseUndoable, UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
 import { spamFolderPaths as spamFolderPathsFor } from '../utils/spamFolders.js';
 import { descaleCss } from '../utils/uiScaleCss.js';
+import { HeaderTags } from '../tags/TagPills.jsx';
 
 function linkifyText(text) {
   const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1584,6 +1585,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
                 })()}
               </span>
               <SpamBadge message={message} onClick={(m) => setSpamExplainMessageId(m.id)} />
+              <HeaderTags message={message} />
               <PluginSlot name="message-header-meta" ctx={{ message, account }} />
             </div>
           </div>

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { getPluginMeta } from '../plugins/registry.js';
 import { PluginSlot } from '../plugins/PluginSlot.jsx';
+import TagsSettings from '../tags/TagsSettings.jsx';
 import { newAiAction, AI_ACTION_LIMITS } from '../aiActions.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { api } from '../utils/api.js';
@@ -4470,6 +4471,8 @@ function CategoriesSection({ initialSubTab }) {
           </div>
         </>
       )}
+
+      <TagsSettings />
 
       {/* Plugins that contribute settings under the Categories tab (currently GTD). Rendered only
           while the plugin is activated; core knows nothing plugin-specific here. */}

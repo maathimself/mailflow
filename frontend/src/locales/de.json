@@ -2425,6 +2425,21 @@
     "appPasswordNote": "Gmail braucht ein App-Passwort, nicht Ihr normales Passwort. Schalten Sie die Bestätigung in zwei Schritten für Ihr Google-Konto ein, erstellen Sie dann ein App-Passwort und geben Sie es im Passwortfeld ein.",
     "createAppPassword": "App-Passwort erstellen"
   },
+  "tags": {
+    "title": "Tags",
+    "header": {
+      "hide": "Tags ausblenden",
+      "none": "Noch keine Tags definiert. Erstellen Sie welche in den Einstellungen."
+    },
+    "settings": {
+      "note": "Tags werden nur in MailFlow gespeichert; auf Ihren Mailservern wird nichts geschrieben.",
+      "name": "Name",
+      "color": "Farbe",
+      "confirmDelete": "Tag „{{name}}“ löschen und von allen Nachrichten entfernen?",
+      "add": "Tag hinzufügen",
+      "create": "Erstellen"
+    }
+  },
   "templates": {
     "title": "Vorlagen",
     "new": "Neuer Textbaustein",

@@ -8,6 +8,7 @@ import { downloadEml } from '../utils/downloadEml.js';
 import { isSnoozed } from '../utils/snoozeActions.js';
 import { SNOOZE_DEFAULT_TIME, snoozeCustomUntil, snoozeDefaultDate, snoozeMinDate } from '../utils/snoozeTimes.js';
 import { usePluginCollected } from '../plugins/PluginSlot.jsx';
+import TagMenu from '../tags/TagMenu.jsx';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
 import { buildMovePickerSections, movePickerSectionHeading, movePickerFoldersEmpty, runMovePickerAction } from '../utils/folderDisplay.js';
@@ -278,6 +279,13 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           label: t('contextMenu.categorize'),
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>,
           action: () => setCategorizeView('message'),
+          keepOpen: true,
+          hasSubmenu: true,
+        }] : []),
+        ...(menuPolicy.tags ? [{
+          label: t('tags.title'),
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>,
+          action: () => setPluginSubmenu(() => (onBack) => <TagMenu messageId={message.id} onBack={onBack} />),
           keepOpen: true,
           hasSubmenu: true,
         }] : []),

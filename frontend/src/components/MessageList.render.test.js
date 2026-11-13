@@ -1065,7 +1065,9 @@ describe('MessageList: a row\'s body loads while the mouse rests on it', () => {
     await mountRows([MESSAGE, row('msg-hover')]);
     await move('msg-hover');
     await settle(450);
-    assert.deepEqual(CALLS.map(c => `${c.method} ${c.path.replace(/^.*\/api/, '')}`), ['GET /mail/messages/msg-hover/body?prefetch=1']);
+    // The list's batched tag lookup for its rows is not part of the prefetch.
+    const calls = CALLS.filter(c => !c.path.includes('/api/tags/'));
+    assert.deepEqual(calls.map(c => `${c.method} ${c.path.replace(/^.*\/api/, '')}`), ['GET /mail/messages/msg-hover/body?prefetch=1']);
     assert.equal(useStore.getState().selectedMessageId, null, 'nothing opened');
     assert.equal(useStore.getState().messages.find(m => m.id === 'msg-hover').is_read, false);
   });

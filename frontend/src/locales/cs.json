@@ -2444,6 +2444,21 @@
     "appPasswordNote": "Gmail vyžaduje heslo aplikace, ne vaše běžné heslo. Zapněte pro účet Google dvoufázové ověření, vytvořte heslo aplikace a zadejte ho do pole pro heslo.",
     "createAppPassword": "Vytvořit heslo aplikace"
   },
+  "tags": {
+    "title": "Štítky",
+    "header": {
+      "hide": "Skrýt štítky",
+      "none": "Zatím nejsou definovány žádné štítky. Vytvořte je v nastavení."
+    },
+    "settings": {
+      "note": "Štítky se ukládají pouze v MailFlow; na vaše poštovní servery se nic nezapisuje.",
+      "name": "Název",
+      "color": "Barva",
+      "confirmDelete": "Smazat štítek „{{name}}“ a odebrat ho ze všech zpráv?",
+      "add": "Přidat štítek",
+      "create": "Vytvořit"
+    }
+  },
   "templates": {
     "title": "Šablony",
     "new": "Nový úryvek",

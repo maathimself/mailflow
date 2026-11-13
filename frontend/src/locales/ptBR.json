@@ -2425,6 +2425,21 @@
     "appPasswordNote": "O Gmail precisa de uma senha de app, não da sua senha normal. Ative a verificação em duas etapas da sua Conta do Google, crie uma senha de app e digite-a no campo de senha.",
     "createAppPassword": "Criar uma senha de app"
   },
+  "tags": {
+    "title": "Tags",
+    "header": {
+      "hide": "Ocultar tags",
+      "none": "Nenhuma tag definida ainda. Crie algumas nas configurações."
+    },
+    "settings": {
+      "note": "As tags ficam salvas apenas no MailFlow; nada é gravado nos seus servidores de e-mail.",
+      "name": "Nome",
+      "color": "Cor",
+      "confirmDelete": "Excluir a tag \"{{name}}\" e removê-la de todas as mensagens?",
+      "add": "Adicionar uma tag",
+      "create": "Criar"
+    }
+  },
   "templates": {
     "title": "Modelos",
     "new": "Novo trecho",

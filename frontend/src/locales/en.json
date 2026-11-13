@@ -2425,6 +2425,21 @@
     "appPasswordNote": "Gmail needs an app password, not your regular password. Turn on 2-Step Verification for your Google account, then create an app password and enter it in the password field.",
     "createAppPassword": "Create an app password"
   },
+  "tags": {
+    "title": "Tags",
+    "header": {
+      "hide": "Hide tags",
+      "none": "No tags defined yet. Create some in Settings."
+    },
+    "settings": {
+      "note": "Tags are stored in MailFlow only; nothing is written to your mail servers.",
+      "name": "Name",
+      "color": "Color",
+      "confirmDelete": "Delete the tag \"{{name}}\" and remove it from every message?",
+      "add": "Add a tag",
+      "create": "Create"
+    }
+  },
   "templates": {
     "title": "Templates",
     "new": "New Snippet",
