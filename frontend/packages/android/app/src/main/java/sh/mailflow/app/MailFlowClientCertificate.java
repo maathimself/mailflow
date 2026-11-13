@@ -31,6 +31,7 @@ import javax.net.ssl.X509ExtendedKeyManager;
 final class MailFlowClientCertificate {
     private static final String PREF_HOST = "clientCertHost";
     private static final String PREF_ALIAS = "clientCertAlias";
+    private static final String PREF_DECLINED_HOST = "clientCertDeclinedHost";
     private static final Executor executor = Executors.newSingleThreadExecutor();
     // Requests waiting on the picker or the key load, all for the configured host.
     private static final List<ClientCertRequest> pending = new ArrayList<>();
@@ -42,13 +43,19 @@ final class MailFlowClientCertificate {
             request.cancel();
             return;
         }
+        Context context = activity.getApplicationContext();
+        String alias = savedAlias(context, configuredHost);
+        // WebView cannot tell an optional certificate request from a required one, so a declined
+        // picker is not shown again for this host until the certificate is reset.
+        if (alias == null && isDeclined(context, configuredHost)) {
+            request.cancel();
+            return;
+        }
         synchronized (pending) {
             pending.add(request);
             if (pending.size() > 1) return;
         }
 
-        Context context = activity.getApplicationContext();
-        String alias = savedAlias(context, configuredHost);
         if (alias == null) {
             choose(activity, request, configuredHost);
             return;
@@ -87,7 +94,7 @@ final class MailFlowClientCertificate {
     }
 
     static void clear(Context context) {
-        MailFlowNativePlugin.getPrefs(context).edit().remove(PREF_HOST).remove(PREF_ALIAS).apply();
+        MailFlowNativePlugin.getPrefs(context).edit().remove(PREF_HOST).remove(PREF_ALIAS).remove(PREF_DECLINED_HOST).apply();
     }
 
     static boolean isConfiguredOrigin(String configuredHost, String requestHost, int requestPort) {
@@ -97,6 +104,22 @@ final class MailFlowClientCertificate {
 
     static String aliasForHost(String savedHost, String savedAlias, String host) {
         return host != null && host.equals(savedHost) ? savedAlias : null;
+    }
+
+    static boolean isDeclinedHost(String declinedHost, String host) {
+        return host != null && host.equals(declinedHost);
+    }
+
+    private static boolean isDeclined(Context context, String host) {
+        return isDeclinedHost(MailFlowNativePlugin.getPrefs(context).getString(PREF_DECLINED_HOST, null), host);
+    }
+
+    // Called when the host's page fails to load. A decline is kept only while the host loads without a
+    // certificate: a host that refuses one fails at the handshake (reported as a TLS error or, on some
+    // devices, a connection reset), and keeping the decline would leave "host unavailable" until Change
+    // host, also when Android answered the picker by itself because no certificate is installed.
+    static void forgetDecline(Context context) {
+        MailFlowNativePlugin.getPrefs(context).edit().remove(PREF_DECLINED_HOST).apply();
     }
 
     private static String savedAlias(Context context, String host) {
@@ -118,7 +141,13 @@ final class MailFlowClientCertificate {
                     if (!answered.compareAndSet(false, true)) return;
                     activity.runOnUiThread(() -> activity.getLifecycle().removeObserver(watcher));
                     executor.execute(() -> {
-                        if (alias == null || !proceed(context, host, alias)) cancelPending();
+                        if (alias == null) {
+                            // Only an explicit answer counts: a picker that closes unanswered or fails is asked again.
+                            MailFlowNativePlugin.getPrefs(context).edit().putString(PREF_DECLINED_HOST, host).apply();
+                            cancelPending();
+                        } else if (!proceed(context, host, alias)) {
+                            cancelPending();
+                        }
                     });
                 },
                 null,
@@ -147,7 +176,7 @@ final class MailFlowClientCertificate {
         }
         if (key == null || chain == null) return false;
 
-        MailFlowNativePlugin.getPrefs(context).edit().putString(PREF_HOST, host).putString(PREF_ALIAS, alias).apply();
+        MailFlowNativePlugin.getPrefs(context).edit().putString(PREF_HOST, host).putString(PREF_ALIAS, alias).remove(PREF_DECLINED_HOST).apply();
         for (ClientCertRequest request : drainPending()) request.proceed(key, chain);
         return true;
     }
