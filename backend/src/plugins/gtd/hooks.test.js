@@ -140,38 +140,38 @@ describe('gtd hooks — emitAfterDeferredCopySync', () => {
   });
 
   it('re-emits gtd_sections_updated after the deferred destination sync resolves', async () => {
-    const mgr = { syncFolderOnDemand: vi.fn().mockResolvedValue(undefined), broadcast: vi.fn() };
+    const mgr = { broadcast: vi.fn() };
     const account = { id: 'acct-1', user_id: 'user-1' }; // gtd_enabled falsy → no transition re-run
-    await emitAfterDeferredCopySync(mgr, account, 'Todo', 100, 'INBOX');
-    expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(account, 'Todo');
+    await emitAfterDeferredCopySync(mgr, account, 'Todo', 100, 'INBOX', Promise.resolve());
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'acct-1' }, 'user-1');
     expect(runGtdTransitions).not.toHaveBeenCalled();
   });
 
   it('does not emit when the deferred sync fails', async () => {
-    const mgr = { syncFolderOnDemand: vi.fn().mockRejectedValue(new Error('sync boom')), broadcast: vi.fn() };
+    const mgr = { broadcast: vi.fn() };
     const account = { id: 'acct-1', user_id: 'user-1' };
-    await emitAfterDeferredCopySync(mgr, account, 'Todo', 100, 'INBOX');
+    getGtdConfig.mockResolvedValue({ enabled: true });
+    await emitAfterDeferredCopySync(mgr, account, 'Todo', 100, 'INBOX', Promise.reject(new Error('sync boom')));
     expect(mgr.broadcast).not.toHaveBeenCalled();
     expect(runGtdTransitions).not.toHaveBeenCalled();
   });
 
   it('re-runs the transition engine over the copied message thread once the sibling syncs', async () => {
-    const mgr = { syncFolderOnDemand: vi.fn().mockResolvedValue(undefined), broadcast: vi.fn() };
+    const mgr = { broadcast: vi.fn() };
     const account = { id: 'acct-1', user_id: 'user-1' };
     getGtdConfig.mockResolvedValue({ enabled: true });
     query.mockResolvedValueOnce({ rows: [{ thread_key: 'thr-9' }] });
-    await emitAfterDeferredCopySync(mgr, account, 'Todo', 100, 'INBOX');
+    await emitAfterDeferredCopySync(mgr, account, 'Todo', 100, 'INBOX', Promise.resolve());
     expect(query.mock.calls[0][1]).toEqual(['acct-1', 100, 'INBOX']);
     expect(runGtdTransitions).toHaveBeenCalledWith(mgr, account, ['thr-9']);
   });
 
   it('swallows a transition re-run failure after still emitting', async () => {
-    const mgr = { syncFolderOnDemand: vi.fn().mockResolvedValue(undefined), broadcast: vi.fn() };
+    const mgr = { broadcast: vi.fn() };
     const account = { id: 'acct-1', user_id: 'user-1' };
     getGtdConfig.mockResolvedValue({ enabled: true });
     query.mockRejectedValueOnce(new Error('db boom'));
-    await emitAfterDeferredCopySync(mgr, account, 'Todo', 100, 'INBOX');
+    await emitAfterDeferredCopySync(mgr, account, 'Todo', 100, 'INBOX', Promise.resolve());
     expect(mgr.broadcast).toHaveBeenCalled();
     expect(runGtdTransitions).not.toHaveBeenCalled();
   });
@@ -188,12 +188,13 @@ describe('gtd hooks — afterLabelCopy / afterLabelRemove', () => {
     expect(mgr.syncFolderOnDemand).not.toHaveBeenCalled();
   });
 
-  it('afterLabelCopy kicks off the deferred reconcile on the non-UIDPLUS path (newUid null)', async () => {
+  it('afterLabelCopy observes the core-owned deferred sync', async () => {
     const mgr = { broadcast: vi.fn(), syncFolderOnDemand: vi.fn().mockResolvedValue(undefined) };
     const account = { id: 'a1', user_id: 'u1' };
-    await afterLabelCopy({ mgr, account, toFolder: 'Todo', fromFolder: 'INBOX', srcUid: 5, newUid: null });
+    const destinationSync = Promise.resolve();
+    await afterLabelCopy({ mgr, account, toFolder: 'Todo', fromFolder: 'INBOX', srcUid: 5, newUid: null, destinationSync });
     expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'gtd_sections_updated', accountId: 'a1' }, 'u1');
-    expect(mgr.syncFolderOnDemand).toHaveBeenCalledWith(account, 'Todo');
+    expect(mgr.syncFolderOnDemand).not.toHaveBeenCalled();
   });
 
   it('afterLabelRemove broadcasts the section refresh', async () => {

@@ -442,6 +442,92 @@ describe('API-key provider regression', () => {
     }
   });
 
+  // #401: some providers redirect within their own API. Same origin, 307/308: followed.
+  it('follows a 307 or 308 within the base URL\'s origin, keeping the method, body and key', async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 307, headers: { Location: '/v1/chat/completions/' } }))
+      .mockResolvedValueOnce(new Response(null, { status: 308, headers: { Location: 'https://api.example/v2/chat/completions' } }))
+      .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: 'after redirect' } }] }));
+    const { provider } = factory({ initial: legacy, fetchFn });
+
+    await expect(provider.completeText([{ role: 'user', content: 'Hi' }])).resolves.toBe('after redirect');
+    expect(fetchFn.mock.calls.map(([url]) => url)).toEqual([
+      'https://api.example/v1/chat/completions',
+      'https://api.example/v1/chat/completions/',
+      'https://api.example/v2/chat/completions',
+    ]);
+    for (const [, init] of fetchFn.mock.calls) {
+      expect(init.method).toBe('POST');
+      expect(init.redirect).toBe('manual');
+      expect(init.headers.Authorization).toBe('Bearer api-secret');
+      expect(JSON.parse(init.body).messages).toEqual([{ role: 'user', content: 'Hi' }]);
+    }
+  });
+
+  it('names a redirect to another origin without following it or showing its query', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(new Response(null, {
+      status: 307,
+      headers: { Location: 'https://eu.api.example/v1/chat/completions?token=leaky' },
+    }));
+    const { provider } = factory({ initial: legacy, fetchFn });
+    const err = await provider.completeText([{ role: 'user', content: 'Hi' }]).catch((e) => e);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(err.message).toContain('redirected the request (307) to https://eu.api.example/v1/chat/completions;');
+    expect(err.message).not.toContain('leaky');
+  });
+
+  it('does not follow a same-origin 301, 302 or 303, which would drop the body', async () => {
+    for (const status of [301, 302, 303]) {
+      const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status, headers: { Location: '/v2/chat/completions' } }));
+      const { provider } = factory({ initial: legacy, fetchFn });
+      const err = await provider.completeText([{ role: 'user', content: 'Hi' }]).catch((e) => e);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      expect(err.message).toContain(`(${status}) to https://api.example/v2/chat/completions, which MailFlow does not follow`);
+    }
+  });
+
+  it('stops following same-origin redirects after three', async () => {
+    const fetchFn = vi.fn().mockImplementation(async () => new Response(null, { status: 307, headers: { Location: '/v1/loop' } }));
+    const { provider } = factory({ initial: legacy, fetchFn });
+    const err = await provider.completeText([{ role: 'user', content: 'Hi' }]).catch((e) => e);
+    expect(fetchFn).toHaveBeenCalledTimes(4);
+    expect(err.status).toBe(502);
+    expect(err.message).toMatch(/redirected the request \(307\) to https:\/\/api\.example\/v1\/loop/);
+  });
+
+  it("follows a same-origin 307 with Node's own fetch and keeps the key", async () => {
+    const http = await import('node:http');
+    const hits = [];
+    const server = http.createServer((req, res) => {
+      hits.push([req.method, req.url, req.headers.authorization]);
+      if (req.url === '/v1/chat/completions') {
+        res.writeHead(307, { Location: '/v1/chat/completions/' });
+        res.end();
+        return;
+      }
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ choices: [{ message: { content: JSON.parse(body).messages[0].content } }] }));
+      });
+    });
+    await new Promise(r => server.listen(0, '127.0.0.1', r));
+    try {
+      const { provider } = factory({
+        initial: { ...legacy, baseUrl: `http://127.0.0.1:${server.address().port}/v1` },
+        fetchFn: (...args) => fetch(...args),
+      });
+      await expect(provider.completeText([{ role: 'user', content: 'echo me' }])).resolves.toBe('echo me');
+      expect(hits).toEqual([
+        ['POST', '/v1/chat/completions', 'Bearer api-secret'],
+        ['POST', '/v1/chat/completions/', 'Bearer api-secret'],
+      ]);
+    } finally {
+      server.close();
+    }
+  });
+
   it('bounds non-2xx provider errors without exposing the configured key', async () => {
     let cancelled = false;
     const fetchFn = vi.fn().mockResolvedValue(sseResponse(

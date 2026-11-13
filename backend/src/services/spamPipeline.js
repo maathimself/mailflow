@@ -1,3 +1,4 @@
+import { notifyMessageRowsDeleted } from './messageRowsDeleted.js';
 // Anti-spam auto-classification pipeline (v0.2) — V2-6.
 //
 // Called right after a NEW message row is inserted (imapManager processMsg,
@@ -210,10 +211,11 @@ async function autoMove(row, spamFolder, imap, messageId) {
       row.uid, row.folder, spamFolder,
     );
     if (newUid != null) {
-      await query(
-        'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4',
+      const deletedRows = await query(
+        'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id != $4 RETURNING account_id, folder, thread_key',
         [row.account_id, newUid, spamFolder, messageId],
       );
+      notifyMessageRowsDeleted({ id: row.account_id, user_id: row.owner_id }, deletedRows.rows);
       await query(
         'UPDATE messages SET folder = $1, uid = $2 WHERE id = $3',
         [spamFolder, newUid, messageId],
@@ -223,6 +225,7 @@ async function autoMove(row, spamFolder, imap, messageId) {
       // folder (#665), as in the manual /spam path: drop the row rather than keep it on that uid,
       // and let a sync of the spam folder file the message under its real one.
       const dropped = await query('DELETE FROM messages WHERE id = $1 RETURNING *', [messageId]);
+      notifyMessageRowsDeleted({ id: row.account_id, user_id: row.owner_id }, dropped.rows);
       rememberDroppedRows(spamFolder, dropped?.rows);
       Promise.resolve(imap.syncFolderOnDemand?.({ id: row.account_id }, spamFolder))
         .catch(err => console.warn(`Sync of ${spamFolder} after an auto-move without a new uid failed: ${err.message}`));

@@ -1,3 +1,4 @@
+import { notifyMessageRowsDeleted } from './messageRowsDeleted.js';
 import { query } from './db.js';
 import { rememberDroppedRows } from './movedRowCarry.js';
 import { resolveArchiveFolder, isAllMailFolder, adjustFolderCounts } from '../utils/mailUtils.js';
@@ -49,7 +50,7 @@ export async function archiveInboxCopy(imapManager, account, inboxCopy, fromFold
     let applied;
     let write;
     if (allMail) {
-      write = await query('DELETE FROM messages WHERE id = $1 AND folder = $2 RETURNING is_read', [inboxCopy.id, fromFolder]);
+      write = await query('DELETE FROM messages WHERE id = $1 AND folder = $2 RETURNING is_read, account_id, folder, thread_key', [inboxCopy.id, fromFolder]);
       applied = write.rowCount > 0;
     } else if (newUid != null) {
       write = await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3 AND folder = $4 RETURNING is_read', [archiveFolder, newUid, inboxCopy.id, fromFolder]);
@@ -62,13 +63,14 @@ export async function archiveInboxCopy(imapManager, account, inboxCopy, fromFold
     const uidKnown = allMail || newUid != null;
     if (applied) {
       const unread = write.rows?.[0]?.is_read === false ? 1 : 0;
-      adjustFolderCounts(accountId, fromFolder, -1, unread ? -1 : 0);
-      if (!allMail && uidKnown) adjustFolderCounts(accountId, archiveFolder, 1, unread);
+      await adjustFolderCounts(accountId, fromFolder, -1, unread ? -1 : 0);
+      if (!allMail && uidKnown) await adjustFolderCounts(accountId, archiveFolder, 1, unread);
       if (!uidKnown) {
         imapManager.syncFolderOnDemand(account, archiveFolder)
           .catch(err => console.warn(`Archive: sync of ${archiveFolder} after a move without UIDPLUS failed: ${err.message}`));
       }
     }
+    if (allMail || newUid == null) notifyMessageRowsDeleted(account, write.rows, fromFolder);
     // uidKnown: whether the server named the moved message's new uid. Without it the row was
     // dropped and waits for the destination's sync.
     return { archived: applied, noArchiveFolder: false, uidKnown };

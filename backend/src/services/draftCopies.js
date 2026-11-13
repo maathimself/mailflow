@@ -1,3 +1,4 @@
+import { notifyMessageRowsDeleted } from './messageRowsDeleted.js';
 import { query } from './db.js';
 import { findOwnedAccount } from './ownership.js';
 import { imapManager } from '../index.js';
@@ -91,7 +92,8 @@ export async function deleteSentDraft(userId, account, { uid, folder, accountId 
       console.error(`Draft: not deleting sent draft uid=${target.uid} in folder ${JSON.stringify(target.folder)}: the server copy's Message-ID does not match its local row`);
       return false;
     }
-    await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [target.account.id, target.uid, target.folder]);
+    const deletedRows = await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 RETURNING account_id, folder, thread_key', [target.account.id, target.uid, target.folder]);
+    notifyMessageRowsDeleted(target.account, deletedRows.rows);
     noteDraftsChanged(userId, target.account.id, target.folder);
     return true;
   } catch (err) {
