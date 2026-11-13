@@ -754,6 +754,18 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ language: lng });
   },
 
+  // Time format (#758): 'auto' follows the language as before, '12' / '24' force a
+  // 12- or 24-hour clock wherever formatDate.js renders a time. Read by that helper
+  // straight from localStorage, so the list and reading pane pick it up on render.
+  timeFormat: ['auto', '12', '24'].includes(localStorage.getItem('mailflow_time_format'))
+    ? localStorage.getItem('mailflow_time_format') : 'auto',
+  setTimeFormat: (val) => {
+    const v = ['auto', '12', '24'].includes(val) ? val : 'auto';
+    localStorage.setItem('mailflow_time_format', v);
+    set({ timeFormat: v });
+    schedulePrefSave({ timeFormat: v });
+  },
+
   // How conversations are shown: 'off', 'list' (threads expand inline in the list) or
   // 'pane' (a selected row opens the whole conversation in the reading area).
   //
@@ -1430,6 +1442,10 @@ export const useStore = create((set, get) => ({
         localStorage.setItem('mailflow_language', prefs.language);
         set({ language: prefs.language });
         i18n.changeLanguage(prefs.language);
+      }
+      if (['auto', '12', '24'].includes(prefs.timeFormat)) {
+        localStorage.setItem('mailflow_time_format', prefs.timeFormat);
+        set({ timeFormat: prefs.timeFormat });
       }
       if (isConversationMode(prefs.conversationMode) || typeof prefs.threadedView === 'boolean') {
         const mode = resolveConversationMode(prefs);

@@ -5711,7 +5711,7 @@ const LANGUAGES = [
 
 function LanguageTab() {
   const { t } = useTranslation();
-  const { language, setLanguage } = useStore();
+  const { language, setLanguage, timeFormat, setTimeFormat } = useStore();
 
   return (
     <div>
@@ -5753,6 +5753,26 @@ function LanguageTab() {
             </button>
           );
         })}
+      </div>
+
+      {/* Time format (#758): independent of the language above. Automatic keeps the
+          clock the language implies; 12- / 24-hour force it either way. */}
+      <div style={{ marginTop: 28 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+          {t('admin.appearance.timeFormat')}
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 20 }}>
+          {t('admin.appearance.timeFormatDesc')}
+        </div>
+        <ChoiceChips
+          isActive={v => timeFormat === v}
+          onSelect={setTimeFormat}
+          options={[
+            { value: 'auto', label: t('admin.appearance.timeFormatAuto') },
+            { value: '12',   label: t('admin.appearance.timeFormat12') },
+            { value: '24',   label: t('admin.appearance.timeFormat24') },
+          ]}
+        />
       </div>
     </div>
   );
@@ -8778,6 +8798,7 @@ function makeSearchIndex(t) {
     { label: t('admin.messageList.defaultMailApp'), keywords: ['mailto', 'default app', 'default email', 'protocol handler', 'links'], tab: 'behavior', breadcrumb: behaviorCrumb },
     // Appearance > Fonts & Language
     { label: t('admin.appearance.language'), keywords: ['language', 'locale', 'french', 'english', 'spanish', 'german', 'deutsch', 'russian', 'chinese', 'italian', 'czech', 'čeština', 'portuguese', 'português', 'brasil', 'korean', '한국어', 'français', 'español'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
+    { label: t('admin.appearance.timeFormat'), keywords: ['time format', 'clock', '12-hour', '24-hour', '12 hour', '24 hour', 'am pm', 'time'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     { label: t('admin.appearance.fontSize'), keywords: ['font size', 'text size', 'zoom', 'scale', 'accessibility', 'larger text'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     { label: t('admin.appearance.typography'), keywords: ['font', 'typography', 'typeface', 'serif', 'sans', 'monospace', 'reading font'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     // Email providers (admin)

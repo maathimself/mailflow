@@ -691,7 +691,8 @@ export async function patchPreferences(req, res) {
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
           folderOrder, senderFavicons, showMessagePreviews, defaultSender,
-          conversationMode, hoverActionSet, autoOpenReplyDrafts, afterRemove, darkEmailBodies, listSort } = req.body;
+          conversationMode, hoverActionSet, autoOpenReplyDrafts, afterRemove, darkEmailBodies, listSort,
+          timeFormat } = req.body;
   if (autoOpenReplyDrafts !== undefined && typeof autoOpenReplyDrafts !== 'boolean') {
     return res.status(400).json({ error: 'autoOpenReplyDrafts must be a boolean' });
   }
@@ -758,6 +759,8 @@ export async function patchPreferences(req, res) {
   const senderFaviconsVal = hasSenderFavicons ? senderFavicons : null;
   // Only the three known modes are stored; anything else is ignored rather than persisted.
   const conversationModeVal = ['off', 'list', 'pane'].includes(conversationMode) ? conversationMode : null;
+  // Time format (#758): 'auto' follows the language, '12' / '24' force a clock. Same rule.
+  const timeFormatVal = ['auto', '12', '24'].includes(timeFormat) ? timeFormat : null;
   // #440: which hover quick actions the message list shows. Same vocabulary and canonical
   // order as frontend/src/utils/hoverActions.js; unknown keys are dropped rather than stored.
   const HOVER_ACTION_KEYS = ['markRead', 'star', 'archive', 'snooze', 'delete', 'move'];
@@ -819,6 +822,7 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $46::text IS NOT NULL THEN jsonb_build_object('afterRemove', $46::text) ELSE '{}'::jsonb END
       || CASE WHEN $47::boolean IS NOT NULL THEN jsonb_build_object('darkEmailBodies', $47::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $48::jsonb IS NOT NULL THEN jsonb_build_object('listSort', $48::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $49::text IS NOT NULL THEN jsonb_build_object('timeFormat', $49::text) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -830,7 +834,7 @@ export async function patchPreferences(req, res) {
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
       showMessagePreviews ?? null, defaultSenderVal, conversationModeVal, hoverActionSetJson, autoOpenReplyDrafts ?? null,
-      afterRemoveVal, darkEmailBodies ?? null, listSortJson]);
+      afterRemoveVal, darkEmailBodies ?? null, listSortJson, timeFormatVal]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;
