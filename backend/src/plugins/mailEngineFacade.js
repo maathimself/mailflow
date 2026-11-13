@@ -23,21 +23,15 @@ export function createPluginMailFacade(engine) {
     isConnected: (accountId) => engine.connections.has(accountId),
 
     // Claim / release the on-demand sync lock for one folder, coordinating with core's own
-    // user-triggered syncs (same `${accountId}:${folder}` key set). tryClaim returns false when the
-    // folder is already being synced. Narrows the raw `onDemandSyncing` Set so a plugin can't clear
-    // or inspect core's locks.
-    tryClaimFolderSync: (accountId, folder) => {
-      const key = `${accountId}:${folder}`;
-      if (engine.onDemandSyncing.has(key)) return false;
-      engine.onDemandSyncing.add(key);
-      return true;
-    },
-    releaseFolderSync: (accountId, folder) => engine.onDemandSyncing.delete(`${accountId}:${folder}`),
+    // user-triggered syncs. Core keeps an awaitable claim so consistency-sensitive callers can
+    // wait for the active owner without exposing the lock map to plugins.
+    tryClaimFolderSync: (accountId, folder) => engine._tryClaimFolderSync(accountId, folder),
+    releaseFolderSync: (accountId, folder) => engine._releaseFolderSync(accountId, folder),
 
     // Sync-capability primitives — all run on pooled connections, never disturbing the IDLE client.
     folderFingerprint: (accountId, folder) => engine.folderFingerprint(accountId, folder),
     syncFolderViaPool: (account, folder) => engine.syncFolderViaPool(account, folder),
-    syncFolderOnDemand: (account, folder) => engine.syncFolderOnDemand(account, folder),
+    syncFolderOnDemand: (account, folder, options) => engine.syncFolderOnDemand(account, folder, options),
 
     // Remove a message's copy from a label folder (GTD transition strips).
     removeMessageCopy: (accountId, uid, folder) => engine.removeMessageCopy(accountId, uid, folder),
