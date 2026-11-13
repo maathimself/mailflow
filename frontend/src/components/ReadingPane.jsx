@@ -78,7 +78,7 @@ export default function ReadingPane() {
       openedFromRow={listed}
     />
   );
-  return <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%', minHeight: 0 }}>
+  return <div className="mail-reading-pane" style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, height: '100%', minHeight: 0 }}>
     {selectedFolder?.toUpperCase() === 'INBOX' && (replyDraft?.exists || replyDraft?.error) && <div style={{ flexShrink: 0, padding: '4px 12px' }}><ReplyDraftIndicator message={selected} /></div>}
     <div style={{ display: 'flex', flex: 1, minWidth: 0, minHeight: 0 }}>{pane}</div>
   </div>;

@@ -876,7 +876,7 @@ export default function Sidebar() {
   };
 
   return (
-    <div style={{
+    <div className="mail-sidebar" style={{
       width: sidebarCollapsed ? 60 : sidebarWidth,
       minWidth: sidebarCollapsed ? 60 : sidebarWidth,
       height: isMobile ? '100%' : '100%',
@@ -888,7 +888,7 @@ export default function Sidebar() {
       overflow: 'hidden',
     }}>
       {/* Header */}
-      <div style={{
+      <div className="mail-sidebar-brand" style={{
         paddingTop: 'calc(var(--sat) + 16px)',
         paddingBottom: 'calc(16px - var(--sat-trim))', paddingLeft: 12, paddingRight: 12,
         display: 'flex', alignItems: 'center',
@@ -947,7 +947,7 @@ export default function Sidebar() {
       <div style={{ padding: '12px 10px' }}>
         <button
           onClick={() => openCompose({})}
-          className="btn-press"
+          className="btn-press mail-compose-launcher"
           style={{
             width: '100%', padding: sidebarCollapsed ? '10px' : '10px 14px',
             background: 'var(--accent)', border: 'none', borderRadius: 8,

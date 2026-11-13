@@ -427,7 +427,13 @@
       "title": "Adiado até {{when}}",
       "failTitle": "Não foi possível alterar o horário",
       "failBody": "O horário anterior foi mantido. Tente novamente."
-    }
+    },
+    "olderMessages_one": "{{count}} mensagem mais antiga",
+    "olderMessages_other": "{{count}} mensagens mais antigas",
+    "expandAll": "Expandir tudo",
+    "collapseAll": "Recolher tudo",
+    "showTrimmed": "Mostrar conteúdo cortado",
+    "hideTrimmed": "Ocultar conteúdo cortado"
   },
   "messageList": {
     "replyDraftChanged": "O rascunho de resposta mudou. Tente abri-lo novamente.",
@@ -551,6 +557,10 @@
     "changeLayout": "Alterar layout",
     "layout": "Layout",
     "layouts": {
+      "gmail": {
+        "label": "Gmail",
+        "description": "Caixa de entrada e leitura em largura total no estilo do Gmail"
+      },
       "focused": {
         "label": "Focado",
         "description": "Painel de lista mínimo, área de leitura máxima"

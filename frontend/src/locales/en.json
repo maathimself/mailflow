@@ -427,7 +427,13 @@
       "title": "Snoozed until {{when}}",
       "failTitle": "Could not change the snooze time",
       "failBody": "It keeps its earlier time. Try again."
-    }
+    },
+    "olderMessages_one": "{{count}} older message",
+    "olderMessages_other": "{{count}} older messages",
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all",
+    "showTrimmed": "Show trimmed content",
+    "hideTrimmed": "Hide trimmed content"
   },
   "messageList": {
     "replyDraftChanged": "The reply draft changed. Try opening it again.",
@@ -551,6 +557,10 @@
     "changeLayout": "Change layout",
     "layout": "Layout",
     "layouts": {
+      "gmail": {
+        "label": "Gmail",
+        "description": "Gmail-inspired full-width inbox and reading view"
+      },
       "focused": {
         "label": "Focused",
         "description": "Minimal list panel, maximum reading area"

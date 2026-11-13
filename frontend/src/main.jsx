@@ -4,6 +4,8 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import './index.css';
+import './gmail-layout.css';
+import './gmail-reader-compose.css';
 import { i18nReady } from './i18n.js';
 import './plugins/index.js'; // register bundled plugins' UI slots before first paint
 

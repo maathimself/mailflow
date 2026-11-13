@@ -11,13 +11,16 @@ import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/pri
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import MessageBodyView from './MessageBodyView.jsx';
+import TrimmedToggle from './TrimmedToggle.jsx';
+import SenderAvatar from './SenderAvatar.jsx';
 import AttachmentStrip from './AttachmentStrip.jsx';
 import { isDarkTheme, canShowDark, showDark } from '../utils/darkScheme.js';
 import AiResultBox from './AiResultBox.jsx';
 import { useAiActions } from '../hooks/useAiActions.js';
 import { BUILTIN_SUMMARIZE } from '../aiActions.js';
-import { formatDateTime } from '../utils/formatDate.js';
+import { formatDateTime, formatMessageDateTime } from '../utils/formatDate.js';
 import { bodyCache } from '../utils/bodyCache.js';
+import { isForwardSubject, splitQuotedText } from '../utils/quotedHistory.js';
 import { useMobile } from '../hooks/useMobile.js';
 import MessageHeaderModal from './MessageHeaderModal.jsx';
 import TodoistTaskModal from './TodoistTaskModal.jsx';
@@ -36,8 +39,10 @@ import {
 
 // Design from #317 by YunQue0912.
 // `onUpdate(id, patch)` applies a flag change to the conversation's own copy of the message and to
-// the list's, since the pane holds the thread apart from the list.
-export default function ConversationMessageCard({ message, expanded, onToggle, onUpdate, aiEnabled = false, aiReplyEnabled = false, selected = false }) {
+// the list's, since the pane holds the thread apart from the list. `gmail` (the Gmail layout) puts the
+// sender's avatar at the card's left, hides the body's trailing quoted history behind a toggle and
+// dates the card as the reader's header does.
+export default function ConversationMessageCard({ message, expanded, onToggle, onUpdate, aiEnabled = false, aiReplyEnabled = false, selected = false, gmail = false }) {
   const { t } = useTranslation();
   const accounts = useStore(s => s.accounts);
   const openCompose = useStore(s => s.openCompose);
@@ -304,19 +309,26 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
     onManage: () => { const st = useStore.getState(); st.setAdminTab('ai-actions'); st.setShowAdmin(true); },
   } : null;
 
-  const when = formatDateTime(message.date);
+  const trim = gmail && !isForwardSubject(message.subject);
+  const textParts = trim && !body?.html ? splitQuotedText(body?.text) : null;
+
+  const when = gmail ? formatMessageDateTime(message.date, { withYear: !isMobile }) : formatDateTime(message.date);
   const who = message.from_name || message.from_email || '';
 
   return (
     <div
       // The pane scrolls to this when the reader picks this message in the list.
       data-message-id={message.id}
+      className="mail-conversation-card"
+      data-expanded={expanded}
+      data-selected={selected}
       style={{
         border: `1px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
         borderRadius: 6, marginBottom: 8, background: 'var(--bg-primary)',
       }}
     >
       <button
+        className="mail-conversation-sender"
         onClick={() => onToggle(message.id)}
         aria-expanded={expanded}
         style={{
@@ -325,6 +337,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
           color: 'var(--text-primary)', font: 'inherit',
         }}
       >
+        {gmail && <SenderAvatar message={message} className="mail-conversation-avatar" />}
         <span style={{ fontWeight: message.is_read ? 400 : 600, flex: '0 1 auto' }}>{who}</span>
         {!expanded && (
           <span style={{ color: 'var(--text-secondary)', fontSize: 13, flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -335,7 +348,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
       </button>
 
       {expanded && (
-        <div style={{ padding: '0 12px 12px' }}>
+        <div className="mail-conversation-content" style={{ padding: '0 12px 12px' }}>
           {/* The reading pane's toolbar, from the same buttons in the same order (#650), less what the
               conversation's own bar does for all of it. Reply and forward are per message, not per
               thread: replying to a conversation means replying to one message in it, and which one
@@ -343,7 +356,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
               it is handed over, not refetched. Keyed by message, as the reading pane's. In a pane
               too narrow for all of them (about 370 px) they wrap to a second line, rather than
               make the whole conversation scroll sideways. */}
-          <div role="group" aria-label={t('shortcuts.groups.messageActions')} style={{
+          <div className="mail-conversation-actions" role="group" aria-label={t('shortcuts.groups.messageActions')} style={{
             display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: isMobile ? 0 : 6, rowGap: 4, margin: '0 -4px 8px',
           }}>
             <ReplySplitButton
@@ -417,7 +430,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
             // the frame edge. Now both views agree, and newsletters and fixed layouts are
             // untouched — they keep whatever padding their own HTML carries, inside the
             // same card the reading pane already gives them.
-            <div className="msg-card" style={{
+            <div className="msg-card mail-reader-body-card" style={{
               padding: '14px 16px 12px',
               // The frame's own background, so the card and the body read as one surface: the
               // sender's dark background where their design sets one, otherwise the theme's.
@@ -433,13 +446,14 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
                 onDarkResult={setDarkResult}
                 messageId={message.id}
                 emailScaleRef={emailScaleRef}
+                trimQuoted={trim}
               />
             </div>
           )}
           {!body?.html && body?.text && (
             // translate="yes" undoes <body>'s translate="no" for the message itself; React writes
             // it as the element's whole text, so a translator has no React text node to break.
-            <div translate="yes" style={{
+            <div translate={textParts ? undefined : 'yes'} style={{
               whiteSpace: 'pre-wrap', wordBreak: 'break-word',
               // Plain text follows a dark theme; switched to its original colors it gets the
               // reading pane's white card (#228). A light theme leaves it as it always was.
@@ -447,7 +461,14 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
                 padding: '14px 16px 12px', background: 'white', color: '#1a1a1a',
                 borderRadius: 4, border: '1px solid var(--border-subtle)',
               } : {}),
-            }}>{body.text}</div>
+            }}>{textParts ? (
+              <>
+                <div translate="yes">{textParts.body}</div>
+                <TrimmedToggle light={darkToggleShown && !bodyDark}>
+                  <div translate="yes">{textParts.quoted}</div>
+                </TrimmedToggle>
+              </>
+            ) : body.text}</div>
           )}
 
         </div>

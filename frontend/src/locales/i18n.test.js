@@ -122,6 +122,7 @@ const SAME_VALUE_ALLOWED = {
   'templates.variables.fullName': [['it', 'ptBR']],
   'templates.variables.givenName': [['it', 'ptBR']],
 
+  'messageList.layouts.gmail.label': 'any', // Gmail is a product name in every locale.
   // ── List sort menu (#528) ───────────────────────────────────────────────────
   'messageList.sortSummary':                'any', // "{{sort}}, {{dir}}": only the placeholders and a comma
   'messageList.sortDate':                   [['en', 'fr'], ['it', 'ptBR', 'pl'], ['cs', 'de']], // Date / Data / Datum
@@ -617,6 +618,7 @@ const SAME_VALUE_ALLOWED = {
 const LOCALE_SPECIFIC_KEYS_BY_LOCALE = {
   cs: new Set([
     'message.attachment_few', 'message.attachment_many',
+    'message.olderMessages_few', 'message.olderMessages_many',
     'messageList.bulkDeleted.title_few', 'messageList.bulkDeleted.title_many',
     'messageList.bulkDeleted.failBody_few', 'messageList.bulkDeleted.failBody_many',
     'messageList.bulkMoved.title_few', 'messageList.bulkMoved.title_many',
@@ -630,6 +632,7 @@ const LOCALE_SPECIFIC_KEYS_BY_LOCALE = {
   ]),
   pl: new Set([
     'message.attachment_few', 'message.attachment_many',
+    'message.olderMessages_few', 'message.olderMessages_many',
     'messageList.bulkDeleted.title_few', 'messageList.bulkDeleted.title_many',
     'messageList.bulkDeleted.failBody_few', 'messageList.bulkDeleted.failBody_many',
     'messageList.bulkMoved.title_few', 'messageList.bulkMoved.title_many',
@@ -641,6 +644,7 @@ const LOCALE_SPECIFIC_KEYS_BY_LOCALE = {
     'admin.messageList.markReadDelaySeconds_few',
     'admin.messageList.markReadDelaySeconds_many',
   ]),
+  ru: new Set(['message.olderMessages_few', 'message.olderMessages_many']),
 };
 const LOCALE_SPECIFIC_KEYS = new Set(
   Object.values(LOCALE_SPECIFIC_KEYS_BY_LOCALE).flatMap(keys => [...keys]),
@@ -716,6 +720,7 @@ const I18N_ATTRS = ['title', 'placeholder', 'aria-label', 'alt'];
 // Plain strings that are intentionally NOT translated (technical terms,
 // brand names, format placeholders). Add with a comment explaining why.
 const HARDCODED_OK = new Set([
+  'MailFlow', // Application brand in the Gmail-inspired header.
   // CSS/DOM placeholder for a variable-name input field — not a sentence
   'value',
   // Tooltip label for a rich-text editor colour input — purely visual affordance,

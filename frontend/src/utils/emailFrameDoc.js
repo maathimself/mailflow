@@ -15,6 +15,7 @@
 
 import { remoteLoadsCsp } from './remoteImagePolicy.js';
 import { deferProxiedImages } from './frameLazyImages.js';
+import { trimQuotedHtml, TRIMMED_CLASS } from './quotedHistory.js';
 
 // The default dark theme's colors, for a palette value that is not a plain color.
 export const DARK_DEFAULTS = { background: '#0f0f11', text: '#e8e8f0', link: '#8b7cf8', muted: '#9a9ab0', border: '#2a2a35' };
@@ -35,8 +36,11 @@ export function usableDarkCss(darkCss) {
 // the frame loads images from MailFlow alone (utils/remoteImagePolicy.js). `docKey` (digits) marks
 // this document as the one its frame is waiting for (MessageBodyView): the previous email's is
 // still there for a moment after it changes.
-export function buildFrameDoc({ html, palette = DARK_DEFAULTS, darkCss = '', remoteImagesBlocked = false, remoteImagesProxied = false, docKey = '' }) {
+// `trimLabels` ({ show, hide }) folds the trailing quoted history behind a toggle with those titles
+// (utils/quotedHistory.js); without it the email is shown whole.
+export function buildFrameDoc({ html, palette = DARK_DEFAULTS, darkCss = '', remoteImagesBlocked = false, remoteImagesProxied = false, docKey = '', trimLabels = null }) {
   const css = usableDarkCss(darkCss);
+  const shown = (trimLabels && trimQuotedHtml(html, trimLabels)) || html;
   // index.html marks the app translate="no" so a browser translator cannot break React's DOM,
   // and Chrome's translator carries that into this frame. React renders nothing in here, so the
   // email opts back in at its own root. Not on the <iframe>: there Chrome's translator also
@@ -49,7 +53,7 @@ export function buildFrameDoc({ html, palette = DARK_DEFAULTS, darkCss = '', rem
       <base target="_blank">
     </head><body><div id="${SCALE_WRAPPER}" data-mf-doc="${String(docKey).replace(/\D/g, '')}">${
       // Images through the proxy load as the reader nears them (utils/frameLazyImages.js).
-      (remoteImagesProxied ? deferProxiedImages(html) : html).replace(/<a(\s)/gi, '<a rel="noopener noreferrer"$1')
+      (remoteImagesProxied ? deferProxiedImages(shown) : shown).replace(/<a(\s)/gi, '<a rel="noopener noreferrer"$1')
     }</div><style>
         /* Injected AFTER email HTML so our rules win the source-order tiebreak
            for same-specificity !important declarations inside the email's own
@@ -74,14 +78,21 @@ export function buildFrameDoc({ html, palette = DARK_DEFAULTS, darkCss = '', rem
         td { word-break: break-word; }
         th { overflow-wrap: normal; word-break: normal; }
         pre, code { overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+        details.${TRIMMED_CLASS} > summary { display: inline-block; list-style: none; cursor: pointer; margin: 8px 0;
+          padding: 0 6px; height: 12px; line-height: 6px; border-radius: 6px; font-size: 12px; letter-spacing: 1px; }
+        details.${TRIMMED_CLASS} > summary::-webkit-details-marker { display: none; }
+        details.${TRIMMED_CLASS}[open] > summary > .${TRIMMED_CLASS}-show,
+        details.${TRIMMED_CLASS}:not([open]) > summary > .${TRIMMED_CLASS}-hide { display: none; }
       </style><style id="${FRAME_STYLE.light}">
         body { background-color: #ffffff !important; color-scheme: light; color: #1a1a1a; }
         a { color: #6366f1; }
         blockquote { border-left: 3px solid #ddd; margin: 0; padding-left: 12px; color: #555; }
+        details.${TRIMMED_CLASS} > summary { background: #e8eaed; color: #5f6368; }
       </style><style id="${FRAME_STYLE.dark}" media="not all">
         /* MailFlow's dark background is not !important, so the sender's dark design can set its own. */
         body { background-color: ${palette.background}; color-scheme: dark; color: ${palette.text}; }
         a { color: ${palette.link}; }
         blockquote { border-left: 3px solid ${palette.border}; margin: 0; padding-left: 12px; color: ${palette.muted}; }
+        details.${TRIMMED_CLASS} > summary { background: ${palette.border}; color: ${palette.muted}; }
       </style><style id="${FRAME_STYLE.sender}" media="not all">${css}</style></body></html>`;
 }

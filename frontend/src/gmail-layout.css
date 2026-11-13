@@ -1,0 +1,165 @@
+/* Gmail is an opt-in presentation layer. The selected MailFlow palette and typography
+   remain authoritative; no provider features or Google branding are introduced. */
+[data-mailflow-layout="gmail"] .gmail-shell {
+  --gmail-sidebar-width: 256px;
+  display: grid !important;
+  grid-template-columns: var(--gmail-sidebar-width) minmax(0, 1fr);
+  grid-template-rows: 64px minmax(0, 1fr);
+  background: var(--bg-secondary) !important;
+}
+[data-mailflow-layout="gmail"] .gmail-shell[data-sidebar-collapsed] { --gmail-sidebar-width: 64px; }
+[data-mailflow-layout="gmail"] .gmail-header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 16px;
+  padding-right: 20px;
+  color: var(--text-primary);
+}
+[data-mailflow-layout="gmail"] .gmail-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: var(--gmail-sidebar-width);
+  padding: 0 12px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+[data-mailflow-layout="gmail"] .gmail-header button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+[data-mailflow-layout="gmail"] .gmail-header button:hover { background: var(--bg-hover); }
+[data-mailflow-layout="gmail"] .gmail-brand-name { display: flex; align-items: center; gap: 10px; font-size: 22px; }
+[data-mailflow-layout="gmail"] .gmail-shell[data-sidebar-collapsed] .gmail-brand-name { display: none; }
+[data-mailflow-layout="gmail"] .gmail-search-slot { flex: 1; max-width: 720px; min-width: 0; margin-left: -16px; }
+[data-mailflow-layout="gmail"] .gmail-header .gmail-settings { margin-left: auto; }
+[data-mailflow-layout="gmail"] .gmail-search-slot .mail-search input {
+  height: 48px;
+  padding: 0 48px 0 48px !important;
+  border-radius: 28px !important;
+  background: var(--bg-tertiary) !important;
+  border: 1px solid transparent !important;
+  font: inherit !important;
+  font-size: 16px !important;
+}
+[data-mailflow-layout="gmail"] .gmail-search-slot .mail-search input:focus {
+  border-color: var(--accent) !important;
+  box-shadow: var(--shadow-md, 0 1px 5px var(--border));
+  background: var(--bg-primary) !important;
+}
+[data-mailflow-layout="gmail"] .gmail-search-slot .mail-search > div:first-child { left: 18px !important; }
+[data-mailflow-layout="gmail"] .gmail-search-slot .mail-search > div:first-child svg { width: 20px; height: 20px; }
+[data-mailflow-layout="gmail"] .gmail-shell > .mail-sidebar {
+  grid-column: 1;
+  grid-row: 2;
+  width: var(--gmail-sidebar-width) !important;
+  min-width: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+[data-mailflow-layout="gmail"] .gmail-shell > .mail-sidebar .mail-sidebar-brand { display: none !important; }
+[data-mailflow-layout="gmail"] .mail-compose-launcher {
+  min-height: 56px;
+  width: auto !important;
+  min-width: 140px;
+  border-radius: 16px !important;
+  padding: 0 20px !important;
+  gap: 16px !important;
+  background: var(--accent-dim) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 1px 2px var(--border-subtle);
+  font-size: 14px !important;
+}
+[data-mailflow-layout="gmail"] .gmail-shell[data-sidebar-collapsed] .mail-compose-launcher { min-width: 44px; padding: 0 12px !important; }
+[data-mailflow-layout="gmail"] .mail-sidebar [data-mailbox-sidebar] { padding: 4px 12px 4px 0 !important; }
+[data-mailflow-layout="gmail"] .mail-sidebar [data-mailbox-row],
+[data-mailflow-layout="gmail"] .mail-sidebar .nav-item { border-radius: 0 20px 20px 0 !important; min-height: 32px; box-sizing: border-box; }
+[data-mailflow-layout="gmail"] .mail-sidebar .nav-item-active { background: var(--accent-dim) !important; }
+[data-mailflow-layout="gmail"] .mail-sidebar .nav-item { padding-left: 26px !important; gap: 18px !important; }
+[data-mailflow-layout="gmail"] .gmail-shell[data-sidebar-collapsed] .mail-sidebar .nav-item { padding-left: 12px !important; }
+[data-mailflow-layout="gmail"] .gmail-shell > .mail-workspace {
+  grid-column: 2;
+  grid-row: 2;
+  margin: 0 16px 16px 0;
+  height: auto !important;
+  padding-top: 0 !important;
+  border-radius: 16px;
+  background: var(--bg-primary);
+}
+[data-mailflow-layout="gmail"] .mail-message-list { border: 0 !important; min-width: 0 !important; }
+[data-mailflow-layout="gmail"] .gmail-shell .mail-list-header {
+  padding: 0 16px !important;
+  min-height: 48px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+  box-shadow: none !important;
+}
+[data-mailflow-layout="gmail"] .gmail-shell .mail-list-toolbar { margin: 0 !important; min-height: 48px; }
+[data-mailflow-layout="gmail"] .gmail-shell .mail-bulk-toolbar { min-height: 40px; box-shadow: none !important; }
+[data-mailflow-layout="gmail"] .gmail-shell .mail-search-placeholder:empty { display: none; }
+[data-mailflow-layout="gmail"] .gmail-shell .mail-list-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 8px 16px !important;
+  min-height: 40px;
+  box-sizing: border-box;
+}
+[data-mailflow-layout="gmail"] .gmail-shell .mail-list-row[data-unread] { background: var(--bg-secondary) !important; }
+[data-mailflow-layout="gmail"] .gmail-shell .mail-list-row:hover { background: var(--bg-hover) !important; box-shadow: inset 0 1px var(--border), inset 0 -1px var(--border); }
+[data-mailflow-layout="gmail"] .gmail-shell .mail-list-row[data-checked] { background: var(--accent-dim) !important; }
+[data-mailflow-layout="gmail"] .gmail-row-controls { display: flex; align-items: center; gap: 10px; flex: 0 0 48px; }
+[data-mailflow-layout="gmail"] .gmail-row-controls input { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+[data-mailflow-layout="gmail"] .gmail-row-controls button { border: 0; background: none; padding: 0; color: var(--text-tertiary); cursor: pointer; display: flex; }
+[data-mailflow-layout="gmail"] .gmail-shell .mail-row-wrap,
+[data-mailflow-layout="gmail"] .gmail-shell .mail-row-heading { display: contents !important; }
+[data-mailflow-layout="gmail"] .gmail-shell .mail-row-content { display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 0 !important; }
+[data-mailflow-layout="gmail"] .gmail-shell .mail-row-sender { flex: 0 0 192px !important; min-width: 0; margin-right: 0; }
+[data-mailflow-layout="gmail"] .gmail-shell .mail-row-subject { margin: 0 !important; flex: 0 1 auto; max-width: 45%; min-width: 0; font-size: 13px !important; }
+[data-mailflow-layout="gmail"] .gmail-shell .mail-row-snippet { flex: 1; min-width: 0; font-size: 13px !important; }
+[data-mailflow-layout="gmail"] .gmail-shell .mail-row-date { order: 3; margin-left: auto !important; padding-left: 12px; min-width: 68px; justify-content: flex-end; }
+[data-mailflow-layout="gmail"] .gmail-shell .mail-list-row[data-unread] .mail-row-date { color: var(--text-primary); font-weight: 600; }
+[data-mailflow-layout="gmail"] .gmail-shell :is(button, input, select, [tabindex]):focus-visible { outline: 2px solid var(--accent) !important; outline-offset: 2px; }
+@media (max-width: 1100px) {
+  [data-mailflow-layout="gmail"] .gmail-shell { --gmail-sidebar-width: 220px; }
+}
+
+/* Row columns follow the list's measured width (usePaneWidthTier), not the viewport: both
+   sidebars and the font scale take their share before the list gets any. */
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="medium"] .mail-row-sender { flex-basis: 144px !important; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="medium"] .mail-row-snippet { display: none !important; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="medium"] .mail-row-subject { flex: 1; max-width: none; }
+
+/* Too narrow for one line: sender and date above, subject and its badges below, which is
+   the row MailFlow already draws without the skin. */
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .mail-list-row { gap: 8px !important; padding: 8px 12px !important; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .gmail-row-controls { flex-basis: 44px; gap: 8px; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .mail-row-content { display: block; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .mail-row-heading { display: flex !important; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .mail-row-sender { flex: 1 1 0 !important; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .mail-row-date { order: 0; min-width: 0; padding-left: 8px; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .mail-row-subject { max-width: none; }
+[data-mailflow-layout="gmail"] .gmail-shell [data-pane-width="narrow"] .mail-row-snippet { display: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  [data-mailflow-layout="gmail"] .gmail-shell * { transition: none !important; }
+}
+
+/* The app scales its logical width for larger text. Wrap, rather than shrinking or
+   clipping the existing mobile controls, when their touch targets no longer fit. */
+[data-mailflow-layout="gmail"] .mail-mobile-header { flex-wrap: wrap; }
+[data-mailflow-layout="gmail"] .mail-mobile-header > button { min-width: 44px; min-height: 44px; }
+[data-mailflow-layout="gmail"] .mail-bulk-toolbar { flex-wrap: wrap; row-gap: 4px; }

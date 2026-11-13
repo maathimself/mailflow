@@ -102,6 +102,14 @@ describe('MessagePane renders', () => {
     assert.ok(document.getElementById('root').innerHTML.length > 0, 'rendered something');
   });
 
+  test('reader presentation hooks retain the existing subject, sender and actions', () => {
+    assert.ok(document.querySelector('.mail-reader-subject'));
+    assert.match(document.querySelector('.mail-reader-subject').textContent, /First/);
+    assert.match(document.querySelector('.mail-reader-sender').textContent, /X/);
+    assert.ok(document.querySelector('.mail-reader-toolbar .mail-message-action[aria-label="message.archive"]'));
+    assert.ok(document.querySelector('.mail-reader-toolbar .mail-reply-split'));
+  });
+
   test('changing the selected message re-renders without throwing', async () => {
     await React.act(async () => { useStore.getState().setSelectedMessage('b2'); });
     assert.ok(document.getElementById('root').innerHTML.length > 0);
@@ -762,6 +770,101 @@ describe('message body rendering', () => {
     await open('t1');
     const after = document.querySelector('iframe');
     if (after) assert.notEqual(after.style.height, '2400px', 'height must not carry across messages');
+  });
+});
+
+describe('trimmed quoted history in the Gmail layout', () => {
+  const REPLY = '<div>Sure, noon works</div><div class="gmail_quote gmail_quote_container">'
+    + '<div class="gmail_attr">On Mon, Jan 5, 2026 at 10:00 Ana &lt;a@x.z&gt; wrote:<br></div>'
+    + '<blockquote class="gmail_quote">Lunch?<div class="gmail_quote">On Sun, Jan 4, 2026 Bo wrote:<blockquote>Hungry</blockquote></div></blockquote></div>';
+  const MSGS = [
+    { ...MSG_A, id: 'q1', uid: 21, subject: 'Re: Lunch' },
+    { ...MSG_A, id: 'q2', uid: 22, subject: 'Re: Lunch' },
+    { ...MSG_A, id: 'q3', uid: 23, subject: 'Fwd: Lunch' },
+    { ...MSG_A, id: 'q4', uid: 24, subject: 'Re: Lunch' },
+  ];
+  const BODIES = {
+    q1: { html: REPLY, text: '', attachments: [] },
+    q2: { html: '', text: 'Sure, noon works\n\nOn Mon, Jan 5, 2026 at 10:00 Ana <a@x.z> wrote:\n> Lunch?\n>\n> > Hungry', attachments: [] },
+    q3: { html: REPLY, text: '', attachments: [] },
+    q4: { html: '<div class="gmail_quote"><blockquote>Lunch?</blockquote></div>', text: '', attachments: [] },
+  };
+  let originalFetch;
+
+  before(() => {
+    globalThis.requestAnimationFrame ??= cb => setTimeout(() => cb(Date.now()), 0);
+    dom.window.requestAnimationFrame ??= globalThis.requestAnimationFrame;
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const id = /\/messages\/([^/]+)\/body/.exec(String(url))?.[1];
+      return { ok: true, status: 200, json: async () => (BODIES[id] ?? {}), text: async () => '' };
+    };
+    useStore.getState().setMessages?.([MSG_A, MSG_B, ...MSGS]);
+  });
+  after(() => {
+    globalThis.fetch = originalFetch;
+    useStore.setState({ layout: 'comfortable' });
+  });
+
+  const open = async (id, layout) => {
+    await React.act(async () => {
+      useStore.setState({ layout });
+      useStore.getState().setSelectedMessage(id);
+      root.render(React.createElement(MessagePane, { key: `${layout}-${id}` }));
+    });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 30)); });
+  };
+  const frameDoc = () => new dom.window.DOMParser()
+    .parseFromString(document.querySelector('iframe')?.getAttribute('srcdoc') ?? '', 'text/html');
+  const bodyCard = () => [...document.querySelectorAll('.mail-reader-body-card')].find(el => /noon works/.test(el.textContent));
+
+  test('an HTML reply\'s quoted chain is behind a closed toggle in its frame', async () => {
+    await open('q1', 'gmail');
+    const details = frameDoc().querySelector('#mf-scale-wrapper details.mf-trimmed');
+    assert.ok(details, 'the quoted chain is folded');
+    assert.equal(details.open, false);
+    assert.match(details.textContent, /Lunch\?[\s\S]*Hungry/, 'the whole chain, nested quotes too');
+    assert.equal(details.querySelector('.mf-trimmed-show').title, 'message.showTrimmed');
+    assert.equal(details.querySelector('.mf-trimmed-hide').title, 'message.hideTrimmed');
+    const shown = frameDoc().getElementById('mf-scale-wrapper').cloneNode(true);
+    shown.querySelector('details').remove();
+    assert.match(shown.textContent, /Sure, noon works/);
+  });
+
+  test('a plain-text reply\'s "> " lines are behind a toggle whose title follows it', async () => {
+    await open('q2', 'gmail');
+    const card = bodyCard();
+    const details = card.querySelector('details.mail-trimmed-text');
+    assert.ok(details);
+    assert.match(details.textContent, /On Mon, Jan 5, 2026[\s\S]*> Lunch\?[\s\S]*> > Hungry/);
+    assert.doesNotMatch(card.textContent.replace(details.textContent, ''), /Lunch/);
+    const summary = details.querySelector('summary');
+    assert.equal(summary.textContent, '•••');
+    assert.equal(summary.title, 'message.showTrimmed');
+    await React.act(async () => {
+      details.open = true;
+      details.dispatchEvent(new dom.window.Event('toggle'));
+    });
+    assert.equal(summary.title, 'message.hideTrimmed');
+    for (const part of card.querySelectorAll(':scope > div')) assert.equal(part.getAttribute('translate'), 'yes');
+  });
+
+  test('a forward and a body that is only the quote are shown whole', async () => {
+    await open('q3', 'gmail');
+    assert.equal(frameDoc().querySelector('details'), null, 'a forward');
+    await open('q4', 'gmail');
+    assert.equal(frameDoc().querySelector('details'), null, 'nothing but the quote');
+  });
+
+  test('in the comfortable layout both bodies are shown whole', async () => {
+    await open('q1', 'comfortable');
+    assert.equal(frameDoc().querySelector('details'), null);
+    assert.match(frameDoc().getElementById('mf-scale-wrapper').textContent, /Lunch\?/);
+    await open('q2', 'comfortable');
+    const card = bodyCard();
+    assert.equal(card.querySelector('details'), null);
+    assert.match(card.textContent, /> Lunch\?/);
+    assert.equal(card.getAttribute('translate'), 'yes');
   });
 });
 

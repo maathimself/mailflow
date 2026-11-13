@@ -7,6 +7,9 @@ import {
   conversationUnreadCount,
   inboxConversationReadTargets,
   initialExpandedMessageIds,
+  gmailExpandedMessageIds,
+  foldedMessageIds,
+  foldConversation,
   newestConversationMessage,
   normalizeConversation,
   reconcileExpandedMessageIds,
@@ -294,5 +297,31 @@ describe('resolveConversationMessageDisclosure', () => {
       conversationModule.resolveConversationMessageDisclosure({ expanded: false, hasBeenExpanded: true }),
       { renderShell: true, renderContent: true, ariaHidden: true, inert: '' },
     );
+  });
+});
+
+describe('Gmail layout: opening and folding a long conversation', () => {
+  const thread = (count, unread = []) => Array.from({ length: count }, (_, i) => ({
+    id: `m${i + 1}`, message_id: `<${i + 1}@x>`, date: `2026-01-0${i + 1}T10:00:00Z`, is_read: !unread.includes(i + 1),
+  }));
+  const shape = items => items.map(item => (item.fold ? `fold:${item.fold.join(',')}` : item.message.id));
+
+  it('opens the newest message and every unread one', () => {
+    assert.deepEqual([...gmailExpandedMessageIds(thread(5, [2, 3]))].sort(), ['m2', 'm3', 'm5']);
+  });
+
+  it('folds the collapsed messages between the first and the last two, from 5 messages on', () => {
+    assert.deepEqual([...foldedMessageIds(thread(4), new Set(['m4']))], []);
+    assert.deepEqual([...foldedMessageIds(thread(5), new Set(['m5']))], ['m2', 'm3']);
+    assert.deepEqual([...foldedMessageIds(thread(7), new Set(['m3', 'm7']))], ['m2', 'm4', 'm5']);
+  });
+
+  it('shows a run of folded, collapsed messages as one row, and a lone one as its card', () => {
+    const messages = thread(8);
+    const foldedIds = new Set(['m2', 'm3', 'm4', 'm5', 'm6']);
+    assert.deepEqual(shape(foldConversation(messages, { foldedIds, expandedIds: new Set(['m8']) })),
+      ['m1', 'fold:m2,m3,m4,m5,m6', 'm7', 'm8']);
+    assert.deepEqual(shape(foldConversation(messages, { foldedIds, expandedIds: new Set(['m3', 'm8']) })),
+      ['m1', 'm2', 'm3', 'fold:m4,m5,m6', 'm7', 'm8'], 'an open message is never folded');
   });
 });
