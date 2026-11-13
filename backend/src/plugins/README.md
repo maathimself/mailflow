@@ -74,12 +74,35 @@ A plugin exports a manifest (see `gtd/index.js`): `{ id, name, version, tier, ro
 Core mounts the router and fires the hooks through the registry — core never calls a plugin directly.
 `hooks` are the plugin's halves of generic core events (e.g. `inboxIngest`, `afterLabelCopy`,
 `onSentMessage`, `validateAccountSettings`, `enrichAccount`, …); `sync` is an optional periodic tick.
+`messageRowsDeleted` receives `{ account, folder, threadKeys }` after explicit cached-message
+removals commit, including reconciliation, UIDVALIDITY purges, folder cleanup, labels, drafts,
+and physical row deletions from user/rule actions. Soft deletion (`is_deleted = true`) retains
+the cached row and is reported only when that row is physically removed. Keys come from deleted rows, grouped and deduplicated per account/folder;
+`account` includes its `id` and owning `user_id` (batch actions may supply only those fields). An atomic relocation that reinserts the same logical copy
+is not a removal. A key means a row for that thread left the folder; the thread may still have other
+rows there (for example, a UIDPLUS move replaces a stale destination row), so check before cleaning up.
+Associated count adjustments/recounts settle before notifications; a failed count write is
+logged and the committed deletion is still dispatched. Dispatch is nonblocking; plugin failures are logged.
+`afterLabelRemove` retains its separate contract and includes the removed copy’s `threadKey`.
+Account/user FK cascades are whole-parent lifecycle operations outside this row hook. The
+account-removal hook and account-scoped plugin storage cleanup are follow-up work in #342.
+On a non-UIDPLUS COPY, `afterLabelCopy` receives `destinationSync`, core's single fresh
+post-copy completion promise. It rejects on timeout or sync failure, so GTD refreshes/re-evaluates
+the copied thread only after successful sync.
+`syncFolderOnDemand(account, folder, { freshAfterActive: true })` requests a new pass after an
+older folder sync settles, for example after a non-UIDPLUS COPY. Waiting on an active owner is
+bounded to 30 seconds; timeout and sync failure are logged and reject the promise without
+releasing a still-running owner's claim or
+starting a competing pass. Retries can sync only after the active claim releases; a
+never-released claim requires owner cleanup or restart.
 
 ### Data
 
 No plugin-specific columns/tables in core. Plugin data lives in generic stores: `plugin_data`
 (KV/blobs), `plugin_account_config` (per-account config), `messages.plugin_annotations` (per-message,
-namespaced by plugin id). All cascade-clean with their owner.
+namespaced by plugin id). `plugin_account_config` cascades with its account and annotations
+with their message row. `plugin_data.owner_id` refers to a user, so user-owned entries cascade
+on user deletion; account removal does not cascade account-scoped keys in `plugin_data`.
 
 ---
 
@@ -98,6 +121,32 @@ Core carries no plugin-specific UI code. A plugin registers into a small in-proc
 - `registerWsHandler(type, { pluginId, handler })` / `registerReconnectHandler(...)` — handle WS
   message types core doesn't, and resync on reconnect.
 - `registerPluginMeta(pluginId, meta)` — static metadata (e.g. where the plugin's settings live).
+
+The `compose-actions` slot appears in the rich-text toolbar's More submenu and the plain-text
+action strip. Its context exposes `{ editor, sessionId, disabled, htmlMode, plaintextEmail,
+isMobile, captureSelection, getContent, getSubject, getRecipients, insertContent }`. Capture the selection
+before opening a picker. `getContent(selection)` reads selected HTML or the body if nothing is
+selected. `insertContent(html, selection, { subject })` sanitizes and inserts content and optionally
+fills an empty subject. Async pickers must discard results when unmounted or when `sessionId` changes.
+Reusable content editors can use `ComposeContentEditor` and its optional
+`renderActions({ disabled, captureSelection, insertText })` for editor-specific controls.
+
+The `compose-observers` slot stays mounted when toolbar menus close. Its context also exposes
+`getBody()` and `transformContent({ text, html, subject })` to transform the current content without
+replacing intervening edits. Rich-text transforms retain marks and map the selection without taking
+focus. `getRecipients({ committedOnly: true })` excludes unfinished recipient input. Observers must
+cancel stale work on recipient/session changes, deactivation, and unmount; they never run from Send.
+
+Templates is a bundled, per-user opt-in snippet library managed from the composer. Records have
+a name, optional subject, and HTML body and use private `storage.put` / `storage.listValues(pluginId, ownerId)`.
+The plugin fills date tokens (`date.date`, `date.longDate`, `date.dateTime`, `date.month`) and
+contact-name tokens (`contact.fullName`, `contact.givenName`, `contact.surname`) when a snippet
+is inserted, including tokens in its subject. Remaining contact-name tokens also fill after the
+first To recipient is committed, so writing the recipient last works. Existing text and edits are
+preserved, and Undo is not automatically filled again. Existing composer subjects are preserved on insertion. Contact
+lookup matches the first To recipient's email exactly against the existing
+contacts API. Missing values and custom placeholders remain visible. Substitution is limited to
+HTML text nodes so names cannot become markup or URL attributes. No send or sync hooks are used.
 
 The neutral `message-row-meta` slot receives `{ message }` on ordinary flat and threaded rows.
 GTD fills it for inbox/search with its own metadata endpoint, account gating and state chips;

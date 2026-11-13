@@ -12,7 +12,6 @@ import { createSmtpTransport } from '../services/smtpTransport.js';
 import { getConnectionPolicy } from '../services/connectionPolicy.js';
 import { authLimiterConfig } from '../services/authLimiter.js';
 import { logAuthEvent } from '../services/authEvents.js';
-import { sendSystemEmail } from '../services/mailer.js';
 import { buildEndSessionUrl } from './oidc.js';
 import { invalidateGlobalCategorizationCache } from '../services/categorizer.js';
 import { sanitizeGtdPrefs } from '../utils/gtdPrefs.js';
@@ -22,59 +21,17 @@ import { destroyUserSessions } from '../services/userSessions.js';
 import { touchLastSeen } from '../services/lastSeen.js';
 import { removeIdentitiesForPasswordReset } from '../services/userIdentities.js';
 import { aiEnabledForNewUser } from '../services/aiNewUsers.js';
+import { firstUserRegistrationAllowed } from '../services/firstUserRegistration.js';
 import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.js';
+import { beginSecondFactor, completePendingLogin, createTrustedDevice, maskEmail, pendingSignIn, sendEmailOtpCode } from '../services/secondFactor.js';
+import { confirmReauth, reauthFor, reauthState, userForReauth } from '../services/apiTokenReauth.js';
+import { sendSystemEmail } from '../services/mailer.js';
 
 const router = Router();
 
 // A precomputed valid bcrypt hash used to equalize login timing when the account
 // doesn't exist or is SSO-only, so response latency doesn't leak account existence.
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('mailflow-timing-equalizer', 12);
-
-function maskEmail(email) {
-  if (!email) return '';
-  const [local, domain] = email.split('@');
-  if (!domain) return email;
-  const masked = local.length <= 2
-    ? local[0] + '*'
-    : local[0] + '*'.repeat(Math.min(local.length - 2, 4)) + local[local.length - 1];
-  return masked + '@' + domain;
-}
-
-function getTrustDurationMs(setting) {
-  switch (setting) {
-    case '7d': return 7 * 24 * 60 * 60 * 1000;
-    case '30d': return 30 * 24 * 60 * 60 * 1000;
-    case 'permanent': return 365 * 24 * 60 * 60 * 1000;
-    default: return 0; // 'never'
-  }
-}
-
-async function createTrustedDevice(userId, req, res) {
-  const trustResult = await query(
-    "SELECT value FROM system_settings WHERE key = 'mfa_device_trust'"
-  );
-  const trustSetting = trustResult.rows[0]?.value || '30d';
-  const trustMs = getTrustDurationMs(trustSetting);
-  if (trustMs === 0) return; // trust=never, don't set cookie
-
-  const rawToken = crypto.randomBytes(32).toString('hex');
-  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-  const expiresAt = new Date(Date.now() + trustMs);
-
-  await query(
-    `INSERT INTO trusted_devices (user_id, token_hash, expires_at)
-     VALUES ($1, $2, $3)`,
-    [userId, tokenHash, expiresAt]
-  );
-
-  res.cookie('mf_td', rawToken, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: req.secure,
-    path: '/',
-    maxAge: trustMs,
-  });
-}
 
 function rateLimit(config) {
   return async (req, res, next) => {
@@ -117,9 +74,9 @@ router.post('/register', authLimiter, async (req, res) => {
     await client.query('SELECT pg_advisory_xact_lock(7936352)');
 
     const countResult = await client.query('SELECT COUNT(*) as count FROM users');
-    const isFirstUser = parseInt(countResult.rows[0].count) === 0;
+    const isSetupAccount = parseInt(countResult.rows[0].count) === 0 && firstUserRegistrationAllowed();
 
-    if (!isFirstUser) {
+    if (!isSetupAccount) {
       const settingResult = await client.query(
         "SELECT key, value FROM system_settings WHERE key IN ('registration_open', 'internal_auth_disabled')"
       );
@@ -166,11 +123,11 @@ router.post('/register', authLimiter, async (req, res) => {
 
     const result = await client.query(
       'INSERT INTO users (username, password_hash, is_admin, ai_enabled) VALUES ($1, $2, $3, $4) RETURNING id, username, is_admin',
-      [username.toLowerCase().trim(), hash, isFirstUser, await aiEnabledForNewUser(client)]
+      [username.toLowerCase().trim(), hash, isSetupAccount, await aiEnabledForNewUser(client)]
     );
     const newUser = result.rows[0];
 
-    if (isFirstUser) {
+    if (isSetupAccount) {
       await client.query(
         `INSERT INTO system_settings (key, value, updated_at) VALUES ('registration_open', 'false', NOW())
          ON CONFLICT (key) DO UPDATE SET value = 'false', updated_at = NOW()`
@@ -246,61 +203,19 @@ router.post('/login', authLimiter, async (req, res) => {
     // Regenerate session ID before storing any auth state to prevent session fixation
     await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
 
-    // Check trusted device cookie — bypass 2FA if valid
-    const rawCookies = req.headers.cookie || '';
-    const deviceToken = rawCookies.split(';').map(c => c.trim()).find(c => c.startsWith('mf_td='))?.slice(6);
-    if (deviceToken) {
-      const tokenHash = crypto.createHash('sha256').update(deviceToken).digest('hex');
-      const deviceRes = await query(
-        `SELECT id FROM trusted_devices
-         WHERE user_id = $1 AND token_hash = $2
-           AND (expires_at IS NULL OR expires_at > NOW())`,
-        [user.id, tokenHash]
-      );
-      if (deviceRes.rows.length > 0) {
-        await query('UPDATE trusted_devices SET last_used_at = NOW() WHERE id = $1', [deviceRes.rows[0].id]);
-        req.session.userId = user.id;
-        req.session.username = user.username;
-        req.session.isAdmin = user.is_admin;
-        imapManager.connectAllForUser(user.id);
-        logAuthEvent('login_success', { username: user.username, userId: user.id, ip: req.ip, success: true });
-        res.locals.resetRateLimit?.();
-        return res.json({ user: { id: user.id, username: user.username, displayName: user.display_name, avatar: user.avatar, isAdmin: user.is_admin, totpEnabled: user.totp_enabled } });
-      }
+    // The second step, if this sign-in needs one: the user's authenticator, or the admin's
+    // 2FA policy (services/secondFactor.js). A remembered device skips it.
+    const second = await beginSecondFactor(req, user);
+    if (second.step === 'totp') {
+      return res.json({ requiresTOTP: true, deviceTrustAvailable: second.deviceTrustAvailable });
     }
-
-    // Load enforcement policy and device trust setting together
-    const policyResult = await query(
-      "SELECT key, value FROM system_settings WHERE key IN ('mfa_enforcement', 'mfa_device_trust')"
-    );
-    const policyMap = {};
-    for (const row of policyResult.rows) policyMap[row.key] = row.value;
-    const enforcement = policyMap.mfa_enforcement || 'off';
-    const trustSetting = policyMap.mfa_device_trust || '30d';
-    const deviceTrustAvailable = getTrustDurationMs(trustSetting) > 0;
-
-    // If user has TOTP configured, require a TOTP challenge before creating a full session
-    if (user.totp_enabled) {
-      req.session.pendingUserId = user.id;
-      req.session.pendingTOTPExpiry = Date.now() + 5 * 60 * 1000; // 5-minute window
-      return res.json({ requiresTOTP: true, deviceTrustAvailable });
+    if (second.step === 'email') {
+      return res.json({
+        requiresEmailOTP: true, emailHint: second.emailHint, deviceTrustAvailable: second.deviceTrustAvailable,
+        ...(second.sendFailed ? { emailSendFailed: true } : {}),
+      });
     }
-
-    // If MFA is enforced but this user has no TOTP, offer email OTP or force enrollment
-    if (enforcement === 'required') {
-      req.session.pendingUserId = user.id;
-      req.session.pendingTOTPExpiry = Date.now() + 10 * 60 * 1000; // 10-minute window
-      if (user.recovery_email) {
-        try {
-          await sendEmailOtpCode(user.id, user.recovery_email);
-          return res.json({ requiresEmailOTP: true, emailHint: maskEmail(user.recovery_email), deviceTrustAvailable });
-        } catch (err) {
-          console.error('Email OTP auto-send failed, falling back to enrollment:', err.message);
-          // Fall through — system email not configured; direct user to TOTP enrollment
-        }
-      }
-      // No TOTP and no usable recovery email — must enroll
-      req.session.pendingMFAEnrollment = true;
+    if (second.step === 'enroll') {
       return res.json({ requiresMFAEnrollment: true });
     }
 
@@ -319,34 +234,50 @@ router.post('/login', authLimiter, async (req, res) => {
   }
 });
 
+// GET /api/auth/2fa/pending — the second step a pending sign-in is waiting for. The login page
+// asks after a single sign-on, whose callback redirects there with ?oidc_mfa=1 instead of
+// signing in (services/secondFactor.js). Password login gets the same answer from /login.
+router.get('/2fa/pending', (req, res) => {
+  const step = req.session.pendingSecondFactor;
+  if (!req.session.pendingUserId || !step || Date.now() > (req.session.pendingTOTPExpiry || 0)) {
+    return res.json({ step: null });
+  }
+  const prompt = req.session.pendingPrompt || {};
+  res.json({
+    step,
+    deviceTrustAvailable: prompt.deviceTrustAvailable === true,
+    ...(step === 'email' && prompt.emailHint ? { emailHint: prompt.emailHint } : {}),
+    ...(step === 'email' && prompt.sendFailed ? { emailSendFailed: true } : {}),
+  });
+});
+
 // Second step of login when 2FA is enabled
 router.post('/2fa/challenge', authLimiter, async (req, res) => {
   const { code, rememberDevice } = req.body;
   if (!code) return res.status(400).json({ error: 'Code required' });
 
-  if (!req.session.pendingUserId) {
-    return res.status(400).json({ error: 'No pending authentication' });
-  }
-  const now = Date.now();
-  if (now > (req.session.pendingTOTPExpiry || 0)) {
+  // Only a sign-in waiting for the authenticator (services/secondFactor.js).
+  const pending = pendingSignIn(req, 'totp');
+  if (pending.error === 'expired') {
     delete req.session.pendingUserId;
     delete req.session.pendingTOTPExpiry;
     return res.status(400).json({ error: 'Authentication timed out. Please log in again.' });
   }
+  if (pending.error) return res.status(400).json({ error: pending.error });
 
   // Per-user rate limit (5 attempts per 15 min) applied on top of the IP-based authLimiter.
   // Prevents brute-force via IP rotation during the pending TOTP window.
-  const uid = req.session.pendingUserId;
+  const uid = pending.userId;
   const totpLimit = await rlConsume(`totp:${uid}`, 5, 15 * 60 * 1000);
   if (totpLimit.limited) {
     res.setHeader('Retry-After', Math.ceil(totpLimit.resetMs / 1000));
     return res.status(429).json({ error: 'Too many attempts. Please log in again.' });
   }
 
-  const result = await query('SELECT * FROM users WHERE id = $1', [req.session.pendingUserId]);
+  const result = await query('SELECT * FROM users WHERE id = $1', [uid]);
   const user = result.rows[0];
-  if (!user || !user.totp_secret) {
-    logAuthEvent('totp_fail', { userId: req.session.pendingUserId, ip: req.ip, success: false });
+  if (!user || !user.totp_enabled || !user.totp_secret) {
+    logAuthEvent('totp_fail', { userId: uid, ip: req.ip, success: false });
     return res.status(401).json({ error: 'Authentication failed' });
   }
 
@@ -365,11 +296,8 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
     return res.status(401).json({ error: 'Invalid code' });
   }
 
-  // Regenerate session ID before elevating from pending to fully authenticated
-  await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
-  req.session.userId = user.id;
-  req.session.username = user.username;
-  req.session.isAdmin = user.is_admin;
+  // A new session ID before elevating from pending to fully authenticated
+  await completePendingLogin(req, user);
 
   if (rememberDevice) {
     try { await createTrustedDevice(user.id, req, res); } catch (err) { console.error('createTrustedDevice failed:', err.message); }
@@ -382,48 +310,17 @@ router.post('/2fa/challenge', authLimiter, async (req, res) => {
   res.json({ user: { id: user.id, username: user.username, displayName: user.display_name, avatar: user.avatar, isAdmin: user.is_admin, totpEnabled: user.totp_enabled } });
 });
 
-// Helper: generate and store an email OTP, send it to the given address
-async function sendEmailOtpCode(userId, toEmail) {
-  const codeNum = crypto.randomBytes(3).readUIntBE(0, 3) % 900000 + 100000;
-  const code = String(codeNum);
-  const codeHash = crypto.createHash('sha256').update(code).digest('hex');
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10-minute window
-
-  // Remove any previous unused OTPs for this user to prevent confusion
-  await query('DELETE FROM email_otp_tokens WHERE user_id = $1 AND used_at IS NULL', [userId]);
-  await query(
-    'INSERT INTO email_otp_tokens (user_id, code_hash, expires_at) VALUES ($1, $2, $3)',
-    [userId, codeHash, expiresAt]
-  );
-
-  await sendSystemEmail({
-    to: toEmail,
-    subject: 'Your MailFlow sign-in code',
-    text: `Your sign-in code is: ${code}\n\nThis code expires in 10 minutes.\n\nIf you did not request this code, you can ignore this email.`,
-    html: `
-      <div style="font-family:-apple-system,Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;color:#1a1a1a;">
-        <div style="margin-bottom:24px;">
-          <span style="font-size:22px;font-weight:700;color:#1a1a1a;">Mail</span><span style="font-size:22px;font-weight:600;color:#7c6af7;">Flow</span>
-        </div>
-        <h2 style="margin:0 0 12px;font-size:18px;font-weight:600;">Your sign-in code</h2>
-        <p style="color:#555;line-height:1.6;margin:0 0 24px;">Use the code below to sign in to MailFlow. It expires in 10 minutes.</p>
-        <div style="font-size:36px;font-weight:700;letter-spacing:0.2em;text-align:center;padding:20px;background:#f5f4ff;border-radius:8px;color:#7c6af7;margin-bottom:24px;">${code}</div>
-        <p style="color:#999;font-size:12px;margin:0;">If you did not request this code, you can ignore this email.</p>
-      </div>
-    `,
-  });
-}
-
 // POST /api/auth/2fa/send-email-otp — (re)send email OTP during pending login
 router.post('/2fa/send-email-otp', authLimiter, async (req, res) => {
-  if (!req.session.pendingUserId || req.session.pendingMFAEnrollment) {
-    return res.status(400).json({ error: 'No pending authentication' });
-  }
-  if (Date.now() > (req.session.pendingTOTPExpiry || 0)) {
+  // Only a sign-in whose second step is the emailed code: never one that needs the user's
+  // authenticator, which an emailed code would otherwise replace (GHSA-v67x-j275-jpxj).
+  const pending = pendingSignIn(req, 'email');
+  if (pending.error === 'expired') {
     return res.status(400).json({ error: 'Authentication timed out. Please log in again.' });
   }
+  if (pending.error) return res.status(400).json({ error: pending.error });
 
-  const uid = req.session.pendingUserId;
+  const uid = pending.userId;
   const otpSend = await rlConsume(`otp-send:${uid}`, 3, 5 * 60 * 1000);
   if (otpSend.limited) {
     return res.status(429).json({ error: 'Too many code requests. Please wait before requesting another.' });
@@ -435,10 +332,11 @@ router.post('/2fa/send-email-otp', authLimiter, async (req, res) => {
 
   try {
     await sendEmailOtpCode(uid, recoveryEmail);
+    if (req.session.pendingPrompt) req.session.pendingPrompt.sendFailed = false;
     res.json({ ok: true, emailHint: maskEmail(recoveryEmail) });
   } catch (err) {
     console.error('Email OTP send failed:', err.message);
-    res.status(500).json({ error: 'Failed to send verification code. Check system email configuration.' });
+    res.status(503).json({ error: 'The sign-in code could not be sent. Try again later, or ask your administrator for a code.' });
   }
 });
 
@@ -446,17 +344,16 @@ router.post('/2fa/send-email-otp', authLimiter, async (req, res) => {
 router.post('/2fa/verify-email-otp', authLimiter, async (req, res) => {
   const { code, rememberDevice } = req.body;
   if (!code) return res.status(400).json({ error: 'Code required' });
-  if (!req.session.pendingUserId || req.session.pendingMFAEnrollment) {
-    return res.status(400).json({ error: 'No pending authentication' });
-  }
-  const now = Date.now();
-  if (now > (req.session.pendingTOTPExpiry || 0)) {
+  // Only a sign-in whose second step is the emailed code (see /2fa/send-email-otp).
+  const pending = pendingSignIn(req, 'email');
+  if (pending.error === 'expired') {
     delete req.session.pendingUserId;
     delete req.session.pendingTOTPExpiry;
     return res.status(400).json({ error: 'Authentication timed out. Please log in again.' });
   }
+  if (pending.error) return res.status(400).json({ error: pending.error });
 
-  const uid = req.session.pendingUserId;
+  const uid = pending.userId;
   // Reuse TOTP challenge bucket for verify attempts (5 per 15 min per user)
   const totpLimit = await rlConsume(`totp:${uid}`, 5, 15 * 60 * 1000);
   if (totpLimit.limited) {
@@ -481,11 +378,13 @@ router.post('/2fa/verify-email-otp', authLimiter, async (req, res) => {
   const userResult = await query('SELECT * FROM users WHERE id = $1', [uid]);
   const user = userResult.rows[0];
   if (!user) return res.status(401).json({ error: 'Authentication failed' });
+  // An authenticator turned on since the code was sent wins: sign in with it instead.
+  if (user.totp_enabled) {
+    logAuthEvent('totp_fail', { username: user.username, userId: user.id, ip: req.ip, success: false });
+    return res.status(401).json({ error: 'Authentication failed' });
+  }
 
-  await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
-  req.session.userId = user.id;
-  req.session.username = user.username;
-  req.session.isAdmin = user.is_admin;
+  await completePendingLogin(req, user);
 
   if (rememberDevice) {
     try { await createTrustedDevice(user.id, req, res); } catch (err) { console.error('createTrustedDevice failed:', err.message); }
@@ -500,14 +399,13 @@ router.post('/2fa/verify-email-otp', authLimiter, async (req, res) => {
 
 // GET /api/auth/2fa/enrollment/setup — generate TOTP QR for forced enrollment
 router.get('/2fa/enrollment/setup', async (req, res) => {
-  if (!req.session.pendingUserId || !req.session.pendingMFAEnrollment) {
-    return res.status(400).json({ error: 'No pending enrollment' });
-  }
-  if (Date.now() > (req.session.pendingTOTPExpiry || 0)) {
+  const pending = pendingSignIn(req, 'enroll');
+  if (pending.error === 'expired') {
     return res.status(400).json({ error: 'Session expired. Please log in again.' });
   }
+  if (pending.error) return res.status(400).json({ error: pending.error });
 
-  const userResult = await query('SELECT username FROM users WHERE id = $1', [req.session.pendingUserId]);
+  const userResult = await query('SELECT username FROM users WHERE id = $1', [pending.userId]);
   const username = userResult.rows[0]?.username || 'user';
 
   const secret = authenticator.generateSecret(20);
@@ -524,18 +422,17 @@ router.get('/2fa/enrollment/setup', async (req, res) => {
 router.post('/2fa/enrollment/enable', authLimiter, async (req, res) => {
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: 'Code required' });
-  if (!req.session.pendingUserId || !req.session.pendingMFAEnrollment) {
-    return res.status(400).json({ error: 'No pending enrollment' });
-  }
-  const now = Date.now();
-  if (now > (req.session.pendingTOTPExpiry || 0)) {
+  const pending = pendingSignIn(req, 'enroll');
+  if (pending.error === 'expired') {
     return res.status(400).json({ error: 'Session expired. Please log in again.' });
   }
+  if (pending.error) return res.status(400).json({ error: pending.error });
+  const now = Date.now();
   if (!req.session.pendingTOTPSecret || now > (req.session.pendingTOTPSetupExpiry || 0)) {
     return res.status(400).json({ error: 'Setup session expired. Start over.' });
   }
 
-  const uid = req.session.pendingUserId;
+  const uid = pending.userId;
   const totpLimit = await rlConsume(`totp:${uid}`, 5, 15 * 60 * 1000);
   if (totpLimit.limited) {
     res.setHeader('Retry-After', Math.ceil(totpLimit.resetMs / 1000));
@@ -547,19 +444,22 @@ router.post('/2fa/enrollment/enable', authLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Invalid code — check your device clock and try again.' });
   }
 
-  await query(
-    'UPDATE users SET totp_secret = $1, totp_enabled = true WHERE id = $2',
+  // Only while the account still has no authenticator: one the owner turned on since this
+  // sign-in started is never replaced by a pending one's.
+  const enrolled = await query(
+    'UPDATE users SET totp_secret = $1, totp_enabled = true WHERE id = $2 AND totp_enabled = false RETURNING id',
     [encrypt(secret), uid]
   );
+  if (!enrolled.rows.length) {
+    logAuthEvent('totp_fail', { userId: uid, ip: req.ip, success: false });
+    return res.status(401).json({ error: 'Authentication failed' });
+  }
 
   const userResult = await query('SELECT * FROM users WHERE id = $1', [uid]);
   const user = userResult.rows[0];
   if (!user) return res.status(401).json({ error: 'Authentication failed' });
 
-  await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
-  req.session.userId = user.id;
-  req.session.username = user.username;
-  req.session.isAdmin = user.is_admin;
+  await completePendingLogin(req, user);
 
   imapManager.connectAllForUser(user.id);
   logAuthEvent('totp_success', { username: user.username, userId: user.id, ip: req.ip, success: true });
@@ -791,7 +691,8 @@ export async function patchPreferences(req, res) {
           categorizationEnabled, markReadBehavior, markReadDelay, aiActions,
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
           folderOrder, senderFavicons, showMessagePreviews, defaultSender,
-          conversationMode, hoverActionSet, autoOpenReplyDrafts, afterRemove, darkEmailBodies, listSort } = req.body;
+          conversationMode, hoverActionSet, autoOpenReplyDrafts, afterRemove, darkEmailBodies, listSort,
+          timeFormat } = req.body;
   if (autoOpenReplyDrafts !== undefined && typeof autoOpenReplyDrafts !== 'boolean') {
     return res.status(400).json({ error: 'autoOpenReplyDrafts must be a boolean' });
   }
@@ -858,6 +759,8 @@ export async function patchPreferences(req, res) {
   const senderFaviconsVal = hasSenderFavicons ? senderFavicons : null;
   // Only the three known modes are stored; anything else is ignored rather than persisted.
   const conversationModeVal = ['off', 'list', 'pane'].includes(conversationMode) ? conversationMode : null;
+  // Time format (#758): 'auto' follows the language, '12' / '24' force a clock. Same rule.
+  const timeFormatVal = ['auto', '12', '24'].includes(timeFormat) ? timeFormat : null;
   // #440: which hover quick actions the message list shows. Same vocabulary and canonical
   // order as frontend/src/utils/hoverActions.js; unknown keys are dropped rather than stored.
   const HOVER_ACTION_KEYS = ['markRead', 'star', 'archive', 'snooze', 'delete', 'move'];
@@ -919,6 +822,7 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $46::text IS NOT NULL THEN jsonb_build_object('afterRemove', $46::text) ELSE '{}'::jsonb END
       || CASE WHEN $47::boolean IS NOT NULL THEN jsonb_build_object('darkEmailBodies', $47::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $48::jsonb IS NOT NULL THEN jsonb_build_object('listSort', $48::jsonb) ELSE '{}'::jsonb END
+      || CASE WHEN $49::text IS NOT NULL THEN jsonb_build_object('timeFormat', $49::text) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -930,7 +834,7 @@ export async function patchPreferences(req, res) {
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
       showMessagePreviews ?? null, defaultSenderVal, conversationModeVal, hoverActionSetJson, autoOpenReplyDrafts ?? null,
-      afterRemoveVal, darkEmailBodies ?? null, listSortJson]);
+      afterRemoveVal, darkEmailBodies ?? null, listSortJson, timeFormatVal]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;
@@ -1002,11 +906,43 @@ router.post('/preferences/whitelist-add', async (req, res) => {
 
 // ── Recovery email ────────────────────────────────────────────────────────────
 
+// Changing the recovery email takes the confirmation an API token takes (apiTokenReauth.js):
+// the address receives password resets and, when two-factor is required, sign-in codes, so a
+// session left open, or taken, must not be able to redirect them. A user whose second factor is
+// that emailed code ('totpSetup' there) confirms with their password.
+async function recoveryEmailReauth(user) {
+  const reauth = await reauthFor(user);
+  return reauth === 'totpSetup' ? 'password' : reauth;
+}
+
 router.get('/profile/recovery-email', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
-  const result = await query('SELECT recovery_email FROM users WHERE id = $1', [req.session.userId]);
-  res.json({ email: result.rows[0]?.recovery_email || null });
+  const user = await userForReauth(req.session.userId);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  const result = await query('SELECT recovery_email FROM users WHERE id = $1', [user.id]);
+  res.json({ email: result.rows[0]?.recovery_email || null, ...(await reauthState(req, user, await recoveryEmailReauth(user))) });
 });
+
+const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+// Tells the address being replaced, so a change the owner did not make does not go unnoticed.
+async function noticeRecoveryEmailChange(oldAddress, newAddress, username) {
+  const to = newAddress ? `It now goes to ${maskEmail(newAddress)}.` : 'The account no longer has one.';
+  try {
+    await sendSystemEmail({
+      to: oldAddress,
+      subject: 'Your MailFlow recovery email was changed',
+      text: `The recovery email for the MailFlow account ${username} was changed from this address. ${to}\n\nIf you did not make this change, contact your MailFlow administrator.`,
+      html: `<div style="font-family:-apple-system,Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;color:#1a1a1a;">
+        <h2 style="margin:0 0 12px;font-size:18px;font-weight:600;">Your recovery email was changed</h2>
+        <p style="color:#555;line-height:1.6;margin:0 0 12px;">The recovery email for the MailFlow account <strong>${escapeHtml(username)}</strong> was changed from this address. ${escapeHtml(to)}</p>
+        <p style="color:#555;line-height:1.6;margin:0;">If you did not make this change, contact your MailFlow administrator.</p>
+      </div>`,
+    });
+  } catch (err) {
+    console.error('Recovery email change notice failed:', err.message);
+  }
+}
 
 router.patch('/profile/recovery-email', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
@@ -1018,16 +954,23 @@ router.patch('/profile/recovery-email', async (req, res) => {
   }
   const userId = req.session.userId;
   const current = await query('SELECT recovery_email FROM users WHERE id = $1', [userId]);
-  const changed = (trimmed || null) !== (current.rows[0]?.recovery_email ?? null);
+  const previous = current.rows[0]?.recovery_email ?? null;
+  const changed = (trimmed || null) !== previous;
+  if (!changed) return res.json({ ok: true });
+
+  const user = await userForReauth(userId);
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  const { refusal } = await confirmReauth(req, user, await recoveryEmailReauth(user));
+  if (refusal) return res.status(refusal.status).set(refusal.headers ?? {}).json(refusal.body);
+
   await withTransaction(async client => {
     await client.query('UPDATE users SET recovery_email = $1 WHERE id = $2', [trimmed || null, userId]);
     // A reset link or login code already sent to the old address must stop working, as when
     // an admin changes it (routes/admin.js): the old address may be why it is changing.
-    if (changed) {
-      await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [userId]);
-      await client.query('DELETE FROM email_otp_tokens WHERE user_id = $1', [userId]);
-    }
+    await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM email_otp_tokens WHERE user_id = $1', [userId]);
   });
+  if (previous) noticeRecoveryEmailChange(previous, trimmed || null, user.username);
   res.json({ ok: true });
 });
 

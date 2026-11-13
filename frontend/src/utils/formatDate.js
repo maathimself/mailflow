@@ -21,7 +21,36 @@ const parse = (value) => {
   return Number.isFinite(d.getTime()) ? d : null;
 };
 
-const written = (d, options, locale) => new Intl.DateTimeFormat(locale ?? appLocale(), options).format(d);
+// The time format chosen in Settings > Appearance (#758): 'auto' follows the language as
+// today, '12' / '24' force a 12- or 24-hour clock. Read from the same localStorage cache the
+// store seeds (mailflow_time_format), so these helpers stay free of the store.
+export function appTimeFormat() {
+  try {
+    const v = typeof localStorage !== 'undefined' ? localStorage.getItem('mailflow_time_format') : null;
+    return v === '12' || v === '24' ? v : 'auto';
+  } catch {
+    return 'auto';
+  }
+}
+
+// The hour12 override for Intl options, or nothing when the format follows the language.
+// Intl ignores hour12 where no time is asked for, so date-only shapes are untouched.
+const hour12Options = () => {
+  const format = appTimeFormat();
+  return format === 'auto' ? undefined : { hour12: format === '12' };
+};
+
+// For the toLocaleString / toLocaleTimeString surfaces: forcing hour12 on its own makes
+// ICU add seconds, so the hour and minute are pinned too — but only when forced, so
+// Automatic keeps exactly the output toLocaleString used to give.
+// Naming any field drops Intl's defaults, so a date-and-time surface names the date too.
+const DATE_FIELDS = { year: 'numeric', month: 'numeric', day: 'numeric' };
+const forcedTimeOptions = (withDate = false) => {
+  const o = hour12Options();
+  return o ? { ...(withDate ? DATE_FIELDS : {}), hour: 'numeric', minute: '2-digit', ...o } : undefined;
+};
+
+const written = (d, options, locale) => new Intl.DateTimeFormat(locale ?? appLocale(), { ...options, ...hour12Options() }).format(d);
 
 // "Yesterday" in the app's language, capitalized as a label.
 function yesterday(locale) {
@@ -50,9 +79,9 @@ export function formatMessageDateTime(dateStr, { withYear = true } = {}, locale)
 }
 
 // toLocaleString / toLocaleDateString / toLocaleTimeString, in the app's language.
-export const formatDateTime = (value, locale) => parse(value)?.toLocaleString(locale ?? appLocale()) ?? '';
+export const formatDateTime = (value, locale) => parse(value)?.toLocaleString(locale ?? appLocale(), forcedTimeOptions(true)) ?? '';
 export const formatDay = (value, locale) => parse(value)?.toLocaleDateString(locale ?? appLocale()) ?? '';
-export const formatTime = (value, locale) => parse(value)?.toLocaleTimeString(locale ?? appLocale()) ?? '';
+export const formatTime = (value, locale) => parse(value)?.toLocaleTimeString(locale ?? appLocale(), forcedTimeOptions()) ?? '';
 
 // When snoozed mail comes back (#269), compact for a list row: the time today, "Tomorrow" and the
 // time, the weekday within the week, the date beyond that.

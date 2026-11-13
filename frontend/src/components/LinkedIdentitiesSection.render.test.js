@@ -175,6 +175,20 @@ describe('linking an SSO identity asks for a confirmation first (#714)', () => {
     assert.deepEqual(navigated, ['/auth/oidc/other/start?action=link']);
   });
 
+  test('back from that sign-in with two-factor on: the code as well, then the link', async () => {
+    await render({ reauth: 'oidc', oidc: { ...corp, confirmedUntil: new Date(Date.now() + 9 * 60_000).toISOString(), totpToo: true } });
+    await click(linkButton());
+
+    assert.deepEqual(posted, [], 'the sign-in alone does not confirm');
+    assert.equal(document.querySelector(SIGN_IN_WITH_CORP), null, 'already signed in through the provider');
+    assert.ok(codeField(), 'the section asks for the code');
+    await type(codeField(), '123456');
+    await click(continueButton());
+
+    assert.deepEqual(posted, [{ totpCode: '123456' }]);
+    assert.deepEqual(navigated, ['/auth/oidc/other/start?action=link']);
+  });
+
   test('a sign-in that lapsed since the page loaded: the refusal is shown with the way to sign in again', async () => {
     await render({ reauth: 'oidc', oidc: { ...corp, confirmedUntil: new Date(Date.now() + 60_000).toISOString() } });
     answer = async () => { throw Object.assign(new Error('Confirm through single sign-on first'), { status: 400 }); };

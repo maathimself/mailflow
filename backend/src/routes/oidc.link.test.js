@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 // (oidc.linkConfirm.test.js), and spends it, so a session on its own can no longer add an
 // identity its owner did not ask for. The callback is as it was.
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: { connect: vi.fn() } }));
-vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, isEncrypted: () => false }));
+vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, encrypt: (v) => v, isEncrypted: () => false }));
 vi.mock('../index.js', () => ({ imapManager: { connectAllForUser: vi.fn() } }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req, _res, next) => next() }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));

@@ -19,6 +19,7 @@ import {
   hoverActions, isRetrying, nextRestoreEnd, primaryAction, reasonKey, recipientsOf, rowActions, rowLabel, sentNotes,
   storedZoneTime,
 } from '../utils/scheduledView.js';
+import { descaleCss } from '../utils/uiScaleCss.js';
 
 // The Scheduled view (#543, design 5.2): every scheduled message of every account, in three
 // sections (Needs attention, Scheduled, recently Sent), with what each is doing and the actions
@@ -812,7 +813,7 @@ function ActionSheet({ row, t, subject, returnTo, onClose, onAction }) {
         style={{
           position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 2101, background: 'var(--bg-elevated)',
           borderRadius: '16px 16px 0 0', paddingBottom: 'calc(var(--sab) + 8px)', boxShadow: 'var(--shadow-modal)',
-          animation: 'sheet-enter 0.22s var(--ease-emphasized) both', maxHeight: '85vh', overflowY: 'auto',
+          animation: 'sheet-enter 0.22s var(--ease-emphasized) both', maxHeight: descaleCss('85vh'), overflowY: 'auto',
         }}>
         <div id={titleId} style={{
           padding: '16px 20px 10px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)',

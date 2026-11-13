@@ -1065,7 +1065,9 @@ describe('MessageList: a row\'s body loads while the mouse rests on it', () => {
     await mountRows([MESSAGE, row('msg-hover')]);
     await move('msg-hover');
     await settle(450);
-    assert.deepEqual(CALLS.map(c => `${c.method} ${c.path.replace(/^.*\/api/, '')}`), ['GET /mail/messages/msg-hover/body?prefetch=1']);
+    // The list's batched tag lookup for its rows is not part of the prefetch.
+    const calls = CALLS.filter(c => !c.path.includes('/api/tags/'));
+    assert.deepEqual(calls.map(c => `${c.method} ${c.path.replace(/^.*\/api/, '')}`), ['GET /mail/messages/msg-hover/body?prefetch=1']);
     assert.equal(useStore.getState().selectedMessageId, null, 'nothing opened');
     assert.equal(useStore.getState().messages.find(m => m.id === 'msg-hover').is_read, false);
   });
@@ -1522,5 +1524,25 @@ describe('MessageList — the selection bar\'s More menu marks spam', () => {
     const item = await openMore();
     assert.equal(item.textContent.trim(), 'contextMenu.markAsSpam');
     assert.equal(item.disabled, true);
+  });
+});
+
+describe('MessageList — a cold launch', () => {
+  test('shows the loading rows, not an empty folder, until the accounts are in', async () => {
+    await mount({ rows: [] });
+    await React.act(async () => root.unmount());
+    root = null;
+    useStore.setState({ accountsReady: false, messages: [], loadingMessages: false });
+    await React.act(async () => {
+      root = createRoot(container);
+      root.render(React.createElement(MessageList));
+    });
+    assert.ok(container.querySelector('.skeleton-line'), 'loading rows while the accounts load');
+    assert.ok(!container.textContent.includes('messageList.emptyInbox'), 'not "no messages"');
+    assert.ok(!container.textContent.includes('messageList.noAccounts'), 'not "no accounts"');
+
+    await React.act(async () => { useStore.setState({ accountsReady: true }); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    assert.ok(!container.querySelector('.skeleton-line'), 'the loading rows go once the list is in');
   });
 });

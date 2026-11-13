@@ -26,6 +26,7 @@ import { useListFirst } from '../hooks/useListFirst.js';
 import { useHeaderControlsFit } from '../hooks/useHeaderControlsFit.js';
 import GtdTabList from './GtdTabList.jsx';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
+import { descaleCss } from '../utils/uiScaleCss.js';
 import {
   gtdActiveForContext, buildGtdDisplaySections, GTD_COLORS, GTD_CHIP_BG, sectionBadge, isSelectedRow,
 } from '../utils/gtd.js';
@@ -48,6 +49,7 @@ import ReplyDraftIndicator from './ReplyDraftIndicator.jsx';
 import { PluginSlot } from '../plugins/PluginSlot.jsx';
 import SpamExplainModal from './SpamExplainModal.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
+import { RowTagPills } from '../tags/TagPills.jsx';
 import { createLatestRequest } from '../utils/latestRequest.js';
 import { refreshListWindow, createTrailingRefresh } from '../utils/listRefresh.js';
 import { applyReadGuard as guardReads, clearReadGuard, failMarkRead, setPending, settleMarkRead } from '../utils/pendingReads.js';
@@ -421,13 +423,18 @@ function MailboxList() {
     lastSelectIdxRef.current = -1;
   }, [messagesRefreshToken]);
 
-  // Escape clears selection; click-outside closes folder picker
+  // Escape closes an open menu, or else clears the selection; click-outside closes folder picker.
+  // Closing the selection bar's More menu must not throw away what was selected.
+  const popupOpenRef = useRef(false);
+  popupOpenRef.current = showFolderPicker || showBulkMore || showLayoutPicker;
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') {
+        const closingMenu = popupOpenRef.current;
         setShowFolderPicker(false);
         setShowBulkMore(false);
         setShowLayoutPicker(false);
+        if (closingMenu) return;
         setSelectedIds(new Set());
         setSelectionModeActive(false);
       }
@@ -3795,7 +3802,8 @@ function MailboxList() {
           </div>
         )}
 
-        {loadingMessages && displayMessages.length === 0 && (
+        {/* Before the accounts are in, the list has not been asked for yet: loading, not empty. */}
+        {(loadingMessages || !accountsReady) && displayMessages.length === 0 && (
           <div>
             {Array.from({ length: 7 }).map((_, i) => (
               <div key={i} style={{
@@ -3839,7 +3847,7 @@ function MailboxList() {
           </div>
         )}
 
-        {!loadingMessages && displayMessages.length === 0 && (
+        {!loadingMessages && accountsReady && displayMessages.length === 0 && (
           <EmptyState
             folderSyncing={folderSyncing}
             searchQuery={searchQuery}
@@ -4089,7 +4097,7 @@ function MailboxList() {
                         }}
                       />
                     </div>
-                    <div style={{ borderTop: '1px solid var(--border-subtle)', overflowY: 'auto', maxHeight: '60vh' }}>
+                    <div style={{ borderTop: '1px solid var(--border-subtle)', overflowY: 'auto', maxHeight: descaleCss('60vh') }}>
                       {pickerLoading ? (
                         <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
                           {t('common.loading')}
@@ -4968,6 +4976,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             <PluginSlot name="message-row-meta" ctx={{ message }} />
             <ReplyDraftIndicator message={message} listRow />
             <SpamBadge message={message} onClick={onExplainSpam} />
+            <RowTagPills message={message} />
           </div>
           {/* Row 3: snippet */}
           {showMessagePreviews && (
@@ -5298,6 +5307,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
           <PluginSlot name="message-row-meta" ctx={{ message }} />
           <ReplyDraftIndicator message={message} listRow />
           <SpamBadge message={message} onClick={onExplainSpam} />
+          <RowTagPills message={message} />
         </div>
 
         {/* Row 3: Snippet */}

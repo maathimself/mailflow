@@ -25,12 +25,18 @@ public class NativeSecurityTest {
         assertEquals("http://172.31.255.255", NativeSecurity.normalizeHost("http://172.31.255.255"));
         assertEquals("http://192.168.1.20", NativeSecurity.normalizeHost("http://192.168.1.20"));
         assertEquals("http://[::1]:8080", NativeSecurity.normalizeHost("http://[::1]:8080"));
+        assertEquals("http://100.64.0.1", NativeSecurity.normalizeHost("http://100.64.0.1"));
+        assertEquals("http://100.101.102.103:9080", NativeSecurity.normalizeHost("http://100.101.102.103:9080"));
+        assertEquals("http://100.127.255.255", NativeSecurity.normalizeHost("http://100.127.255.255"));
 
         assertNull(NativeSecurity.normalizeHost("http://mail.example.com"));
         assertNull(NativeSecurity.normalizeHost("http://localhost.example.com"));
         assertNull(NativeSecurity.normalizeHost("http://172.32.0.1"));
         assertNull(NativeSecurity.normalizeHost("http://192.169.0.1"));
         assertNull(NativeSecurity.normalizeHost("http://169.254.1.1"));
+        assertNull(NativeSecurity.normalizeHost("http://100.63.255.255"));
+        assertNull(NativeSecurity.normalizeHost("http://100.128.0.1"));
+        assertNull(NativeSecurity.normalizeHost("http://100.64.0.1.example.com"));
     }
 
     @Test
@@ -81,5 +87,27 @@ public class NativeSecurityTest {
             "android.intent.action.VIEW"
         ));
         assertFalse(MailFlowNativePlugin.isPrivilegedNativeAction(null));
+    }
+
+    @Test
+    public void originOfMatchesLocationOrigin() {
+        assertEquals("https://mail.example.com", NativeSecurity.originOf("https://mail.example.com"));
+        assertEquals("https://mail.example.com", NativeSecurity.originOf("https://Mail.Example.com:443"));
+        assertEquals("http://192.168.1.20", NativeSecurity.originOf("http://192.168.1.20:80"));
+        assertEquals("https://mail.example.com:8443", NativeSecurity.originOf("https://mail.example.com:8443"));
+        assertEquals("http://[::1]:8080", NativeSecurity.originOf("http://[::1]:8080"));
+        assertNull(NativeSecurity.originOf("file:///android_asset/index.html"));
+        assertNull(NativeSecurity.originOf(null));
+        assertNull(NativeSecurity.originOf("not a url"));
+    }
+
+    @Test
+    public void hostGuardedScriptRunsOnlyOnTheHostsPage() {
+        assertEquals(
+            "(function(){if(location.origin!=='https://mail.example.com:8443')return;go();})();",
+            NativeSecurity.hostGuardedScript("https://mail.example.com:8443", "go();")
+        );
+        assertNull(NativeSecurity.hostGuardedScript(null, "go();"));
+        assertNull(NativeSecurity.hostGuardedScript("https://mail.example.com", null));
     }
 }

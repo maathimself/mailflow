@@ -115,6 +115,13 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Two locales sharing a value is only allowed if both appear in the same group.
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
+  'templates.name': [['en', 'de'], ['it', 'ptBR']],
+  'templates.variables.date': [['en', 'fr'], ['it', 'ptBR', 'pl'], ['de', 'cs']],
+  'templates.variables.groups.date': [['en', 'fr'], ['it', 'ptBR', 'pl'], ['de', 'cs']],
+  'templates.variables.groups.contact': [['en', 'fr'], ['de', 'cs', 'pl']],
+  'templates.variables.fullName': [['it', 'ptBR']],
+  'templates.variables.givenName': [['it', 'ptBR']],
+
   // ── List sort menu (#528) ───────────────────────────────────────────────────
   'messageList.sortSummary':                'any', // "{{sort}}, {{dir}}": only the placeholders and a comma
   'messageList.sortDate':                   [['en', 'fr'], ['it', 'ptBR', 'pl'], ['cs', 'de']], // Date / Data / Datum
@@ -241,6 +248,11 @@ const SAME_VALUE_ALLOWED = {
   // "Mono" — typography abbreviation, same in de, en, es, fr, it
   'admin.appearance.typographyMono': [['de', 'en', 'es', 'fr', 'it', 'pl', 'ptBR']],
 
+  // Time format (#758): Spanish and Portuguese share "Automático", "12 horas", "24 horas"
+  'admin.appearance.timeFormatAuto': [['es', 'ptBR']],
+  'admin.appearance.timeFormat12':   [['es', 'ptBR']],
+  'admin.appearance.timeFormat24':   [['es', 'ptBR']],
+
   // "Archive" — same spelling in en and fr
   'admin.folderMappings.archive': [['en', 'fr'], ['cs', 'de']],
 
@@ -309,6 +321,13 @@ const SAME_VALUE_ALLOWED = {
 
   // "Tema" — "Theme" translates identically in es and it
   'admin.tabs.theme': [['es', 'it', 'ptBR']],
+
+  // ── Tags ───────────────────────────────────────────────────────────────────
+  // "Tags" — the same loanword in de, en, fr and ptBR
+  'tags.title': [['de', 'en', 'fr', 'ptBR']],
+  // "Name" / "Color" — plain cognates
+  'tags.settings.name':  [['de', 'en'], ['it', 'ptBR']],
+  'tags.settings.color': [['en', 'es']],
 
   // "Administration" — same spelling in de, en, fr
   'admin.tabs.groupAdmin': [['de', 'en', 'fr']],

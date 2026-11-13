@@ -9,8 +9,11 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
+import { descaleCss } from '../utils/uiScaleCss.js';
 import { useEditor, EditorContent, useEditorState, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { Extension } from '@tiptap/core';
+import { DOMSerializer } from '@tiptap/pm/model';
+import { closeHistory } from '@tiptap/pm/history';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import { TextStyle, Color as TiptapColor, FontFamily, BackgroundColor } from '@tiptap/extension-text-style';
@@ -25,6 +28,7 @@ import { PasteWithoutPageColors } from '../utils/editorPaste.js';
 import { pasteWithoutPageColors } from '../utils/contentEditablePaste.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { resolveInitialFrom } from '../utils/defaultSender.js';
+import { aiSenderNote, signatureText } from '../utils/aiSenderNote.js';
 import { initialComposeFocus, isComposeSendShortcut, isSendLaterShortcut } from '../utils/composeFromMessage.js';
 import { unproxyImages } from '../utils/imageProxy.js';
 import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } from '../utils/autoRecipients.js';
@@ -42,10 +46,11 @@ import {
   openScheduledView, scheduleErrorText, sendNowUndoMs, undoSchedule, undoSendNow, withScheduledAttachments,
 } from '../utils/scheduledCompose.js';
 import { ComposeQuestion, ScheduledStrip, SendLaterIcon, SendLaterMenu, SendLaterSheet } from './SendLater.jsx';
+import { PluginSlot } from '../plugins/PluginSlot.jsx';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
-function resizeImageToDataUrl(file, maxW = 800) {
+export function resizeImageToDataUrl(file, maxW = 800) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new window.Image();
@@ -136,6 +141,62 @@ const ResizableImage = Image.extend({
   },
 });
 
+export function createComposeExtensions(placeholder) {
+  return [
+    // Link comes from ComposerLink instead of StarterKit's bundled copy so the mark can
+    // be made non-inclusive. See editorLink.js for why (#415).
+    StarterKit.configure({
+      link: false,
+    }),
+    ComposerLink,
+    TextStyle,
+    TiptapColor,
+    FontFamily,
+    BackgroundColor,
+    FontSize,
+    PasteWithoutPageColors,
+    TextAlign.configure({ types: ['heading', 'paragraph'] }),
+    ResizableImage.configure({ inline: true, allowBase64: true }),
+    Table.configure({ resizable: false }),
+    TableRow,
+    TableHeader,
+    TableCell,
+    Placeholder.configure({ placeholder }),
+  ];
+}
+
+export function createComposeEditorProps() {
+  return {
+    attributes: { spellcheck: 'true' },
+    // A file dropped on the body is attached by the composer's drop handler, not inserted here.
+    // Asked of the files, not the types: Chrome lists Files for another site's image without
+    // handing the file over, and that image still goes in as before.
+    handleDrop(view, event) {
+      return (event.dataTransfer?.files?.length ?? 0) > 0;
+    },
+    handlePaste(view, event) {
+      // If clipboard has HTML containing a table (e.g. from Excel), let
+      // TipTap parse it natively — Excel provides both image/png and text/html;
+      // without this check the image path wins and the table is lost.
+      const html = event.clipboardData?.getData('text/html') ?? '';
+      if (html && /<table[\s>]/i.test(html)) return false;
+      const items = Array.from(event.clipboardData?.items || []);
+      const imageItem = items.find(it => it.type.startsWith('image/'));
+      if (!imageItem) return false;
+      event.preventDefault();
+      const file = imageItem.getAsFile();
+      if (file) {
+        resizeImageToDataUrl(file).then(dataUrl => {
+          view.dispatch(view.state.tr.replaceSelectionWith(
+            view.state.schema.nodes.image.create({ src: dataUrl })
+          ));
+        }).catch(() => {});
+      }
+      return true;
+    },
+  };
+}
+
 function stripHtml(html) {
   const div = document.createElement('div');
   div.innerHTML = html;
@@ -169,7 +230,7 @@ function normalizeTo(arr) {
 // Parse a normalizeTo string (or raw value) into an array of chips.
 // Splits on commas that are not inside quoted strings ("...") or angle brackets (<...>),
 // so display names like "Smith, John <j@example.com>" are kept intact.
-function parseChips(val) {
+export function parseChips(val) {
   const str = typeof val === 'string' ? val : normalizeTo(val);
   if (!str) return [];
   const parts = [];
@@ -402,6 +463,7 @@ export default function ComposeModal() {
   const idempotencyKeyRef = useRef(null);
   const replyTypeRef = useRef(null);
   const textareaRef = useRef(null);
+  const sourceTextareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   const signatureRef = useRef(null);
@@ -460,27 +522,7 @@ export default function ComposeModal() {
   const [discarding, setDiscarding] = useState(false);
 
   const editor = useEditor({
-    extensions: [
-      // Link comes from ComposerLink instead of StarterKit's bundled copy so the mark can
-      // be made non-inclusive. See editorLink.js for why (#415).
-      StarterKit.configure({
-        link: false,
-      }),
-      ComposerLink,
-      TextStyle,
-      TiptapColor,
-      FontFamily,
-      BackgroundColor,
-      FontSize,
-      PasteWithoutPageColors,
-      TextAlign.configure({ types: ['heading', 'paragraph'] }),
-      ResizableImage.configure({ inline: true, allowBase64: true }),
-      Table.configure({ resizable: false }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      Placeholder.configure({ placeholder: t('compose.bodyPh') }),
-    ],
+    extensions: createComposeExtensions(t('compose.bodyPh')),
     content: composeData?.body || '',
     // TipTap rewrites the HTML it loads, so a draft saved by another client never equals its
     // own source. Baseline on what the editor holds, or merely opening a draft counts as an
@@ -494,35 +536,7 @@ export default function ComposeModal() {
     // Not when the AI panel opens with the composer: its instruction field takes the focus.
     autofocus: initialFocus === 'editor' && !plaintextEmail && !composeData?.aiReply ? 'start' : false,
     immediatelyRender: false,
-    editorProps: {
-      attributes: { spellcheck: 'true' },
-      // A file dropped on the body is attached by the composer's drop handler, not inserted here.
-      // Asked of the files, not the types: Chrome lists Files for another site's image without
-      // handing the file over, and that image still goes in as before.
-      handleDrop(view, event) {
-        return (event.dataTransfer?.files?.length ?? 0) > 0;
-      },
-      handlePaste(view, event) {
-        // If clipboard has HTML containing a table (e.g. from Excel), let
-        // TipTap parse it natively — Excel provides both image/png and text/html;
-        // without this check the image path wins and the table is lost.
-        const html = event.clipboardData?.getData('text/html') ?? '';
-        if (html && /<table[\s>]/i.test(html)) return false;
-        const items = Array.from(event.clipboardData?.items || []);
-        const imageItem = items.find(it => it.type.startsWith('image/'));
-        if (!imageItem) return false;
-        event.preventDefault();
-        const file = imageItem.getAsFile();
-        if (file) {
-          resizeImageToDataUrl(file).then(dataUrl => {
-            view.dispatch(view.state.tr.replaceSelectionWith(
-              view.state.schema.nodes.image.create({ src: dataUrl })
-            ));
-          }).catch(() => {});
-        }
-        return true;
-      },
-    },
+    editorProps: createComposeEditorProps(),
   });
 
   useEffect(() => {
@@ -967,8 +981,17 @@ export default function ComposeModal() {
       setAiPanel({ action, status: 'error', text: t('compose.toolbar.aiTooLong', { count: fmt.format(user.length), max: fmt.format(AI_MESSAGE_MAX_CHARS) }) });
       return;
     }
+    // The signature handleSend will add (none while the toggle is off, #555), and the sender's
+    // name, so the model neither adds a sign-off above the real signature nor invents a
+    // [Your Name]. See utils/aiSenderNote.js. The name skips the account's display name, which
+    // is a label such as "Work Gmail".
+    const senderNote = aiSenderNote({
+      name: fromAlias ? fromAlias.name : fromAccount?.sender_name,
+      signature: !signatureEnabled ? '' : plaintextEmail ? plainSig : signatureText(signatureContentRef.current),
+      rewriting: action !== 'draft',
+    });
     const messages = [
-      { role: 'system', content: system },
+      { role: 'system', content: `${system}\n\n${senderNote}` },
       { role: 'user', content: user },
     ];
 
@@ -2092,6 +2115,89 @@ export default function ComposeModal() {
     </button>
   ) : null);
 
+  const composerPluginContext = {
+    editor, sessionId: composeSession, disabled: sending || (!!scheduledEdit && !holdReady), htmlMode, plaintextEmail, isMobile,
+    captureSelection: () => {
+      const target = plaintextEmail ? textareaRef.current : htmlMode ? sourceTextareaRef.current : null;
+      return target ? { mode: plaintextEmail ? 'plain' : 'source', value: target.value, from: target.selectionStart, to: target.selectionEnd }
+        : { mode: 'rich', bookmark: editor?.state.selection.getBookmark() };
+    },
+    getRecipients: ({ committedOnly = false } = {}) => committedOnly ? toChips : [...toChips, ...parseChips(toInput)],
+    getSubject: () => subject,
+    getBody: () => plaintextEmail ? body : htmlMode ? htmlSource : editor?.getHTML() || '',
+    transformContent: ({ text, html, subject: transformSubject }) => {
+      if (sending || (scheduledEdit && !holdReady) || useStore.getState().composeSession !== composeSession || useStore.getState().user?.id !== composeOwner) return;
+      let changed = false;
+      if (plaintextEmail) {
+        const next = text(body);
+        if (next !== body) { setBody(next); changed = true; }
+      } else if (htmlMode) {
+        const next = html(htmlSource);
+        if (next !== htmlSource) { setHtmlSource(next); changed = true; }
+      } else if (editor && !editor.isDestroyed) {
+        const replacements = [];
+        editor.state.doc.descendants((node, pos) => {
+          if (!node.isText) return;
+          const next = text(node.text);
+          if (next !== node.text) replacements.push({ pos, size: node.nodeSize, next });
+        });
+        if (replacements.length) {
+          const tr = closeHistory(editor.state.tr);
+          // Replace from the end so positions and the user's selection keep mapping correctly.
+          replacements.reverse().forEach(({ pos, size, next }) => tr.insertText(next, pos, pos + size));
+          editor.view.dispatch(tr);
+          changed = true;
+        }
+      }
+      const nextSubject = transformSubject(subject);
+      if (nextSubject !== subject) { setSubject(nextSubject); changed = true; }
+      if (changed) { bodyEditedRef.current = true; lastEditAtRef.current = Date.now(); }
+    },
+    getContent: (selection) => {
+      const container = document.createElement('div');
+      if (plaintextEmail || htmlMode) {
+        const value = plaintextEmail ? body : htmlSource;
+        const text = selection?.from !== selection?.to ? value.slice(selection.from, selection.to) : value;
+        if (htmlMode) return DOMPurify.sanitize(text);
+        container.textContent = text;
+        return container.innerHTML.replace(/\n/g, '<br>');
+      }
+      if (!editor || editor.isDestroyed) return '';
+      const { from, to } = editor.state.selection;
+      if (from === to) return editor.getHTML();
+      container.appendChild(DOMSerializer.fromSchema(editor.schema).serializeFragment(editor.state.doc.slice(from, to).content));
+      return container.innerHTML;
+    },
+    insertContent: (htmlContent, selection, { subject: insertedSubject = '' } = {}) => {
+      if (sending || (scheduledEdit && !holdReady) || useStore.getState().composeSession !== composeSession || useStore.getState().user?.id !== composeOwner) return;
+      const html = DOMPurify.sanitize(htmlContent || '');
+      const insertText = (value, text, mode) => {
+        const from = selection?.mode === mode && selection.value === value ? selection.from : value.length;
+        const to = selection?.mode === mode && selection.value === value ? selection.to : value.length;
+        return value.slice(0, from) + text + value.slice(to);
+      };
+      if (plaintextEmail) {
+        const element = document.createElement('div');
+        element.innerHTML = html.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n');
+        setBody(value => insertText(value, element.textContent.replace(/\n$/, ''), 'plain'));
+      } else if (htmlMode) setHtmlSource(value => insertText(value, html, 'source'));
+      else {
+        if (!editor || editor.isDestroyed) return;
+        const chain = editor.chain().focus();
+        if (selection?.mode === 'rich' && selection.bookmark) {
+          chain.command(({ tr }) => {
+            try { tr.setSelection(selection.bookmark.resolve(tr.doc)); }
+            catch { /* The current caret remains the fallback if the document changed. */ }
+            return true;
+          });
+        }
+        chain.insertContent(html).run();
+      }
+      if (insertedSubject) setSubject(current => current.trim() ? current : insertedSubject);
+      bodyEditedRef.current = true; lastEditAtRef.current = Date.now();
+    },
+  };
+
   const modeLabel = isReply
     ? (replyAll ? t('compose.replyAll') : t('compose.reply'))
     : isForward ? t('compose.forward') : t('compose.newMessage');
@@ -2288,6 +2394,7 @@ export default function ComposeModal() {
 
     return (
       <>
+      <PluginSlot name="compose-observers" ctx={composerPluginContext} />
       <div style={{
         position: 'fixed', inset: 0, zIndex: 1999,
         background: 'rgba(0,0,0,0.25)',
@@ -2581,6 +2688,7 @@ export default function ComposeModal() {
                 </svg>
               </button>
               {renderSignatureToggle()}
+              <PluginSlot name="compose-actions" ctx={composerPluginContext} />
             </div>
           )}
           {plaintextEmail ? (
@@ -2603,6 +2711,7 @@ export default function ComposeModal() {
           ) : (
             <div className="tiptap-compose" style={{ flex: '1 0 auto', minHeight: 200, display: 'flex', flexDirection: 'column' }}>
               <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()}
+                pluginContext={composerPluginContext}
                 signatureControl={renderSignatureToggle()}
                 htmlMode={htmlMode}
                 onToggleHtml={() => {
@@ -2627,6 +2736,7 @@ export default function ComposeModal() {
               )}
               {htmlMode ? (
                 <textarea
+                  ref={sourceTextareaRef}
                   value={htmlSource}
                   onChange={e => setHtmlSource(e.target.value)}
                   spellCheck={false}
@@ -2952,6 +3062,7 @@ export default function ComposeModal() {
 
   return (
     <>
+      <PluginSlot name="compose-observers" ctx={composerPluginContext} />
       {maximized && (
         <div
           onClick={() => setMaximized(false)}
@@ -2975,7 +3086,7 @@ export default function ComposeModal() {
       } : pos ? {
         position: 'fixed', top: pos.y, left: pos.x,
         width: customSize?.width || 540,
-        ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
+        ...(customSize?.height ? { height: customSize.height } : { maxHeight: descaleCss('75vh') }),
         maxWidth: 'calc(100vw - 16px)',
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10, boxShadow: 'var(--shadow-modal)',
@@ -2983,7 +3094,7 @@ export default function ComposeModal() {
       } : {
         position: 'fixed', bottom: 0, right: 24,
         width: customSize?.width || 540, maxWidth: 'calc(100vw - 48px)',
-        ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
+        ...(customSize?.height ? { height: customSize.height } : { maxHeight: descaleCss('75vh') }),
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10,
         boxShadow: 'var(--shadow-modal)',
@@ -3212,6 +3323,7 @@ export default function ComposeModal() {
 
       {/* Toolbar — sits outside overflow container so dropdowns are never clipped */}
       {!plaintextEmail && <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()} onInsertImage={() => imageInputRef.current?.click()}
+        pluginContext={composerPluginContext}
         signatureControl={renderSignatureToggle()}
         htmlMode={htmlMode}
         onToggleHtml={() => {
@@ -3262,6 +3374,7 @@ export default function ComposeModal() {
           />
         ) : htmlMode ? (
           <textarea
+            ref={sourceTextareaRef}
             value={htmlSource}
             onChange={e => setHtmlSource(e.target.value)}
             spellCheck={false}
@@ -3403,6 +3516,7 @@ export default function ComposeModal() {
           </button>
         )}
         {plaintextEmail && renderSignatureToggle()}
+        {plaintextEmail && <PluginSlot name="compose-actions" ctx={composerPluginContext} />}
 
         {error && <span style={{ fontSize: 12, color: 'var(--red)', flex: 1 }}>{error}</span>}
 
@@ -3860,7 +3974,7 @@ function ComposeAiPanel({ panel, mobile = false, onInstructionChange, onGenerate
   );
 }
 
-function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMode, onToggleHtml, isMobile, aiEnabled, aiReplyEnabled, onAiAction, aiPanelOpen }) {
+export function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMode, onToggleHtml, isMobile, aiEnabled, aiReplyEnabled, onAiAction, aiPanelOpen, pluginContext, extraControls }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const savedSelectionRef = useRef(null);
@@ -4082,8 +4196,9 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
     <button key={title} title={title} onMouseDown={onMD} style={{ background: active ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', color: active ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, WebkitTapHighlightColor: 'transparent' }}>{children}</button>
   );
 
-  const moreMenuButton = (onToggleHtml || aiEnabled) && (
+  const moreMenuButton = (onToggleHtml || aiEnabled || extraControls || pluginContext) && (
     <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+    <Sep />
     <button type="button" title={t('message.more')} aria-label={t('message.more')}
       aria-expanded={showMore} onMouseDown={toggleMore}
       style={{
@@ -4138,6 +4253,8 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
   // ============================================================================
   const moreControls = (
     <>
+      {extraControls}
+      {pluginContext && <PluginSlot name="compose-actions" ctx={{ ...pluginContext, isMobile }} />}
       {aiButton}
       {onToggleHtml && (
         <button type="button" title={htmlMode ? 'Back to rich text' : 'Edit HTML source'}

@@ -1,8 +1,8 @@
 // Dates in MailFlow's language, not the browser's (#593).
-import { test, describe, afterEach } from 'node:test';
+import { test, describe, afterEach, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import i18next from 'i18next';
-import { appLocale, formatDate, formatMessageDateTime, formatDateTime, formatDay, formatSnoozeUntil } from './formatDate.js';
+import { appLocale, appTimeFormat, formatDate, formatMessageDateTime, formatDateTime, formatDay, formatTime, formatSnoozeUntil } from './formatDate.js';
 
 const at = (daysAgo, h = 15, m = 5) => { const d = new Date(); d.setDate(d.getDate() - daysAgo); d.setHours(h, m, 0, 0); return d; };
 const aYearAgo = () => { const d = new Date(); d.setFullYear(d.getFullYear() - 1, 9, 12); d.setHours(15, 5, 0, 0); return d; };
@@ -75,5 +75,71 @@ describe('formatSnoozeUntil, when snoozed mail comes back (#269)', () => {
   test('nothing for a missing or broken value', () => {
     assert.equal(formatSnoozeUntil(null, 'en'), '');
     assert.equal(formatSnoozeUntil('nope', 'en'), '');
+  });
+});
+
+describe('the time format setting (#758)', () => {
+  const store = new Map();
+  const realLocalStorage = globalThis.localStorage;
+  beforeEach(() => {
+    store.clear();
+    globalThis.localStorage = {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    };
+  });
+  afterEach(() => {
+    if (realLocalStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = realLocalStorage;
+    i18next.language = undefined;
+  });
+  const ahead = (days, h = 9, m = 0) => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(h, m, 0, 0); return d; };
+
+  test('Automatic follows the language, as before', () => {
+    assert.equal(appTimeFormat(), 'auto');
+    assert.equal(formatDate(at(0), 'en'), '3:05 PM');
+    i18next.language = 'ru';
+    assert.equal(formatDate(at(0)), '15:05');
+  });
+  test('12-hour forces a 12-hour clock even in a 24-hour language', () => {
+    globalThis.localStorage.setItem('mailflow_time_format', '12');
+    assert.equal(appTimeFormat(), '12');
+    i18next.language = 'ru';
+    assert.equal(formatDate(at(0)), '3:05 PM');
+    assert.match(formatMessageDateTime(aYearAgo(), {}, 'ru'), /3:05\s?PM/);
+    assert.equal(formatTime(at(0), 'en'), '3:05 PM');
+    assert.match(formatDateTime(aYearAgo(), 'ru'), /3:05\s?PM/);
+  });
+  test('24-hour forces a 24-hour clock even in a 12-hour language', () => {
+    globalThis.localStorage.setItem('mailflow_time_format', '24');
+    assert.equal(appTimeFormat(), '24');
+    assert.equal(formatDate(at(0), 'en'), '15:05');
+    assert.match(formatMessageDateTime(aYearAgo(), {}, 'en'), /15:05/);
+    assert.doesNotMatch(formatMessageDateTime(aYearAgo(), {}, 'en'), /PM/);
+    assert.equal(formatTime(at(0), 'en'), '15:05');
+    // A 24-hour clock pads the hour, as German does today ("Morgen 09:00").
+    assert.equal(formatSnoozeUntil(ahead(1), 'en'), 'Tomorrow 09:00');
+  });
+  test('a forced clock keeps the date in date-and-time shapes', () => {
+    const d = aYearAgo();
+    for (const [format, time] of [['12', /3:05\s?PM/], ['24', /15:05/]]) {
+      globalThis.localStorage.setItem('mailflow_time_format', format);
+      for (const locale of ['en', 'de', 'ru']) {
+        const shown = formatDateTime(d, locale);
+        assert.ok(shown.includes(d.toLocaleDateString(locale)), `${format} ${locale}: ${shown}`);
+        assert.match(shown, time);
+      }
+    }
+  });
+  test('an unknown stored value falls back to Automatic', () => {
+    globalThis.localStorage.setItem('mailflow_time_format', '13');
+    assert.equal(appTimeFormat(), 'auto');
+    assert.equal(formatDate(at(0), 'en'), '3:05 PM');
+  });
+  test('date-only shapes are untouched by the setting', () => {
+    globalThis.localStorage.setItem('mailflow_time_format', '24');
+    assert.match(formatDate(aYearAgo(), 'en'), /^Oct 12, \d{4}$/);
+    assert.equal(formatDay(aYearAgo(), 'en'), aYearAgo().toLocaleDateString('en'));
   });
 });
