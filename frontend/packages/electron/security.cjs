@@ -21,7 +21,10 @@ function isAllowedCleartextHostname(hostname) {
   return octets[0] === 127
     || octets[0] === 10
     || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
-    || (octets[0] === 192 && octets[1] === 168);
+    || (octets[0] === 192 && octets[1] === 168)
+    // Shared address space (RFC 6598). Tailscale gives devices addresses here, and its traffic
+    // is already encrypted (#776). The unencrypted-connection prompt still shows.
+    || (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127);
 }
 
 function normalizeHost(value) {

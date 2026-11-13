@@ -15,7 +15,8 @@ import { unlinkUserIdentity } from '../services/userIdentities.js';
 import { isUuid } from '../utils/uuid.js';
 import { recordOidcConfirmation } from '../services/oidcConfirmation.js';
 import { revokedTokensNote } from '../services/apiTokens.js';
-import { confirmReauth, oidcConfirmationState, reauthFor, userForReauth } from '../services/apiTokenReauth.js';
+import { confirmReauth, reauthFor, reauthState, userForReauth } from '../services/apiTokenReauth.js';
+import { beginSecondFactor } from '../services/secondFactor.js';
 
 // In-memory OIDC discovery cache keyed by issuerUrl
 const discoveryCache = new Map();
@@ -196,6 +197,35 @@ function rememberOidcSession(req, providerId, idToken) {
   if (idToken) req.session.oidcIdToken = idToken;
 }
 
+// Sign `user` in after the provider vouched for them, with the same second step as password
+// login (GHSA-48gw-3xw6-9v67): the user's own authenticator, and the admin's "2FA required"
+// policy, unless the provider is marked as already enforcing MFA. A remembered device skips
+// it, as it does for password login. When a second step is needed the browser goes to the
+// login page, which asks for it; the provider rides along to the session it creates.
+async function finishSsoLogin(req, res, client, user, provider, idToken) {
+  const { rows: [factors] } = await client.query(
+    'SELECT totp_enabled, recovery_email FROM users WHERE id = $1',
+    [user.id]
+  );
+  await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
+  const second = await beginSecondFactor(req, { ...user, ...factors }, {
+    sso: { providerId: provider.id, idToken },
+    idpEnforcesMfa: provider.idp_enforces_mfa === true,
+  });
+  if (second.step !== 'none') {
+    await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+    return res.redirect('/login?oidc_mfa=1');
+  }
+  req.session.userId = user.id;
+  req.session.username = user.username;
+  req.session.isAdmin = user.is_admin;
+  rememberOidcSession(req, provider.id, idToken);
+  await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+  imapManager.connectAllForUser(user.id);
+  logAuthEvent('sso_login', { username: user.username, userId: user.id, ip: req.ip, success: true });
+  return res.redirect('/?oidc_success=login');
+}
+
 // Build the OIDC RP-initiated logout (end-session) URL for a session that signed in via
 // a provider with rp_initiated_logout enabled. Returns null when it does not apply — no
 // provider on the session, the toggle is off, the provider is gone, discovery fails, or
@@ -259,11 +289,9 @@ oidcApiRouter.get('/identities', requireAuth, async (req, res) => {
        ORDER BY ui.created_at ASC`,
       [req.session.userId]
     );
-    const reauth = await reauthFor(user);
     res.json({
       identities: result.rows,
-      reauth,
-      ...(reauth === 'oidc' ? { oidc: await oidcConfirmationState(req, user) } : {}),
+      ...(await reauthState(req, user, await reauthFor(user))),
     });
   } catch {
     res.status(500).json({ error: 'Failed to load identities' });
@@ -600,15 +628,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         'UPDATE user_identities SET last_used_at = NOW() WHERE issuer = $1 AND subject = $2',
         [issuer, subject]
       );
-      await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
-      req.session.userId = user.id;
-      req.session.username = user.username;
-      req.session.isAdmin = user.is_admin;
-      rememberOidcSession(req, provider.id, tokenData.id_token);
-      await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
-      imapManager.connectAllForUser(user.id);
-      logAuthEvent('sso_login', { username: user.username, userId: user.id, ip: req.ip, success: true });
-      return res.redirect('/?oidc_success=login');
+      return finishSsoLogin(req, res, client, user, provider, tokenData.id_token);
     }
 
     // No existing identity — consult provisioning_mode
@@ -659,15 +679,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         logAuthEvent('identity_linked', { userId: user.id, username: user.username, ip: req.ip, success: true });
       }
       await maybeBackfillDisplayName(client, user.id, payload);
-      await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
-      req.session.userId = user.id;
-      req.session.username = user.username;
-      req.session.isAdmin = user.is_admin;
-      rememberOidcSession(req, provider.id, tokenData.id_token);
-      await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
-      imapManager.connectAllForUser(user.id);
-      logAuthEvent('sso_login', { username: user.username, userId: user.id, ip: req.ip, success: true });
-      return res.redirect('/?oidc_success=login');
+      return finishSsoLogin(req, res, client, user, provider, tokenData.id_token);
     }
 
     if (mode === 'open') {
@@ -727,15 +739,7 @@ oidcBrowserRouter.get('/:slug/callback', async (req, res) => {
         if (linkedRow?.linked) {
           logAuthEvent('identity_linked', { userId: user.id, username: user.username, ip: req.ip, success: true });
         }
-        await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
-        req.session.userId = user.id;
-        req.session.username = user.username;
-        req.session.isAdmin = user.is_admin;
-        rememberOidcSession(req, provider.id, tokenData.id_token);
-        await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
-        imapManager.connectAllForUser(user.id);
-        logAuthEvent('sso_login', { username: user.username, userId: user.id, ip: req.ip, success: true });
-        return res.redirect('/?oidc_success=login');
+        return finishSsoLogin(req, res, client, user, provider, tokenData.id_token);
       } catch (err) {
         await client.query('ROLLBACK').catch(() => {});
         throw err;

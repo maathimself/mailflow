@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { useStore } from '../store/index.js';
 import { useUiScale } from '../hooks/useUiScale.js';
+import { descaleCss } from '../utils/uiScaleCss.js';
 import { generateReport } from '../utils/diagnostics.js';
 
 // Sanitized diagnostics report: generate, preview (so the user can see exactly
@@ -54,7 +55,7 @@ export default function DiagnosticsReportModal({ onClose }) {
         onClick={e => e.stopPropagation()}
         style={{
           background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 12,
-          width: 'min(640px, 100%)', maxHeight: '86vh', display: 'flex', flexDirection: 'column',
+          width: 'min(640px, 100%)', maxHeight: descaleCss('86vh'), display: 'flex', flexDirection: 'column',
           boxShadow: 'var(--shadow-modal)',
         }}
       >
@@ -79,7 +80,7 @@ export default function DiagnosticsReportModal({ onClose }) {
             <pre style={{
               margin: 0, padding: '10px 12px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
               borderRadius: 8, fontSize: 11.5, lineHeight: 1.45, color: 'var(--text-primary)',
-              maxHeight: '38vh', overflow: 'auto', whiteSpace: 'pre', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              maxHeight: descaleCss('38vh'), overflow: 'auto', whiteSpace: 'pre', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
             }}>{state.json}</pre>
           </>)}
         </div>

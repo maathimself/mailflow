@@ -1315,11 +1315,13 @@ export const useStore = create((set, get) => ({
 
   // Fetch server preferences and apply them — call after any successful login.
   // Sets localStorage so subsequent page loads apply the right values instantly.
-  loadPreferences: async () => {
+  // prefetched: the launch's answer from bootPrefetch.js, asked alongside the session. Should it
+  // have failed, the preferences are asked for again here, as before.
+  loadPreferences: async (prefetched = null) => {
     const userId = get().user?.id;
     const faviconEpoch = get().senderFaviconsEpoch;
     try {
-      const prefs = await api.getPreferences();
+      const prefs = await (prefetched ? prefetched.catch(() => api.getPreferences()) : api.getPreferences());
       if (get().user?.id !== userId) return;
       // Per-user plugin activation. Absent = nothing activated (new users start with GTD off);
       // existing GTD users were grandfathered into ['gtd'] by migration 0042.

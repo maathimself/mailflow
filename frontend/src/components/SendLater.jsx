@@ -4,6 +4,7 @@ import {
   browserTimeZone, checkSendAt, dateBounds, defaultCustom, formatSendAt, localDateTimeValue, localDateValue,
   localTimeValue, presets, resolveCustom, resolveLocalDateTime,
 } from '../utils/scheduleTimes.js';
+import { descaleCss } from '../utils/uiScaleCss.js';
 
 // The composer's Send later (#543, design 5.1 and 5.4): the menu of the split Send button on
 // desktop, the sheet behind the clock button on phones, the date and time picker both share, the
@@ -350,7 +351,7 @@ export function SendLaterSheet({
         style={{
           position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 2101, background: 'var(--bg-elevated)',
           borderRadius: '16px 16px 0 0', paddingBottom: 'calc(var(--sab) + 8px)', boxShadow: 'var(--shadow-modal)',
-          animation: 'sheet-enter 0.22s var(--ease-emphasized) both', maxHeight: '85vh', overflowY: 'auto',
+          animation: 'sheet-enter 0.22s var(--ease-emphasized) both', maxHeight: descaleCss('85vh'), overflowY: 'auto',
         }}
       >
         <div id={titleId} style={{ padding: '16px 20px 8px', fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)' }}>

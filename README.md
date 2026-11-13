@@ -162,18 +162,11 @@ MailFlow will be available on port 443 (HTTPS, self-signed certificate) and port
 |---|---|---|
 | `APP_PORT` | `443` | HTTPS port |
 | `APP_HTTP_PORT` | `80` | HTTP port |
-| `NGINX_TLS` | `on` | `off` stops serving HTTPS on `APP_PORT` (see below) |
+| `TLS_MODE` | `self-signed` | `letsencrypt` or `off` (see below) |
 
-**Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, download the HTTPS overlay, then restart:
+**Optional — automatic HTTPS via Let's Encrypt:** set `TLS_MODE=letsencrypt`, `DOMAIN` and (optionally) `ACME_EMAIL` in `.env`, then run `docker compose up -d` again. MailFlow gets a certificate for `DOMAIN` and renews it automatically. Requires a public domain with DNS pointing at the server, and ports 80/443 open.
 
-```bash
-curl -o docker-compose.https.yml https://raw.githubusercontent.com/maathimself/mailflow/main/docker-compose.https.yml
-docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d
-```
-
-This adds a Caddy reverse proxy that handles certificate issuance and renewal automatically. Requires Docker Compose 2.21+, a public domain with DNS pointing at the server, and ports 80/443 open.
-
-**Optional — behind your own reverse proxy:** point your proxy at port 80. Set `APP_HTTP_PORT` in `.env` if you need a different host port. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly. To stop MailFlow's nginx serving HTTPS on port 443 and generating a certificate, set `NGINX_TLS=off` in `.env`. This needs a writable `/etc/nginx/conf.d`, so on a read-only filesystem mount a certificate in `/etc/nginx/ssl` instead. The `--profile https` setup always keeps HTTPS on, because Caddy connects to it.
+**Optional — behind your own reverse proxy:** point your proxy at port 80. Set `APP_HTTP_PORT` in `.env` if you need a different host port. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly. To stop MailFlow serving HTTPS on port 443 and generating a certificate, set `TLS_MODE=off` in `.env`.
 
 If clients can reach MailFlow only through your proxy, also set `TRUST_PROXY_HOPS=2` in `.env`, so the login rate limit sees each client's address rather than the proxy's. Docker publishes `APP_PORT` and `APP_HTTP_PORT` on every interface, and firewalls such as ufw do not filter them, so first bind both to an address only your proxy can reach, for example `APP_HTTP_PORT=127.0.0.1:8080` and `APP_PORT=127.0.0.1:8443` for a proxy on the same host. Without that, leave `TRUST_PROXY_HOPS` unset: a client that connects directly could choose the address it is rate-limited and logged under. If your `docker-compose.yml` has no `TRUST_PROXY_HOPS` line, download it again with the first command in step 1, or the setting never reaches the backend.
 
@@ -192,8 +185,12 @@ Select a preset (Gmail, iCloud) or Custom for any IMAP server.
 
 ```bash
 docker compose pull
-docker compose up -d
+docker compose up -d --remove-orphans
 ```
+
+`--remove-orphans` removes containers of services MailFlow no longer uses. Since 4.4 that is the Redis container and, if you used the old `https` profile, the separate Caddy container, which would otherwise keep ports 80 and 443 and stop MailFlow's frontend from starting.
+
+**If you used the `https` profile before 4.4** (`--profile https`, or `-f docker-compose.https.yml`): before updating, add `TLS_MODE=letsencrypt` to `.env` next to your `DOMAIN` and `ACME_EMAIL`, and remove `TRUST_PROXY_HOPS=2` if you set it for that profile. MailFlow's own frontend now gets the Let's Encrypt certificate. Without `TLS_MODE=letsencrypt` it starts with a self-signed certificate instead, which browsers that have visited your site refuse outright, as the site told them to accept only valid HTTPS (HSTS). Keeping `-f docker-compose.https.yml` in your commands also works: it sets the same for you.
 
 To pin to a specific version instead of `latest`, add `MAILFLOW_VERSION=4.0.4` to your `.env`.
 
@@ -235,13 +232,18 @@ docker compose up -d --build
 
 First build takes 2–3 minutes. MailFlow will be available on port 443 (HTTPS, self-signed certificate) and port 80 (HTTP).
 
-**Optional — automatic HTTPS via Let's Encrypt:** set `DOMAIN` and `ACME_EMAIL` in `.env`, then start with the HTTPS overlay (requires Docker Compose 2.21+):
+**Optional — automatic HTTPS via Let's Encrypt:** set `TLS_MODE=letsencrypt`, `DOMAIN` and (optionally) `ACME_EMAIL` in `.env`, then run `docker compose up -d --build` again. MailFlow gets a certificate for `DOMAIN` and renews it automatically. Requires a public domain with DNS pointing at the server, and ports 80/443 open.
+
+**Optional — behind your own reverse proxy:** point your proxy at port 80. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly. To stop MailFlow serving HTTPS on port 443 and generating a certificate, set `TLS_MODE=off` in `.env`.
+
+### Updating
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d --build
+git pull
+docker compose up -d --build --remove-orphans
 ```
 
-**Optional — behind your own reverse proxy:** point your proxy at port 80. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly. To stop MailFlow's nginx serving HTTPS on port 443 and generating a certificate, set `NGINX_TLS=off` in `.env`. This needs a writable `/etc/nginx/conf.d`, so on a read-only filesystem mount a certificate in `/etc/nginx/ssl` instead. The `--profile https` setup always keeps HTTPS on, because Caddy connects to it.
+See the note on `--remove-orphans` under Option A.
 
 If clients can reach MailFlow only through your proxy, also set `TRUST_PROXY_HOPS=2` in `.env`, so the login rate limit sees each client's address rather than the proxy's. Docker publishes `APP_PORT` and `APP_HTTP_PORT` on every interface, and firewalls such as ufw do not filter them, so first bind both to an address only your proxy can reach, for example `APP_HTTP_PORT=127.0.0.1:8080` and `APP_PORT=127.0.0.1:8443` for a proxy on the same host. Without that, leave `TRUST_PROXY_HOPS` unset: a client that connects directly could choose the address it is rate-limited and logged under.
 
@@ -260,14 +262,13 @@ Select a preset (Gmail, iCloud) or Custom for any IMAP server.
 
 ## Option C — Native install (no Docker)
 
-Run MailFlow directly on any Linux, macOS, or BSD machine using Node.js, PostgreSQL, and Redis.
+Run MailFlow directly on any Linux, macOS, or BSD machine using Node.js and PostgreSQL.
 No container runtime required. The steps below use Ubuntu/Debian; adapt package manager commands for other platforms.
 
 ### Prerequisites
 
 - **Node.js 22 (LTS)** — [nodejs.org](https://nodejs.org) or via your package manager. Newer majors break the backend: Node's built-in `fetch` conflicts with the pinned `undici` dispatcher.
 - **PostgreSQL 16+**
-- **Redis 7+**
 - **nginx** — serves the built frontend and proxies API/WebSocket requests to the backend
 
 ### 1. Install system dependencies
@@ -276,14 +277,13 @@ No container runtime required. The steps below use Ubuntu/Debian; adapt package 
 ```bash
 # Node.js 22 via NodeSource
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs postgresql redis-server nginx
+sudo apt-get install -y nodejs postgresql nginx
 ```
 
 **macOS (Homebrew):**
 ```bash
-brew install node@22 postgresql@16 redis nginx
+brew install node@22 postgresql@16 nginx
 brew services start postgresql@16
-brew services start redis
 ```
 
 ### 2. Create the database
@@ -319,10 +319,9 @@ Edit `.env`. In addition to the required secrets, set these for a native install
 | `DB_NAME` | `mailflow` |
 | `DB_USER` | `mailflow` |
 | `DB_PASSWORD` | password you set in step 2 |
-| `REDIS_URL` | `redis://localhost:6379` — or `redis+unix:///path/to/redis.sock` for a Unix socket |
-
-For Docker installs, the bundled Postgres/Redis work out of the box. To point at **external** database or cache servers (any host/port), or to store data on a host **bind mount** (e.g. an Unraid appdata share with `PUID`/`PGID`), see the "Database & Redis" and "Storage & permissions" sections of [`.env.example`](.env.example).
 | `ENCRYPTION_KEY` | `openssl rand -hex 32` |
+
+For Docker installs, the bundled Postgres works out of the box. To point at an **external** database server (any host/port), or to store data on a host **bind mount** (e.g. an Unraid appdata share with `PUID`/`PGID`), see the "Database" and "Storage & permissions" sections of [`.env.example`](.env.example).
 
 ### 5. Build the frontend
 
@@ -539,6 +538,24 @@ Then follow the steps for your account type:
 Any standard IMAP/SMTP server works. Use port 993 for IMAP (TLS) and
 587 (STARTTLS) or 465 (TLS) for SMTP.
 
+### Exchange with ActiveSync only (third-party bridge)
+
+Some on-premises Exchange servers close IMAP and SMTP and allow only Exchange
+ActiveSync. MailFlow does not speak ActiveSync, but
+[EASBridge](https://github.com/Raed-Alghamdi/easbridge) can run next to it: the
+bridge talks ActiveSync to Exchange and offers IMAP, SMTP and a read-only CardDAV
+address book on MailFlow's Docker network. You then add the mailbox as a **Custom**
+account and, optionally, connect the address book under CardDAV Contacts. Its
+[install guide for MailFlow](https://github.com/Raed-Alghamdi/easbridge/blob/main/INSTALL.md)
+covers the compose override and the account settings. MailFlow needs **Allow private /
+local hosts** turned on (Settings → Security, Mail Server Connection Policy, admins
+only) to reach it.
+
+It works with on-premises Exchange that allows Basic authentication for ActiveSync,
+not Microsoft 365, and has no calendar. EASBridge is a separate project: MailFlow's
+maintainers don't maintain or review it, and it handles your Exchange password, so
+decide for yourself whether to trust it.
+
 ---
 
 ## Management
@@ -557,7 +574,10 @@ docker compose down
 docker compose down -v
 
 # Update to latest images (pre-built install)
-docker compose pull && docker compose up -d
+docker compose pull && docker compose up -d --remove-orphans
+
+# Update a build-from-source install
+git pull && docker compose up -d --build --remove-orphans
 
 # Rebuild after a code change (Docker build-from-source install)
 docker compose up -d --build
@@ -579,7 +599,7 @@ The file holds password hashes, pending invite links and the accounts' credentia
 
 Restoring replaces everything on the server with the file's contents, then MailFlow restarts. Docker, pm2 and the systemd unit in `contrib/` start it again; a MailFlow started by hand has to be started again the same way. Anyone whose account is not in the backup is signed out, and the passwords are the ones in the backup. A backup restores only on a MailFlow version with the same database schema as the one that made it; releases with no migration between them share one. To move to a version with a newer schema, restore the backup on the version that made it, then update, so the update converts its data as usual.
 
-If your own reverse proxy sits in front of MailFlow, let `/api/admin/backup` through without a request size limit, without buffering and with long timeouts, as `frontend/nginx.conf` does. A native install set up before this version needs that location copied from `contrib/nginx.conf` into its nginx config.
+If your own reverse proxy sits in front of MailFlow, let `/api/admin/backup` through without a request size limit, without buffering and with long timeouts, as MailFlow's own frontend (`frontend/caddy/Caddyfile`) does. A native install set up before this version needs that location copied from `contrib/nginx.conf` into its nginx config.
 
 The database can also be copied as-is with a dump:
 
@@ -603,18 +623,17 @@ cat mailflow-YYYYMMDD.sql | \
 Browser (HTTPS / HTTP)
   │
   ▼
-nginx  (frontend container — ports 443 + 80)
+Caddy  (frontend container — ports 443 + 80; serves the app, terminates HTTPS)
   │
   ├── /api/*  → Node.js backend (port 3000)
   ├── /oauth/ → Node.js backend (port 3000)
   └── /ws     → Node.js backend WebSocket (port 3000)
                     │
-                    ├── PostgreSQL  (messages, accounts, users)
-                    ├── Redis       (sessions)
+                    ├── PostgreSQL  (messages, accounts, users, sessions)
                     └── IMAP        (outbound to mail servers)
 ```
 
-nginx and the backend communicate on an internal Docker network. PostgreSQL and Redis are not exposed outside that network.
+The frontend and the backend communicate on an internal Docker network. PostgreSQL is not exposed outside that network.
 
 ### With your own reverse proxy
 
@@ -625,23 +644,20 @@ Browser (HTTPS)
 Your proxy  (Nginx / Traefik / Caddy / etc. — TLS termination)
   │  X-Forwarded-Proto: https
   ▼
-nginx  (frontend container — port 80)
+Caddy  (frontend container — port 80, TLS_MODE=off)
   │
-  └── backend, PostgreSQL, Redis (internal network, unchanged)
+  └── backend, PostgreSQL (internal network, unchanged)
 ```
 
-### With automatic HTTPS (--profile https)
+### With automatic HTTPS (TLS_MODE=letsencrypt)
 
 ```
 Browser (HTTPS)
   │
   ▼
-Caddy  (ports 80/443 — TLS termination, auto Let's Encrypt)
+Caddy  (frontend container — ports 80/443, certificate from Let's Encrypt)
   │
-  ▼
-nginx  (frontend container — internal only)
-  │
-  └── backend, PostgreSQL, Redis (internal network, unchanged)
+  └── backend, PostgreSQL (internal network, unchanged)
 ```
 
 ## Desktop and Android apps
@@ -744,7 +760,7 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md). Please don't open a p
 - Passwords are bcrypt-hashed (cost factor 12)
 - Login and registration endpoints are rate-limited (10 attempts per 15 minutes per IP)
 - Password reset tokens are consumed atomically — concurrent reset requests cannot both succeed
-- Database and Redis are not exposed outside the Docker network
+- The database is not exposed outside the Docker network
 - IMAP/SMTP credentials are stored at rest in the database (standard for webmail clients — protect access to your server and database volume accordingly)
 - Responses set a strict `Content-Security-Policy`, clickjacking protection via `X-Frame-Options`, and a restrictive `Referrer-Policy`
 - Email HTML is sanitized before rendering, including stripping external `url()` references from CSS style blocks to prevent tracking

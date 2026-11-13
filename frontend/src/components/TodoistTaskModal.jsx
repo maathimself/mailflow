@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { descaleCss } from '../utils/uiScaleCss.js';
 
 export default function TodoistTaskModal({ message, onClose }) {
   const { t } = useTranslation();
@@ -105,7 +106,7 @@ export default function TodoistTaskModal({ message, onClose }) {
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 14, width: '100%', maxWidth: 480,
         boxShadow: 'var(--shadow-modal)', overflow: 'hidden',
-        maxHeight: 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column',
+        maxHeight: descaleCss('100vh - 48px'), display: 'flex', flexDirection: 'column',
       }}>
         {/* Header */}
         <div style={{

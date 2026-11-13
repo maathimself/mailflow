@@ -73,3 +73,17 @@ describe('safeFetch — scheme policy', () => {
     ).rejects.toThrow(/HTTP/i);
   });
 });
+
+describe('safeFetch restricted private networks', () => {
+  it('does not reuse a permissive connection pool for restricted requests', async () => {
+    await safeFetch(`http://127.0.0.1:${port}/ok`, {}, { allowPrivate: true });
+    await expect(safeFetch(`http://127.0.0.1:${port}/ok`, {}, {
+      allowPrivate: true, allowPrivateNetworks: true, requireHttps: false,
+    })).rejects.toMatchObject({ cause: { code: 'ERR_BLOCKED_PRIVATE_IP' } });
+  });
+  it.each(['169.254.169.254', '[::1]', '[::ffff:127.0.0.1]', '[fe80::1]'])('rejects forbidden %s before connecting', async host => {
+    await expect(safeFetch(`http://${host}/`, {}, {
+      allowPrivateNetworks: true, requireHttps: false,
+    })).rejects.toMatchObject({ cause: { code: 'ERR_BLOCKED_PRIVATE_IP' } });
+  });
+});

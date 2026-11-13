@@ -30,6 +30,7 @@ import contactsRoutes from './routes/contacts.js';
 import todoistRoutes from './routes/todoist.js';
 import aiRoutes from './routes/ai.js';
 import categoriesRoutes from './routes/categories.js';
+import tagsRoutes from './routes/tags.js';
 import { pluginRegistry } from './plugins/registry.js';
 import { loadBundledPlugins } from './plugins/loadPlugins.js';
 import { setMailEngine } from './plugins/mailEngine.js';
@@ -38,6 +39,7 @@ import senderFaviconsRoutes from './routes/senderFavicons.js';
 import diagnosticsRoutes from './routes/diagnostics.js';
 import backupRoutes from './routes/backup.js';
 import apiTokenRoutes from './routes/apiTokens.js';
+import webhookRoutes from './routes/webhooks.js';
 import spamRoutes, { accountSpamRouter } from './routes/spam.js';
 import carddavRouter from './routes/carddav.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
@@ -45,6 +47,7 @@ import { startCardavScheduler } from './services/carddavSync.js';
 import { start as startSpamScheduler } from './services/spamScheduler.js';
 import { encryptExistingCredentials, query } from './services/db.js';
 import { runMigrations } from './services/migrations.js';
+import { closeRegistrationBeforeFirstUser } from './services/firstUserRegistration.js';
 import { parseVCard } from './utils/vcard.js';
 import { reloadAuthSettings } from './services/authLimiter.js';
 import { closeWebSocketClients, createWebSocketServer, setupWebSocket } from './services/websocket.js';
@@ -164,6 +167,7 @@ app.use('/api/admin/backup', backupRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/totp', totpRoutes);
 app.use('/api/api-tokens', apiTokenRoutes);
+app.use('/api/webhooks', webhookRoutes);
 app.use('/api/rules', rulesRoutes);
 app.use('/api/block-list', blockListRoutes);
 app.use('/api/contacts', contactsRoutes);
@@ -171,6 +175,7 @@ app.use('/api/todoist', todoistRoutes);
 app.use('/api/carddav', carddavAccountRouter);
 app.use('/api', aiRoutes);
 app.use('/api', categoriesRoutes);
+app.use('/api/tags', tagsRoutes);
 // Tier-1 plugin routers, mounted via the plugin registry (see src/plugins/). Registered
 // here — before the unauthenticated /api/health and /api/version probes below — so a
 // plugin's router-level auth can't intercept them. GTD is the first such plugin; its
@@ -242,6 +247,9 @@ await encryptExistingCredentials();
 
 // Load OAuth integration configs from DB into process.env
 await loadIntegrationConfigs();
+
+// FIRST_USER_REGISTRATION=false: no first-user admin, so registration starts closed
+if (await closeRegistrationBeforeFirstUser()) console.log('Registration closed: FIRST_USER_REGISTRATION is false');
 
 // Start background snooze watcher — polls every 60 seconds to restore snoozed messages
 imapManager.startSnoozeWatcher();

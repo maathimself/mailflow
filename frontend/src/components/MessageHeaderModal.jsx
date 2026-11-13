@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
+import { descaleCss } from '../utils/uiScaleCss.js';
 
 export default function MessageHeaderModal({ messageId, subject, onClose, onSubjectResolved }) {
   const { t } = useTranslation();
@@ -165,7 +166,7 @@ export default function MessageHeaderModal({ messageId, subject, onClose, onSubj
       <div style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 14, width: '100%', maxWidth: 720,
-        maxHeight: '85vh', display: 'flex', flexDirection: 'column',
+        maxHeight: descaleCss('85vh'), display: 'flex', flexDirection: 'column',
         overflow: 'hidden',
         boxShadow: 'var(--shadow-modal)',
       }}>

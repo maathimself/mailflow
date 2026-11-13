@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 // path threads the policy through to BOTH the issuer host check and the endpoint host
 // checks, so a private issuer works with full TLS verification.
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: {} }));
-vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, isEncrypted: () => false }));
+vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, encrypt: (v) => v, isEncrypted: () => false }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req, _res, next) => next() }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));

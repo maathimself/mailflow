@@ -40,6 +40,31 @@ final class NativeSecurity {
         }
     }
 
+    // The page origin for a saved host, as location.origin reports it: no default port.
+    static String originOf(String host) {
+        try {
+            URI uri = new URI(host);
+            String scheme = uri.getScheme();
+            String name = uri.getHost();
+            if (scheme == null || name == null) return null;
+            scheme = scheme.toLowerCase(Locale.ROOT);
+            if (!"http".equals(scheme) && !"https".equals(scheme)) return null;
+            int port = uri.getPort();
+            boolean defaultPort = port == -1 || port == effectivePort(new URI(scheme, null, name, -1, null, null, null));
+            return scheme + "://" + name.toLowerCase(Locale.ROOT) + (defaultPort ? "" : ":" + port);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    // Wraps a script so it does nothing unless the page showing is the host's.
+    static String hostGuardedScript(String host, String script) {
+        String origin = originOf(host);
+        if (origin == null || script == null) return null;
+        if (!origin.matches("[a-z]+://[A-Za-z0-9.\\-\\[\\]:]+")) return null;
+        return "(function(){if(location.origin!=='" + origin + "')return;" + script + "})();";
+    }
+
     static boolean isHttpsUrl(String value) {
         try {
             URI uri = new URI(value);
@@ -89,6 +114,9 @@ final class NativeSecurity {
         return octets[0] == 127
             || octets[0] == 10
             || (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31)
-            || (octets[0] == 192 && octets[1] == 168);
+            || (octets[0] == 192 && octets[1] == 168)
+            // Shared address space (RFC 6598). Tailscale gives devices addresses here, and
+            // its traffic is already encrypted (#776). The unencrypted-connection prompt still shows.
+            || (octets[0] == 100 && octets[1] >= 64 && octets[1] <= 127);
     }
 }

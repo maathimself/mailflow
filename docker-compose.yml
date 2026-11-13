@@ -1,9 +1,9 @@
 services:
 
-  # ── Frontend (nginx — serves React SPA + proxies API) ───────────────────────
-  # Default mode: exposes HTTPS on APP_PORT and HTTP on APP_HTTP_PORT.
-  # HTTP is intended for use behind a reverse proxy that terminates TLS.
-  # Production mode (--profile https): Caddy handles TLS instead (see below)
+  # ── Frontend (Caddy: serves the React app, proxies the API, terminates HTTPS) ──
+  # TLS_MODE picks how MailFlow is put online: HTTPS on APP_PORT with a self-signed
+  # certificate (or yours in ./certs) and HTTP on APP_HTTP_PORT for a reverse proxy in
+  # front; Let's Encrypt for DOMAIN; or HTTP only.
   frontend:
     build:
       context: .
@@ -11,22 +11,30 @@ services:
       args:
         VITE_BUILD_SHA: ${GIT_SHA:-dev}
         VITE_EMAIL_DIV_RENDER: ${VITE_EMAIL_DIV_RENDER:-false}
-        NGINX_BASE: ${NGINX_BASE:-nginx:alpine}
+        FRONTEND_BASE: ${FRONTEND_BASE:-caddy:2-alpine}
     container_name: mailflow-frontend
     restart: unless-stopped
     ports:
       - "${APP_PORT:-443}:443"
+      - "${APP_PORT:-443}:443/udp"
       - "${APP_HTTP_PORT:-80}:80"
     environment:
-      # off: HTTP on port 80 only, behind your own TLS-terminating proxy (#516).
+      # self-signed (default), letsencrypt (needs DOMAIN) or off (HTTP on port 80 only,
+      # behind your own TLS-terminating proxy). See .env.example.
+      TLS_MODE: ${TLS_MODE:-}
       NGINX_TLS: ${NGINX_TLS:-}
+      DOMAIN: ${DOMAIN:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
-      - ./certs:/etc/nginx/ssl
+      - ./certs:/etc/mailflow/certs
+      # Let's Encrypt certificates and account (TLS_MODE=letsencrypt).
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO/dev/null http://127.0.0.1:80/ || exit 1"]
+      test: ["CMD-SHELL", "wget -qO/dev/null http://127.0.0.1:2080/healthz || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -56,7 +64,6 @@ services:
       DB_NAME: ${DB_NAME:-mailflow}
       DB_USER: ${DB_USER:-mailflow}
       DB_PASSWORD: ${DB_PASSWORD}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
@@ -74,6 +81,8 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      # false: the first account is a normal one, and registration starts closed (see .env.example).
+      FIRST_USER_REGISTRATION: ${FIRST_USER_REGISTRATION:-}
       # The image proxy's cache of fitted images: per user, at most this many MB, kept for a month.
       IMAGE_CACHE_DIR: /var/cache/mailflow/images
       IMAGE_CACHE_MAX_MB: ${IMAGE_CACHE_MAX_MB:-512}
@@ -81,8 +90,6 @@ services:
       - image_cache:/var/cache/mailflow/images
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
@@ -117,52 +124,8 @@ services:
     networks:
       - mailflow
 
-  # ── Redis (sessions + caching) ───────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: mailflow-redis
-    restart: unless-stopped
-    user: "${PUID:-0}:${PGID:-0}"
-    command: redis-server --save 60 1 --loglevel warning
-    volumes:
-      - ${REDIS_DATA:-redis_data}:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
-    networks:
-      - mailflow
-
-  # ── Caddy (automatic HTTPS via Let's Encrypt — production only) ──────────────
-  # Use docker-compose.https.yml to avoid the port conflict with the frontend:
-  #   docker compose -f docker-compose.yml -f docker-compose.https.yml --profile https up -d --build
-  # Requires DOMAIN, ACME_EMAIL, and APP_URL to be set in .env, and ports 80/443 to be open.
-  caddy:
-    profiles: ["https"]
-    image: caddy:2-alpine
-    container_name: mailflow-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      DOMAIN: ${DOMAIN:-localhost}
-      ACME_EMAIL: ${ACME_EMAIL:-}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - frontend
-    networks:
-      - mailflow
-
 volumes:
   postgres_data:
-  redis_data:
   image_cache:
   caddy_data:
   caddy_config:

@@ -23,7 +23,11 @@ import { clearOidcConfirmation, freshOidcConfirmation, OIDC_CONFIRMATION_MS } fr
 //   and each such sign-in confirms one token or one link. An ordinary sign-in does not count, and
 //   a provider that sends no auth_time (Entra ID without that optional claim) cannot confirm at
 //   all. Such a token lasts 30 days at most, which bounds how long it can outlive the provider
-//   deprovisioning the user, which MailFlow cannot see.
+//   deprovisioning the user, which MailFlow cannot see. When the user has two-factor on, their
+//   current code is asked for too (`totpToo`), as single sign-on asks for it at sign-in
+//   (services/secondFactor.js): the provider alone no longer signs them in, so it alone does not
+//   confirm either. The confirmation is still recorded as 'oidc', so the policy and expiry rules
+//   for single sign-on tokens are unchanged.
 // - 'totp' when the user has two-factor on: their current code, checked as the sign-in challenge
 //   checks it (routes/auth.js), with the same replay guard and totp:<uid> limit.
 // - 'totpSetup' when two-factor is required and the user has no authenticator: they sign in with an
@@ -69,8 +73,9 @@ const linkedProviders = async userId => (await query(
   [userId]
 )).rows;
 
-// For the token form when it asks for 'oidc': the providers to confirm with, and until when the
-// last sign-in through one counts (null when it does not).
+// For the token form when it asks for 'oidc': the providers to confirm with, until when the last
+// sign-in through one counts (null when it does not), and whether the two-factor code is asked
+// for as well.
 export async function oidcConfirmationState(req, user) {
   const providers = await linkedProviders(user.id);
   const fresh = freshOidcConfirmation(req.session);
@@ -78,7 +83,13 @@ export async function oidcConfirmationState(req, user) {
   return {
     providers: providers.map(({ slug, name }) => ({ slug, name })),
     confirmedUntil: counts ? fresh.until.toISOString() : null,
+    totpToo: user.totp_enabled === true,
   };
+}
+
+// What a form needs to ask for a confirmation: { reauth, oidc? }.
+export async function reauthState(req, user, reauth) {
+  return { reauth, ...(reauth === 'oidc' ? { oidc: await oidcConfirmationState(req, user) } : {}) };
 }
 
 // { confirmedWith, oidcProvider } once confirmed, oidcProvider being the single sign-on provider
@@ -88,7 +99,16 @@ export async function oidcConfirmationState(req, user) {
 export async function confirmReauth(req, user, reauth) {
   if (reauth === 'totp') return confirmTotp(req, user, req.body?.totpCode);
   if (reauth === 'password') return confirmPassword(req, user, req.body?.password);
-  if (reauth === 'oidc') return confirmOidc(req, user);
+  if (reauth === 'oidc') {
+    // With two-factor on, the code as well; checked first, without spending the sign-in
+    // confirmation on a wrong code, but only once there is a confirmation to spend.
+    if (user.totp_enabled === true) {
+      if (!(await usableOidcConfirmation(req, user))) return oidcRefusal();
+      const totp = await confirmTotp(req, user, req.body?.totpCode, { reauth: 'oidc', totpToo: true });
+      if (totp.refusal) return totp;
+    }
+    return confirmOidc(req, user);
+  }
   return { refusal: { status: 403, body: { error: 'This server requires two-factor authentication. Set up an authenticator app first.', reauth } } };
 }
 
@@ -99,11 +119,11 @@ const logWrongAnswer = (eventType, req, user) => logAuthEvent(eventType, {
   userId: user.id, username: user.username, ip: normalizeIp(req.ip), success: false,
 });
 
-async function confirmTotp(req, user, totpCode) {
+async function confirmTotp(req, user, totpCode, as = { reauth: 'totp' }) {
   const limitKey = `totp:${user.id}`;
   const limit = await consume(limitKey, 5, TOTP_WINDOW_MS);
-  if (limit.limited) return { refusal: tooManyAttempts('totp', limit.resetMs) };
-  const wrong = { refusal: { status: 400, body: { error: 'Confirm with your current two-factor code', reauth: 'totp' } } };
+  if (limit.limited) return { refusal: tooManyAttempts(as.reauth, limit.resetMs) };
+  const wrong = { refusal: { status: 400, body: { error: 'Confirm with your current two-factor code', ...as } } };
   const code = String(totpCode ?? '').replace(/\s/g, '');
   if (!code) return wrong;
   if (!user.totp_secret || !authenticator.verify({ token: code, secret: decrypt(user.totp_secret) })) {
@@ -139,16 +159,24 @@ async function confirmPassword(req, user, password) {
 // one token, or one link: the session forgets it here, and kv_store keeps its nonce as spent for as
 // long as it could have counted, so two requests carrying the same one cannot both pass, as
 // confirmTotp keeps a two-factor code from being used twice.
-async function confirmOidc(req, user) {
+async function usableOidcConfirmation(req, user) {
   const fresh = freshOidcConfirmation(req.session);
-  if (fresh && fresh.userId === user.id && (await linkedProviders(user.id)).some(p => p.id === fresh.providerId)) {
+  return fresh && fresh.userId === user.id && (await linkedProviders(user.id)).some(p => p.id === fresh.providerId)
+    ? fresh : null;
+}
+
+const oidcRefusal = () => ({ refusal: { status: 400, body: { error: 'Confirm through single sign-on first; each confirmation can be used once, within 10 minutes', reauth: 'oidc' } } });
+
+async function confirmOidc(req, user) {
+  const fresh = await usableOidcConfirmation(req, user);
+  if (fresh) {
     clearOidcConfirmation(req.session);
     const firstUse = await kv.set(`oidc_confirmation_used:${fresh.nonce}`, '1', { NX: true, EX: Math.ceil(OIDC_CONFIRMATION_MS / 1000) });
     if (firstUse) {
       return { confirmedWith: 'oidc', oidcProvider: { id: fresh.providerId, issuerUrl: fresh.issuerUrl, clientId: fresh.clientId } };
     }
   }
-  return { refusal: { status: 400, body: { error: 'Confirm through single sign-on first; each confirmation can be used once, within 10 minutes', reauth: 'oidc' } } };
+  return oidcRefusal();
 }
 
 const tooManyAttempts = (reauth, resetMs) => ({

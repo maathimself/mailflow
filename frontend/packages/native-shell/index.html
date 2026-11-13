@@ -132,8 +132,11 @@
       const error = document.querySelector('#error');
 
       function installCapacitorNativeBridge() {
+        // Android only (Electron has no Capacitor plugin and supplies its own bridge). Installed
+        // even when window.mailflowNative exists: a script meant for the server's page could
+        // leave a partial one here, without saveHost or getHost (#776).
         const plugin = window.Capacitor?.Plugins?.MailFlowNative;
-        if (!plugin || window.mailflowNative) return;
+        if (!plugin) return;
 
         window.mailflowNative = {
           getHost: async () => {

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useStore } from './store/index.js';
 import { api } from './utils/api.js';
+import { startBootPrefetch, takeBootPrefetch, discardBootPrefetch } from './utils/bootPrefetch.js';
 import { applyTheme, getInitialTheme } from './themes.js';
 import { applyFontSet, effectiveFontSet } from './fonts.js'; // still used for the instant localStorage apply on mount
 import { applyLayout } from './layouts.js';
@@ -68,11 +69,15 @@ export default function App() {
       return;
     }
 
+    // The preferences and accounts are asked for now too, not one after another (bootPrefetch.js).
+    // Not while this browser is locked: nothing behind the lock is fetched before the unlock.
+    if (localStorage.getItem('mailflow_locked') !== '1') startBootPrefetch();
     api.me()
       .then(async (data) => {
         setUser(data.user);
         // Skip loading prefs while locked: the API is 423'd until unlock (#235).
         if (data.user?.locked) {
+          discardBootPrefetch();
           setLocked(true);
           return;
         }
@@ -80,14 +85,16 @@ export default function App() {
         // (the network was still down when auto-lock fired, or the backend was restarting).
         // Send it again rather than let a reload lift the lock without the PIN.
         if (localStorage.getItem('mailflow_locked') === '1') {
+          discardBootPrefetch();
           lockScreen();
           return;
         }
         // Load server preferences after confirming auth — overwrites localStorage so
         // settings survive cache clears and stay consistent across devices.
-        await loadPreferences();
+        await loadPreferences(takeBootPrefetch('preferences'));
       })
       .catch((err) => {
+        discardBootPrefetch();
         const params = new URLSearchParams(window.location.search);
         const m = params.get('m');
         if (m) sessionStorage.setItem('mailflow_deep_link_id', m);

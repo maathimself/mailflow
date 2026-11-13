@@ -6,7 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 // (routes/admin.js) shares; this drives it through the user's route.
 const mocks = vi.hoisted(() => ({ client: { query: vi.fn() } }));
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: {}, withTransaction: async fn => fn(mocks.client) }));
-vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, isEncrypted: () => false }));
+vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, encrypt: (v) => v, isEncrypted: () => false }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (req, _res, next) => { req.session = { userId: 'u1', username: 'maria' }; next(); } }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));

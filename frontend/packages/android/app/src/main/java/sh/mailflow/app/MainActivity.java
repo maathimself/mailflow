@@ -11,6 +11,7 @@ import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
     private String lastHandledIntentKey = null;
+    private MailFlowWebViewClient webViewClient = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -25,12 +26,13 @@ public class MainActivity extends BridgeActivity {
 
         if (bridge != null) {
             configureCookies();
-            bridge.setWebViewClient(new MailFlowWebViewClient(bridge, this));
+            webViewClient = new MailFlowWebViewClient(bridge, this);
+            bridge.setWebViewClient(webViewClient);
             String savedHost = MailFlowNativePlugin.getSavedHost(this);
             configureNativeMessageBridge(savedHost);
             if (savedHost != null) {
                 MailFlowBackgroundSync.schedule(this);
-                bridge.getWebView().post(() -> bridge.getWebView().loadUrl(savedHost));
+                bridge.getWebView().post(() -> loadHost(savedHost));
             }
         }
 
@@ -178,7 +180,17 @@ public class MainActivity extends BridgeActivity {
     // On the UI thread: the bridge for the host first, so the page loaded next has it.
     void openConfiguredHost(String host) {
         configureNativeMessageBridge(host);
-        if (bridge != null && bridge.getWebView() != null) bridge.getWebView().loadUrl(host);
+        loadHost(host);
+    }
+
+    // On the UI thread. A WebView too old for the web app gets the explanation, not a blank page.
+    private void loadHost(String host) {
+        if (bridge == null || bridge.getWebView() == null) return;
+        if (webViewClient != null && MailFlowWebViewClient.isWebViewTooOld(this)) {
+            webViewClient.loadFallback(bridge.getWebView(), MailFlowWebViewClient.REASON_WEBVIEW);
+            return;
+        }
+        bridge.getWebView().loadUrl(host);
     }
 
     void configureNativeMessageBridge(String configuredHost) {

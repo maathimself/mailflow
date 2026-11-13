@@ -116,7 +116,8 @@ export function useHeaderControlsFit(enabled, { gap, columnGap }) {
     const observer = new ResizeObserver(measure);
     // The label too: its width changes with the chosen order while the row's own size may not.
     const labels = [...(controlsRef.current?.querySelectorAll('[data-sort-label]') || []), ...(extra?.querySelectorAll('[data-sort-label]') || [])];
-    for (const el of [row, controlsRef.current, extra, ...labels]) if (el) observer.observe(el);
+    // And the title, whose width follows its text: another folder's name of the same row width.
+    for (const el of [row, titleRef.current, controlsRef.current, extra, ...labels]) if (el) observer.observe(el);
     return () => observer.disconnect();
   }, [enabled, fits, iconOnly, evenBreak, gap, columnGap]);
 

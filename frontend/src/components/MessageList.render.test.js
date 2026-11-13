@@ -1065,7 +1065,9 @@ describe('MessageList: a row\'s body loads while the mouse rests on it', () => {
     await mountRows([MESSAGE, row('msg-hover')]);
     await move('msg-hover');
     await settle(450);
-    assert.deepEqual(CALLS.map(c => `${c.method} ${c.path.replace(/^.*\/api/, '')}`), ['GET /mail/messages/msg-hover/body?prefetch=1']);
+    // The list's batched tag lookup for its rows is not part of the prefetch.
+    const calls = CALLS.filter(c => !c.path.includes('/api/tags/'));
+    assert.deepEqual(calls.map(c => `${c.method} ${c.path.replace(/^.*\/api/, '')}`), ['GET /mail/messages/msg-hover/body?prefetch=1']);
     assert.equal(useStore.getState().selectedMessageId, null, 'nothing opened');
     assert.equal(useStore.getState().messages.find(m => m.id === 'msg-hover').is_read, false);
   });
@@ -1446,5 +1448,101 @@ describe('MessageList: a manual sync', () => {
       await React.act(async () => { t.mock.timers.tick(15000); });
       assert.equal(refreshes(), 0);
     });
+  });
+});
+
+describe('MessageList — the selection bar\'s More menu marks spam', () => {
+  // On a phone a long press selects instead of opening the context menu, so the selection bar
+  // is where spam has to be reachable. Selection here uses ctrl-click; the bar is the same.
+  const ACCOUNT_B = { ...ACCOUNT, id: 'acct-2', email_address: 'b@example.com', name: 'B' };
+  const M_B = { ...MESSAGE, id: 'msg-b', account_id: 'acct-2', uid: 2, message_id: '<mb@example.com>', subject: 'From B' };
+  const JUNK = { path: 'Junk', name: 'Junk', special_use: '\\Junk' };
+
+  const select = async (ids) => {
+    for (const id of ids) {
+      const row = container.querySelector(`[data-msgid="${id}"]`);
+      await React.act(async () => {
+        (row.querySelector('[draggable]') || row).dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+      });
+    }
+  };
+  const openMore = async () => {
+    const more = container.querySelector('[title="message.more"]');
+    assert.ok(more, 'expected the More button on the selection bar');
+    await React.act(async () => { more.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    await React.act(async () => {});
+    return container.querySelector('[role="menuitem"]');
+  };
+
+  test('loads missing folder lists, then marks mail from two accounts as spam with each badge adjusted', async (t) => {
+    t.after(async () => {
+      // Cancel the move still waiting out its undo window rather than send it.
+      useStore.getState().notifications.find(n => typeof n.onUndo === 'function')?.onUndo();
+      await React.act(async () => { useStore.setState({ notifications: [] }); });
+    });
+    ROUTES = {
+      '/accounts/acct-1/folders': [200, [{ path: 'INBOX', name: 'INBOX' }, JUNK]],
+      '/accounts/acct-2/folders': [200, [{ path: 'INBOX', name: 'INBOX' }, { path: 'Spam', name: 'Spam' }]],
+    };
+    CALLS = [];
+    await mount({ rows: [MESSAGE, M_B], threadedView: false, accountId: null, accounts: [ACCOUNT, ACCOUNT_B] });
+    // Earlier tests can leave a pending count window open on acct-1.
+    useStore.setState({ folders: {}, pendingCounts: {}, serverUnreadCounts: { total: 0, byAccount: {}, snapshots: {} } });
+    await React.act(async () => {
+      const seen = { revision: '7500', known: true, stale: false, observedAt: new Date().toISOString() };
+      useStore.getState().setUnreadCounts({ byAccount: { 'acct-1': 3, 'acct-2': 2 }, snapshots: { 'acct-1': seen, 'acct-2': seen } });
+    });
+    await select(['msg-1', 'msg-b']);
+    const item = await openMore();
+    assert.ok(CALLS.some(c => c.path.endsWith('/accounts/acct-1/folders')), 'loads acct-1 folders');
+    assert.ok(CALLS.some(c => c.path.endsWith('/accounts/acct-2/folders')), 'loads acct-2 folders');
+    assert.equal(item.textContent.trim(), 'contextMenu.markAsSpam');
+    assert.equal(item.disabled, false);
+    await React.act(async () => { item.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    assert.deepEqual(useStore.getState().messages.map(m => m.id), [], 'both rows leave the list');
+    const { byAccount } = useStore.getState().unreadCounts;
+    assert.equal(byAccount['acct-1'], 2);
+    assert.equal(byAccount['acct-2'], 1);
+    assert.equal(container.querySelector('[title="message.more"]'), null, 'the selection is cleared');
+  });
+
+  test('in the spam folder it offers Not spam', async () => {
+    ROUTES = {};
+    const inJunk = { ...MESSAGE, folder: 'Junk' };
+    await mount({ rows: [inJunk], threadedView: false, folder: 'Junk' });
+    useStore.setState({ folders: { 'acct-1': [{ path: 'INBOX', name: 'INBOX' }, JUNK] } });
+    await select(['msg-1']);
+    const item = await openMore();
+    assert.equal(item.textContent.trim(), 'contextMenu.markAsHam');
+    assert.equal(item.disabled, false);
+  });
+
+  test('an account with no spam folder shows the item disabled', async () => {
+    ROUTES = {};
+    await mount({ rows: [MESSAGE], threadedView: false });
+    await select(['msg-1']);
+    const item = await openMore();
+    assert.equal(item.textContent.trim(), 'contextMenu.markAsSpam');
+    assert.equal(item.disabled, true);
+  });
+});
+
+describe('MessageList — a cold launch', () => {
+  test('shows the loading rows, not an empty folder, until the accounts are in', async () => {
+    await mount({ rows: [] });
+    await React.act(async () => root.unmount());
+    root = null;
+    useStore.setState({ accountsReady: false, messages: [], loadingMessages: false });
+    await React.act(async () => {
+      root = createRoot(container);
+      root.render(React.createElement(MessageList));
+    });
+    assert.ok(container.querySelector('.skeleton-line'), 'loading rows while the accounts load');
+    assert.ok(!container.textContent.includes('messageList.emptyInbox'), 'not "no messages"');
+    assert.ok(!container.textContent.includes('messageList.noAccounts'), 'not "no accounts"');
+
+    await React.act(async () => { useStore.setState({ accountsReady: true }); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    assert.ok(!container.querySelector('.skeleton-line'), 'the loading rows go once the list is in');
   });
 });

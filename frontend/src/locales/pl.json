@@ -36,6 +36,7 @@
     "signInWith": "Zaloguj się za pomocą {{name}}",
     "inviteEmail": "Zaproszenie dla",
     "inviteExpired": "Ten link z zaproszeniem jest nieprawidłowy lub wygasł.",
+    "ssoSecondStepExpired": "Logowanie jednokrotne trwało zbyt długo. Zaloguj się ponownie.",
     "ssoOnly": "Zaloguj się przez SSO",
     "ssoOnlyDesc": "Logowanie hasłem jest wyłączone na tym serwerze.",
     "totp": {
@@ -50,6 +51,7 @@
     "emailOtp": {
       "title": "Sprawdź pocztę e-mail",
       "desc": "Kod weryfikacyjny został wysłany na adres {{email}}",
+      "sendFailed": "Nie udało się wysłać kodu na {{email}}. Spróbuj Wyślij kod ponownie albo poproś administratora o kod logowania.",
       "codePh": "6-cyfrowy kod",
       "resend": "Wyślij kod ponownie",
       "sending": "Wysyłanie…",
@@ -525,6 +527,7 @@
     "noSearchResults": "Nie znaleziono wyników",
     "searching": "Wyszukiwanie…",
     "noSearchResultsDesc": "Brak wyników dla {{query}}",
+    "searchScopeNote": "Wyszukiwanie tylko w „{{folder}}”",
     "searchFailed": "Wyszukiwanie nie powiodło się",
     "clearSearch": "Wyczyść wyszukiwanie",
     "searchHelp": {
@@ -1537,6 +1540,7 @@
       "eventApiTokenCreated": "Utworzono token API",
       "eventApiTokenRevoked": "Unieważniono token API",
       "eventApiTokenAuthFail": "Nieprawidłowy token API",
+      "eventAdminSignInCode": "Wydano kod logowania",
       "byActor": "przez {{actor}}",
       "qrCodeAlt": "Kod QR",
       "mailPolicyTitle": "Zasady połączeń z serwerem pocztowym",
@@ -1548,7 +1552,7 @@
       "allowNonstandardPorts": "Zezwalaj na niestandardowe porty",
       "allowNonstandardPortsDesc": "Zezwala na używanie dowolnego portu IMAP lub SMTP, nie tylko 143/993 (IMAP) i 465/587 (SMTP). Wymagane w przypadku serwerów takich jak protonmail-bridge, które używają niestandardowych portów.",
       "mfaEnforcementTitle": "Wymuszanie MFA",
-      "mfaEnforcementDesc": "Wymagaj od wszystkich użytkowników weryfikacji drugim składnikiem podczas logowania. Włączenie wymogu usuwa tokeny API potwierdzone tylko hasłem.",
+      "mfaEnforcementDesc": "Wymagaj od wszystkich użytkowników weryfikacji drugim składnikiem podczas logowania. Włączenie wymogu usuwa tokeny API potwierdzone tylko hasłem. Dotyczy to też logowania jednokrotnego, chyba że dostawca ma ustawione samodzielne wymuszanie MFA.",
       "mfaEnforcementOff": "Opcjonalne",
       "mfaEnforcementRequired": "Wymagane",
       "mfaDeviceTrustTitle": "Czas zaufania urządzenia",
@@ -1559,8 +1563,12 @@
       "mfaDeviceTrustForever": "Na stałe",
       "mfaSsoLockedNotice": "Wymuszanie MFA nie ma zastosowania, gdy logowanie hasłem jest wyłączone. Użytkownicy uwierzytelniają się przez SSO, które zarządza własnymi wymaganiami MFA.",
       "recoveryEmailTitle": "Adres e-mail do odzyskiwania",
-      "recoveryEmailDesc": "Odbierz kod logowania pocztą e-mail, jeśli utracisz dostęp do aplikacji uwierzytelniającej.",
-      "recoveryEmailPh": "twoj@e-mail.com"
+      "recoveryEmailDesc": "Tu trafiają linki do resetowania hasła oraz kody logowania, gdy uwierzytelnianie dwuskładnikowe jest wymagane, a nie masz aplikacji uwierzytelniającej. Kod nigdy nie zastępuje aplikacji uwierzytelniającej; jeśli ją zgubisz, administrator może ją wyłączyć.",
+      "recoveryEmailPh": "twoj@e-mail.com",
+      "recoveryConfirmPassword": "Potwierdź zmianę swoim hasłem",
+      "recoveryConfirmTotp": "Potwierdź zmianę aktualnym kodem dwuskładnikowym",
+      "recoveryConfirmOidc": "Najpierw potwierdź zmianę logowaniem jednokrotnym. Przycisk przeniesie Cię do dostawcy, aby zalogować się ponownie, a potem z powrotem tutaj, aby zapisać.",
+      "recoveryLoadFailed": "Nie udało się wczytać Twojego adresu e-mail do odzyskiwania. Odśwież stronę, aby go zmienić."
     },
     "apiTokens": {
       "title": "Tokeny API",
@@ -1891,6 +1899,8 @@
       "allowInsecureDesc": "Pomija weryfikację hosta i certyfikatu TLS. Używaj tylko dla dostawców dostępnych wyłącznie w sieci LAN (np. pocketid.internal). Nie jest to zalecane w przypadku wdrożeń dostępnych z Internetu.",
       "rpLogout": "SSO wylogowanie (RP-initiated)",
       "rpLogoutDesc": "Włącz wylogowanie SSO, które kończy również sesję u dostawcy przez przekierowanie do jego punktu końcowego wylogowania, a nie tylko usuwa plik cookie MailFlow. Wymaga to, aby dostawca udostępniał end_session_endpoint i miał zarejestrowany adres logowania MailFlow (…/logowanie) jako URI przekierowania po wylogowaniu.",
+      "idpEnforcesMfa": "Dostawca wymusza MFA",
+      "idpEnforcesMfaDesc": "Włącz tylko wtedy, gdy ten dostawca już przy każdym logowaniu wymaga drugiego składnika. Jego logowania pomijają wtedy drugi krok MailFlow: kod z aplikacji uwierzytelniającej użytkownika i wymóg MFA z sekcji Bezpieczeństwo.",
       "adminGroupClaim": "Deklaracja grupy administratorów",
       "adminGroupClaimPh": "grupy",
       "adminGroupClaimDesc": "Nazwa claimu JWT zawierającego grupy użytkownika (np. groups). Pozostaw puste, aby wyłączyć nadawanie uprawnień administratora na podstawie grupy.",
@@ -2438,5 +2448,95 @@
     "formNote": "Skrzynki Gmail i Google Workspace mogą logować się przez Google zamiast hasłem aplikacji.",
     "appPasswordNote": "Gmail wymaga hasła aplikacji, a nie zwykłego hasła. Włącz weryfikację dwuetapową na koncie Google, utwórz hasło aplikacji i wpisz je w polu hasła.",
     "createAppPassword": "Utwórz hasło aplikacji"
+  },
+  "tags": {
+    "title": "Tagi",
+    "header": {
+      "hide": "Ukryj tagi",
+      "none": "Nie zdefiniowano jeszcze tagów. Utwórz je w ustawieniach."
+    },
+    "settings": {
+      "note": "Tagi są przechowywane tylko w MailFlow; nic nie jest zapisywane na Twoich serwerach pocztowych.",
+      "name": "Nazwa",
+      "color": "Kolor",
+      "confirmDelete": "Usunąć tag „{{name}}” i usunąć go ze wszystkich wiadomości?",
+      "add": "Dodaj tag",
+      "create": "Utwórz"
+    }
+  },
+  "templates": {
+    "title": "Szablony",
+    "new": "Nowy fragment",
+    "name": "Nazwa",
+    "content": "Treść",
+    "empty": "Brak zapisanych fragmentów.",
+    "deleteConfirm": "Usunąć ten fragment?",
+    "insert": "Wstaw",
+    "saveContent": "Zapisz jako fragment",
+    "recipientChanged": "Odbiorca się zmienił. Wstaw fragment ponownie.",
+    "hint": "Daty są uzupełniane przy wstawianiu, a imiona po wpisaniu pierwszego odbiorcy Do. Brakujące wartości pozostają zmiennymi.",
+    "variables": {
+      "insert": "Wstaw zmienną",
+      "placeholder": "Wstaw tekst zastępczy",
+      "confirm": "Wstaw",
+      "hint": "Wybierz zmienną do wstawienia w miejscu kursora.",
+      "date": "Data",
+      "longDate": "Pełna data",
+      "dateTime": "Data i godzina",
+      "month": "Miesiąc",
+      "fullName": "Imię i nazwisko",
+      "givenName": "Imię",
+      "surname": "Nazwisko",
+      "groups": {
+        "date": "Data",
+        "contact": "Kontakt"
+      }
+    }
+  },
+  "webhooks": {
+    "useToken": "Używaj tokenu uwierzytelniania",
+    "removeConfirm": "Usunąć tę konfigurację? Powiadomienia zostaną wyłączone, a zapisany adres URL i token usunięte.",
+    "remove": "Usuń konfigurację powiadomień",
+    "removed": "Zapisany adres URL i token zostały usunięte.",
+    "errors": {
+      "url": "Wpisz prawidłowy adres URL powiadomień.",
+      "urlScheme": "Użyj adresu HTTP lub HTTPS bez nazwy użytkownika, hasła ani fragmentu.",
+      "settings": "Sprawdź ustawienia powiadomień i spróbuj ponownie.",
+      "origin": "Podaj protokół, host i opcjonalny port, bez ścieżki ani parametrów zapytania.",
+      "format": "Wybierz obsługiwany format powiadomień.",
+      "tokenPreset": "Tokeny uwierzytelniania są obsługiwane tylko przez ntfy i Gotify.",
+      "https": "Publiczne adresy powiadomień muszą używać HTTPS.",
+      "urlRequired": "Podaj adres URL przed włączeniem powiadomień.",
+      "token": "Wpisz prawidłowy token bez spacji ani znaków spoza ASCII.",
+      "session": "Sesja wygasła. Zaloguj się ponownie.",
+      "admin": "Wymagane są uprawnienia administratora.",
+      "timeout": "Przekroczono czas wysyłania. Sprawdź usługę i spróbuj ponownie.",
+      "blocked": "Polityka sieciowa serwera blokuje ten adres.",
+      "delivery": "Nie udało się dostarczyć powiadomienia. Sprawdź usługę i ustawienia połączenia.",
+      "rateLimit": "Zbyt wiele powiadomień. Poczekaj minutę i spróbuj ponownie.",
+      "disabled": "Powiadomienia są wyłączone. Sprawdź swoje ustawienia i ustawienia administratora.",
+      "unavailable": "Usługa powiadomień jest chwilowo niedostępna. Spróbuj później.",
+      "http": "Usługa powiadomień zwróciła HTTP {{status}}. Sprawdź adres i uwierzytelnianie.",
+      "request": "Nie udało się wykonać żądania. Sprawdź połączenie i spróbuj ponownie."
+    },
+    "title": "Wychodzące webhooki",
+    "description": "Wysyłaj nazwę konta i liczbę nowych wiadomości do jednego punktu powiadomień. Opcjonalne szczegóły dotyczą tylko ostatniej kwalifikującej się wiadomości. Treść wiadomości nigdy nie jest wysyłana.",
+    "unavailable": "Administrator wyłączył webhooki.",
+    "disabled": "Zatrzymano po pięciu kolejnych błędach. Włącz i zapisz, aby wznowić powiadomienia.",
+    "enable": "Włącz mój webhook",
+    "format": "Format danych",
+    "generic": "Ogólny JSON",
+    "url": "Adres URL punktu docelowego",
+    "token": "Opcjonalny token uwierzytelniania",
+    "secretKept": "Skonfigurowano •••••••• — pozostaw puste, aby zachować",
+    "sender": "Wysyłaj nadawcę do punktu docelowego",
+    "subject": "Wysyłaj temat do punktu docelowego",
+    "testHelp": "Zapisz zmiany przed testem. Testy używają zapisanej konfiguracji i współdzielą limit 10 prób na minutę.",
+    "test": "Wyślij powiadomienie testowe",
+    "testSent": "Wysłano powiadomienie testowe.",
+    "saved": "Zapisano ustawienia webhooka.",
+    "adminEnable": "Zezwól użytkownikom na webhooki powiadomień",
+    "origins": "Dozwolone prywatne źródła (jedno w wierszu)",
+    "originsHelp": "Wpisz dokładne źródła z protokołem, hostem i portem, bez ścieżki. Publiczne adresy wymagają HTTPS. Dozwolone prywatne cele mogą używać HTTP; adresy pętli zwrotnej, link-local i zarezerwowane pozostają zablokowane."
   }
 }
