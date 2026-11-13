@@ -16,7 +16,7 @@ vi.mock('./encryption.js', () => ({
 }));
 
 import {
-  BACKUP_FORMAT, BackupFileError, MAIL_CACHE_TABLES, SCHEMA_TABLES, SETUP_TABLES, TRANSIENT_TABLES,
+  BACKUP_FORMAT, BackupFileError, DERIVED_TABLES, MAIL_CACHE_TABLES, SCHEMA_TABLES, SETUP_TABLES, TRANSIENT_TABLES,
   encodeValue, orderByForeignKeys, restoreBackup, writeBackup,
 } from './backup.js';
 
@@ -124,7 +124,7 @@ describe('table classification', () => {
         else if (renamedTo) { live.delete(table.toLowerCase()); live.add(renamedTo.toLowerCase()); }
       }
     }
-    const classified = [...SETUP_TABLES, ...MAIL_CACHE_TABLES, ...TRANSIENT_TABLES, ...SCHEMA_TABLES];
+    const classified = [...SETUP_TABLES, ...MAIL_CACHE_TABLES, ...TRANSIENT_TABLES, ...SCHEMA_TABLES, ...DERIVED_TABLES];
     expect(new Set(classified).size).toBe(classified.length);
     expect([...live].sort()).toEqual([...classified].sort());
   });

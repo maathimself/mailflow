@@ -110,8 +110,14 @@ export function trashFolderExclusionCondition() {
 // (SQLSTATE 54000), so an oversized body would 500 the whole search. Cap the
 // text fed to to_tsvector at 600k chars — matching msgvault's maxFTSBodyChars
 // (internal/store/dialect_pg.go) — so one huge email can't crash the query.
-// Exported because slice 02's search_fts trigger caps the same way.
+// mf_html_to_text (migration 0080) caps message_search.body_text the same way.
 export const FTS_BODY_CHAR_CAP = 600000;
+
+// The body text search reads: body_text, or for a message sent only as HTML, the text
+// migration 0080 keeps in message_search. Without it only the 200-character snippet of
+// an HTML-only body was searchable (D#320).
+export const SEARCH_BODY_SQL = `coalesce(m.body_text,
+          (SELECT ms.body_text FROM message_search ms WHERE ms.message_id = m.id), '')`;
 
 // Builds the per-term free-text OR-condition: a term matches if it appears in
 // the sender, the subject, the stored search_vector, or the length-capped body.
@@ -123,8 +129,8 @@ export function freeTextTermCondition(likeIdx, ftsIdx) {
         OR m.subject ILIKE $${likeIdx}
         OR m.search_vector @@ plainto_tsquery('english', $${ftsIdx})
         OR CASE WHEN numnode(plainto_tsquery('english', $${ftsIdx})) > 0
-          THEN to_tsvector('english', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('english', $${ftsIdx})
-          ELSE to_tsvector('simple', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('simple', $${ftsIdx})
+          THEN to_tsvector('english', LEFT(${SEARCH_BODY_SQL}, ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('english', $${ftsIdx})
+          ELSE to_tsvector('simple', LEFT(${SEARCH_BODY_SQL}, ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('simple', $${ftsIdx})
         END
       )`;
 }

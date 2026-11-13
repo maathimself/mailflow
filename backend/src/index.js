@@ -56,6 +56,7 @@ import { getUpdateStatus } from './services/updateCheck.js';
 import { recordHttp } from './services/performanceMetrics.js';
 import { shutDown } from './services/sendShutdown.js';
 import { startScheduledSender } from './services/scheduledSend.js';
+import { backfillMessageSearch } from './services/messageSearchBackfill.js';
 
 const packageMeta = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 let buildMeta = {};
@@ -257,6 +258,12 @@ imapManager.startSnoozeWatcher();
 // Send scheduled messages as they fall due (#543). Its first tick recovers sends a previous
 // process left unfinished, before it claims anything.
 startScheduledSender();
+
+// Make the whole body of HTML-only mail stored before migration 0080 searchable (D#320). In the
+// background and throttled: search keeps working meanwhile and finds those bodies as they fill.
+backfillMessageSearch()
+  .then(({ filled, skipped }) => { if (!skipped) console.log(`Search: indexed the text of ${filled} HTML-only message(s)`); })
+  .catch(err => console.warn('Search backfill stopped; it starts again at the next restart:', err.message));
 
 // Schedule periodic CardDAV contact sync for any connected accounts.
 startCardavScheduler();
