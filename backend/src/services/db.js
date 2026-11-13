@@ -4,12 +4,18 @@ import { recordDb } from './performanceMetrics.js';
 
 const { Pool } = pg;
 
+const connection = process.env.DATABASE_URL
+  ? { connectionString: process.env.DATABASE_URL }
+  : {
+    host: process.env.DB_HOST || 'postgres',
+    port: parseInt(process.env.DB_PORT, 10) || 5432,
+    database: process.env.DB_NAME || 'mailflow',
+    user: process.env.DB_USER || 'mailflow',
+    password: process.env.DB_PASSWORD,
+  };
+
 export const pool = new Pool({
-  host: process.env.DB_HOST || 'postgres',
-  port: parseInt(process.env.DB_PORT, 10) || 5432,
-  database: process.env.DB_NAME || 'mailflow',
-  user: process.env.DB_USER || 'mailflow',
-  password: process.env.DB_PASSWORD,
+  ...connection,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,

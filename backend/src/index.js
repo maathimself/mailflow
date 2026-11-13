@@ -85,8 +85,8 @@ if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
   console.error('FATAL: SESSION_SECRET must be set and at least 32 characters. Exiting.');
   process.exit(1);
 }
-if (!process.env.DB_PASSWORD) {
-  console.error('FATAL: DB_PASSWORD must be set. Exiting.');
+if (!process.env.DATABASE_URL && !process.env.DB_PASSWORD) {
+  console.error('FATAL: DATABASE_URL or DB_PASSWORD must be set. Exiting.');
   process.exit(1);
 }
 if (!process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_KEY.length !== 64) {

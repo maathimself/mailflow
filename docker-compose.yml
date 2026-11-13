@@ -64,6 +64,7 @@ services:
       DB_NAME: ${DB_NAME:-mailflow}
       DB_USER: ${DB_USER:-mailflow}
       DB_PASSWORD: ${DB_PASSWORD}
+      DATABASE_URL: ${DATABASE_URL:-}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
