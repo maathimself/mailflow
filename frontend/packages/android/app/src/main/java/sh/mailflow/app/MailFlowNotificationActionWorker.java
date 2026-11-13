@@ -11,6 +11,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.TimeUnit;
+import javax.net.ssl.SSLSocketFactory;
 
 public class MailFlowNotificationActionWorker extends Worker {
     private static final String TAG = "MailFlowNotification";
@@ -42,11 +43,12 @@ public class MailFlowNotificationActionWorker extends Worker {
         if (cookie == null || cookie.trim().isEmpty()) return Result.failure();
 
         try {
+            SSLSocketFactory socketFactory = MailFlowClientCertificate.socketFactory(context, host);
             int status;
             if (MailFlowNativePlugin.ACTION_DELETE_MESSAGE.equals(action)) {
-                status = request(host + "/api/mail/messages/" + messageId, "DELETE", cookie, null);
+                status = request(host + "/api/mail/messages/" + messageId, "DELETE", cookie, null, socketFactory);
             } else if (MailFlowNativePlugin.ACTION_STAR_MESSAGE.equals(action)) {
-                status = request(host + "/api/mail/messages/" + messageId + "/star", "PATCH", cookie, "{\"starred\":true}");
+                status = request(host + "/api/mail/messages/" + messageId + "/star", "PATCH", cookie, "{\"starred\":true}", socketFactory);
             } else {
                 return Result.failure();
             }
@@ -89,8 +91,9 @@ public class MailFlowNotificationActionWorker extends Worker {
         return Result.retry();
     }
 
-    static int request(String url, String method, String cookie, String body) throws Exception {
+    static int request(String url, String method, String cookie, String body, SSLSocketFactory socketFactory) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        MailFlowClientCertificate.use(connection, socketFactory);
         connection.setRequestMethod(method);
         connection.setConnectTimeout(15000);
         connection.setReadTimeout(15000);

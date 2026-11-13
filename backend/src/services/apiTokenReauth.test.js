@@ -218,9 +218,45 @@ describe('confirming with a sign-in through single sign-on', () => {
   it('tells the form which providers to confirm with, and until when the last sign-in counts', async () => {
     const session = signedIn(60_000);
     expect(await oidcConfirmationState({ session }, SSO_USER)).toEqual({
-      providers: [{ slug: 'corp', name: 'Corp SSO' }], confirmedUntil: new Date(session.oidcConfirmation.at + OIDC_CONFIRMATION_MS).toISOString(),
+      providers: [{ slug: 'corp', name: 'Corp SSO' }], confirmedUntil: new Date(session.oidcConfirmation.at + OIDC_CONFIRMATION_MS).toISOString(), totpToo: false,
     });
-    expect(await oidcConfirmationState({ session: signedIn(OIDC_CONFIRMATION_MS + 1) }, SSO_USER)).toEqual({ providers: [{ slug: 'corp', name: 'Corp SSO' }], confirmedUntil: null });
-    expect(await oidcConfirmationState({ session: {} }, PASSWORD_USER)).toEqual({ providers: [], confirmedUntil: null });
+    expect(await oidcConfirmationState({ session: signedIn(OIDC_CONFIRMATION_MS + 1) }, SSO_USER)).toEqual({ providers: [{ slug: 'corp', name: 'Corp SSO' }], confirmedUntil: null, totpToo: false });
+    expect(await oidcConfirmationState({ session: {} }, PASSWORD_USER)).toEqual({ providers: [], confirmedUntil: null, totpToo: false });
+  });
+});
+
+// Single sign-on now asks a user with two-factor on for their code at sign-in (secondFactor.js),
+// so a fresh sign-in through the provider alone no longer confirms for them either.
+describe('confirming through single sign-on with two-factor on', () => {
+  const SSO_TOTP_USER = { id: 'u-sso-totp', username: 'sue', password_hash: null, totp_enabled: true, totp_secret: SECRET };
+  const signedIn = () => {
+    const session = {};
+    recordOidcConfirmation(session, SSO_TOTP_USER.id, { id: CORP.id, issuer_url: 'https://corp.example.com', client_id: 'mailflow' }, Date.now() - 1000);
+    return session;
+  };
+  const wrongCode = { refusal: { status: 400, body: { error: 'Confirm with your current two-factor code', reauth: 'oidc', totpToo: true } } };
+  beforeEach(() => linked.set(SSO_TOTP_USER.id, [CORP]));
+
+  it('is asked for the code as well, and still counts as a single sign-on confirmation', async () => {
+    expect(await reauthFor(SSO_TOTP_USER)).toBe('oidc');
+    expect((await oidcConfirmationState({ session: signedIn() }, SSO_TOTP_USER)).totpToo).toBe(true);
+    const session = signedIn();
+    expect(await confirmReauth(request({ totpCode: authenticator.generate(SECRET) }, undefined, session), SSO_TOTP_USER, 'oidc'))
+      .toEqual({ confirmedWith: 'oidc', oidcProvider: { id: CORP.id, issuerUrl: 'https://corp.example.com', clientId: 'mailflow' } });
+    expect(session.oidcConfirmation).toBeUndefined();
+  });
+
+  it('a missing or wrong code is refused without spending the sign-in', async () => {
+    const session = signedIn();
+    expect(await confirmReauth(request({}, undefined, session), SSO_TOTP_USER, 'oidc')).toEqual(wrongCode);
+    expect(await confirmReauth(request({ totpCode: '000000' }, undefined, session), SSO_TOTP_USER, 'oidc')).toEqual(wrongCode);
+    expect(session.oidcConfirmation).toBeDefined();
+  });
+
+  it('a right code without a sign-in is refused without spending the code', async () => {
+    const code = authenticator.generate(SECRET);
+    expect((await confirmReauth(request({ totpCode: code }, undefined, {}), SSO_TOTP_USER, 'oidc')).refusal.body.reauth).toBe('oidc');
+    expect(rs.store.has(`totp_used:${SSO_TOTP_USER.id}:${code}`)).toBe(false);
+    expect(count(`totp:${SSO_TOTP_USER.id}`)).toBe(0);
   });
 });

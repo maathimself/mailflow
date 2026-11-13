@@ -423,13 +423,18 @@ function MailboxList() {
     lastSelectIdxRef.current = -1;
   }, [messagesRefreshToken]);
 
-  // Escape clears selection; click-outside closes folder picker
+  // Escape closes an open menu, or else clears the selection; click-outside closes folder picker.
+  // Closing the selection bar's More menu must not throw away what was selected.
+  const popupOpenRef = useRef(false);
+  popupOpenRef.current = showFolderPicker || showBulkMore || showLayoutPicker;
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') {
+        const closingMenu = popupOpenRef.current;
         setShowFolderPicker(false);
         setShowBulkMore(false);
         setShowLayoutPicker(false);
+        if (closingMenu) return;
         setSelectedIds(new Set());
         setSelectionModeActive(false);
       }
@@ -3797,7 +3802,8 @@ function MailboxList() {
           </div>
         )}
 
-        {loadingMessages && displayMessages.length === 0 && (
+        {/* Before the accounts are in, the list has not been asked for yet: loading, not empty. */}
+        {(loadingMessages || !accountsReady) && displayMessages.length === 0 && (
           <div>
             {Array.from({ length: 7 }).map((_, i) => (
               <div key={i} style={{
@@ -3841,7 +3847,7 @@ function MailboxList() {
           </div>
         )}
 
-        {!loadingMessages && displayMessages.length === 0 && (
+        {!loadingMessages && accountsReady && displayMessages.length === 0 && (
           <EmptyState
             folderSyncing={folderSyncing}
             searchQuery={searchQuery}

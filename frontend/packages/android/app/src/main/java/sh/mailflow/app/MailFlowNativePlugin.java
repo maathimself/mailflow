@@ -114,7 +114,7 @@ public class MailFlowNativePlugin extends Plugin {
         String normalizedHost = normalizeHost(host);
 
         if (normalizedHost == null) {
-            call.reject("Public MailFlow hosts must use https://. HTTP is allowed only for localhost and private IP addresses.");
+            call.reject("Public MailFlow hosts must use https://. HTTP is allowed only for localhost, private IP addresses and Tailscale (100.64.0.0/10) addresses.");
             return;
         }
 
@@ -160,7 +160,9 @@ public class MailFlowNativePlugin extends Plugin {
     @PluginMethod
     public void resetHost(PluginCall call) {
         getPrefs(getContext()).edit().remove(PREF_HOST).apply();
+        MailFlowClientCertificate.clear(getContext());
         getActivity().runOnUiThread(() -> {
+            WebView.clearClientCertPreferences(null);
             if (getActivity() instanceof MainActivity) {
                 ((MainActivity) getActivity()).configureNativeMessageBridge(null);
             }
@@ -488,7 +490,8 @@ public class MailFlowNativePlugin extends Plugin {
     static void injectPendingActions(WebView webView, Context context) {
         if (webView == null || context == null || !isConfiguredHost(context, webView.getUrl())) return;
 
-        injectCapacitorCompat(webView);
+        String host = getSavedHost(context);
+        injectCapacitorCompat(webView, host);
 
         List<JSObject> actions;
         synchronized (pendingActions) {
@@ -517,10 +520,10 @@ public class MailFlowNativePlugin extends Plugin {
             + "}"
             + "})( " + actionJson + " );";
 
-        webView.post(() -> webView.evaluateJavascript(script, null));
+        evaluateOnHost(webView, host, script);
     }
 
-    static void injectCapacitorCompat(WebView webView) {
+    static void injectCapacitorCompat(WebView webView, String host) {
         if (webView == null) return;
 
         String script = "(function(){try{"
@@ -557,7 +560,16 @@ public class MailFlowNativePlugin extends Plugin {
             + "window.mailflowNative.notifications.openSettings=function(){return call('openNotificationSettings',{});};"
             + "}catch(e){}})();";
 
-        webView.post(() -> webView.evaluateJavascript(script, null));
+        evaluateOnHost(webView, host, script);
+    }
+
+    // Scripts for the MailFlow host run only if the host's page is still the one showing when they
+    // arrive. A load that fails (an untrusted certificate, say) leaves the setup page in place, and
+    // the bridge stubs injected there hid its saveHost and getHost (#776).
+    private static void evaluateOnHost(WebView webView, String host, String script) {
+        String guarded = NativeSecurity.hostGuardedScript(host, script);
+        if (guarded == null) return;
+        webView.post(() -> webView.evaluateJavascript(guarded, null));
     }
 
     static void sendOpenMessageAction(Intent intent) {
@@ -747,7 +759,7 @@ public class MailFlowNativePlugin extends Plugin {
         return NativeSecurity.normalizeHost(host);
     }
 
-    private static SharedPreferences getPrefs(Context context) {
+    static SharedPreferences getPrefs(Context context) {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
 

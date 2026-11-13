@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } 
 //  - never throw (logout must always succeed locally)
 // db, discovery (fetch), and the modules oidc.js imports are stubbed to isolate the logic.
 vi.mock('../services/db.js', () => ({ query: vi.fn(), pool: {} }));
-vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, isEncrypted: () => false }));
+vi.mock('../services/encryption.js', () => ({ decrypt: (v) => v, encrypt: (v) => v, isEncrypted: () => false }));
 vi.mock('../index.js', () => ({ imapManager: {} }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (_req, _res, next) => next() }));
 vi.mock('../services/authEvents.js', () => ({ logAuthEvent: vi.fn() }));

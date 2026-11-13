@@ -1526,3 +1526,23 @@ describe('MessageList — the selection bar\'s More menu marks spam', () => {
     assert.equal(item.disabled, true);
   });
 });
+
+describe('MessageList — a cold launch', () => {
+  test('shows the loading rows, not an empty folder, until the accounts are in', async () => {
+    await mount({ rows: [] });
+    await React.act(async () => root.unmount());
+    root = null;
+    useStore.setState({ accountsReady: false, messages: [], loadingMessages: false });
+    await React.act(async () => {
+      root = createRoot(container);
+      root.render(React.createElement(MessageList));
+    });
+    assert.ok(container.querySelector('.skeleton-line'), 'loading rows while the accounts load');
+    assert.ok(!container.textContent.includes('messageList.emptyInbox'), 'not "no messages"');
+    assert.ok(!container.textContent.includes('messageList.noAccounts'), 'not "no accounts"');
+
+    await React.act(async () => { useStore.setState({ accountsReady: true }); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    assert.ok(!container.querySelector('.skeleton-line'), 'the loading rows go once the list is in');
+  });
+});

@@ -50,6 +50,8 @@ import SpamSettings from './SpamSettings.jsx';
 import BackupSettings from './BackupSettings.jsx';
 import PasswordInput from './PasswordInput.jsx';
 import ApiTokensSection from './ApiTokensSection.jsx';
+import WebhookSettings, { AdminWebhookSettings } from './WebhookSettings.jsx';
+import ToggleRow from './SettingsToggleRow.jsx';
 
 // ─── Shared field component ───────────────────────────────────────────────────
 function Field({ label, required, children }) {
@@ -2056,44 +2058,6 @@ function ChoiceChips({ options, isActive, onSelect, wrap = false }) {
   );
 }
 
-// An on/off setting: its name and what it does, with a switch on the right.
-function ToggleRow({ label, desc, checked, onChange, disabled = false }) {
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
-      padding: '10px 12px', borderRadius: 8,
-      background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
-    }}>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)' }}>{label}</div>
-        {desc && <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2, lineHeight: 1.4 }}>{desc}</div>}
-      </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
-        style={{
-          width: 44, height: 24, borderRadius: 12,
-          background: checked ? 'var(--accent)' : 'var(--bg-elevated)',
-          border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          position: 'relative', transition: 'all 0.2s', flexShrink: 0,
-          opacity: disabled ? 0.6 : 1,
-        }}
-      >
-        <span style={{
-          position: 'absolute', top: 3, left: checked ? 22 : 3,
-          width: 16, height: 16, borderRadius: '50%', background: 'white',
-          transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-        }} />
-      </button>
-    </div>
-  );
-}
-
 // ─── Appearance › Layout ─────────────────────────────────────────────────────
 // How things look: the pane arrangement and what the message list shows. How MailFlow acts
 // (reading, writing, sync) is under Behavior.
@@ -3196,7 +3160,7 @@ const emptyProvider = {
   name: '', slug: '', issuer_url: '', client_id: '', client_secret: '',
   scopes: 'openid email profile', provisioning_mode: 'login_existing_only',
   allowed_domains: '', enabled: true, require_email_verified: true, allow_insecure: false,
-  admin_group_claim: '', admin_group_value: '', rp_initiated_logout: false,
+  admin_group_claim: '', admin_group_value: '', rp_initiated_logout: false, idp_enforces_mfa: false,
   login_match_claim: 'email',
 };
 
@@ -3303,6 +3267,7 @@ function SSOTab() {
         admin_group_claim: form.admin_group_claim.trim() || null,
         admin_group_value: form.admin_group_value.trim() || null,
         rp_initiated_logout: !!form.rp_initiated_logout,
+        idp_enforces_mfa: !!form.idp_enforces_mfa,
         login_match_claim: (form.login_match_claim || '').trim() || 'email',
         ...(form.client_secret && form.client_secret !== '••••••••' ? { client_secret: form.client_secret } : {}),
       };
@@ -3724,6 +3689,30 @@ function SSOTab() {
             <div>
               <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.sso.rpLogout')}</div>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.sso.rpLogoutDesc')}</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 16 }}>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!!form.idp_enforces_mfa}
+              aria-label={t('admin.sso.idpEnforcesMfa')}
+              onClick={() => setForm(f => ({ ...f, idp_enforces_mfa: !f.idp_enforces_mfa }))}
+              style={{
+                width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
+                background: form.idp_enforces_mfa ? 'var(--accent)' : TOGGLE_OFF_BACKGROUND,
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0, marginTop: 1,
+              }}
+            >
+              <span style={{
+                position: 'absolute', top: 2, left: form.idp_enforces_mfa ? 18 : 2, width: 16, height: 16,
+                borderRadius: '50%', background: 'white', transition: 'left 0.2s',
+              }} />
+            </button>
+            <div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.sso.idpEnforcesMfa')}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{t('admin.sso.idpEnforcesMfaDesc')}</div>
             </div>
           </div>
 
@@ -5624,6 +5613,7 @@ function NotificationsTab() {
 
       {/* Push Notifications */}
       <PushNotificationsSection />
+      <WebhookSettings />
     </div>
   );
 }
@@ -6979,7 +6969,7 @@ const TAB_GROUPS = [
   { id: 'mail', labelKey: 'admin.tabs.groupMail', tabIds: ['accounts', 'rules', 'categories', 'antispam', 'cleanup'] },
   { id: 'preferences', labelKey: 'admin.tabs.groupPreferences', tabIds: ['appearance', 'behavior', 'notifications', 'shortcuts', 'security'] },
   { id: 'ai-extensions', labelKey: 'admin.tabs.groupAiExtensions', tabIds: ['ai-actions', 'ai', 'integrations', 'plugins'] },
-  { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso', 'mail-signin', 'backup'] },
+  { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso', 'mail-signin', 'webhooks', 'backup'] },
 ];
 
 const TABS = [
@@ -7059,6 +7049,10 @@ const TABS = [
     id: 'mail-signin', labelKey: 'admin.tabs.mailSignIn',
     adminOnly: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="2 7 12 13 22 7"/><circle cx="18" cy="17" r="3" fill="var(--bg-secondary)"/><path d="M18 15.5v1.5l1 .8"/></svg>,
+  },
+  {
+    id: 'webhooks', labelKey: 'webhooks.title', adminOnly: true,
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>,
   },
   {
     id: 'backup', labelKey: 'admin.tabs.backup',
@@ -7645,6 +7639,12 @@ function SecurityTab() {
   const [recoverySaving, setRecoverySaving] = useState(false);
   const [recoverySaved, setRecoverySaved] = useState(false);
   const [recoveryError, setRecoveryError] = useState('');
+  const [recoveryLoadFailed, setRecoveryLoadFailed] = useState(false);
+  // Changing it is confirmed as an API token is (the server says how: GET answers `reauth`).
+  const [recoveryReauth, setRecoveryReauth] = useState(null); // 'password' | 'totp' | 'oidc'
+  const [recoveryOidc, setRecoveryOidc] = useState(null); // with 'oidc': { providers, confirmedUntil, totpToo }
+  const [recoveryPassword, setRecoveryPassword] = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
 
   // Admin-only: auth activity log
   const [authEvents, setAuthEvents] = useState([]);
@@ -7672,10 +7672,17 @@ function SecurityTab() {
     }
     api.getRecoveryEmail()
       .then(d => {
-        setRecoveryEmail(d.email || '');
+        // An address typed before confirming through single sign-on, which left the page.
+        let draft = null;
+        try { draft = sessionStorage.getItem(RECOVERY_DRAFT_KEY); sessionStorage.removeItem(RECOVERY_DRAFT_KEY); } catch { /* unavailable */ }
+        setRecoveryEmail(draft ?? (d.email || ''));
         setRecoveryEmailLoaded(d.email || '');
+        setRecoveryReauth(d.reauth ?? null);
+        setRecoveryOidc(d.oidc ?? null);
+        setRecoveryLoadFailed(false);
       })
-      .catch(() => {});
+      // A flag, translated as it renders: t is not a dependency, so no load runs per render.
+      .catch(() => setRecoveryLoadFailed(true));
   }, [user?.isAdmin]);
 
   const loadAuthEvents = () => {
@@ -7728,17 +7735,33 @@ function SecurityTab() {
     }
   };
 
+  const recoveryChanging = recoveryEmail.trim() !== recoveryEmailLoaded;
+  const recoveryOidcConfirmed = recoveryReauth === 'oidc' && !!recoveryOidc?.confirmedUntil && new Date(recoveryOidc.confirmedUntil) > new Date();
+  const recoveryAsksCode = recoveryReauth === 'totp' || (recoveryReauth === 'oidc' && recoveryOidc?.totpToo === true && recoveryOidcConfirmed);
+  const recoveryConfirmed = recoveryReauth === 'password' ? !!recoveryPassword
+    : recoveryReauth === 'totp' ? recoveryCode.length === 6
+      : recoveryReauth === 'oidc' ? recoveryOidcConfirmed && (!recoveryAsksCode || recoveryCode.length === 6) : false;
+  const recoveryCanSave = !recoverySaving && recoveryChanging && recoveryConfirmed;
+
   const saveRecoveryEmail = async () => {
     setRecoverySaving(true);
     setRecoveryError('');
     try {
-      await api.updateRecoveryEmail(recoveryEmail.trim() || null);
+      await api.updateRecoveryEmail(recoveryEmail.trim() || null, {
+        ...(recoveryAsksCode ? { totpCode: recoveryCode } : {}),
+        ...(recoveryReauth === 'password' ? { password: recoveryPassword } : {}),
+      });
       setRecoveryEmailLoaded(recoveryEmail.trim());
       setRecoverySaved(true);
       setTimeout(() => setRecoverySaved(false), 3000);
     } catch (err) {
       setRecoveryError(err.message);
     } finally {
+      // A code works once, a single sign-on confirmation confirms one change, and a refused
+      // password is typed again: ask the server what the next change needs.
+      api.getRecoveryEmail().then(d => { setRecoveryReauth(d.reauth ?? null); setRecoveryOidc(d.oidc ?? null); setRecoveryLoadFailed(false); }).catch(() => {});
+      setRecoveryPassword('');
+      setRecoveryCode('');
       setRecoverySaving(false);
     }
   };
@@ -7759,6 +7782,7 @@ function SecurityTab() {
       api_token_created:   t('admin.security.eventApiTokenCreated'),
       api_token_revoked:   t('admin.security.eventApiTokenRevoked'),
       api_token_auth_fail: t('admin.security.eventApiTokenAuthFail'),
+      admin_sign_in_code:  t('admin.security.eventAdminSignInCode'),
     };
     return map[type] || type;
   };
@@ -8271,20 +8295,79 @@ function SecurityTab() {
           onFocus={e => e.target.style.borderColor = 'var(--accent)'}
           onBlur={e => e.target.style.borderColor = 'var(--border)'}
         />
-        {recoveryError && (
-          <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>{recoveryError}</div>
+        {recoveryChanging && recoveryReauth === 'password' && (
+          <div style={{ marginBottom: 10 }}>
+            <label htmlFor="recovery-confirm-password" style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              {t('admin.security.recoveryConfirmPassword')}
+            </label>
+            <PasswordInput
+              id="recovery-confirm-password"
+              autoComplete="current-password"
+              value={recoveryPassword}
+              onChange={e => setRecoveryPassword(e.target.value)}
+              placeholder={t('admin.security.totpDisablePh')}
+              style={recoveryFieldStyle}
+            />
+          </div>
+        )}
+        {recoveryChanging && recoveryReauth === 'oidc' && !recoveryOidcConfirmed && (
+          (recoveryOidc?.providers || []).length ? (
+            <div style={{ marginBottom: 10 }}>
+              <div id="recovery-confirm-oidc-hint" style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                {t('admin.security.recoveryConfirmOidc')}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {recoveryOidc.providers.map(p => (
+                  <a
+                    key={p.slug}
+                    href={`/auth/oidc/${p.slug}/start?action=reauth`}
+                    aria-describedby="recovery-confirm-oidc-hint"
+                    onClick={() => { try { sessionStorage.setItem(RECOVERY_DRAFT_KEY, recoveryEmail.trim()); } catch { /* unavailable */ } }}
+                    style={ssoProviderButtonStyle}
+                  >
+                    {t('admin.apiTokens.reauthOidcButton', { provider: p.name })}
+                  </a>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>{t('admin.security.ssoLinkConfirmNoProvider')}</div>
+          )
+        )}
+        {recoveryChanging && recoveryOidcConfirmed && (
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
+            {t('admin.apiTokens.reauthOidcDone', { time: formatTime(recoveryOidc.confirmedUntil) })}
+          </div>
+        )}
+        {recoveryChanging && recoveryAsksCode && (
+          <div style={{ marginBottom: 10 }}>
+            <label htmlFor="recovery-confirm-code" style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              {t('admin.security.recoveryConfirmTotp')}
+            </label>
+            <input
+              id="recovery-confirm-code"
+              type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
+              value={recoveryCode}
+              onChange={e => setRecoveryCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder={t('admin.security.totpVerifyPh')}
+              style={{ ...recoveryFieldStyle, letterSpacing: '0.3em', fontVariantNumeric: 'tabular-nums' }}
+            />
+          </div>
+        )}
+        {(recoveryError || recoveryLoadFailed) && (
+          <div role="alert" style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>{recoveryError || t('admin.security.recoveryLoadFailed')}</div>
         )}
         <button
           onClick={saveRecoveryEmail}
-          disabled={recoverySaving || recoveryEmail.trim() === recoveryEmailLoaded}
+          disabled={!recoveryCanSave}
           style={{
             padding: '8px 18px',
             background: recoverySaved ? 'rgba(34,197,94,0.15)' : 'var(--accent)',
             border: recoverySaved ? '1px solid rgba(34,197,94,0.4)' : 'none',
             borderRadius: 7, color: recoverySaved ? '#22c55e' : 'white',
             fontSize: 13, fontWeight: 500,
-            cursor: (recoverySaving || recoveryEmail.trim() === recoveryEmailLoaded) ? 'not-allowed' : 'pointer',
-            opacity: (recoverySaving || recoveryEmail.trim() === recoveryEmailLoaded) ? 0.6 : 1,
+            cursor: recoveryCanSave ? 'pointer' : 'not-allowed',
+            opacity: recoveryCanSave || recoverySaved ? 1 : 0.6,
           }}
         >
           {recoverySaving ? t('common.saving') : recoverySaved ? t('admin.security.protectionSaved') : t('common.save')}
@@ -8381,6 +8464,14 @@ function SecurityTab() {
   );
 }
 
+// The recovery email typed before confirming through single sign-on, which leaves the page.
+const RECOVERY_DRAFT_KEY = 'mailflow_recovery_email_draft';
+const recoveryFieldStyle = {
+  width: '100%', padding: '8px 10px', borderRadius: 8,
+  border: '1px solid var(--border)', background: 'var(--bg-primary)',
+  color: 'var(--text-primary)', fontSize: 14, outline: 'none', boxSizing: 'border-box',
+};
+
 const ssoProviderButtonStyle = {
   padding: '7px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
   background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
@@ -8420,7 +8511,10 @@ export function LinkedIdentitiesSection({ navigate = (url) => { window.location.
   // has (the buttons in the form below); the server says until when the last one counts.
   const oidcProviders = Array.isArray(oidc?.providers) ? oidc.providers : [];
   const oidcConfirmed = reauth === 'oidc' && !!oidc?.confirmedUntil && new Date(oidc.confirmedUntil) > new Date();
-  const canContinue = !checking && (reauth === 'totp' ? code.length === 6 : reauth === 'password' ? !!password : false);
+  // With two-factor on, the sign-in through single sign-on is confirmed with the code as well.
+  const totpToo = reauth === 'oidc' && oidc?.totpToo === true;
+  const asksCode = reauth === 'totp' || (totpToo && oidcConfirmed);
+  const canContinue = !checking && (asksCode ? code.length === 6 : reauth === 'password' ? !!password : false);
 
   const openLinkForm = (provider) => { setLinking(provider); setPassword(''); setCode(''); setLinkError(''); };
   const closeLinkForm = () => openLinkForm(null);
@@ -8444,11 +8538,11 @@ export function LinkedIdentitiesSection({ navigate = (url) => { window.location.
     }
   };
   // With a sign-in through single sign-on already made, there is nothing left to ask for.
-  const startLink = (provider) => (oidcConfirmed ? confirmAndLink(provider, {}) : openLinkForm(provider));
+  const startLink = (provider) => (oidcConfirmed && !totpToo ? confirmAndLink(provider, {}) : openLinkForm(provider));
   const submitLinkForm = (e) => {
     e.preventDefault();
     if (!canContinue) return;
-    confirmAndLink(linking, reauth === 'totp' ? { totpCode: code } : { password });
+    confirmAndLink(linking, asksCode ? { totpCode: code } : { password });
   };
 
   const handleUnlink = (identity) => {
@@ -8539,7 +8633,7 @@ export function LinkedIdentitiesSection({ navigate = (url) => { window.location.
                 />
               </>
             )}
-            {reauth === 'totp' && (
+            {asksCode && (
               <>
                 <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>
                   {t('admin.security.ssoLinkConfirmTotp', { provider: linking.name })}
@@ -8559,7 +8653,7 @@ export function LinkedIdentitiesSection({ navigate = (url) => { window.location.
                 />
               </>
             )}
-            {reauth === 'oidc' && (
+            {reauth === 'oidc' && !asksCode && (
               <>
                 <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>
                   {oidcProviders.length > 0
@@ -8591,7 +8685,7 @@ export function LinkedIdentitiesSection({ navigate = (url) => { window.location.
               </div>
             )}
             <div style={{ display: 'flex', gap: 8 }}>
-              {(reauth === 'password' || reauth === 'totp') && (
+              {(reauth === 'password' || asksCode) && (
                 <button
                   type="submit"
                   disabled={!canContinue}
@@ -8708,6 +8802,8 @@ function makeSearchIndex(t) {
     { label: t('admin.search.notificationSound'), keywords: ['sound', 'notification sound', 'audio', 'alert', 'beep', 'chime'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
     { label: t('admin.notifications.appBadge'), keywords: ['badge', 'app icon', 'pwa', 'unread count', 'icon badge'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
     { label: t('admin.notifications.faviconBadge'), keywords: ['favicon', 'tab badge', 'browser tab', 'tab icon', 'unread dot'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
+    { label: t('webhooks.title'), keywords: ['webhook', 'ntfy', 'gotify'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
+    { label: t('webhooks.adminEnable'), keywords: ['webhook', 'ntfy', 'gotify', 'origins'], tab: 'webhooks', adminOnly: true, breadcrumb: tabLabel('webhooks') },
     { label: t('admin.push.title'), keywords: ['push', 'notification', 'browser notification', 'desktop notification', 'permission'], tab: 'notifications', breadcrumb: tabLabel('notifications') },
     // Shortcuts (desktop only)
     { label: tabLabel('shortcuts'), keywords: ['shortcut', 'keyboard', 'hotkey', 'keybind', 'key binding', 'compose shortcut', 'reply shortcut'], tab: 'shortcuts', mobileHidden: true, breadcrumb: tabLabel('shortcuts') },
@@ -8839,6 +8935,7 @@ export default function AdminPanel() {
       {adminTab === 'mail-signin' && user?.isAdmin && <MailSignInTab />}
       {adminTab === 'users' && <UsersTab />}
       {adminTab === 'sso' && <SSOTab />}
+      {adminTab === 'webhooks' && user?.isAdmin && <AdminWebhookSettings />}
       {adminTab === 'backup' && <BackupSettings />}
       {adminTab === 'security' && <SecurityPrivacyTab initialSubTab={pendingSubTab} />}
       {adminTab === 'behavior' && <BehaviorTab />}

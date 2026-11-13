@@ -1,3 +1,4 @@
+import { notifyMessageRowsDeleted } from '../services/messageRowsDeleted.js';
 import nodemailer from 'nodemailer';
 import { randomBytes } from 'crypto';
 import { Router } from 'express';
@@ -429,10 +430,11 @@ router.post('/draft', async (req, res) => {
         if (!deleted) {
           console.error(`Draft: refusing to delete old uid=${replaced.uid} in folder ${JSON.stringify(replaced.folder)}: the server copy's Message-ID does not match its local row`);
         } else {
-          await query(
-            'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+          const deletedRows = await query(
+            'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 RETURNING account_id, folder, thread_key',
             [replaced.account.id, replaced.uid, replaced.folder]
           );
+          notifyMessageRowsDeleted(replaced.account, deletedRows.rows);
         }
       } catch (delErr) {
         console.error(`Draft: failed to delete old uid=${replaced.uid}: ${delErr.message}`);
@@ -490,16 +492,18 @@ router.delete('/draft/:uid', async (req, res) => {
     if (deleted === false) {
       // Sync never corrects a row whose uid holds another message: drop it and pull the folder.
       console.warn(`Draft: not deleting uid=${uid} in folder ${JSON.stringify(folder)}: the server copy there is not its row's message`);
-      await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [account.id, uid, folder]);
+      const deletedRows = await query('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 RETURNING account_id, folder, thread_key', [account.id, uid, folder]);
+      notifyMessageRowsDeleted(account, deletedRows.rows);
       imapManager.syncFolderOnDemand(account, folder)
         .catch(err => console.warn('post-delete folder sync failed:', err.message));
       noteDraftsChanged(req.session.userId, account.id, folder);
       return res.status(409).json({ error: 'This draft changed on the server and was not deleted. Refresh and try again.' });
     }
-    await query(
-      'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
+    const deletedRows = await query(
+      'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 RETURNING account_id, folder, thread_key',
       [account.id, uid, folder]
     );
+    notifyMessageRowsDeleted(account, deletedRows.rows);
     noteDraftsChanged(req.session.userId, account.id, folder);
     res.json({ ok: true });
   } catch (err) {

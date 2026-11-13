@@ -21,6 +21,7 @@ vi.mock('../index.js', () => ({ imapManager }));
 import express from 'express';
 import draftRoutes, { deleteSentDraft } from './draft.js';
 import { query } from '../services/db.js';
+import { pluginRegistry } from '../plugins/registry.js';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT_ROW = {
@@ -514,6 +515,21 @@ describe('DELETE /api/mail/draft/:uid — Drafts folders only', () => {
     expect(imapManager.scheduleCountRefresh).toHaveBeenCalledWith(ACCOUNT_ID, ['Drafts']); // #643: the Drafts total follows
   });
 
+  it('reports only the draft keys returned by the committed delete', async () => {
+    query.mockResolvedValueOnce({ rows: [ACCOUNT_ROW] });
+    query.mockResolvedValueOnce({ rows: [{ path: 'Drafts' }] });
+    query.mockResolvedValueOnce({ rows: [ROW] });
+    query.mockResolvedValueOnce({ rows: [{ account_id: ACCOUNT_ID, folder: 'Drafts', thread_key: 'deleted-draft' }] });
+    const hook = vi.spyOn(pluginRegistry, 'runHook').mockResolvedValue();
+    try {
+      expect((await del('folder=Drafts')).status).toBe(200);
+      expect(query.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM messages'))[0]).toMatch(/RETURNING[\s\S]*thread_key/);
+      expect(hook).toHaveBeenCalledExactlyOnceWith('messageRowsDeleted', {
+        account: ACCOUNT_ROW, folder: 'Drafts', threadKeys: ['deleted-draft'],
+      });
+    } finally { hook.mockRestore(); }
+  });
+
   it('checks the server copy against the draft\'s row', async () => {
     query.mockResolvedValueOnce({ rows: [ACCOUNT_ROW] });          // owner check
     query.mockResolvedValueOnce({ rows: [{ path: 'Drafts' }] });   // resolveDraftsFolder
@@ -541,7 +557,7 @@ describe('DELETE /api/mail/draft/:uid — Drafts folders only', () => {
     expect(res.status).toBe(409);
     // As a delete from the message list: the row is dropped and the folder pulled, so a sync
     // files what the uid holds.
-    expect(query).toHaveBeenCalledWith('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3', [ACCOUNT_ID, 9, 'Drafts']);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 RETURNING'), [ACCOUNT_ID, 9, 'Drafts']);
     expect(imapManager.syncFolderOnDemand).toHaveBeenCalledWith(expect.objectContaining({ id: ACCOUNT_ID }), 'Drafts');
     expect(draftsChanged()).toEqual([[ACCOUNT_ID, 'user-1']]);
   });

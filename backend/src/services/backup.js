@@ -33,6 +33,7 @@ export const SETUP_TABLES = [
   'integration_config',
   'invites',
   'message_tags',
+  'notification_webhooks',
   'oidc_providers',
   'plugin_account_config',
   'plugin_data',

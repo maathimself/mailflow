@@ -82,6 +82,7 @@ const { createRoot } = await import('react-dom/client');
 const { MemoryRouter } = await import('react-router-dom');
 const { useStore } = await import('./store/index.js');
 const App = (await import('./App.jsx')).default;
+const { resetBootPrefetchForTests } = await import('./utils/bootPrefetch.js');
 
 const user = { id: 7, username: 'matt', hasLockPin: true };
 const meOk = (locked) => () => ({ ok: true, status: 200, json: async () => ({ user: { ...user, locked } }) });
@@ -97,6 +98,7 @@ let root = null;
 async function mount(me) {
   meResponse = me;
   calls.length = 0;
+  resetBootPrefetchForTests(); // a new page load
   useStore.setState({ user: null, isLocked: localStorage.getItem('mailflow_locked') === '1' });
   root = createRoot(document.getElementById('root'));
   await React.act(async () => { root.render(React.createElement(MemoryRouter, null, React.createElement(App))); });
@@ -150,6 +152,7 @@ describe('screen lock across a page load (#235)', () => {
     assert.equal(localStorage.getItem('mailflow_locked'), '1');
     assert.ok(calls.includes('POST /api/auth/lock'), 'the lock is sent to the server again');
     assert.ok(!calls.includes('GET /api/auth/preferences'), 'preferences wait for the unlock, as on any locked load');
+    assert.ok(!calls.includes('GET /api/accounts'), 'nothing behind the lock is fetched early');
   });
 
   for (const [what, me] of [['a 502 while the backend restarts', meBadGateway], ['a network error', meOffline]]) {
@@ -197,4 +200,20 @@ describe('Sign out on the lock screen (#235)', () => {
     assert.ok(calls.includes('POST /api/auth/logout'));
     assert.equal(localStorage.getItem('mailflow_locked'), null, 'no stale lock is left for the next sign-in');
   });
+});
+
+test('a load asks for the session, preferences and accounts together, each once', async () => {
+  localStorage.removeItem('mailflow_locked');
+  // /me answers only when released, so what went out meanwhile was not waiting for it.
+  let release;
+  const gate = new Promise(r => { release = r; });
+  const shown = mount(async () => { await gate; return meOk(false)(); });
+  await new Promise(r => setTimeout(r, 10));
+  assert.deepEqual(calls.slice().sort(), ['GET /api/accounts', 'GET /api/auth/me', 'GET /api/auth/preferences'],
+    'all three out before /me answered');
+  release();
+  await shown;
+  assert.equal(screen(), 'mailbox');
+  assert.equal(calls.filter(c => c === 'GET /api/auth/preferences').length, 1, 'the prefetched preferences were used');
+  await unmount();
 });
