@@ -79,7 +79,9 @@ removals commit, including reconciliation, UIDVALIDITY purges, folder cleanup, l
 and physical row deletions from user/rule actions. Soft deletion (`is_deleted = true`) retains
 the cached row and is reported only when that row is physically removed. Keys come from deleted rows, grouped and deduplicated per account/folder;
 `account` includes its `id` and owning `user_id` (batch actions may supply only those fields). An atomic relocation that reinserts the same logical copy
-is not a removal. Associated count adjustments/recounts settle before notifications; a failed count write is
+is not a removal. A key means a row for that thread left the folder; the thread may still have other
+rows there (for example, a UIDPLUS move replaces a stale destination row), so check before cleaning up.
+Associated count adjustments/recounts settle before notifications; a failed count write is
 logged and the committed deletion is still dispatched. Dispatch is nonblocking; plugin failures are logged.
 `afterLabelRemove` retains its separate contract and includes the removed copy’s `threadKey`.
 Account/user FK cascades are whole-parent lifecycle operations outside this row hook. The
