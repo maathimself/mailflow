@@ -36,6 +36,7 @@
     "signInWith": "Mit {{name}} anmelden",
     "inviteEmail": "Eingeladen als",
     "inviteExpired": "Dieser Einladungslink ist ungültig oder abgelaufen.",
+    "ssoSecondStepExpired": "Die Single-Sign-On-Anmeldung hat zu lange gedauert. Bitte melden Sie sich erneut an.",
     "ssoOnly": "Mit SSO anmelden",
     "ssoOnlyDesc": "Passwort-Login ist auf diesem Server deaktiviert.",
     "totp": {
@@ -50,6 +51,7 @@
     "emailOtp": {
       "title": "E-Mail prüfen",
       "desc": "Ein Bestätigungscode wurde an {{email}} gesendet",
+      "sendFailed": "Der Code an {{email}} konnte nicht gesendet werden. Versuchen Sie „Code erneut senden“ oder bitten Sie Ihren Administrator um einen Anmeldecode.",
       "codePh": "6-stelliger Code",
       "resend": "Code erneut senden",
       "sending": "Senden…",
@@ -511,6 +513,7 @@
     "noSearchResults": "Keine Ergebnisse gefunden",
     "searching": "Suche läuft…",
     "noSearchResultsDesc": "Keine Treffer für {{query}}",
+    "searchScopeNote": "Suche nur in \"{{folder}}\"",
     "searchFailed": "Suche fehlgeschlagen",
     "clearSearch": "Suche löschen",
     "searchHelp": {
@@ -1438,6 +1441,7 @@
       "eventApiTokenCreated": "API-Token erstellt",
       "eventApiTokenRevoked": "API-Token widerrufen",
       "eventApiTokenAuthFail": "Ungültiges API-Token",
+      "eventAdminSignInCode": "Anmeldecode ausgestellt",
       "byActor": "von {{actor}}",
       "qrCodeAlt": "QR-Code",
       "mailPolicyTitle": "Verbindungsrichtlinie für Mailserver",
@@ -1449,7 +1453,7 @@
       "allowNonstandardPorts": "Nicht-standardmäßige Ports erlauben",
       "allowNonstandardPortsDesc": "Erlaubt beliebige IMAP- oder SMTP-Ports, nicht nur 143/993 (IMAP) und 465/587 (SMTP). Erforderlich für Server wie protonmail-bridge, die andere Ports verwenden.",
       "mfaEnforcementTitle": "MFA-Durchsetzung",
-      "mfaEnforcementDesc": "Alle Benutzer müssen sich beim Anmelden mit einem zweiten Faktor verifizieren. Beim Aktivieren werden API-Tokens gelöscht, die nur mit einem Passwort bestätigt wurden.",
+      "mfaEnforcementDesc": "Alle Benutzer müssen sich beim Anmelden mit einem zweiten Faktor verifizieren. Beim Aktivieren werden API-Tokens gelöscht, die nur mit einem Passwort bestätigt wurden. Das gilt auch für Single Sign-On, sofern der Anbieter nicht so eingestellt ist, dass er MFA selbst erzwingt.",
       "mfaEnforcementOff": "Optional",
       "mfaEnforcementRequired": "Pflicht",
       "mfaDeviceTrustTitle": "Gerätevertrauen",
@@ -1460,8 +1464,12 @@
       "mfaDeviceTrustForever": "Dauerhaft",
       "mfaSsoLockedNotice": "MFA-Durchsetzung ist nicht anwendbar, wenn die Passwortanmeldung deaktiviert ist. Benutzer authentifizieren sich über SSO, das seine eigenen MFA-Anforderungen verwaltet.",
       "recoveryEmailTitle": "Wiederherstellungs-E-Mail",
-      "recoveryEmailDesc": "Erhalten Sie einen Anmeldecode per E-Mail, wenn Sie den Zugang zur Authentifizierungs-App verlieren.",
-      "recoveryEmailPh": "ihre@email.de"
+      "recoveryEmailDesc": "Hierhin gehen Links zum Zurücksetzen des Passworts und Anmeldecodes, wenn die Zwei-Faktor-Authentifizierung vorgeschrieben ist und Sie keine Authenticator-App haben. Ein Code ersetzt nie eine Authenticator-App; wenn Sie Ihre verlieren, kann ein Administrator sie ausschalten.",
+      "recoveryEmailPh": "ihre@email.de",
+      "recoveryConfirmPassword": "Bestätigen Sie die Änderung mit Ihrem Passwort",
+      "recoveryConfirmTotp": "Bestätigen Sie die Änderung mit Ihrem aktuellen Zwei-Faktor-Code",
+      "recoveryConfirmOidc": "Bestätigen Sie die Änderung zuerst per Single Sign-On. Die Schaltfläche führt Sie zum Anbieter, wo Sie sich erneut anmelden, und dann zum Speichern hierher zurück.",
+      "recoveryLoadFailed": "Ihre Wiederherstellungs-E-Mail konnte nicht geladen werden. Laden Sie die Seite neu, um sie zu ändern."
     },
     "apiTokens": {
       "title": "API-Tokens",
@@ -1804,6 +1812,8 @@
       "allowInsecureDesc": "Umgeht die Host-Validierung und TLS-Zertifikatsprüfungen. Nur für LAN-seitige Anbieter (z. B. pocketid.internal) verwenden. Nicht empfohlen für internetfähige Deployments.",
       "rpLogout": "SSO-Abmeldung (RP-initiated)",
       "rpLogoutDesc": "Beim Abmelden wird die Sitzung auch bei diesem Anbieter beendet, indem zu dessen end-session endpoint weitergeleitet wird, nicht nur das MailFlow-Cookie. Erfordert, dass der Anbieter einen end_session_endpoint bereitstellt und dass die MailFlow-Anmelde-URL (…/login) als post-logout redirect URI registriert ist.",
+      "idpEnforcesMfa": "Anbieter erzwingt MFA",
+      "idpEnforcesMfaDesc": "Nur einschalten, wenn dieser Anbieter bei jeder Anmeldung bereits einen zweiten Faktor verlangt. Seine Anmeldungen überspringen dann den zweiten Schritt von MailFlow: den Code aus der Authenticator-App des Benutzers und die MFA-Pflicht unter Sicherheit.",
       "adminGroupClaim": "Admin-Gruppenanspruch",
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "Name des JWT-Claims, der die Gruppen des Benutzers enthält (z. B. groups). Leer lassen, um gruppenbasierte Admin-Zuweisung zu deaktivieren.",

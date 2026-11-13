@@ -170,3 +170,64 @@ describe('ContextMenu — a snoozed message (#269)', () => {
     assert.equal(calls[0][0], 'snooze');
   });
 });
+
+describe('ContextMenu — fits the window at a larger font size (#777)', () => {
+  // jsdom has no layout: give every element the menu's layout size, and a 1000×800 window.
+  const proto = dom.window.HTMLElement.prototype;
+  const saved = {
+    offsetWidth: Object.getOwnPropertyDescriptor(proto, 'offsetWidth'),
+    offsetHeight: Object.getOwnPropertyDescriptor(proto, 'offsetHeight'),
+  };
+  const message = { id: 'm-777', account_id: 'acct-1', folder: 'INBOX', subject: 'Long menu', from_email: 'a@b.example', is_read: true };
+
+  async function openAt(x, y, { insideScaledApp }) {
+    if (root) await React.act(async () => root.unmount());
+    Object.defineProperty(proto, 'offsetWidth', { configurable: true, get: () => 320 });
+    Object.defineProperty(proto, 'offsetHeight', { configurable: true, get: () => 400 });
+    dom.window.innerWidth = 1000;
+    dom.window.innerHeight = 800;
+    useStore.setState({ accounts: [ACCOUNT], categorizationEnabled: true, folders: {}, fontSize: 130 });
+    const host = dom.window.document.getElementById('root');
+    host.replaceChildren();
+    const container = dom.window.document.createElement('div');
+    if (insideScaledApp) container.setAttribute('data-ui-scale-root', '');
+    host.append(container);
+    await React.act(async () => {
+      root = createRoot(container);
+      root.render(React.createElement(ContextMenu, { x, y, message, onClose: () => {}, onAction: () => {} }));
+    });
+    return container.querySelector('div[style*="z-index: 4000"]');
+  }
+
+  test('inside the scaled app it opens toward the room there is, in layout pixels, with a descaled height cap', async (t) => {
+    t.after(async () => {
+      if (root) await React.act(async () => root.unmount());
+      root = null;
+      for (const [k, d] of Object.entries(saved)) {
+        if (d) Object.defineProperty(proto, k, d); else delete proto[k];
+      }
+      useStore.setState({ fontSize: 100 });
+    });
+    // Visual size at 130%: 416 × 520. From (650, 300) neither fits right or down, so it
+    // opens left (650 − 416 = 234) and up, pinned at the top edge rather than past it.
+    const menu = await openAt(650, 300, { insideScaledApp: true });
+    assert.equal(menu.style.left, `${234 / 1.3}px`);
+    assert.equal(menu.style.top, '0px');
+    assert.match(menu.style.maxHeight, /\/ var\(--ui-scale, 1\)/);
+  });
+
+  test('portaled outside the scaled app (the GTD lists) it lands on the pointer itself', async (t) => {
+    t.after(async () => {
+      if (root) await React.act(async () => root.unmount());
+      root = null;
+      for (const [k, d] of Object.entries(saved)) {
+        if (d) Object.defineProperty(proto, k, d); else delete proto[k];
+      }
+      useStore.setState({ fontSize: 100 });
+    });
+    // Unscaled there: 320 × 400 fits right of and below (650, 300).
+    const menu = await openAt(650, 300, { insideScaledApp: false });
+    assert.equal(menu.style.left, '650px');
+    assert.equal(menu.style.top, '300px');
+  });
+});

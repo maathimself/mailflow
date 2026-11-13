@@ -9,6 +9,7 @@ import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { useUiScale, descale } from '../hooks/useUiScale.js';
+import { descaleCss } from '../utils/uiScaleCss.js';
 import { useEditor, EditorContent, useEditorState, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { Extension } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
@@ -25,6 +26,7 @@ import { PasteWithoutPageColors } from '../utils/editorPaste.js';
 import { pasteWithoutPageColors } from '../utils/contentEditablePaste.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { resolveInitialFrom } from '../utils/defaultSender.js';
+import { aiSenderNote, signatureText } from '../utils/aiSenderNote.js';
 import { initialComposeFocus, isComposeSendShortcut, isSendLaterShortcut } from '../utils/composeFromMessage.js';
 import { unproxyImages } from '../utils/imageProxy.js';
 import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } from '../utils/autoRecipients.js';
@@ -967,8 +969,17 @@ export default function ComposeModal() {
       setAiPanel({ action, status: 'error', text: t('compose.toolbar.aiTooLong', { count: fmt.format(user.length), max: fmt.format(AI_MESSAGE_MAX_CHARS) }) });
       return;
     }
+    // The signature handleSend will add (none while the toggle is off, #555), and the sender's
+    // name, so the model neither adds a sign-off above the real signature nor invents a
+    // [Your Name]. See utils/aiSenderNote.js. The name skips the account's display name, which
+    // is a label such as "Work Gmail".
+    const senderNote = aiSenderNote({
+      name: fromAlias ? fromAlias.name : fromAccount?.sender_name,
+      signature: !signatureEnabled ? '' : plaintextEmail ? plainSig : signatureText(signatureContentRef.current),
+      rewriting: action !== 'draft',
+    });
     const messages = [
-      { role: 'system', content: system },
+      { role: 'system', content: `${system}\n\n${senderNote}` },
       { role: 'user', content: user },
     ];
 
@@ -2975,7 +2986,7 @@ export default function ComposeModal() {
       } : pos ? {
         position: 'fixed', top: pos.y, left: pos.x,
         width: customSize?.width || 540,
-        ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
+        ...(customSize?.height ? { height: customSize.height } : { maxHeight: descaleCss('75vh') }),
         maxWidth: 'calc(100vw - 16px)',
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10, boxShadow: 'var(--shadow-modal)',
@@ -2983,7 +2994,7 @@ export default function ComposeModal() {
       } : {
         position: 'fixed', bottom: 0, right: 24,
         width: customSize?.width || 540, maxWidth: 'calc(100vw - 48px)',
-        ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
+        ...(customSize?.height ? { height: customSize.height } : { maxHeight: descaleCss('75vh') }),
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10,
         boxShadow: 'var(--shadow-modal)',
@@ -3882,12 +3893,31 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
   const emojiPopRef = useRef(null);
   const linkPopRef = useRef(null);
   const linkInputRef = useRef(null);
-  const [showMobileMore, setShowMobileMore] = useState(false);
+  const [showMore, setShowMore] = useState(false);
 
   // Refs on the toolbar rows so we can keep their controls out of the Tab order (#266).
   const desktopBarRef = useRef(null);
   const mobileBarRef = useRef(null);
   const mobileMoreRef = useRef(null);
+  const desktopMoreRef = useRef(null);
+
+  // Measure in visual coordinates so font scaling and translated labels are included.
+  // Layout effect positions the picker before paint; resizing it or the viewport reclamps it.
+  useLayoutEffect(() => {
+    if (!tablePos || !tablePopRef.current) return;
+    const clamp = () => {
+      const popup = tablePopRef.current;
+      const width = popup.getBoundingClientRect().width;
+      const anchor = tableBtnRef.current.getBoundingClientRect();
+      const left = Math.max(4, Math.min(anchor.left, window.innerWidth - width - 4));
+      popup.style.left = `${descale(left, uiScale)}px`;
+    };
+    clamp();
+    const observer = new ResizeObserver(clamp);
+    observer.observe(tablePopRef.current);
+    window.addEventListener('resize', clamp);
+    return () => { observer.disconnect(); window.removeEventListener('resize', clamp); };
+  }, [tablePos, uiScale]);
 
   // Keep every formatting-toolbar control out of the Tab sequence so Tab from the
   // Subject field lands directly in the editor body (#266). Formatting stays reachable
@@ -3895,7 +3925,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
   // each render so conditionally-mounted controls (AI, HTML source, mobile "more") are
   // covered too. The popovers render outside these rows, so their inputs stay focusable.
   useEffect(() => {
-    [desktopBarRef, mobileBarRef, mobileMoreRef].forEach(r =>
+    [desktopBarRef, desktopMoreRef, mobileBarRef, mobileMoreRef].forEach(r =>
       r.current?.querySelectorAll('button, select').forEach(el => { el.tabIndex = -1; })
     );
   });
@@ -3915,7 +3945,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
       if (typeMenuPos && typeMenuBtnRef.current && !typeMenuBtnRef.current.contains(e.target) && typeMenuRef.current && !typeMenuRef.current.contains(e.target)) setTypeMenuPos(null);
       if (emojiPos && emojiBtnRef.current && !emojiBtnRef.current.contains(e.target) && emojiPopRef.current && !emojiPopRef.current.contains(e.target)) setEmojiPos(null);
       if (linkPos && linkBtnRef.current && !linkBtnRef.current.contains(e.target) && linkPopRef.current && !linkPopRef.current.contains(e.target)) setLinkPos(null);
-      if (tablePos && tableBtnRef.current && !tableBtnRef.current.contains(e.target) && tablePopRef.current && !tablePopRef.current.contains(e.target)) setTablePos(null);
+      if (tablePos && !tableBtnRef.current?.contains(e.target) && !tablePopRef.current?.contains(e.target)) setTablePos(null);
       if (aiMenuPos && aiBtnRef.current && !aiBtnRef.current.contains(e.target) && aiMenuRef.current && !aiMenuRef.current.contains(e.target)) setAiMenuPos(null);
     };
     document.addEventListener('mousedown', handler);
@@ -3963,6 +3993,11 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
     const left = Math.max(4, Math.min(r.left, window.innerWidth - width - 4));
     setTypeMenuPos({ top: r.bottom + 4, left, width });
     setEmojiPos(null); setLinkPos(null); setTablePos(null);
+  };
+  const toggleMore = (e) => {
+    e.preventDefault();
+    setShowMore(m => !m);
+    setTypeMenuPos(null); setEmojiPos(null); setLinkPos(null); setTablePos(null); setAiMenuPos(null);
   };
   const openEmoji = async (e) => {
     e.preventDefault();
@@ -4017,8 +4052,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
     e.preventDefault();
     if (tablePos) { setTablePos(null); return; }
     const r = tableBtnRef.current.getBoundingClientRect();
-    const left = Math.max(4, Math.min(r.left, window.innerWidth - 200));
-    setTablePos({ top: r.bottom + 4, left });
+    setTablePos({ top: r.bottom + 4, left: r.left });
     setTypeMenuPos(null); setEmojiPos(null); setLinkPos(null);
   };
 
@@ -4059,6 +4093,76 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
     <button key={title} title={title} onMouseDown={onMD} style={{ background: active ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', color: active ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, WebkitTapHighlightColor: 'transparent' }}>{children}</button>
   );
 
+  const moreMenuButton = (onToggleHtml || aiEnabled) && (
+    <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+    <button type="button" title={t('message.more')} aria-label={t('message.more')}
+      aria-expanded={showMore} onMouseDown={toggleMore}
+      style={{
+        background: showMore ? 'var(--bg-hover)' : htmlMode ? 'var(--accent-dim)' : 'none',
+        border: 'none', borderRadius: 4, padding: isMobile ? '6px 10px' : '3px 6px',
+        cursor: 'pointer', display: 'inline-flex', alignItems: 'center', flexShrink: 0,
+        color: (showMore || htmlMode) ? 'var(--accent)' : 'var(--text-secondary)',
+        fontSize: 18, fontWeight: 300, lineHeight: 1, justifyContent: 'center',
+        WebkitTapHighlightColor: 'transparent',
+      }}>
+      +
+    </button>
+    </div>
+  );
+
+  const tableButton = (
+    <button ref={tableBtnRef} type="button" title={t('compose.toolbar.insertTable')}
+      aria-label={t('compose.toolbar.insertTable')} onMouseDown={openTable}
+      style={{
+        background: tablePos ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4,
+        padding: isMobile ? '6px 10px' : '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+        color: tablePos ? 'var(--accent)' : 'var(--text-secondary)',
+      }}>
+      <svg width={isMobile ? 16 : 13} height={isMobile ? 16 : 13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>
+      </svg>
+    </button>
+  );
+
+  const aiButton = aiEnabled && (
+    <button ref={aiBtnRef} type="button" aria-label={t('compose.toolbar.aiAssist')} title={t('compose.toolbar.aiAssist')} onMouseDown={e => {
+      e.preventDefault();
+      if (aiMenuPos) { setAiMenuPos(null); return; }
+      const r = aiBtnRef.current.getBoundingClientRect();
+      const left = Math.max(4, Math.min(r.left, window.innerWidth - 160));
+      setAiMenuPos({ top: r.bottom + 4, left });
+    }} style={{
+      background: (aiMenuPos || aiPanelOpen) ? 'var(--accent-dim)' : 'none', border: 'none', borderRadius: 4,
+      padding: isMobile ? '6px 10px' : '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+      color: (aiMenuPos || aiPanelOpen) ? 'var(--accent)' : 'var(--text-secondary)',
+    }}>
+      <svg width={isMobile ? 16 : 13} height={isMobile ? 16 : 13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+        <path d="M5 3v4M19 17v4M3 5h4M17 19h4"/>
+      </svg>
+    </button>
+  );
+
+  // ============================================================================
+  // Toolbar development: add all new toolbar icons to the showMore submenu below.
+  // Keep the main toolbar compact by placing additional actions in moreControls.
+  // ============================================================================
+  const moreControls = (
+    <>
+      {aiButton}
+      {onToggleHtml && (
+        <button type="button" title={htmlMode ? 'Back to rich text' : 'Edit HTML source'}
+          aria-label={htmlMode ? 'Back to rich text' : 'Edit HTML source'}
+          onMouseDown={e => { e.preventDefault(); onToggleHtml(); }} style={{
+            background: htmlMode ? 'var(--accent-dim)' : 'none', border: 'none', borderRadius: 4,
+            padding: isMobile ? '6px 10px' : '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+            color: htmlMode ? 'var(--accent)' : 'var(--text-secondary)',
+            fontFamily: 'monospace', fontSize: 11, fontWeight: 600, letterSpacing: '-0.5px',
+          }}>{'</>'}</button>
+      )}
+    </>
+  );
+
   return (
     <>
       {isMobile ? (
@@ -4081,28 +4185,11 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
             </button>
             {signatureControl}
-            {aiEnabled && (
-              <button ref={aiBtnRef} title={t('compose.toolbar.aiAssist')} onMouseDown={e => {
-                e.preventDefault();
-                if (aiMenuPos) { setAiMenuPos(null); return; }
-                const r = aiBtnRef.current.getBoundingClientRect();
-                const left = Math.max(4, Math.min(r.left, window.innerWidth - 160));
-                setAiMenuPos({ top: r.bottom + 4, left });
-              }} style={{
-                background: (aiMenuPos || aiPanelOpen) ? 'var(--accent-dim)' : 'none', border: 'none', borderRadius: 4,
-                padding: '6px 4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                flex: 1, color: (aiMenuPos || aiPanelOpen) ? 'var(--accent)' : 'var(--text-secondary)', WebkitTapHighlightColor: 'transparent',
-              }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
-                  <path d="M5 3v4M19 17v4M3 5h4M17 19h4"/>
-                </svg>
-              </button>
-            )}
-            <button title={t('compose.toolbar.moreFormatting')} onMouseDown={e => { e.preventDefault(); setShowMobileMore(m => !m); }}
-              style={{ background: showMobileMore ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', color: showMobileMore ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 18, fontWeight: 300, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, WebkitTapHighlightColor: 'transparent' }}>+</button>
+            {tableButton}
+            <button title={t('compose.toolbar.moreFormatting')} aria-expanded={showMore} onMouseDown={toggleMore}
+              style={{ background: showMore ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', color: showMore ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 18, fontWeight: 300, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, WebkitTapHighlightColor: 'transparent' }}>+</button>
           </div>
-          {showMobileMore && (
+          {showMore && (
             <div ref={mobileMoreRef} style={{ borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', padding: '2px 0', flexWrap: 'wrap' }}>
               <button ref={typeMenuBtnRef} title={t('compose.toolbar.typography')} onMouseDown={openTypeMenu}
                 style={{ background: typeMenuPos ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', flexDirection: 'row', alignItems: 'center', gap: 6, color: typeMenuPos ? 'var(--accent)' : 'var(--text-secondary)', WebkitTapHighlightColor: 'transparent' }}>
@@ -4121,13 +4208,7 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
               <Sep />
               {mtb(es.bulletList, 'Bullet list', e => { e.preventDefault(); editor.chain().focus().toggleBulletList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>)}
               {mtb(es.orderedList, 'Numbered list', e => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run(); }, <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><text x="1" y="8" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">1.</text><text x="1" y="14" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">2.</text><text x="1" y="20" fontSize="7" fill="currentColor" stroke="none" fontFamily="sans-serif">3.</text></svg>)}
-              {onToggleHtml && (
-                <>
-                  <Sep />
-                  <button title={htmlMode ? 'Back to rich text' : 'Edit HTML source'} onMouseDown={e => { e.preventDefault(); onToggleHtml(); }}
-                    style={{ background: htmlMode ? 'var(--accent-dim)' : 'none', border: 'none', borderRadius: 4, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: htmlMode ? 'var(--accent)' : 'var(--text-secondary)', fontFamily: 'monospace', fontSize: 11, fontWeight: 600, letterSpacing: '-0.5px', WebkitTapHighlightColor: 'transparent' }}>{'</>'}</button>
-                </>
-              )}
+              {moreControls}
             </div>
           )}
         </>
@@ -4199,53 +4280,22 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
           </button>
         )}
 
-        <button ref={tableBtnRef} title={t('compose.toolbar.insertTable')} onMouseDown={openTable}
-          style={{ background: tablePos ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>
-          </svg>
-        </button>
+        {tableButton}
 
         {signatureControl}
 
-        {aiEnabled && (
-          <>
-            <Sep />
-            <button ref={aiBtnRef} title={t('compose.toolbar.aiAssist')} onMouseDown={e => {
-              e.preventDefault();
-              if (aiMenuPos) { setAiMenuPos(null); return; }
-              const r = aiBtnRef.current.getBoundingClientRect();
-              const left = Math.max(4, Math.min(r.left, window.innerWidth - 160));
-              setAiMenuPos({ top: r.bottom + 4, left });
-            }} style={{
-              background: (aiMenuPos || aiPanelOpen) ? 'var(--accent-dim)' : 'none', border: 'none', borderRadius: 4,
-              padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
-              color: (aiMenuPos || aiPanelOpen) ? 'var(--accent)' : 'var(--text-secondary)',
-            }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
-                <path d="M5 3v4M19 17v4M3 5h4M17 19h4"/>
-              </svg>
-            </button>
-          </>
-        )}
-
-        {onToggleHtml && (
-          <>
-            <Sep />
-            <button title={htmlMode ? 'Back to rich text' : 'Edit HTML source'} onMouseDown={e => { e.preventDefault(); onToggleHtml(); }}
-              style={{
-                background: htmlMode ? 'var(--accent-dim)' : 'none', border: 'none', borderRadius: 4,
-                padding: '3px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
-                color: htmlMode ? 'var(--accent)' : 'var(--text-secondary)',
-                fontFamily: 'monospace', fontSize: 11, fontWeight: 600, letterSpacing: '-0.5px',
-              }}>
-              {'</>'}
-            </button>
-          </>
-        )}
+        {moreMenuButton}
 
       </div>
+      )}
+
+      {!isMobile && showMore && (
+        <div ref={desktopMoreRef} style={{
+          borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center',
+          justifyContent: 'flex-end', padding: '4px 10px', gap: 2, flexWrap: 'wrap',
+        }}>
+          {moreControls}
+        </div>
       )}
 
       {/* Popups — position:fixed so they escape any overflow clipping */}
@@ -4349,12 +4399,13 @@ function RichToolbar({ editor, onAttach, onInsertImage, signatureControl, htmlMo
       {tablePos && (
         <div ref={tablePopRef} style={{
           position: 'fixed', top: descale(tablePos.top, uiScale), left: descale(tablePos.left, uiScale), zIndex: 9900,
+          width: 'max-content', maxWidth: `calc(${100 / uiScale}vw - ${8 / uiScale}px)`, boxSizing: 'border-box',
           background: 'var(--bg-elevated)', border: '1px solid var(--border)',
           borderRadius: 8, padding: '10px 12px', boxShadow: 'var(--shadow-popover)',
           display: 'flex', flexDirection: 'column', gap: 8,
         }}>
           <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>{t('compose.toolbar.insertTable')}</span>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {[
               { label: '3×3', rows: 3, cols: 3 },
               { label: '3×4', rows: 3, cols: 4 },

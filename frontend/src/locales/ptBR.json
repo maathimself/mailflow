@@ -36,6 +36,7 @@
     "signInWith": "Entrar com {{name}}",
     "inviteEmail": "Convidado como",
     "inviteExpired": "Este link de convite é inválido ou expirou.",
+    "ssoSecondStepExpired": "O login único demorou demais para terminar. Entre novamente.",
     "ssoOnly": "Entrar com SSO",
     "ssoOnlyDesc": "O login com senha está desativado neste servidor.",
     "totp": {
@@ -50,6 +51,7 @@
     "emailOtp": {
       "title": "Verifique seu e-mail",
       "desc": "Um código de verificação foi enviado para {{email}}",
+      "sendFailed": "Não foi possível enviar o código para {{email}}. Tente Reenviar código ou peça um código de login ao seu administrador.",
       "codePh": "Código de 6 dígitos",
       "resend": "Reenviar código",
       "sending": "Enviando…",
@@ -511,6 +513,7 @@
     "noSearchResults": "Nenhum resultado encontrado",
     "searching": "Pesquisando…",
     "noSearchResultsDesc": "Nenhum resultado para {{query}}",
+    "searchScopeNote": "Pesquisando apenas em \"{{folder}}\"",
     "searchFailed": "Falha na pesquisa",
     "clearSearch": "Limpar pesquisa",
     "searchHelp": {
@@ -1513,6 +1516,7 @@
       "eventApiTokenCreated": "Token de API criado",
       "eventApiTokenRevoked": "Token de API revogado",
       "eventApiTokenAuthFail": "Token de API inválido",
+      "eventAdminSignInCode": "Código de login emitido",
       "byActor": "por {{actor}}",
       "qrCodeAlt": "QR code",
       "mailPolicyTitle": "Política de conexão com servidores de e-mail",
@@ -1524,7 +1528,7 @@
       "allowNonstandardPorts": "Permitir portas não padrão",
       "allowNonstandardPortsDesc": "Permite qualquer porta IMAP ou SMTP, não apenas 143/993 (IMAP) e 465/587 (SMTP). Necessário para servidores como o protonmail-bridge, que usam portas não padrão.",
       "mfaEnforcementTitle": "Exigência de MFA",
-      "mfaEnforcementDesc": "Exigir que todos os usuários verifiquem com um segundo fator ao entrar. Exigi-la exclui os tokens de API confirmados só com senha.",
+      "mfaEnforcementDesc": "Exigir que todos os usuários verifiquem com um segundo fator ao entrar. Exigi-la exclui os tokens de API confirmados só com senha. Isso inclui o login único, a menos que o provedor esteja configurado para exigir MFA por conta própria.",
       "mfaEnforcementOff": "Opcional",
       "mfaEnforcementRequired": "Obrigatório",
       "mfaDeviceTrustTitle": "Duração da confiança no dispositivo",
@@ -1535,8 +1539,12 @@
       "mfaDeviceTrustForever": "Permanente",
       "mfaSsoLockedNotice": "A exigência de MFA não se aplica quando o login com senha está desativado. Os usuários se autenticam via SSO, que gerencia seus próprios requisitos de MFA.",
       "recoveryEmailTitle": "E-mail de recuperação",
-      "recoveryEmailDesc": "Receba um código de acesso por e-mail caso perca o acesso ao seu aplicativo autenticador.",
-      "recoveryEmailPh": "seu@email.com"
+      "recoveryEmailDesc": "Os links de redefinição de senha chegam aqui, assim como os códigos de login quando a autenticação de dois fatores é obrigatória e você não tem um app autenticador. Um código nunca substitui um app autenticador; se você perder o seu, um administrador pode desativá-lo.",
+      "recoveryEmailPh": "seu@email.com",
+      "recoveryConfirmPassword": "Confirme a alteração com sua senha",
+      "recoveryConfirmTotp": "Confirme a alteração com seu código de dois fatores atual",
+      "recoveryConfirmOidc": "Confirme primeiro a alteração pelo login único. O botão leva você ao provedor para entrar novamente e depois de volta aqui para salvar.",
+      "recoveryLoadFailed": "Não foi possível carregar seu e-mail de recuperação. Recarregue a página para alterá-lo."
     },
     "apiTokens": {
       "title": "Tokens de API",
@@ -1867,6 +1875,8 @@
       "allowInsecureDesc": "Ignora a validação do host e as verificações do certificado TLS. Use apenas para provedores restritos à rede local (ex.: pocketid.internal). Não recomendado para instalações expostas à internet.",
       "rpLogout": "Logout SSO (iniciado pelo RP)",
       "rpLogoutDesc": "Ao sair, também encerra a sessão neste provedor redirecionando para o endpoint de encerramento de sessão, em vez de apenas limpar o cookie do MailFlow. Requer que o provedor anuncie um end_session_endpoint e tenha a URL de login do seu MailFlow (…/login) registrada como URI de redirecionamento pós-logout.",
+      "idpEnforcesMfa": "O provedor exige MFA",
+      "idpEnforcesMfaDesc": "Ative só se este provedor já pede um segundo fator em todo login. Os logins dele então pulam a segunda etapa do MailFlow: o código do app autenticador do usuário e a MFA obrigatória de Segurança.",
       "adminGroupClaim": "Claim do grupo de administradores",
       "adminGroupClaimPh": "groups",
       "adminGroupClaimDesc": "Nome da claim do JWT que contém os grupos do usuário (ex.: groups). Deixe em branco para desativar a atribuição de admin por grupo.",

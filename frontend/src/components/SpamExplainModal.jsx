@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { spamApi } from '../utils/spamApi.js';
+import { descaleCss } from '../utils/uiScaleCss.js';
 
 // "Why was this marked as spam?" modal (v0.2) — shows the rule and ML
 // contributions that produced the verdict for a message. Opened from the
@@ -30,7 +31,7 @@ export default function SpamExplainModal({ messageId, onClose }) {
     border: '1px solid var(--border)',
     borderRadius: 14,
     maxWidth: 520, width: '100%',
-    maxHeight: '80vh', overflowY: 'auto',
+    maxHeight: descaleCss('80vh'), overflowY: 'auto',
     padding: 20,
     display: 'flex', flexDirection: 'column', gap: 12,
     color: 'var(--text-primary)',

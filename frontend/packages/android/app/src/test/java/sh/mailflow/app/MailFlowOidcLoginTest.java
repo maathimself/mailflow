@@ -1,5 +1,6 @@
 package sh.mailflow.app;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -77,6 +78,21 @@ public class MailFlowOidcLoginTest {
         assertFalse(MailFlowOidcLogin.isLogoutReturnUrl(HOST, "https://id.example.com/login"));
         assertFalse(MailFlowOidcLogin.isLogoutReturnUrl(HOST, HOST + "/login/extra"));
         assertFalse(MailFlowOidcLogin.isLogoutReturnUrl(HOST, HOST + "/auth/oidc/corporate/callback"));
+    }
+
+    @Test
+    public void appSideErrorsReturnToTheAppForLinkAndReauthAndToLoginOtherwise() {
+        assertEquals("/", MailFlowOidcLogin.errorReturnPath(false, "link"));
+        assertEquals("/", MailFlowOidcLogin.errorReturnPath(false, "reauth"));
+        assertEquals("/login", MailFlowOidcLogin.errorReturnPath(false, "login"));
+        assertEquals("/login", MailFlowOidcLogin.errorReturnPath(false, "unlink"));
+        assertEquals("/login", MailFlowOidcLogin.errorReturnPath(false, "LINK"));
+        assertEquals("/login", MailFlowOidcLogin.errorReturnPath(false, null));
+
+        assertEquals("/login", MailFlowOidcLogin.errorReturnPath(true, "link"));
+        assertEquals("/login", MailFlowOidcLogin.errorReturnPath(true, "reauth"));
+        assertEquals("/login", MailFlowOidcLogin.errorReturnPath(true, "login"));
+        assertEquals("/login", MailFlowOidcLogin.errorReturnPath(true, null));
     }
 
     @Test
