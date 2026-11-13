@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
+import { gmailServerMatches } from '../services/gmailServerSearch.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -142,7 +143,7 @@ router.get('/', searchLimiter, async (req, res) => {
   if (trimmed.length > 500) return res.status(400).json({ error: 'Search query too long' });
 
   const accountsResult = await query(
-    'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
+    'SELECT id, include_in_unified_inbox, imap_host FROM email_accounts WHERE user_id = $1 AND enabled = true',
     [req.session.userId]
   );
   const { accountIds: targetIds } = resolveAccountScope(accountsResult.rows, accountId);
@@ -207,6 +208,8 @@ router.get('/', searchLimiter, async (req, res) => {
   // AND between all terms: every word must appear somewhere in the email.
   // A negated term (-word) must appear nowhere.
 
+  const positiveTextConds = [];
+  const positiveTerms = [];
   for (const term of terms.slice(0, 10)) {
     if (term.value.length < 2) continue; // single-char terms are too broad and expensive
     params.push(`%${term.value}%`); // ILIKE pattern
@@ -216,7 +219,27 @@ router.get('/', searchLimiter, async (req, res) => {
     const ftsIdx = p++;
 
     const cond = freeTextTermCondition(likeIdx, ftsIdx);
-    conditions.push(term.negate ? negateCond(cond) : cond);
+    if (term.negate) conditions.push(negateCond(cond));
+    else { positiveTextConds.push(cond); positiveTerms.push(term.value); }
+  }
+
+  // A Gmail body MailFlow never downloaded is searched on Gmail's side (D#320): a message Gmail
+  // reports for the positive terms satisfies them as a group. Every other condition, including
+  // -word exclusions, still applies here.
+  if (positiveTextConds.length) {
+    let textCond = positiveTextConds.join('\n        AND ');
+    const gmail = await gmailServerMatches(
+      accountsResult.rows.filter(account => targetIds.includes(account.id)),
+      positiveTerms,
+      { loadAccounts: async ids => (await query('SELECT * FROM email_accounts WHERE id = ANY($1)', [ids])).rows },
+    );
+    if (gmail) {
+      params.push(gmail.accountIds, gmail.providerIds, gmail.messageIds);
+      textCond = `((${textCond})
+        OR (m.account_id = ANY($${p}) AND (m.provider_msgid = ANY($${p + 1}) OR m.message_id = ANY($${p + 2}))))`;
+      p += 3;
+    }
+    conditions.push(textCond);
   }
 
   // Require at least one real search condition before applying folder scope, so a

@@ -29,7 +29,7 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('cached reply indicator
         thread_id text, thread_key text, date timestamptz, is_deleted boolean DEFAULT false,
         flags jsonb)`);
     await database.query(`
-      ALTER TABLE email_accounts ADD name text, ADD email_address text, ADD color text;
+      ALTER TABLE email_accounts ADD name text, ADD email_address text, ADD color text, ADD imap_host text;
       ALTER TABLE folders ADD total_count integer DEFAULT 0, ADD unread_count integer DEFAULT 0;
       ALTER TABLE messages ADD subject text, ADD from_name text, ADD from_email text,
         ADD to_addresses jsonb, ADD cc_addresses jsonb, ADD reply_to jsonb, ADD snippet text,
