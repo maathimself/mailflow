@@ -121,6 +121,17 @@ describe('the time format setting (#758)', () => {
     // A 24-hour clock pads the hour, as German does today ("Morgen 09:00").
     assert.equal(formatSnoozeUntil(ahead(1), 'en'), 'Tomorrow 09:00');
   });
+  test('a forced clock keeps the date in date-and-time shapes', () => {
+    const d = aYearAgo();
+    for (const [format, time] of [['12', /3:05\s?PM/], ['24', /15:05/]]) {
+      globalThis.localStorage.setItem('mailflow_time_format', format);
+      for (const locale of ['en', 'de', 'ru']) {
+        const shown = formatDateTime(d, locale);
+        assert.ok(shown.includes(d.toLocaleDateString(locale)), `${format} ${locale}: ${shown}`);
+        assert.match(shown, time);
+      }
+    }
+  });
   test('an unknown stored value falls back to Automatic', () => {
     globalThis.localStorage.setItem('mailflow_time_format', '13');
     assert.equal(appTimeFormat(), 'auto');

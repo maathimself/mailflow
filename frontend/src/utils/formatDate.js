@@ -43,9 +43,11 @@ const hour12Options = () => {
 // For the toLocaleString / toLocaleTimeString surfaces: forcing hour12 on its own makes
 // ICU add seconds, so the hour and minute are pinned too — but only when forced, so
 // Automatic keeps exactly the output toLocaleString used to give.
-const forcedTimeOptions = () => {
+// Naming any field drops Intl's defaults, so a date-and-time surface names the date too.
+const DATE_FIELDS = { year: 'numeric', month: 'numeric', day: 'numeric' };
+const forcedTimeOptions = (withDate = false) => {
   const o = hour12Options();
-  return o ? { hour: 'numeric', minute: '2-digit', ...o } : undefined;
+  return o ? { ...(withDate ? DATE_FIELDS : {}), hour: 'numeric', minute: '2-digit', ...o } : undefined;
 };
 
 const written = (d, options, locale) => new Intl.DateTimeFormat(locale ?? appLocale(), { ...options, ...hour12Options() }).format(d);
@@ -77,7 +79,7 @@ export function formatMessageDateTime(dateStr, { withYear = true } = {}, locale)
 }
 
 // toLocaleString / toLocaleDateString / toLocaleTimeString, in the app's language.
-export const formatDateTime = (value, locale) => parse(value)?.toLocaleString(locale ?? appLocale(), forcedTimeOptions()) ?? '';
+export const formatDateTime = (value, locale) => parse(value)?.toLocaleString(locale ?? appLocale(), forcedTimeOptions(true)) ?? '';
 export const formatDay = (value, locale) => parse(value)?.toLocaleDateString(locale ?? appLocale()) ?? '';
 export const formatTime = (value, locale) => parse(value)?.toLocaleTimeString(locale ?? appLocale(), forcedTimeOptions()) ?? '';
 
