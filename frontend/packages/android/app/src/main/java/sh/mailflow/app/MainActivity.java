@@ -48,6 +48,13 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        if (MailFlowClientCertificate.clearMissing(this)) {
+            // A running WebView keeps using the removed key for this host and never asks again, so the
+            // page fails without a picker. Forget its choice and reload so the request comes back.
+            WebView.clearClientCertPreferences(() -> {
+                if (getBridge() != null && getBridge().getWebView() != null) getBridge().getWebView().reload();
+            });
+        }
         MailFlowNativePlugin.resumePendingUpdateInstall();
     }
 

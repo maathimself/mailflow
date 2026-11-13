@@ -54,6 +54,15 @@ public class MailFlowClientCertificateTest {
     }
 
     @Test
+    public void aMissingCertificateIsReportedOncePerHost() {
+        assertTrue(MailFlowClientCertificate.isMissingReported(HOST, HOST));
+        assertFalse(MailFlowClientCertificate.isMissingReported(HOST, "https://other.example.com"));
+        assertFalse(MailFlowClientCertificate.isMissingReported(HOST, null));
+        assertFalse(MailFlowClientCertificate.isMissingReported(null, HOST));
+        assertFalse(MailFlowClientCertificate.isMissingReported(null, null));
+    }
+
+    @Test
     public void withoutASocketFactoryAConnectionIsLeftAlone() throws Exception {
         HttpsURLConnection connection = (HttpsURLConnection) new URL(HOST + "/api/mail/unread-counts").openConnection();
         SSLSocketFactory original = connection.getSSLSocketFactory();
