@@ -74,12 +74,35 @@ A plugin exports a manifest (see `gtd/index.js`): `{ id, name, version, tier, ro
 Core mounts the router and fires the hooks through the registry — core never calls a plugin directly.
 `hooks` are the plugin's halves of generic core events (e.g. `inboxIngest`, `afterLabelCopy`,
 `onSentMessage`, `validateAccountSettings`, `enrichAccount`, …); `sync` is an optional periodic tick.
+`messageRowsDeleted` receives `{ account, folder, threadKeys }` after explicit cached-message
+removals commit, including reconciliation, UIDVALIDITY purges, folder cleanup, labels, drafts,
+and physical row deletions from user/rule actions. Soft deletion (`is_deleted = true`) retains
+the cached row and is reported only when that row is physically removed. Keys come from deleted rows, grouped and deduplicated per account/folder;
+`account` includes its `id` and owning `user_id` (batch actions may supply only those fields). An atomic relocation that reinserts the same logical copy
+is not a removal. A key means a row for that thread left the folder; the thread may still have other
+rows there (for example, a UIDPLUS move replaces a stale destination row), so check before cleaning up.
+Associated count adjustments/recounts settle before notifications; a failed count write is
+logged and the committed deletion is still dispatched. Dispatch is nonblocking; plugin failures are logged.
+`afterLabelRemove` retains its separate contract and includes the removed copy’s `threadKey`.
+Account/user FK cascades are whole-parent lifecycle operations outside this row hook. The
+account-removal hook and account-scoped plugin storage cleanup are follow-up work in #342.
+On a non-UIDPLUS COPY, `afterLabelCopy` receives `destinationSync`, core's single fresh
+post-copy completion promise. It rejects on timeout or sync failure, so GTD refreshes/re-evaluates
+the copied thread only after successful sync.
+`syncFolderOnDemand(account, folder, { freshAfterActive: true })` requests a new pass after an
+older folder sync settles, for example after a non-UIDPLUS COPY. Waiting on an active owner is
+bounded to 30 seconds; timeout and sync failure are logged and reject the promise without
+releasing a still-running owner's claim or
+starting a competing pass. Retries can sync only after the active claim releases; a
+never-released claim requires owner cleanup or restart.
 
 ### Data
 
 No plugin-specific columns/tables in core. Plugin data lives in generic stores: `plugin_data`
 (KV/blobs), `plugin_account_config` (per-account config), `messages.plugin_annotations` (per-message,
-namespaced by plugin id). All cascade-clean with their owner.
+namespaced by plugin id). `plugin_account_config` cascades with its account and annotations
+with their message row. `plugin_data.owner_id` refers to a user, so user-owned entries cascade
+on user deletion; account removal does not cascade account-scoped keys in `plugin_data`.
 
 ---
 

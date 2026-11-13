@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.net.Uri;
 import android.net.http.SslError;
+import android.webkit.ClientCertRequest;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -67,6 +68,11 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
         }
 
         return super.shouldOverrideUrlLoading(view, url);
+    }
+
+    @Override
+    public void onReceivedClientCertRequest(WebView view, ClientCertRequest request) {
+        MailFlowClientCertificate.handle(activity, request, MailFlowNativePlugin.getSavedHost(context));
     }
 
     @Override

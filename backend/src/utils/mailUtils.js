@@ -234,15 +234,15 @@ export async function resolveSentFolder(accountId, folderMappings) {
 }
 
 // Adjust cached folder row counts after local message mutations so that pagination
-// totals stay accurate without waiting for the next IMAP sync. Fire-and-forget —
-// errors are logged but never block the caller; sync will correct any discrepancy.
+// totals stay accurate without waiting for the next IMAP sync. Return the caught write
+// promise so mutation observers can wait; errors are logged and sync repairs discrepancies.
 export function adjustFolderCounts(accountId, path, totalDelta, unreadDelta) {
   if (totalDelta === 0 && unreadDelta === 0) return;
   // Snapshot the pre-update counters (prev) so RETURNING can tell whether the GREATEST(0, …)
   // clamp actually fired. A clamp means the cached counter was already below the applied
   // delta — i.e. the incremental count had drifted under the true value, which is exactly the
   // phantom-badge mechanism. The clamped writes are unchanged; this only observes them.
-  query(
+  return query(
     `WITH prev AS (
        SELECT total_count AS ot, unread_count AS ou
          FROM folders WHERE account_id = $3 AND path = $4
