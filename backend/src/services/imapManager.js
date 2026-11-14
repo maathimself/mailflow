@@ -6292,11 +6292,12 @@ export class ImapManager {
 
       // Then all other known folders (discovered at connect time by syncFolders)
       const folderResult = await query(
-        "SELECT path FROM folders WHERE account_id = $1 AND path != 'INBOX' ORDER BY path",
+        "SELECT path, no_select FROM folders WHERE account_id = $1 AND path != 'INBOX' ORDER BY path",
         [account.id]
       );
 
-      for (const { path } of folderResult.rows) {
+      for (const { path, no_select } of folderResult.rows) {
+        if (no_select) continue;
         const pathLower = path.toLowerCase();
         if (skipFolderPatterns.some(pat => pathLower.includes(pat))) continue;
         if (skipFolderNames.includes(pathLower)) continue;
