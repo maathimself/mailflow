@@ -500,7 +500,8 @@
       "failBody_one": "Nie udało się przenieść {{count}} wiadomości.",
       "failBody_few": "Nie udało się przenieść {{count}} wiadomości.",
       "failBody_many": "Nie udało się przenieść {{count}} wiadomości.",
-      "failBody_other": "Nie udało się przenieść {{count}} wiadomości."
+      "failBody_other": "Nie udało się przenieść {{count}} wiadomości.",
+      "otherAccount": "Wiadomości z innego konta zostały na miejscu: można je przenosić tylko w obrębie ich własnego konta"
     },
     "bulkArchived": {
       "title_one": "Zarchiwizowano {{count}} wiadomość",

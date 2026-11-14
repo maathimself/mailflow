@@ -490,7 +490,8 @@
       "title_other": "{{count}} messaggi spostati",
       "failTitle": "Spostamento fallito",
       "failBody_one": "Impossibile spostare {{count}} messaggio.",
-      "failBody_other": "Impossibile spostare {{count}} messaggi."
+      "failBody_other": "Impossibile spostare {{count}} messaggi.",
+      "otherAccount": "I messaggi di un altro account sono rimasti dove erano: possono essere spostati solo all'interno del proprio account"
     },
     "bulkArchived": {
       "title_one": "{{count}} messaggio archiviato",

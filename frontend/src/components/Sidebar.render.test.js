@@ -303,3 +303,100 @@ describe('Sidebar: Sign out', () => {
     }
   });
 });
+
+// #785: the server moves a message by folder path within its own account, so mail dropped on a
+// folder of another account went to the same-named folder of its own account, or failed. Only
+// mail from the folder's own account moves now; the rest stays, and the user is told why.
+describe('Sidebar: dropping mail on a folder of another account (#785)', () => {
+  const accounts = ['A', 'B'].map(name => ({ ...ACCOUNT, id: `acct-${name}`, name, email_address: `${name.toLowerCase()}@example.com` }));
+  const projectFolders = [{ path: 'INBOX', name: 'INBOX' }, { path: 'Projects', name: 'Projects' }];
+  const fromA = { id: 'msg-a', account_id: 'acct-A', folder: 'INBOX', is_read: true, subject: 'From A' };
+  const fromB = { id: 'msg-b', account_id: 'acct-B', folder: 'INBOX', is_read: true, subject: 'From B' };
+
+  let fetches;
+  let realFetch;
+  async function mountTwoAccounts() {
+    realFetch = globalThis.fetch;
+    fetches = [];
+    globalThis.fetch = async (url, init) => { fetches.push(String(url)); return realFetch(url, init); };
+    await mount({ state: {
+      accounts,
+      folders: { 'acct-A': projectFolders, 'acct-B': projectFolders },
+      expandedAccounts: { 'acct-A': true, 'acct-B': true },
+      selectedAccountId: null, selectedFolder: 'INBOX',
+      messages: [fromA, fromB], searchResults: [], notifications: [],
+    } });
+  }
+
+  // The Projects row in the given account's tree: the first one after that account's address.
+  function projectsOf(email) {
+    const doc = dom.window.document;
+    const header = [...doc.querySelectorAll('*')].find(el => el.textContent === email && !el.children.length);
+    assert.ok(header, `expected the header of ${email}`);
+    const row = [...doc.querySelectorAll('span')]
+      .find(s => s.textContent === 'Projects' && header.compareDocumentPosition(s) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING);
+    assert.ok(row, `expected Projects under ${email}`);
+    return row;
+  }
+
+  async function drop(target, payload) {
+    const data = { 'application/x-mailflow-message': JSON.stringify(payload) };
+    const event = new dom.window.Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'dataTransfer', { value: { types: Object.keys(data), getData: type => data[type] ?? '' } });
+    await React.act(async () => { target.dispatchEvent(event); });
+  }
+
+  const listed = () => useStore.getState().messages.map(m => m.id);
+  const notices = () => useStore.getState().notifications.map(n => n.title);
+
+  async function cleanUp() {
+    // Cancel a move still held for undo, so nothing is sent after the test.
+    for (const n of useStore.getState().notifications) n.onUndo?.();
+    globalThis.fetch = realFetch;
+  }
+
+  test('a message from another account stays where it is', async () => {
+    await mountTwoAccounts();
+    try {
+      await drop(projectsOf('b@example.com'), { messageId: 'msg-a', accountId: 'acct-A' });
+      assert.deepEqual(listed(), ['msg-a', 'msg-b']);
+      assert.deepEqual(notices(), ['messageList.bulkMoved.otherAccount']);
+    } finally {
+      await cleanUp();
+    }
+  });
+
+  test('a conversation from another account stays, without loading it', async () => {
+    await mountTwoAccounts();
+    try {
+      await drop(projectsOf('b@example.com'), { messageId: 'msg-a', accountId: 'acct-A', threadId: 'msg-a', threadFolder: 'INBOX', threadUnified: true });
+      assert.deepEqual(listed(), ['msg-a', 'msg-b']);
+      assert.deepEqual(notices(), ['messageList.bulkMoved.otherAccount']);
+      assert.deepEqual(fetches.filter(url => url.includes('/mail/thread')), []);
+    } finally {
+      await cleanUp();
+    }
+  });
+
+  test('from a selection across accounts, only the folder\'s own account\'s mail moves', async () => {
+    await mountTwoAccounts();
+    try {
+      await drop(projectsOf('b@example.com'), { messageIds: ['msg-a', 'msg-b'], accountId: 'acct-A' });
+      assert.deepEqual(listed(), ['msg-a']);
+      assert.deepEqual(notices().sort(), ['messageList.bulkMoved.otherAccount', 'messageList.bulkMoved.title']);
+    } finally {
+      await cleanUp();
+    }
+  });
+
+  test('a message dropped on a folder of its own account still moves', async () => {
+    await mountTwoAccounts();
+    try {
+      await drop(projectsOf('a@example.com'), { messageId: 'msg-a', accountId: 'acct-A' });
+      assert.deepEqual(listed(), ['msg-b']);
+      assert.deepEqual(notices(), ['messageList.bulkMoved.title']);
+    } finally {
+      await cleanUp();
+    }
+  });
+});

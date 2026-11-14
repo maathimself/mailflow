@@ -490,7 +490,8 @@
       "title_other": "{{count}} messages moved",
       "failTitle": "Move failed",
       "failBody_one": "Could not move {{count}} message.",
-      "failBody_other": "Could not move {{count}} messages."
+      "failBody_other": "Could not move {{count}} messages.",
+      "otherAccount": "Mail from another account was left in place: it can only move within its own account"
     },
     "bulkArchived": {
       "title_one": "{{count}} message archived",

@@ -490,7 +490,8 @@
       "title_one": "{{count}} 메시지가 이동되었습니다.",
       "title_other": "{{count}} 메시지가 이동되었습니다.",
       "failBody_other": "{{count}} 메시지를 이동할 수 없습니다.",
-      "failBody_one": "{{count}} 메시지를 이동할 수 없습니다."
+      "failBody_one": "{{count}} 메시지를 이동할 수 없습니다.",
+      "otherAccount": "다른 계정의 메일은 그대로 두었습니다. 메일은 해당 계정 안에서만 이동할 수 있습니다."
     },
     "bulkArchived": {
       "failTitle": "보관 실패",

@@ -490,7 +490,8 @@
       "title_other": "{{count}} Nachrichten verschoben",
       "failTitle": "Verschieben fehlgeschlagen",
       "failBody_one": "{{count}} Nachricht konnte nicht verschoben werden.",
-      "failBody_other": "{{count}} Nachrichten konnten nicht verschoben werden."
+      "failBody_other": "{{count}} Nachrichten konnten nicht verschoben werden.",
+      "otherAccount": "Nachrichten aus einem anderen Konto bleiben, wo sie sind: Sie lassen sich nur innerhalb ihres eigenen Kontos verschieben"
     },
     "bulkArchived": {
       "title_one": "{{count}} Nachricht archiviert",
