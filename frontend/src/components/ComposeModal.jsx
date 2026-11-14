@@ -33,7 +33,7 @@ import { initialComposeFocus, isComposeSendShortcut, isSendLaterShortcut } from 
 import { unproxyImages } from '../utils/imageProxy.js';
 import { autoListsOf, openAutoRecipients, replyTypeFields, swapAccountFields } from '../utils/autoRecipients.js';
 import { resolveSignatureEnabled } from '../utils/composeSignature.js';
-import { UNDO_SEND_SECONDS, undoWindowMs, trackHeldSend, reopenCompose, sendErrorText } from '../utils/heldSend.js';
+import { undoWindowMs, trackHeldSend, reopenCompose, sendErrorText } from '../utils/heldSend.js';
 import { openSentMessage } from '../utils/openSentMessage.js';
 import { aiReplyAvailable, loadReplyConversation, buildReplyPrompt, MAX_INSTRUCTION_CHARS } from '../utils/aiReply.js';
 import { frameGeometry } from '../utils/frameGeometry.js';
@@ -272,7 +272,7 @@ function resolveFrom(val) {
 
 export default function ComposeModal() {
   const { t, i18n } = useTranslation();
-  const { closeCompose, composeData, accounts, addNotification, plaintextEmail, setThreadMessages, setPrepareComposeSwitch, updateComposePersistedKey } = useStore();
+  const { closeCompose, composeData, accounts, addNotification, plaintextEmail, setThreadMessages, setPrepareComposeSwitch, updateComposePersistedKey, undoSendSeconds } = useStore();
   const composeSession = useRef(useStore.getState().composeSession).current;
   const composeOwner = useRef(useStore.getState().user?.id).current;
   const isMobile = useMobile();
@@ -1255,8 +1255,9 @@ export default function ComposeModal() {
       const sendResult = await api.post('/mail/send', {
         ...payload,
         // The server holds the message this long so it can still be undone, and deletes the
-        // draft only once the message is delivered.
-        undoSeconds: UNDO_SEND_SECONDS,
+        // draft only once the message is delivered. 0 (Undo Send Off) sends straight away:
+        // the server answers delivered, not pending, so no Undo toast appears.
+        undoSeconds: undoSendSeconds,
         ...(hasDraft ? { draft: { uid: savedDraft.uid, folder: savedDraft.folder, accountId: savedDraft.accountId } } : {}),
       }, { 'X-Idempotency-Key': idempotencyKeyRef.current });
       // Send confirmed — clear the key so a subsequent send from a reused modal gets a fresh one.
@@ -1316,7 +1317,7 @@ export default function ComposeModal() {
         // attachments included, if they undo it or it fails once this composer is gone.
         const restoreData = buildRestoreData(built);
         const pendingId = sendResult.pendingId;
-        const undoMs = undoWindowMs(sendResult.remainingMs);
+        const undoMs = undoWindowMs(sendResult.remainingMs, undoSendSeconds);
         const shownSubject = subject || t('common.noSubject');
         const { addNotification: notify, removeNotification } = useStore.getState();
         const undo = trackHeldSend(

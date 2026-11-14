@@ -16,8 +16,9 @@ const OUTCOMES = new Set(['sent', 'cancelled', 'failed', 'lost', 'unknown']);
 // How long Undo stays on screen: what the server said was left of the window when it answered.
 // Counting from the response rather than from the request keeps a slow upload from eating into the
 // window, and taking the server's figure rather than its sendAt keeps a wrong client clock out.
-export function undoWindowMs(remainingMs) {
-  const full = UNDO_SEND_SECONDS * 1000;
+// `undoSeconds` is the user's Undo Send setting (#769); the window can never outlast it.
+export function undoWindowMs(remainingMs, undoSeconds = UNDO_SEND_SECONDS) {
+  const full = undoSeconds * 1000;
   return Number.isFinite(remainingMs) ? Math.max(0, Math.min(full, remainingMs)) : full;
 }
 

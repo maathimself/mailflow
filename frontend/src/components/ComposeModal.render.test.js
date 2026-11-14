@@ -993,6 +993,47 @@ describe('undo send', () => {
   });
 });
 
+describe('undo send off (#769)', () => {
+  // Off (0) sends straight away: the server answers delivered, not pending, so no Undo
+  // toast appears and the sent confirmation is the only notification.
+  const Host = () => (useStore(s => s.composing) ? React.createElement(ComposeModal) : null);
+  const posted = [];
+  const deleted = [];
+  let unmount;
+  before(async () => {
+    useStore.setState({
+      plaintextEmail: false, composing: false, composeData: null, prepareComposeSwitch: null,
+      notifications: [], undoSendSeconds: 0,
+      accounts: [{ id: 'acct', enabled: true, email_address: 'me@example.invalid', name: 'Me', color: '#fff' }],
+    });
+    api.post = async (path, payload) => {
+      posted.push({ path, payload });
+      return { ok: true, messageId: 'm1' };
+    };
+    api.deleteDraft = async (...args) => { deleted.push(args); return { ok: true }; };
+    useStore.getState().openCompose({
+      accountId: 'acct', draftUid: 11, draftFolder: 'Drafts',
+      to: ['Bob <bob@example.invalid>'], cc: [], subject: 'Quick note', body: '<p>Hi.</p>',
+    });
+    const root = createRoot(document.getElementById('root'));
+    await React.act(async () => { root.render(React.createElement(Host)); });
+    await React.act(async () => {});
+    unmount = () => React.act(async () => root.unmount());
+  });
+  after(async () => { await unmount(); useStore.setState({ undoSendSeconds: 10 }); });
+
+  test('Off sends immediately: undoSeconds 0, no Undo toast, sent confirmation only', async () => {
+    const send = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'compose.send');
+    await React.act(async () => { send.click(); });
+    await React.act(async () => {});
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].payload.undoSeconds, 0);
+    assert.equal(useStore.getState().composing, false);
+    assert.equal(useStore.getState().notifications.find(n => n.onUndo), undefined, 'no Undo toast');
+    assert.equal(useStore.getState().notifications[0].title, 'compose.sent.title');
+  });
+});
+
 describe('undo send, message without attachments', () => {
   // With nothing to set it apart from its draft, only being a reopened message keeps it from
   // looking saved: closing it would then drop whatever was typed after the last autosave.
