@@ -44,6 +44,25 @@ public class MailFlowClientCertificateTest {
     }
 
     @Test
+    public void aDeclinedPickerAppliesOnlyToTheHostItWasDeclinedFor() {
+        assertTrue(MailFlowClientCertificate.isDeclinedHost(HOST, HOST));
+        assertFalse(MailFlowClientCertificate.isDeclinedHost(HOST, "https://other.example.com"));
+        assertFalse(MailFlowClientCertificate.isDeclinedHost(HOST, "https://mail.example.com:8443"));
+        assertFalse(MailFlowClientCertificate.isDeclinedHost(HOST, null));
+        assertFalse(MailFlowClientCertificate.isDeclinedHost(null, HOST));
+        assertFalse(MailFlowClientCertificate.isDeclinedHost(null, null));
+    }
+
+    @Test
+    public void aMissingCertificateIsReportedOncePerHost() {
+        assertTrue(MailFlowClientCertificate.isMissingReported(HOST, HOST));
+        assertFalse(MailFlowClientCertificate.isMissingReported(HOST, "https://other.example.com"));
+        assertFalse(MailFlowClientCertificate.isMissingReported(HOST, null));
+        assertFalse(MailFlowClientCertificate.isMissingReported(null, HOST));
+        assertFalse(MailFlowClientCertificate.isMissingReported(null, null));
+    }
+
+    @Test
     public void withoutASocketFactoryAConnectionIsLeftAlone() throws Exception {
         HttpsURLConnection connection = (HttpsURLConnection) new URL(HOST + "/api/mail/unread-counts").openConnection();
         SSLSocketFactory original = connection.getSSLSocketFactory();

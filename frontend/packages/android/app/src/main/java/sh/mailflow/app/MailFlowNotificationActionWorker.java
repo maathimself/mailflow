@@ -55,6 +55,10 @@ public class MailFlowNotificationActionWorker extends Worker {
 
             if (status < 200 || status >= 300) Log.w(TAG, "Notification action " + action + " got HTTP " + status);
             return resultForStatus(status);
+        } catch (MailFlowClientCertificate.MissingCertificateException error) {
+            Log.w(TAG, "Notification action " + action + " dropped: client certificate is missing");
+            MailFlowClientCertificate.reportMissing(context, host);
+            return Result.failure();
         } catch (Exception error) {
             Log.w(TAG, "Notification action " + action + " failed", error);
             return Result.retry();

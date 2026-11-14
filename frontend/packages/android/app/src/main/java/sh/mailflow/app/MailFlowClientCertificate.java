@@ -31,14 +31,33 @@ import javax.net.ssl.X509ExtendedKeyManager;
 final class MailFlowClientCertificate {
     private static final String PREF_HOST = "clientCertHost";
     private static final String PREF_ALIAS = "clientCertAlias";
+    private static final String PREF_DECLINED_HOST = "clientCertDeclinedHost";
+    private static final String PREF_MISSING_HOST = "clientCertMissingHost";
+    private static final Object missingLock = new Object();
     private static final Executor executor = Executors.newSingleThreadExecutor();
     // Requests waiting on the picker or the key load, all for the configured host.
     private static final List<ClientCertRequest> pending = new ArrayList<>();
 
     private MailFlowClientCertificate() {}
 
+    // The saved alias no longer loads, as when the certificate was removed from the device. Unlike a
+    // KeyChain failure, which may pass, retrying cannot help until the user chooses a certificate again.
+    static final class MissingCertificateException extends GeneralSecurityException {
+        MissingCertificateException() {
+            super("The client certificate is no longer available");
+        }
+    }
+
     static void handle(MainActivity activity, ClientCertRequest request, String configuredHost) {
         if (!isConfiguredOrigin(configuredHost, request.getHost(), request.getPort())) {
+            request.cancel();
+            return;
+        }
+        Context context = activity.getApplicationContext();
+        String alias = savedAlias(context, configuredHost);
+        // WebView cannot tell an optional certificate request from a required one, so a declined
+        // picker is not shown again for this host until the certificate is reset.
+        if (alias == null && isDeclined(context, configuredHost)) {
             request.cancel();
             return;
         }
@@ -47,8 +66,6 @@ final class MailFlowClientCertificate {
             if (pending.size() > 1) return;
         }
 
-        Context context = activity.getApplicationContext();
-        String alias = savedAlias(context, configuredHost);
         if (alias == null) {
             choose(activity, request, configuredHost);
             return;
@@ -73,7 +90,7 @@ final class MailFlowClientCertificate {
         } catch (AssertionError error) {
             throw new GeneralSecurityException("KeyChain is unavailable", error);
         }
-        if (key == null || chain == null) throw new GeneralSecurityException("The client certificate is no longer available");
+        if (key == null || chain == null) throw new MissingCertificateException();
         SSLContext tls = SSLContext.getInstance("TLS");
         tls.init(new KeyManager[] {new AliasKeyManager(alias, key, chain)}, null, null);
         return tls.getSocketFactory();
@@ -87,7 +104,37 @@ final class MailFlowClientCertificate {
     }
 
     static void clear(Context context) {
-        MailFlowNativePlugin.getPrefs(context).edit().remove(PREF_HOST).remove(PREF_ALIAS).apply();
+        MailFlowNativePlugin.getPrefs(context).edit().remove(PREF_HOST).remove(PREF_ALIAS).remove(PREF_DECLINED_HOST).apply();
+        clearMissing(context);
+    }
+
+    // For a worker that hit MissingCertificateException. The flag and the first-time check are one
+    // step under a lock, so two workers cannot both notify. The flag is set even when notifications
+    // are off, so the background worker still stops.
+    static void reportMissing(Context context, String host) {
+        synchronized (missingLock) {
+            SharedPreferences prefs = MailFlowNativePlugin.getPrefs(context);
+            if (isMissingReported(prefs.getString(PREF_MISSING_HOST, null), host)) return;
+            prefs.edit().putString(PREF_MISSING_HOST, host).commit();
+            MailFlowNativePlugin.postClientCertificateMissingNotification(context);
+        }
+    }
+
+    static boolean isMissing(Context context, String host) {
+        return isMissingReported(MailFlowNativePlugin.getPrefs(context).getString(PREF_MISSING_HOST, null), host);
+    }
+
+    // Cleared when the app is opened, so the next failure reports again, and once a certificate is chosen.
+    // apply() is enough under the lock: it updates the in-memory value at once, and this runs on the main thread.
+    // Returns whether a missing certificate had been reported.
+    static boolean clearMissing(Context context) {
+        synchronized (missingLock) {
+            SharedPreferences prefs = MailFlowNativePlugin.getPrefs(context);
+            if (!prefs.contains(PREF_MISSING_HOST)) return false;
+            prefs.edit().remove(PREF_MISSING_HOST).apply();
+            MailFlowNativePlugin.cancelClientCertificateMissingNotification(context);
+            return true;
+        }
     }
 
     static boolean isConfiguredOrigin(String configuredHost, String requestHost, int requestPort) {
@@ -97,6 +144,26 @@ final class MailFlowClientCertificate {
 
     static String aliasForHost(String savedHost, String savedAlias, String host) {
         return host != null && host.equals(savedHost) ? savedAlias : null;
+    }
+
+    static boolean isDeclinedHost(String declinedHost, String host) {
+        return host != null && host.equals(declinedHost);
+    }
+
+    static boolean isMissingReported(String missingHost, String host) {
+        return host != null && host.equals(missingHost);
+    }
+
+    private static boolean isDeclined(Context context, String host) {
+        return isDeclinedHost(MailFlowNativePlugin.getPrefs(context).getString(PREF_DECLINED_HOST, null), host);
+    }
+
+    // Called when the host's page fails to load. A decline is kept only while the host loads without a
+    // certificate: a host that refuses one fails at the handshake (reported as a TLS error or, on some
+    // devices, a connection reset), and keeping the decline would leave "host unavailable" until Change
+    // host, also when Android answered the picker by itself because no certificate is installed.
+    static void forgetDecline(Context context) {
+        MailFlowNativePlugin.getPrefs(context).edit().remove(PREF_DECLINED_HOST).apply();
     }
 
     private static String savedAlias(Context context, String host) {
@@ -118,7 +185,13 @@ final class MailFlowClientCertificate {
                     if (!answered.compareAndSet(false, true)) return;
                     activity.runOnUiThread(() -> activity.getLifecycle().removeObserver(watcher));
                     executor.execute(() -> {
-                        if (alias == null || !proceed(context, host, alias)) cancelPending();
+                        if (alias == null) {
+                            // Only an explicit answer counts: a picker that closes unanswered or fails is asked again.
+                            MailFlowNativePlugin.getPrefs(context).edit().putString(PREF_DECLINED_HOST, host).apply();
+                            cancelPending();
+                        } else if (!proceed(context, host, alias)) {
+                            cancelPending();
+                        }
                     });
                 },
                 null,
@@ -147,7 +220,8 @@ final class MailFlowClientCertificate {
         }
         if (key == null || chain == null) return false;
 
-        MailFlowNativePlugin.getPrefs(context).edit().putString(PREF_HOST, host).putString(PREF_ALIAS, alias).apply();
+        MailFlowNativePlugin.getPrefs(context).edit().putString(PREF_HOST, host).putString(PREF_ALIAS, alias).remove(PREF_DECLINED_HOST).apply();
+        clearMissing(context);
         for (ClientCertRequest request : drainPending()) request.proceed(key, chain);
         return true;
     }
