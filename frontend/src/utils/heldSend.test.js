@@ -17,6 +17,13 @@ describe('undoWindowMs', () => {
     assert.equal(undoWindowMs(60_000), UNDO_SEND_SECONDS * 1000);
     assert.equal(undoWindowMs(undefined), UNDO_SEND_SECONDS * 1000);
   });
+  test('follows the configured Undo Send delay (#769)', () => {
+    assert.equal(undoWindowMs(25_000, 30), 25_000);
+    assert.equal(undoWindowMs(60_000, 30), 30_000);
+    assert.equal(undoWindowMs(9_400, 5), 5_000);
+    assert.equal(undoWindowMs(undefined, 5), 5_000);
+    assert.equal(undoWindowMs(9_400), 9_400, 'the default is still the 10-second window');
+  });
 });
 
 function fakeStore(composing) {
