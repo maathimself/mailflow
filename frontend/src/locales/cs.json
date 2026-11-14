@@ -372,7 +372,8 @@
       "failBody_one": "Nepodařilo se přesunout {{count}} zprávu.",
       "failBody_few": "Nepodařilo se přesunout {{count}} zprávy.",
       "failBody_many": "Nepodařilo se přesunout {{count}} zprávy.",
-      "failBody_other": "Nepodařilo se přesunout {{count}} zpráv."
+      "failBody_other": "Nepodařilo se přesunout {{count}} zpráv.",
+      "otherAccount": "Pošta z jiného účtu zůstala na místě: lze ji přesunout jen v rámci jejího vlastního účtu"
     },
     "bulkArchived": {
       "title_one": "Archivována {{count}} zpráva",

@@ -490,7 +490,8 @@
       "title_other": "{{count}} messages déplacés",
       "failTitle": "Échec du déplacement",
       "failBody_one": "Impossible de déplacer {{count}} message.",
-      "failBody_other": "Impossible de déplacer {{count}} messages."
+      "failBody_other": "Impossible de déplacer {{count}} messages.",
+      "otherAccount": "Les messages d'un autre compte sont restés en place : ils ne peuvent être déplacés qu'au sein de leur propre compte"
     },
     "bulkArchived": {
       "title_one": "{{count}} message archivé",

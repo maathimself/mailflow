@@ -18,6 +18,7 @@ import {
   existingHiddenPaths,
   moveHiddenPaths,
   resolveFolderOrderDrop,
+  splitMessageDrop,
 } from '../utils/sidebar.js';
 import { useMobile } from '../hooks/useMobile.js';
 import LogoMark from './LogoMark.jsx';
@@ -330,7 +331,7 @@ export default function Sidebar() {
     return () => document.removeEventListener('dragend', clear);
   }, [clearFolderDrag]);
 
-  const handleMsgDrop = useCallback(async (e, targetFolder) => {
+  const handleMsgDrop = useCallback(async (e, targetAccountId, targetFolder) => {
     e.preventDefault();
     setMsgDragTarget(null);
     const raw = e.dataTransfer.getData('application/x-mailflow-message');
@@ -339,6 +340,7 @@ export default function Sidebar() {
     try { payload = JSON.parse(raw); } catch { return; }
     const state = useStore.getState();
     const pool = [...state.messages, ...state.searchResults];
+    const notifyOtherAccount = () => state.addNotification({ title: t('messageList.bulkMoved.otherAccount') });
 
     // `msgs` are the rows the list hides and puts back; `movedIds` are what the server is asked
     // to move. They are the same thing for ordinary rows and deliberately differ for a thread:
@@ -349,6 +351,10 @@ export default function Sidebar() {
     if (payload.threadId) {
       const row = pool.find(m => m.id === payload.messageId);
       if (!row) return;
+      if (row.account_id !== targetAccountId) {
+        notifyOtherAccount();
+        return;
+      }
       let threadMsgs;
       try {
         // The server decides what a thread contains, never the expansion-time cache — a thread
@@ -374,9 +380,13 @@ export default function Sidebar() {
       msgs = [row];
     } else {
       const ids = payload.messageIds ?? [payload.messageId];
-      msgs = ids
-        .map(id => pool.find(m => m.id === id))
-        .filter(m => m != null && m.folder !== targetFolder);
+      const drop = splitMessageDrop(
+        ids.map(id => pool.find(m => m.id === id)).filter(m => m != null),
+        targetAccountId,
+        targetFolder,
+      );
+      if (drop.otherAccount > 0) notifyOtherAccount();
+      msgs = drop.moving;
       movedIds = msgs.map(m => m.id);
     }
     if (!msgs.length) return;
@@ -1051,7 +1061,7 @@ export default function Sidebar() {
                     }}
                     onDrop={e => {
                       if (e.dataTransfer.types.includes('application/x-mailflow-message')) {
-                        handleMsgDrop(e, path);
+                        handleMsgDrop(e, accountId, path);
                         return;
                       }
                       e.preventDefault();
@@ -1512,7 +1522,7 @@ export default function Sidebar() {
                         }}
                         onDrop={event => {
                           if (handleFolderOrderDrop(event, folder.path)) return;
-                          handleMsgDrop(event, folder.path);
+                          handleMsgDrop(event, account.id, folder.path);
                         }}
                       >
                         {canReorder ? (

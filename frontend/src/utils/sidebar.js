@@ -231,6 +231,18 @@ export function reorderFolderPaths(
     : next;
 }
 
+// The server moves a message within its own account, so one from another account dropped here
+// would land in a same-named folder of that account, or fail. Those stay where they are.
+export function splitMessageDrop(messages, targetAccountId, targetFolder) {
+  const moving = [];
+  let otherAccount = 0;
+  for (const message of messages) {
+    if (message.account_id !== targetAccountId) otherAccount++;
+    else if (message.folder !== targetFolder) moving.push(message);
+  }
+  return { moving, otherAccount };
+}
+
 export function folderDropPosition(clientY, rect) {
   return clientY < rect.top + rect.height / 2 ? 'before' : 'after';
 }

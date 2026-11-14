@@ -490,7 +490,8 @@
       "title_other": "{{count}} mensajes movidos",
       "failTitle": "Error al mover",
       "failBody_one": "No se pudo mover {{count}} mensaje.",
-      "failBody_other": "No se pudieron mover {{count}} mensajes."
+      "failBody_other": "No se pudieron mover {{count}} mensajes.",
+      "otherAccount": "El correo de otra cuenta se dejó donde estaba: solo puede moverse dentro de su propia cuenta"
     },
     "bulkArchived": {
       "title_one": "{{count}} mensaje archivado",

@@ -490,7 +490,8 @@
       "title_other": "已移动 {{count}} 封邮件",
       "failTitle": "移动失败",
       "failBody_one": "无法移动 {{count}} 封邮件。",
-      "failBody_other": "无法移动 {{count}} 封邮件。"
+      "failBody_other": "无法移动 {{count}} 封邮件。",
+      "otherAccount": "其他账户的邮件已留在原处：邮件只能在所属账户内移动"
     },
     "bulkArchived": {
       "title_one": "已归档 {{count}} 封邮件",
