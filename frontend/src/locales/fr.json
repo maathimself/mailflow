@@ -2045,6 +2045,16 @@
       "autoLockOff": "Désactivé",
       "autoLockMin": "{{n}} min"
     },
+    "session": {
+      "title": "Rester connecté",
+      "description": "Durée pendant laquelle ce compte reste connecté sur un appareil que vous n'utilisez plus. Chaque visite relance le décompte.",
+      "days_one": "{{count}} jour",
+      "days_other": "{{count}} jours",
+      "default_one": "Par défaut ({{count}} jour)",
+      "default_other": "Par défaut ({{count}} jours)",
+      "saved": "Enregistré",
+      "failed": "Échec de l'enregistrement"
+    },
     "backup": {
       "title": "Sauvegarde et restauration",
       "intro": "Une sauvegarde contient les données de ce MailFlow : utilisateurs, comptes de messagerie, règles, contacts, réglages, données des extensions et apprentissage antispam. Le courrier en cache est retéléchargé depuis vos serveurs de messagerie après une restauration, sauf si vous l'incluez. Le fichier ne contient pas ce qui est défini dans .env : un nouveau serveur a besoin de la même ENCRYPTION_KEY et, si vous les y avez définis, des mêmes clés VAPID et réglages de client OAuth.",

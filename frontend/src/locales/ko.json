@@ -2045,6 +2045,16 @@
       "autoLockNeedsPin": "자동 잠금을 활성화하려면 PIN을 설정하세요.",
       "autoLockDesc": "비활성 후 자동으로 잠김"
     },
+    "session": {
+      "title": "로그인 유지",
+      "description": "더 이상 사용하지 않는 기기에서 이 계정의 로그인이 유지되는 기간입니다. 방문할 때마다 기간이 다시 시작됩니다.",
+      "days_one": "{{count}}일",
+      "days_other": "{{count}}일",
+      "default_one": "기본값 ({{count}}일)",
+      "default_other": "기본값 ({{count}}일)",
+      "saved": "저장됨",
+      "failed": "저장하지 못했습니다"
+    },
     "backup": {
       "title": "백업 및 복원",
       "intro": "백업에는 이 MailFlow의 사용자, 이메일 계정, 규칙, 연락처, 설정, 플러그인 데이터, 스팸방지 학습 데이터가 들어 있습니다. 캐시된 메일은 백업에 포함하지 않으면 복원 후 메일 서버에서 다시 다운로드됩니다. .env에 설정한 값은 파일에 들어 있지 않습니다. 새 서버에는 같은 ENCRYPTION_KEY가 필요하고, VAPID 키와 OAuth 클라이언트 설정을 .env에 지정했다면 이것도 같아야 합니다.",

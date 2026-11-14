@@ -168,7 +168,7 @@ MailFlow will be available on port 443 (HTTPS, self-signed certificate) and port
 
 **Optional — behind your own reverse proxy:** point your proxy at port 80. Set `APP_HTTP_PORT` in `.env` if you need a different host port. Your proxy should forward `X-Forwarded-Proto: https` so that session cookies are marked Secure correctly. To stop MailFlow serving HTTPS on port 443 and generating a certificate, set `TLS_MODE=off` in `.env`.
 
-**Optional — stay signed in longer:** a sign-in lasts 7 days without use, and each visit starts the count again. Set `SESSION_IDLE_DAYS` in `.env` (1 to 365) to change that, then run `docker compose up -d` again. If your `docker-compose.yml` has no `SESSION_IDLE_DAYS` line, download it again with the first command in step 1, or the setting never reaches the backend.
+**Optional — stay signed in longer:** a sign-in lasts 7 days without use, and each visit starts the count again. Each user can pick 7 to 90 days under Settings → Security. Set `SESSION_IDLE_DAYS` in `.env` (1 to 365) to change the default for users who haven't picked, then run `docker compose up -d` again. If your `docker-compose.yml` has no `SESSION_IDLE_DAYS` line, download it again with the first command in step 1, or the setting never reaches the backend.
 
 If clients can reach MailFlow only through your proxy, also set `TRUST_PROXY_HOPS=2` in `.env`, so the login rate limit sees each client's address rather than the proxy's. Docker publishes `APP_PORT` and `APP_HTTP_PORT` on every interface, and firewalls such as ufw do not filter them, so first bind both to an address only your proxy can reach, for example `APP_HTTP_PORT=127.0.0.1:8080` and `APP_PORT=127.0.0.1:8443` for a proxy on the same host. Without that, leave `TRUST_PROXY_HOPS` unset: a client that connects directly could choose the address it is rate-limited and logged under. If your `docker-compose.yml` has no `TRUST_PROXY_HOPS` line, download it again with the first command in step 1, or the setting never reaches the backend.
 
@@ -323,7 +323,7 @@ Edit `.env`. In addition to the required secrets, set these for a native install
 | `DB_PASSWORD` | password you set in step 2 |
 | `DATABASE_URL` | optional, e.g. `postgres://mailflow:password@localhost:5432/mailflow` |
 | `ENCRYPTION_KEY` | `openssl rand -hex 32` |
-| `SESSION_IDLE_DAYS` | optional, days a sign-in lasts without use, 1 to 365 (default `7`) |
+| `SESSION_IDLE_DAYS` | optional, days a sign-in lasts without use, 1 to 365 (default `7`); users can pick 7 to 90 days in Settings |
 
 When `DATABASE_URL` is set, the backend connects with it alone and ignores `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD`. Connection parameters in the URL, such as `sslmode`, apply as written. The bundled `postgres` service in Docker Compose still takes its password from `DB_PASSWORD`.
 

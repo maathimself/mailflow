@@ -1807,6 +1807,20 @@
       "autoLockOff": "Vypnuto",
       "autoLockMin": "{{n}} min"
     },
+    "session": {
+      "title": "Zůstat přihlášen",
+      "description": "Jak dlouho zůstane tento účet přihlášený na zařízení, které přestanete používat. Každá návštěva začne odpočet znovu.",
+      "days_one": "{{count}} den",
+      "days_few": "{{count}} dny",
+      "days_many": "{{count}} dne",
+      "days_other": "{{count}} dní",
+      "default_one": "Výchozí ({{count}} den)",
+      "default_few": "Výchozí ({{count}} dny)",
+      "default_many": "Výchozí ({{count}} dne)",
+      "default_other": "Výchozí ({{count}} dní)",
+      "saved": "Uloženo",
+      "failed": "Uložení se nezdařilo"
+    },
     "security": {
       "title": "Zabezpečení",
       "description": "Spravujte dvoufázové ověření a tokeny API svého účtu.",

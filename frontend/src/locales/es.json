@@ -2045,6 +2045,16 @@
       "autoLockOff": "Desactivado",
       "autoLockMin": "{{n}} min"
     },
+    "session": {
+      "title": "Mantener la sesión iniciada",
+      "description": "Cuánto tiempo sigue iniciada la sesión de esta cuenta en un dispositivo que dejas de usar. Cada visita reinicia el plazo.",
+      "days_one": "{{count}} día",
+      "days_other": "{{count}} días",
+      "default_one": "Predeterminado ({{count}} día)",
+      "default_other": "Predeterminado ({{count}} días)",
+      "saved": "Guardado",
+      "failed": "No se pudo guardar"
+    },
     "backup": {
       "title": "Copia de seguridad y restauración",
       "intro": "Una copia de seguridad contiene los datos de este MailFlow: usuarios, cuentas de correo, reglas, contactos, ajustes, datos de complementos y entrenamiento antispam. El correo en caché se descarga de nuevo desde tus servidores de correo tras una restauración, salvo que lo incluyas. El archivo no contiene lo que está definido en .env: un servidor nuevo necesita la misma ENCRYPTION_KEY y, si las definiste ahí, las mismas claves VAPID y los mismos ajustes de cliente OAuth.",

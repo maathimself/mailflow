@@ -621,6 +621,8 @@ const SAME_VALUE_ALLOWED = {
 // to carry unused keys. Existing locale files may also define their own forms.
 const LOCALE_SPECIFIC_KEYS_BY_LOCALE = {
   cs: new Set([
+    'admin.session.days_few', 'admin.session.days_many',
+    'admin.session.default_few', 'admin.session.default_many',
     'message.attachment_few', 'message.attachment_many',
     'messageList.bulkDeleted.title_few', 'messageList.bulkDeleted.title_many',
     'messageList.bulkDeleted.failBody_few', 'messageList.bulkDeleted.failBody_many',
@@ -633,7 +635,13 @@ const LOCALE_SPECIFIC_KEYS_BY_LOCALE = {
     'admin.messageList.markReadDelaySeconds_few',
     'admin.messageList.markReadDelaySeconds_many',
   ]),
+  ru: new Set([
+    'admin.session.days_few', 'admin.session.days_many',
+    'admin.session.default_few', 'admin.session.default_many',
+  ]),
   pl: new Set([
+    'admin.session.days_few', 'admin.session.days_many',
+    'admin.session.default_few', 'admin.session.default_many',
     'message.attachment_few', 'message.attachment_many',
     'messageList.bulkDeleted.title_few', 'messageList.bulkDeleted.title_many',
     'messageList.bulkDeleted.failBody_few', 'messageList.bulkDeleted.failBody_many',

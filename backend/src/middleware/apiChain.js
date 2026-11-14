@@ -3,6 +3,7 @@ import { apiTokenGuards } from './apiTokenGuards.js';
 import { mountBodyParsers } from './bodyParsers.js';
 import { csrfGuard } from './csrfGuard.js';
 import { screenLockGate } from './screenLock.js';
+import { applySessionLifetime } from '../services/sessionLifetime.js';
 
 // Everything that decides who a request is and whether it may go on, in the order it has to run.
 // index.js mounts it ahead of the routers and the tests mount the same function, so the order is
@@ -17,6 +18,8 @@ export function mountApiAuth(app, sessionMiddleware) {
   // those paths load the session there first.
   mountBodyParsers(app, sessionMiddleware);
   app.use(sessionMiddleware);
+  // Each user's chosen sign-in length (D#400), before any route sends the cookie.
+  app.use(applySessionLifetime);
   app.use('/api', csrfGuard);
   app.use('/api', screenLockGate);
   app.use('/api', apiTokenGuards);

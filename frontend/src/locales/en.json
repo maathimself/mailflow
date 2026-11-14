@@ -2045,6 +2045,16 @@
       "autoLockOff": "Off",
       "autoLockMin": "{{n}} min"
     },
+    "session": {
+      "title": "Stay signed in",
+      "description": "How long this account stays signed in on a device you stop using. Each visit starts the count again.",
+      "days_one": "{{count}} day",
+      "days_other": "{{count}} days",
+      "default_one": "Default ({{count}} day)",
+      "default_other": "Default ({{count}} days)",
+      "saved": "Saved",
+      "failed": "Could not save"
+    },
     "backup": {
       "title": "Backup and restore",
       "intro": "A backup holds this MailFlow's data: users, email accounts, rules, contacts, settings, plugin data and antispam training. Cached mail is downloaded again from your mail servers after a restore, unless you include it. The file does not hold what is set in .env: a new server needs the same ENCRYPTION_KEY, and the same VAPID keys and OAuth client settings if you set them there.",

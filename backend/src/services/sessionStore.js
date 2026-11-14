@@ -5,8 +5,9 @@ import { SESSION_IDLE_MS } from '../utils/sessionConfig.js';
 // express-session's store, in the sessions table (connect-redis before 4.4). A session past
 // expires_at reads as ended; the sweep in kvStore.js deletes it later.
 //
-// touch() moves the expiry forward without rewriting the session, as connect-redis did, and
-// only when it moves by more than a minute, so a burst of requests is one write.
+// touch() moves the expiry without rewriting the session, as connect-redis did, and only when it
+// moves by more than a minute, so a burst of requests is one write. It moves back as well as
+// forward, for a user who picks a shorter sign-in (D#400).
 
 const TOUCH_SLACK_MS = 60 * 1000;
 
@@ -36,8 +37,13 @@ export class PgSessionStore extends session.Store {
   touch(sid, sess, cb = () => {}) {
     const at = expiresAt(sess);
     query(
+      // Extend when the new expiry is meaningfully later (the slack spares a write per request),
+      // and shorten when it is meaningfully earlier: a user who picks a shorter sign-in (D#400)
+      // must not leave the stored session alive for the longer one. The slack both ways keeps
+      // overlapping requests, whose expiries differ by moments, from writing back and forth.
       `UPDATE sessions SET expires_at = $2
-       WHERE sid = $1 AND expires_at > now() AND expires_at < $2::timestamptz - $3::bigint * interval '1 millisecond'`,
+       WHERE sid = $1 AND expires_at > now()
+         AND (expires_at < $2::timestamptz - $3::bigint * interval '1 millisecond' OR expires_at > $2::timestamptz + $3::bigint * interval '1 millisecond')`,
       [sid, at, TOUCH_SLACK_MS]
     ).then(() => cb(null), cb);
   }

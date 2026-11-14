@@ -26,6 +26,7 @@ import { consume as rlConsume, reset as rlReset } from '../services/rateLimiter.
 import { beginSecondFactor, completePendingLogin, createTrustedDevice, maskEmail, pendingSignIn, sendEmailOtpCode } from '../services/secondFactor.js';
 import { confirmReauth, reauthFor, reauthState, userForReauth } from '../services/apiTokenReauth.js';
 import { sendSystemEmail } from '../services/mailer.js';
+import { DEFAULT_SESSION_DAYS, parseSessionDays, rememberSessionDays, sessionLifetimeMs } from '../services/sessionLifetime.js';
 
 const router = Router();
 
@@ -658,6 +659,8 @@ router.get('/preferences', async (req, res) => {
   const prefs = userResult.rows[0]?.preferences || {};
   const customCss = cssResult.rows[0]?.value;
   if (customCss) prefs.customCss = customCss;
+  // What "default" means for the sign-in length choice, which the server's .env decides.
+  prefs.sessionDaysDefault = DEFAULT_SESSION_DAYS;
   res.json(prefs);
 });
 
@@ -692,7 +695,7 @@ export async function patchPreferences(req, res) {
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
           folderOrder, senderFavicons, showMessagePreviews, defaultSender,
           conversationMode, hoverActionSet, autoOpenReplyDrafts, afterRemove, darkEmailBodies, listSort,
-          timeFormat } = req.body;
+          timeFormat, sessionDays } = req.body;
   if (autoOpenReplyDrafts !== undefined && typeof autoOpenReplyDrafts !== 'boolean') {
     return res.status(400).json({ error: 'autoOpenReplyDrafts must be a boolean' });
   }
@@ -761,6 +764,9 @@ export async function patchPreferences(req, res) {
   const conversationModeVal = ['off', 'list', 'pane'].includes(conversationMode) ? conversationMode : null;
   // Time format (#758): 'auto' follows the language, '12' / '24' force a clock. Same rule.
   const timeFormatVal = ['auto', '12', '24'].includes(timeFormat) ? timeFormat : null;
+  // How long a sign-in lasts without use (D#400): a choice from SESSION_DAY_CHOICES, or 0 for the
+  // server default. Anything else is ignored, as for the other choices above.
+  const sessionDaysVal = sessionDays !== undefined ? parseSessionDays(sessionDays) : null;
   // #440: which hover quick actions the message list shows. Same vocabulary and canonical
   // order as frontend/src/utils/hoverActions.js; unknown keys are dropped rather than stored.
   const HOVER_ACTION_KEYS = ['markRead', 'star', 'archive', 'snooze', 'delete', 'move'];
@@ -823,6 +829,7 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $47::boolean IS NOT NULL THEN jsonb_build_object('darkEmailBodies', $47::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $48::jsonb IS NOT NULL THEN jsonb_build_object('listSort', $48::jsonb) ELSE '{}'::jsonb END
       || CASE WHEN $49::text IS NOT NULL THEN jsonb_build_object('timeFormat', $49::text) ELSE '{}'::jsonb END
+      || CASE WHEN $50::int IS NOT NULL THEN jsonb_build_object('sessionDays', $50::int) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -834,7 +841,13 @@ export async function patchPreferences(req, res) {
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
       showMessagePreviews ?? null, defaultSenderVal, conversationModeVal, hoverActionSetJson, autoOpenReplyDrafts ?? null,
-      afterRemoveVal, darkEmailBodies ?? null, listSortJson, timeFormatVal]);
+      afterRemoveVal, darkEmailBodies ?? null, listSortJson, timeFormatVal, sessionDaysVal]);
+
+  if (sessionDaysVal != null) {
+    rememberSessionDays(req.session.userId, sessionDaysVal);
+    // This response already carries the new lifetime; other devices follow on their next request.
+    if (req.session.cookie && !req.apiToken) req.session.cookie.maxAge = sessionLifetimeMs(sessionDaysVal);
+  }
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

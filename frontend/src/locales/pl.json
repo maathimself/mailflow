@@ -2064,6 +2064,20 @@
       "autoLockOff": "Wyłączone",
       "autoLockMin": "{{n}} min"
     },
+    "session": {
+      "title": "Pozostań zalogowany",
+      "description": "Jak długo to konto pozostaje zalogowane na urządzeniu, którego przestajesz używać. Każda wizyta zaczyna odliczanie od nowa.",
+      "days_one": "{{count}} dzień",
+      "days_few": "{{count}} dni",
+      "days_many": "{{count}} dni",
+      "days_other": "{{count}} dnia",
+      "default_one": "Domyślnie ({{count}} dzień)",
+      "default_few": "Domyślnie ({{count}} dni)",
+      "default_many": "Domyślnie ({{count}} dni)",
+      "default_other": "Domyślnie ({{count}} dnia)",
+      "saved": "Zapisano",
+      "failed": "Nie udało się zapisać"
+    },
     "backup": {
       "title": "Kopia zapasowa i przywracanie",
       "intro": "Kopia zapasowa zawiera dane tego MailFlow: użytkowników, konta e-mail, reguły, kontakty, ustawienia, dane wtyczek i uczenie antyspamowe. Poczta z pamięci podręcznej jest po przywróceniu pobierana ponownie z Twoich serwerów pocztowych, chyba że ją dołączysz. Plik nie zawiera tego, co ustawiono w .env: nowy serwer potrzebuje tego samego ENCRYPTION_KEY oraz, jeśli je tam ustawiono, tych samych kluczy VAPID i ustawień klienta OAuth.",

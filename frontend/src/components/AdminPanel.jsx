@@ -7619,6 +7619,41 @@ function ScreenLockSection() {
   );
 }
 
+// How long this account stays signed in on a device without being used (D#400). Each visit
+// starts the count again. "Default" follows the server's SESSION_IDLE_DAYS.
+const SESSION_DAY_CHOICES = [7, 14, 30, 60, 90];
+function SessionLengthSection() {
+  const { t } = useTranslation();
+  const days = useStore(s => s.sessionDays);
+  const defaultDays = useStore(s => s.sessionDaysDefault);
+  const setSessionDays = useStore(s => s.setSessionDays);
+  const [status, setStatus] = useState(''); // '' | 'saved' | 'failed'
+
+  const choose = (value) => {
+    setStatus('');
+    setSessionDays(value).then(() => setStatus('saved'), () => setStatus('failed'));
+  };
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{t('admin.session.title')}</div>
+          <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>{t('admin.session.description')}</div>
+        </div>
+        <select id="session-days" aria-label={t('admin.session.title')} value={days}
+          onChange={e => choose(Number(e.target.value))}
+          style={{ padding: '7px 9px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13 }}>
+          <option value={0}>{t('admin.session.default', { count: defaultDays })}</option>
+          {SESSION_DAY_CHOICES.map(n => <option key={n} value={n}>{t('admin.session.days', { count: n })}</option>)}
+        </select>
+      </div>
+      {status === 'saved' && <div style={{ fontSize: 12, color: 'var(--green)', marginTop: 8 }}>{t('admin.session.saved')}</div>}
+      {status === 'failed' && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 8 }}>{t('admin.session.failed')}</div>}
+    </div>
+  );
+}
+
 function SecurityTab() {
   const { t } = useTranslation();
   const { user, setUser } = useStore();
@@ -7877,6 +7912,8 @@ function SecurityTab() {
       </p>
 
       <ScreenLockSection />
+
+      <SessionLengthSection />
 
       {/* Login Protection — admin only */}
       {user?.isAdmin && (
