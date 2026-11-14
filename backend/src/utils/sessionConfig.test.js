@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import express from 'express';
 import session from 'express-session';
-import { buildSessionOptions, SESSION_IDLE_MS } from './sessionConfig.js';
+import { buildSessionOptions, parseSessionIdleDays, SESSION_IDLE_MS } from './sessionConfig.js';
 
 // Drives the real express-session middleware rather than asserting on the options object,
 // because the defect in #465 was behavioral: the options looked reasonable and the cookie
@@ -60,5 +60,64 @@ describe('session cookie lifetime (#465)', () => {
 
   it('measures the idle window in days, not minutes', () => {
     expect(SESSION_IDLE_MS).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+});
+
+describe('SESSION_IDLE_DAYS (D#400)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('defaults to 7 days when unset or empty', () => {
+    expect(parseSessionIdleDays(undefined)).toBe(7);
+    expect(parseSessionIdleDays('')).toBe(7);
+    expect(parseSessionIdleDays('  ')).toBe(7);
+  });
+
+  it('takes whole days from 1 to 365', () => {
+    expect(parseSessionIdleDays('1')).toBe(1);
+    expect(parseSessionIdleDays(' 30 ')).toBe(30);
+    expect(parseSessionIdleDays('365')).toBe(365);
+  });
+
+  it('refuses anything else instead of guessing', () => {
+    for (const bad of ['0', '366', '-5', '1.5', '30d', '1e3', 'abc', '0x10', '99999999999999999999']) {
+      expect(parseSessionIdleDays(bad), bad).toBeNull();
+    }
+  });
+
+  it('sets the cookie lifetime from the environment', async () => {
+    vi.stubEnv('SESSION_IDLE_DAYS', '30');
+    vi.resetModules();
+    const fresh = await import('./sessionConfig.js');
+    expect(fresh.SESSION_IDLE_MS).toBe(30 * 24 * 60 * 60 * 1000);
+    expect(fresh.buildSessionOptions(new session.MemoryStore(), 'x'.repeat(40)).cookie.maxAge).toBe(30 * 24 * 60 * 60 * 1000);
+  });
+
+  it('sends a cookie that lasts the configured days', async () => {
+    vi.stubEnv('SESSION_IDLE_DAYS', '180');
+    vi.resetModules();
+    const fresh = await import('./sessionConfig.js');
+    const app = express();
+    app.use(session(fresh.buildSessionOptions(new session.MemoryStore(), 'x'.repeat(40))));
+    app.get('/login', (req, res) => { req.session.userId = 'u1'; res.json({ ok: true }); });
+    const server = await new Promise(resolve => { const s = app.listen(0, () => resolve(s)); });
+    try {
+      const res = await fetch(`http://127.0.0.1:${server.address().port}/login`);
+      const expires = /Expires=([^;]+)/.exec(res.headers.get('set-cookie'))[1];
+      const days = (new Date(expires).getTime() - Date.now()) / (24 * 60 * 60 * 1000);
+      expect(days).toBeGreaterThan(179.9);
+      expect(days).toBeLessThanOrEqual(180);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('falls back to 7 days for an invalid value when imported without the server', async () => {
+    vi.stubEnv('SESSION_IDLE_DAYS', '30d');
+    vi.resetModules();
+    const fresh = await import('./sessionConfig.js');
+    expect(fresh.SESSION_IDLE_MS).toBe(7 * 24 * 60 * 60 * 1000);
   });
 });
