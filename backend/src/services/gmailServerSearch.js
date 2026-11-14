@@ -89,6 +89,31 @@ function queued(account, raw, run) {
   return turn;
 }
 
+// Runs the search and caches Gmail's answer whenever it arrives, also after the time budget ran
+// out: the person often searches again, and then gets Gmail's matches straight from the cache.
+// A search for the same words already in flight is shared rather than started again.
+const inflight = new Map(); // `${accountId}\n${raw}` -> its promise
+function gmailSearch(account, raw, key, withClient, now) {
+  const pending = inflight.get(key);
+  if (pending) {
+    latest.set(account.id, raw); // still the newest query, so a search queued after it is dropped
+    return pending;
+  }
+  const started = Date.now();
+  const search = queued(account, raw, () => searchAccount(account, raw, withClient)).then((result) => {
+    if (result === 'superseded') return result;
+    const ms = Date.now() - started;
+    const found = result ? result.providerIds.length : 0;
+    console.log(`Gmail search for account ${account.id}: ${found} match${found === 1 ? '' : 'es'} in ${ms} ms`);
+    cache.set(key, { at: now(), result });
+    if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
+    return result;
+  });
+  inflight.set(key, search);
+  search.finally(() => inflight.delete(key)).catch(() => {});
+  return search;
+}
+
 function withTimeout(promise, ms) {
   let timer;
   return Promise.race([
@@ -123,14 +148,12 @@ export async function gmailServerMatches(accounts, terms, {
     const hit = cache.get(key);
     if (hit && now() - hit.at < CACHE_MS) return { account, result: hit.result };
     try {
-      const result = await withTimeout(queued(account, raw, () => searchAccount(account, raw, withClient)), timeoutMs);
+      const result = await withTimeout(gmailSearch(account, raw, key, withClient, now), timeoutMs);
       if (result === 'superseded') return { account, result: null };
       if (result === 'timeout') {
-        console.warn(`Gmail search took longer than ${timeoutMs} ms for account ${account.id}; showing local results`);
+        console.warn(`Gmail search took longer than ${timeoutMs} ms for account ${account.id}; showing local results, and keeping Gmail's answer for the next search`);
         return { account, result: null };
       }
-      cache.set(key, { at: now(), result });
-      if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
       return { account, result };
     } catch (err) {
       console.warn(`Gmail search failed for account ${account.id}; showing local results: ${extractImapError(err)}`);
@@ -156,4 +179,5 @@ export function _resetGmailSearchCache() {
   allMailPaths.clear();
   running.clear();
   latest.clear();
+  inflight.clear();
 }
