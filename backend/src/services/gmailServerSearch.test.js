@@ -92,6 +92,37 @@ describe('gmailServerMatches', () => {
     warn.mockRestore();
   });
 
+  it("keeps Gmail's late answer, so searching again shows its matches", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const client = fakeClient(alerts);
+    let release;
+    const gate = new Promise(r => { release = r; });
+    const withClient = vi.fn(async (_account, fn) => { await gate; return fn(client); });
+    expect(await gmailServerMatches([GMAIL], ['5037'], { withClient, timeoutMs: 20 })).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+    release();
+    await vi.waitFor(() => expect(client.search).toHaveBeenCalledTimes(1));
+    await new Promise(r => setTimeout(r, 0));
+    const again = await gmailServerMatches([GMAIL], ['5037'], { withClient, timeoutMs: 20 });
+    expect(again.providerIds).toEqual(['1801']);
+    expect(withClient).toHaveBeenCalledTimes(1); // from the cache, not a second Gmail search
+    warn.mockRestore();
+  });
+
+  it('shares a search for the same words that is still running', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const client = fakeClient(alerts);
+    let release;
+    const gate = new Promise(r => { release = r; });
+    const withClient = vi.fn(async (_account, fn) => { await gate; return fn(client); });
+    expect(await gmailServerMatches([GMAIL], ['5037'], { withClient, timeoutMs: 20 })).toBeNull();
+    const again = gmailServerMatches([GMAIL], ['5037'], { withClient, timeoutMs: 1000 });
+    release();
+    expect((await again).providerIds).toEqual(['1801']);
+    expect(withClient).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
   it('answers a repeated query from its cache for a minute', async () => {
     const client = fakeClient(alerts);
     const withClient = withClientFor(client);

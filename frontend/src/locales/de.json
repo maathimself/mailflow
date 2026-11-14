@@ -2045,6 +2045,16 @@
       "autoLockOff": "Aus",
       "autoLockMin": "{{n}} Min."
     },
+    "session": {
+      "title": "Angemeldet bleiben",
+      "description": "Wie lange dieses Konto auf einem Gerät angemeldet bleibt, das du nicht mehr benutzt. Jeder Besuch startet die Frist neu.",
+      "days_one": "{{count}} Tag",
+      "days_other": "{{count}} Tage",
+      "default_one": "Standard ({{count}} Tag)",
+      "default_other": "Standard ({{count}} Tage)",
+      "saved": "Gespeichert",
+      "failed": "Speichern fehlgeschlagen"
+    },
     "backup": {
       "title": "Sicherung und Wiederherstellung",
       "intro": "Eine Sicherung enthält die Daten dieses MailFlow: Benutzer, E-Mail-Konten, Regeln, Kontakte, Einstellungen, Plugin-Daten und Antispam-Training. Zwischengespeicherte E-Mails werden nach einer Wiederherstellung erneut von Ihren Mailservern geladen, sofern Sie sie nicht einschließen. Was in .env steht, enthält die Datei nicht: Ein neuer Server braucht denselben ENCRYPTION_KEY und, falls dort gesetzt, dieselben VAPID-Schlüssel und OAuth-Client-Einstellungen.",

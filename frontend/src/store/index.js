@@ -172,7 +172,7 @@ export const useStore = create((set, get) => ({
         // revision need not move.
         replyDrafts: {},
         composing: false, composeData: null, prepareComposeSwitch: null, messageWindows: [],
-        enabledPlugins: [], autoLockMinutes: 0, blockRemoteImages: true,
+        enabledPlugins: [], autoLockMinutes: 0, sessionDays: 0, blockRemoteImages: true,
         imageWhitelist: { addresses: [], domains: [] }, shortcuts: {}, aiActions: null,
         hiddenFolders: {}, categorizationEnabled: false, gtdPetSlug: null,
         autoOpenReplyDrafts: false, afterRemove: 'next', darkEmailBodies: true,
@@ -275,6 +275,21 @@ export const useStore = create((set, get) => ({
     const channel = new MessageChannel();
     channel.port1.onmessage = () => { channel.port1.close(); api.lock().catch(() => {}); };
     channel.port2.postMessage(null);
+  },
+  // How long a sign-in lasts without use (D#400): 0 follows the server default, which the
+  // server reports as sessionDaysDefault. Saved at once rather than batched with other
+  // preferences, so Settings can say whether it worked.
+  sessionDays: 0,
+  sessionDaysDefault: 7,
+  setSessionDays: async (days) => {
+    const previous = get().sessionDays;
+    set({ sessionDays: days });
+    try {
+      await api.savePreferences({ sessionDays: days });
+    } catch (err) {
+      set({ sessionDays: previous });
+      throw err;
+    }
   },
   autoLockMinutes: 0,
   setAutoLockMinutes: (m) => {
@@ -1395,6 +1410,11 @@ export const useStore = create((set, get) => ({
       // blockRemoteImages: explicit false disables blocking; anything else keeps the default (true)
       if (prefs.blockRemoteImages === false) set({ blockRemoteImages: false });
       else if (prefs.blockRemoteImages === true) set({ blockRemoteImages: true });
+      if (prefs.sessionDays != null) {
+        const n = Number(prefs.sessionDays);
+        set({ sessionDays: [7, 14, 30, 60, 90].includes(n) ? n : 0 });
+      }
+      if (Number(prefs.sessionDaysDefault) > 0) set({ sessionDaysDefault: Number(prefs.sessionDaysDefault) });
       if (prefs.autoLockMinutes != null) {
         const n = Number(prefs.autoLockMinutes);
         set({ autoLockMinutes: [0, 1, 5, 15, 30].includes(n) ? n : 0 });

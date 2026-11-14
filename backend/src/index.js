@@ -9,7 +9,7 @@ import 'dotenv/config';
 import { PgSessionStore } from './services/sessionStore.js';
 import { startExpirySweep, stopExpirySweep } from './services/kvStore.js';
 import { parseTrustProxyHops } from './utils/trustProxy.js';
-import { buildSessionOptions } from './utils/sessionConfig.js';
+import { buildSessionOptions, parseSessionIdleDays, MAX_SESSION_IDLE_DAYS } from './utils/sessionConfig.js';
 import { mountApiAuth } from './middleware/apiChain.js';
 
 import sendRoutes from './routes/send.js';
@@ -99,6 +99,11 @@ if (!process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_KEY.length !== 64) {
 // ALLOWED_ORIGIN is null), and OIDC redirect URIs become malformed.
 if (process.env.NODE_ENV === 'production' && !process.env.APP_URL) {
   console.error('FATAL: APP_URL must be set in production (e.g. https://mail.example.com). WebSocket connections and OIDC depend on it.');
+  process.exit(1);
+}
+
+if (parseSessionIdleDays(process.env.SESSION_IDLE_DAYS) === null) {
+  console.error(`FATAL: SESSION_IDLE_DAYS must be a whole number of days from 1 to ${MAX_SESSION_IDLE_DAYS} (how long a session lasts without use; unset means 7), got "${process.env.SESSION_IDLE_DAYS}". Exiting.`);
   process.exit(1);
 }
 

@@ -2045,6 +2045,16 @@
       "autoLockOff": "关闭",
       "autoLockMin": "{{n}} 分钟"
     },
+    "session": {
+      "title": "保持登录",
+      "description": "此帐户在不再使用的设备上保持登录的时长。每次访问都会重新计时。",
+      "days_one": "{{count}} 天",
+      "days_other": "{{count}} 天",
+      "default_one": "默认（{{count}} 天）",
+      "default_other": "默认（{{count}} 天）",
+      "saved": "已保存",
+      "failed": "保存失败"
+    },
     "backup": {
       "title": "备份与恢复",
       "intro": "备份文件包含此 MailFlow 的数据：用户、邮件账户、规则、联系人、设置、插件数据和反垃圾邮件训练数据。除非选择包含，缓存的邮件会在恢复后从你的邮件服务器重新下载。文件不包含 .env 中的设置：新服务器需要相同的 ENCRYPTION_KEY；如果你在 .env 中设置了 VAPID 密钥和 OAuth 客户端设置，也需要相同的值。",

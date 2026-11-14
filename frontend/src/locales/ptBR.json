@@ -2045,6 +2045,16 @@
       "autoLockOff": "Desativado",
       "autoLockMin": "{{n}} min"
     },
+    "session": {
+      "title": "Manter conectado",
+      "description": "Por quanto tempo esta conta continua conectada em um dispositivo que você deixa de usar. Cada visita reinicia a contagem.",
+      "days_one": "{{count}} dia",
+      "days_other": "{{count}} dias",
+      "default_one": "Padrão ({{count}} dia)",
+      "default_other": "Padrão ({{count}} dias)",
+      "saved": "Salvo",
+      "failed": "Não foi possível salvar"
+    },
     "backup": {
       "title": "Backup e restauração",
       "intro": "Um backup contém os dados deste MailFlow: usuários, contas de e-mail, regras, contatos, configurações, dados de plugins e treinamento antispam. Os e-mails em cache são baixados novamente dos seus servidores de e-mail após uma restauração, a menos que você os inclua. O arquivo não contém o que está definido no .env: um servidor novo precisa da mesma ENCRYPTION_KEY e, se você as definiu ali, das mesmas chaves VAPID e configurações de cliente OAuth.",
