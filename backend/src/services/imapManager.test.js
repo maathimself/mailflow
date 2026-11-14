@@ -7748,3 +7748,24 @@ describe('UIDVALIDITY purge notifications', () => {
     expect(query.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM messages'))[0]).toContain('RETURNING thread_key');
   });
 });
+
+// A Gmail label named "Parent/Child" lists a \\Noselect "Parent" container next to the real
+// folder. syncFolders records it as no_select; the walk used to SELECT it anyway and log
+// "[NONEXISTENT] Unknown Mailbox" on every backfill (#789).
+describe('backfillAllFolders: \\Noselect folders (#789)', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('skips a folder the server listed as \\Noselect', async () => {
+    query.mockReset().mockImplementation(async (sql) => (sql.includes('FROM folders')
+      ? { rows: [{ path: 'Parent', no_select: true }, { path: 'Parent/Child', no_select: false }] }
+      : { rows: [] }));
+    const mgr = {
+      backfillAllRunning: new Set(), _bgConnSem: createKeyedSemaphore(2), broadcast: vi.fn(),
+      backfillMessages: vi.fn().mockResolvedValue(), _secondaryConnectBlocked: () => true,
+      refreshBulkFlags: vi.fn(), startSnippetIndexer: vi.fn(),
+    };
+    await ImapManager.prototype.backfillAllFolders.call(mgr, { id: 'acct-noselect', user_id: 'u1', imap_host: 'imap.gmail.com' });
+
+    expect(mgr.backfillMessages.mock.calls.map(([, path]) => path)).toEqual(['INBOX', 'Parent/Child']);
+  });
+});
