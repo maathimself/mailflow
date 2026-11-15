@@ -427,7 +427,13 @@
       "title": "En attente jusqu'à {{when}}",
       "failTitle": "Impossible de modifier l'heure de retour",
       "failBody": "L'heure précédente est conservée. Réessayez."
-    }
+    },
+    "olderMessages_one": "{{count}} message plus ancien",
+    "olderMessages_other": "{{count}} messages plus anciens",
+    "expandAll": "Tout développer",
+    "collapseAll": "Tout réduire",
+    "showTrimmed": "Afficher le contenu masqué",
+    "hideTrimmed": "Masquer le contenu"
   },
   "messageList": {
     "replyDraftChanged": "Le brouillon de réponse a changé. Essayez de le rouvrir.",
@@ -551,6 +557,10 @@
     "changeLayout": "Changer la disposition",
     "layout": "Disposition",
     "layouts": {
+      "gmail": {
+        "label": "Gmail",
+        "description": "Boîte de réception et lecture pleine largeur inspirées de Gmail"
+      },
       "focused": {
         "label": "Concentré",
         "description": "Panneau de liste minimal, zone de lecture maximale"

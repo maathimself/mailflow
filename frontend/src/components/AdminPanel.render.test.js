@@ -67,6 +67,41 @@ const ACCOUNT = {
   auto_cc_addresses: ['boss@example.invalid'], auto_bcc_addresses: ['me@example.invalid'],
 };
 
+describe('Gmail layout appearance card', () => {
+  let root;
+  afterEach(() => React.act(async () => root?.unmount()));
+
+  test('shows its header preview and switches layouts without changing theme or fonts', async () => {
+    api.admin.getSettings = async () => ({ settings: {} });
+    api.getUnreadCounts = async () => ({});
+    useStore.setState({
+      user: { id: 'u1' }, accounts: [ACCOUNT], adminTab: 'appearance',
+      layout: 'comfortable', theme: 'light', fontSet: 'system', fontSize: 120,
+    });
+    root = createRoot(document.getElementById('root'));
+    await React.act(async () => root.render(React.createElement(AdminPanel)));
+    const click = button => React.act(async () => {
+      assert.ok(button, 'the requested appearance control exists');
+      button.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    });
+    await click([...document.querySelectorAll('button')].find(button => button.textContent === 'admin.appearance.layout'));
+    const card = key => [...document.querySelectorAll('button[aria-pressed]')]
+      .find(button => button.textContent.includes(`messageList.layouts.${key}.label`));
+    const gmail = card('gmail');
+    assert.ok(gmail?.querySelector('svg[data-layout-preview="gmail"]'), 'Gmail has a distinct header-and-list preview');
+    assert.equal(gmail.getAttribute('aria-pressed'), 'false');
+    await click(gmail);
+    assert.equal(useStore.getState().layout, 'gmail');
+    assert.equal(localStorage.getItem('mailflow_layout'), 'gmail');
+    assert.equal(card('gmail').getAttribute('aria-pressed'), 'true');
+    await click(card('comfortable'));
+    assert.equal(useStore.getState().layout, 'comfortable');
+    assert.equal(card('gmail').getAttribute('aria-pressed'), 'false');
+    const { theme, fontSet, fontSize } = useStore.getState();
+    assert.deepEqual({ theme, fontSet, fontSize }, { theme: 'light', fontSet: 'system', fontSize: 120 });
+  });
+});
+
 describe('account form: automatic Cc and Bcc (#491)', () => {
   const sent = [];
   let reply; // what the stubbed PUT /accounts/:id does with each request

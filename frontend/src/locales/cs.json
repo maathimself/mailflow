@@ -437,6 +437,10 @@
     "changeLayout": "Změnit rozvržení",
     "layout": "Rozložení",
     "layouts": {
+      "gmail": {
+        "label": "Gmail",
+        "description": "Doručená pošta a čtení přes celou šířku ve stylu Gmailu"
+      },
       "focused": {
         "label": "Soustředěné",
         "description": "Minimální panel se seznamem, maximum prostoru pro čtení"
@@ -626,7 +630,15 @@
       "title": "Odloženo do {{when}}",
       "failTitle": "Čas návratu se nepodařilo změnit",
       "failBody": "Zůstává původní čas. Zkuste to znovu."
-    }
+    },
+    "olderMessages_one": "{{count}} starší zpráva",
+    "olderMessages_few": "{{count}} starší zprávy",
+    "olderMessages_many": "{{count}} starší zprávy",
+    "olderMessages_other": "{{count}} starších zpráv",
+    "expandAll": "Rozbalit vše",
+    "collapseAll": "Sbalit vše",
+    "showTrimmed": "Zobrazit zkrácený obsah",
+    "hideTrimmed": "Skrýt zkrácený obsah"
   },
   "compose": {
     "unsupportedDraftFrom": "Před uložením nebo odesláním tohoto konceptu vyberte nastaveného odesílatele.",

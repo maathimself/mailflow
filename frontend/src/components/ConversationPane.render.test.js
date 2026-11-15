@@ -130,6 +130,13 @@ describe('conversation pane', () => {
     assert.match(document.getElementById('root').innerHTML, /Me/, 'the sent reply appears in the thread');
   });
 
+  test('conversation presentation hooks preserve expansion state and the subject', () => {
+    assert.match(document.querySelector('.mail-conversation-subject').textContent, /Welcome/);
+    assert.equal(document.querySelectorAll('.mail-conversation-card').length, 3);
+    assert.equal(document.querySelectorAll('.mail-conversation-card[data-expanded="true"]').length, 1);
+    assert.ok(document.querySelector('.mail-conversation-actions .mail-reply-split'));
+  });
+
   test('fills the reading area instead of shrinking to fit its contents', async () => {
     // The reading area is a flex row. Without flex:1 the pane is sized shrink-to-fit, so
     // it was as narrow as whatever was open: a sliver for collapsed headers, the width of

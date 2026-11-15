@@ -19,6 +19,8 @@ import { selectedPickerMessage } from '../utils/labelPicker.js';
 import { applyMarkRead } from '../utils/markRead.js';
 import { buildKeyMap, resolveShortcutAction, shortcutActionText, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.js';
 import Sidebar from './Sidebar.jsx';
+import GmailHeader from './GmailHeader.jsx';
+import { usePaneWidthTier } from '../hooks/usePaneWidthTier.js';
 import MessageList from './MessageList.jsx';
 import ReadingPane from './ReadingPane.jsx';
 import NotificationToasts from './NotificationToasts.jsx';
@@ -127,6 +129,10 @@ export default function MailApp() {
   const labelPickerRef = useRef(null);
   useEffect(() => { labelPickerRef.current = labelPickerMessage; }, [labelPickerMessage]);
   const isMobile = useMobile();
+  const gmailDesktop = layout === 'gmail' && !isMobile;
+  const [searchTarget, setSearchTarget] = useState(null);
+  const listPaneRef = usePaneWidthTier(gmailDesktop);
+  const readerPaneRef = usePaneWidthTier(gmailDesktop);
   const sidebarDragRef = useRef(null);
   const sidebarResizeRef = useRef(null);
   const listResizeRef = useRef(null);
@@ -847,7 +853,7 @@ export default function MailApp() {
       width: '100vw', height: 'var(--app-height, 100svh)',
       overflow: 'hidden', background: 'var(--bg-primary)',
     }}>
-    <div data-ui-scale-root="" style={{
+    <div data-ui-scale-root="" className={gmailDesktop ? 'gmail-shell' : undefined} data-sidebar-collapsed={sidebarCollapsed || undefined} style={{
       display: 'flex',
       // Sized in CSS from the 100dvh parent: an innerHeight read on resize is stale during
       // a rotation in an iOS home-screen app, and the sidebar's bottom fell off screen.
@@ -861,6 +867,7 @@ export default function MailApp() {
       overflow: 'hidden',
       background: 'var(--bg-primary)',
     }}>
+      {gmailDesktop && <GmailHeader searchRef={setSearchTarget} />}
       {isMobile ? (
         <>
           {/* Backdrop — covers full screen including status bar area */}
@@ -903,7 +910,7 @@ export default function MailApp() {
             {contactsOpened && <Suspense fallback={lazyFallback}><ContactsPage /></Suspense>}
           </div>
           <div style={{ flex: 1, display: !showContacts && !selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
-            <MessageList />
+            <MessageList searchTarget={gmailDesktop ? searchTarget : null} />
           </div>
           <div style={{ flex: 1, display: !showContacts && selectedMessageId ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <ReadingPane />
@@ -912,7 +919,7 @@ export default function MailApp() {
       ) : (
         <>
           <Sidebar />
-          {!sidebarCollapsed && (
+          {!sidebarCollapsed && !gmailDesktop && (
             <div
               onMouseDown={handleSidebarResizeMouseDown}
               style={{
@@ -925,7 +932,7 @@ export default function MailApp() {
               onMouseLeave={e => { e.currentTarget.style.background = 'var(--border-subtle)'; }}
             />
           )}
-          <div style={{
+          <div className="mail-workspace" style={{
             flex: 1, display: 'flex', overflow: 'hidden',
             minWidth: 0, flexDirection: currentLayout.direction,
             height: '100%',
@@ -940,16 +947,16 @@ export default function MailApp() {
               {listFirst ? (
                 <>
                   {/* Both stay mounted, as on a phone, so the list keeps its place behind a message. */}
-                  <div style={{ display: selectedMessageId ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
-                    <MessageList />
+                  <div ref={listPaneRef} style={{ display: selectedMessageId ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+                    <MessageList searchTarget={gmailDesktop ? searchTarget : null} />
                   </div>
-                  <div style={{ display: selectedMessageId ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
+                  <div ref={readerPaneRef} style={{ display: selectedMessageId ? 'flex' : 'none', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
                     <ReadingPane />
                   </div>
                 </>
               ) : (
               <>
-              <MessageList />
+              <MessageList searchTarget={gmailDesktop ? searchTarget : null} />
               {currentLayout.direction === 'row' && (
                 <div
                   onMouseDown={handleListResizeMouseDown}

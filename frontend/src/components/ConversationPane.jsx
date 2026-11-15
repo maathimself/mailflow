@@ -8,8 +8,13 @@ import { useStore } from '../store/index.js';
 import {
   normalizeConversation,
   initialExpandedMessageIds,
+  gmailExpandedMessageIds,
+  foldedMessageIds,
+  foldConversation,
   newestConversationMessage,
 } from '../utils/conversation.js';
+import { normalizeLayout } from '../layouts.js';
+import { openReplyFromMessage, openForwardFromMessage, resolveReplyRecipients } from '../utils/composeFromMessage.js';
 import { archiveThread, deleteThread, spamThread, moveThread, snoozeThread, inAccount, otherAccountsDraft } from '../utils/threadActions.js';
 import { advanceSelectionAfterRemoval, adjacentRow, openAdjacentRow } from '../utils/listSelection.js';
 import { useSwipeBack } from '../hooks/useSwipeBack.js';
@@ -18,10 +23,13 @@ import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/pri
 import ConversationMessageCard from './ConversationMessageCard.jsx';
 import { aiReplyAvailable } from '../utils/aiReply.js';
 import ContextMenu from './ContextMenu.jsx';
-import { prefetchBody } from '../utils/bodyCache.js';
+import { prefetchBody, bodyCache } from '../utils/bodyCache.js';
 import { applyReadGuard } from '../utils/pendingReads.js';
 import { applyDeleteGuard } from '../utils/pendingDeletes.js';
-import { ActionBtn, ArchiveIcon, MoveIcon, SnoozeIcon, SpamIcon, PrintIcon, TrashIcon, useShortcutTitle } from './MessageActions.jsx';
+import {
+  ActionBtn, ArchiveIcon, MoveIcon, SnoozeIcon, SpamIcon, PrintIcon, TrashIcon, ExpandAllIcon, CollapseAllIcon,
+  ReplyIcon, ReplyAllIcon, ForwardIcon, useShortcutTitle,
+} from './MessageActions.jsx';
 import { PluginSlot } from '../plugins/PluginSlot.jsx';
 
 // What the reader is told when an action finds nothing to take (runAction below). In the unified
@@ -69,8 +77,13 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   const setSelectedMessage = useStore(s => s.setSelectedMessage);
   const updateMessage = useStore(s => s.updateMessage);
   const plaintextEmail = useStore(s => s.plaintextEmail);
+  const gmail = useStore(s => normalizeLayout(s.layout) === 'gmail');
+  const openCompose = useStore(s => s.openCompose);
+  const folders = useStore(s => s.folders);
   const [messages, setMessages] = useState([]);
   const [expanded, setExpanded] = useState(() => new Set());
+  // The messages folded into "N older messages" (the Gmail layout), until the reader opens the fold.
+  const [folded, setFolded] = useState(() => new Set());
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   // { x, y, view, message } — the move and snooze pickers are ContextMenu's, opened straight
@@ -90,6 +103,8 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   // Read when the conversation arrives, without making the pick a reason to fetch it again.
   const pickedRef = useRef(selectedMessageId);
   pickedRef.current = selectedMessageId;
+  const gmailRef = useRef(gmail);
+  gmailRef.current = gmail;
 
   useEffect(() => {
     if (!threadId) { setMessages([]); return; }
@@ -111,10 +126,13 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         // read. When the reader picked the other account's copy under the row, that copy opens on
         // its own (the effect below): opening the row's copy beside it would mark that read too,
         // behind a list row whose unread count does not follow.
+        // The Gmail layout opens the unread ones too, as Gmail does.
         const picked = ordered.find(message => message.id === pickedRef.current);
-        setExpanded(accountId && picked && picked.account_id !== accountId
+        const opened = accountId && picked && picked.account_id !== accountId
           ? new Set()
-          : initialExpandedMessageIds(inAccount(ordered, accountId)));
+          : (gmailRef.current ? gmailExpandedMessageIds : initialExpandedMessageIds)(inAccount(ordered, accountId));
+        setExpanded(opened);
+        setFolded(foldedMessageIds(ordered, opened));
       })
       .catch(err => { if (!cancelled) setError(err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -193,6 +211,31 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
+
+  // Expand all and Collapse all (the Gmail layout) keep to accountId's copies, as opening does:
+  // opening a card marks it read.
+  const ownMessages = inAccount(messages, accountId);
+  const allExpanded = ownMessages.length > 0 && ownMessages.every(message => expanded.has(message.id));
+  const expandAll = () => {
+    setExpanded(prev => new Set([...prev, ...ownMessages.map(message => message.id)]));
+    setFolded(new Set());
+  };
+  const collapseAll = () => setExpanded(initialExpandedMessageIds(ownMessages));
+  const unfold = ids => setFolded(prev => {
+    const next = new Set(prev);
+    for (const id of ids) next.delete(id);
+    return next;
+  });
+
+  // The reply row under the last message (the Gmail layout) answers the newest of accountId's copies.
+  const newestOwn = newestConversationMessage(ownMessages);
+  const replyRecipients = newestOwn
+    ? resolveReplyRecipients(newestOwn, accounts.find(account => account.id === newestOwn.account_id), folders)
+    : null;
+  const canReplyAll = Boolean(replyRecipients) && replyRecipients.to.length + replyRecipients.cc.length > 1;
+  const cachedBody = async id => bodyCache.get(id) ?? api.getMessageBody(id);
+  const replyToNewest = replyAll => openReplyFromMessage(newestOwn, { accounts, folders, openCompose, getMessageBody: cachedBody, replyAll });
+  const forwardNewest = () => openForwardFromMessage(newestOwn, { openCompose, getMessageBody: cachedBody });
 
   // An action can find nothing to take: no copy of accountId at all (a link to a message of an
   // account the thread route leaves out, a disabled one), no INBOX copy to snooze, only mail the
@@ -290,7 +333,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   const headerContext = { message: headerMessage, account: accounts.find(account => account.id === headerMessage?.account_id) };
   const hasBackBar = isMobile || listFirst;
   const mobileBackBar = hasBackBar && (
-    <div style={{
+    <div className="mail-reader-backbar" style={{
       display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8,
       paddingTop: 'calc(var(--sat) + 10px)', paddingBottom: 'calc(10px - var(--sat-trim))', paddingLeft: 14, paddingRight: 14,
       borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', flexShrink: 0,
@@ -308,7 +351,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         </svg>
         {t('common.back')}
       </button>
-      <div style={{
+      <div className="mail-reader-back-subject" style={{
         flex: '1 1 120px', minWidth: 0,
         fontSize: 14, fontWeight: 500, color: 'var(--text-primary)',
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -339,13 +382,13 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   if (!messages.length) return null;
 
   return (
-    <div ref={paneRef} style={{ ...fill, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div className="mail-conversation-pane" ref={paneRef} style={{ ...fill, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {mobileBackBar}
       {/* Thread-level actions, the way Gmail does it: archiving a conversation archives all of it,
           so the reader does not file the same thread message by message. The reading pane's buttons,
           in its order and pinned at the top as its toolbar is (#650); snooze, which the reading pane
           keeps in its menu, sits with the other ways of putting the conversation away. */}
-      <div role="group" aria-label={t('message.conversationActions')} style={{
+      <div className="mail-reader-toolbar" role="group" aria-label={t('message.conversationActions')} style={{
         padding: isMobile ? '0 8px' : '8px 16px', borderBottom: '1px solid var(--border-subtle)',
         display: 'flex', alignItems: 'center', gap: isMobile ? 0 : 6, flexShrink: 0,
         background: 'var(--bg-primary)',
@@ -364,6 +407,15 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         <ActionBtn onClick={() => runAction('spam', spamThread)} label={t('contextMenu.markAsSpam')} touch={isMobile}>
           <SpamIcon />
         </ActionBtn>
+        {gmail && messages.length > 1 && (allExpanded ? (
+          <ActionBtn onClick={collapseAll} label={t('message.collapseAll')} touch={isMobile}>
+            <CollapseAllIcon />
+          </ActionBtn>
+        ) : (
+          <ActionBtn onClick={expandAll} label={t('message.expandAll')} touch={isMobile}>
+            <ExpandAllIcon />
+          </ActionBtn>
+        ))}
         <ActionBtn onClick={printConversation} label={t('message.printConversation')} touch={isMobile}>
           <PrintIcon />
         </ActionBtn>
@@ -407,6 +459,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         // cards stay on screen until the next one lands, and a remount would mark them read again.
         key={loadedConversation ?? ''}
         ref={stackRef}
+        className="mail-conversation-stack"
         // flex: 1 and minWidth: 0 are load-bearing. The reading area is a flex row, so
         // without them this pane is sized shrink-to-fit by its contents: collapsed cards
         // are narrow, an expanded newsletter is as wide as the newsletter, and the pane
@@ -419,20 +472,83 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
           background: 'var(--bg-primary)',
         }}
       >
-        {messages.map(message => (
-          <ConversationMessageCard
-            key={message.id}
-            message={message}
-            expanded={expanded.has(message.id)}
-            selected={message.id === focusedId}
-            onToggle={toggle}
-            onUpdate={updateConversationMessage}
-            aiEnabled={aiEnabled}
-            aiReplyEnabled={aiReplyEnabled}
-          />
-        ))}
+        <h1 className="mail-conversation-subject" style={{ display: 'none' }}>
+          {newestConversationMessage(messages)?.subject || t('message.noSubject')}
+        </h1>
+        {(gmail ? foldConversation(messages, { foldedIds: folded, expandedIds: expanded }) : messages.map(message => ({ message })))
+          .map(item => (item.fold ? (
+            <FoldRow key={`fold-${item.fold[0]}`} count={item.fold.length} onOpen={() => unfold(item.fold)} />
+          ) : (
+            <ConversationMessageCard
+              key={item.message.id}
+              message={item.message}
+              expanded={expanded.has(item.message.id)}
+              selected={item.message.id === focusedId}
+              onToggle={toggle}
+              onUpdate={updateConversationMessage}
+              aiEnabled={aiEnabled}
+              aiReplyEnabled={aiReplyEnabled}
+              gmail={gmail}
+            />
+          )))}
+        {gmail && newestOwn && (
+          <div className="mail-conversation-replies" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, padding: '16px 16px 24px' }}>
+            <ReplyPill onClick={() => replyToNewest(false)} label={t('message.reply')}><ReplyIcon /></ReplyPill>
+            {canReplyAll && <ReplyPill onClick={() => replyToNewest(true)} label={t('message.replyAll')}><ReplyAllIcon /></ReplyPill>}
+            <ReplyPill onClick={forwardNewest} label={t('message.forward')}><ForwardIcon /></ReplyPill>
+          </div>
+        )}
       </div>
       </SwipePager>
     </div>
+  );
+}
+
+// "N older messages" (the Gmail layout): Gmail's count circle on a rule, which opens the fold.
+function FoldRow({ count, onOpen }) {
+  const { t } = useTranslation();
+  const label = t('message.olderMessages', { count });
+  return (
+    <button
+      type="button"
+      className="mail-conversation-fold"
+      onClick={onOpen}
+      title={label}
+      style={{
+        position: 'relative', width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+        minHeight: 44, padding: '4px 16px', background: 'none', border: 'none', cursor: 'pointer',
+        color: 'var(--text-secondary)', font: 'inherit', fontSize: 13, textAlign: 'left',
+      }}
+    >
+      <span aria-hidden="true" style={{
+        position: 'absolute', left: 0, right: 0, top: '50%', height: 3, transform: 'translateY(-50%)',
+        borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)',
+      }} />
+      <span aria-hidden="true" className="mail-conversation-fold-count" style={{
+        position: 'relative', flexShrink: 0, width: 36, height: 36, borderRadius: '50%',
+        border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 500,
+      }}>{count}</span>
+      <span style={{ position: 'relative', background: 'var(--bg-primary)', padding: '0 6px' }}>{label}</span>
+    </button>
+  );
+}
+
+// Reply, Reply all and Forward under the last message (the Gmail layout): outlined pills.
+function ReplyPill({ children, label, onClick }) {
+  return (
+    <button
+      type="button"
+      className="btn-press mail-conversation-reply"
+      onClick={onClick}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8, minHeight: 36, padding: '0 20px 0 16px',
+        background: 'transparent', border: '1px solid var(--border)', borderRadius: 18, cursor: 'pointer',
+        color: 'var(--text-secondary)', font: 'inherit', fontSize: 14, fontWeight: 500,
+      }}
+    >
+      {children}
+      {label}
+    </button>
   );
 }

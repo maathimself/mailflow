@@ -2402,6 +2402,7 @@ export default function ComposeModal() {
       }} />
       <div
         ref={composePanelRef}
+        className="mail-compose-phone"
         onKeyDown={handleKeyDown}
         {...dropHandlers}
         style={{
@@ -3040,6 +3041,7 @@ export default function ComposeModal() {
   if (minimized) {
     return (
       <div
+        className="mail-compose-minimized"
         onClick={() => setMinimized(false)}
         style={{
           position: 'fixed', bottom: 0, right: 24,
@@ -3076,6 +3078,8 @@ export default function ComposeModal() {
     <div
       ref={composeWindowRef}
       className="compose-window"
+      data-compose-placement={maximized ? 'maximized' : pos ? 'floating' : 'docked'}
+      data-compose-resized={Boolean(customSize)}
       onKeyDown={handleKeyDown}
       {...dropHandlers}
       style={maximized ? {
@@ -3107,6 +3111,7 @@ export default function ComposeModal() {
       <input ref={imageInputRef} type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) insertImageIntoEditor(f); e.target.value = ''; }} style={{ display: 'none' }} />
       {/* Title bar */}
       <div
+        className="mail-compose-titlebar"
         onPointerDown={handleTitleDragStart}
         style={{
           padding: '10px 14px', display: 'flex', alignItems: 'center',
@@ -3217,7 +3222,7 @@ export default function ComposeModal() {
       {scheduledStrip}
 
       {/* Fields — fixed height, not scrollable so toolbar dropdowns aren't clipped */}
-      <div style={{ flexShrink: 0 }}>
+      <div className="mail-compose-fields" style={{ flexShrink: 0 }}>
         {/* From */}
         <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
           <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.from')}</span>
@@ -3353,7 +3358,7 @@ export default function ComposeModal() {
       {scheduledChips}
 
       {/* Scrollable body area */}
-      <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+      <div className="mail-compose-body" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         {/* Body */}
         {plaintextEmail ? (
           <textarea
@@ -3440,12 +3445,12 @@ export default function ComposeModal() {
       </div>
 
       {/* Footer */}
-      <div style={{
+      <div className="mail-compose-footer" style={{
         padding: '10px 14px', borderTop: '1px solid var(--border-subtle)',
         display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
       }}>
         {/* Split Send button: the chevron opens Send later (design 5.1, 5.4). */}
-        <div style={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
+        <div className="mail-compose-send" style={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
           <button
             onClick={() => handleSend()}
             disabled={sendDisabled}

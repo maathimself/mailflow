@@ -427,7 +427,15 @@
       "title": "Отложено до {{when}}",
       "failTitle": "Не удалось изменить время возврата",
       "failBody": "Остаётся прежнее время. Попробуйте ещё раз."
-    }
+    },
+    "olderMessages_one": "Более ранние сообщения: {{count}}",
+    "olderMessages_few": "Более ранние сообщения: {{count}}",
+    "olderMessages_many": "Более ранние сообщения: {{count}}",
+    "olderMessages_other": "Более ранние сообщения: {{count}}",
+    "expandAll": "Развернуть все",
+    "collapseAll": "Свернуть все",
+    "showTrimmed": "Показать скрытый текст",
+    "hideTrimmed": "Скрыть текст"
   },
   "messageList": {
     "replyDraftChanged": "Черновик ответа изменился. Попробуйте открыть его снова.",
@@ -551,6 +559,10 @@
     "changeLayout": "Изменить макет",
     "layout": "Макет",
     "layouts": {
+      "gmail": {
+        "label": "Gmail",
+        "description": "Входящие и просмотр писем на всю ширину в стиле Gmail"
+      },
       "focused": {
         "label": "Сфокусированный",
         "description": "Минимальная панель списка, максимум места для чтения"

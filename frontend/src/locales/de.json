@@ -427,7 +427,13 @@
       "title": "Zurückgestellt bis {{when}}",
       "failTitle": "Zeitpunkt konnte nicht geändert werden",
       "failBody": "Der bisherige Zeitpunkt bleibt. Bitte erneut versuchen."
-    }
+    },
+    "olderMessages_one": "{{count}} ältere Nachricht",
+    "olderMessages_other": "{{count}} ältere Nachrichten",
+    "expandAll": "Alle maximieren",
+    "collapseAll": "Alle minimieren",
+    "showTrimmed": "Gekürzten Inhalt anzeigen",
+    "hideTrimmed": "Gekürzten Inhalt ausblenden"
   },
   "messageList": {
     "replyDraftChanged": "Der Antwortentwurf wurde geändert. Öffne ihn erneut.",
@@ -551,6 +557,10 @@
     "changeLayout": "Layout ändern",
     "layout": "Layout",
     "layouts": {
+      "gmail": {
+        "label": "Gmail",
+        "description": "Posteingang und Leseansicht in voller Breite im Gmail-Stil"
+      },
       "focused": {
         "label": "Fokussiert",
         "description": "Minimale Listenspalte, maximaler Lesebereich"

@@ -119,6 +119,30 @@ describe('reopening a draft saved by another client', () => {
     assert.notEqual(editor.getHTML(), GMAIL_DRAFT, 'precondition: TipTap rewrote the stored HTML');
   });
 
+  test('Gmail framing keeps existing controls and the same draft editor when switching layouts', async () => {
+    const previousLayout = useStore.getState().layout;
+    const editor = document.querySelector('.ProseMirror').editor;
+    const compose = document.querySelector('.compose-window');
+    try {
+      await React.act(async () => { useStore.getState().setLayout('gmail'); });
+      assert.equal(document.documentElement.dataset.mailflowLayout, 'gmail');
+      assert.equal(compose.dataset.composePlacement, 'docked');
+      assert.equal(compose.dataset.composeResized, 'false');
+      assert.ok(compose.querySelector('.mail-compose-titlebar'));
+      assert.ok(compose.querySelector('.mail-compose-fields select'));
+      assert.ok(compose.querySelector('.mail-compose-footer .mail-compose-send [data-send-later]'));
+      assert.ok(compose.querySelector('[aria-label="compose.discard"]'));
+      await React.act(async () => { useStore.getState().setLayout('comfortable'); });
+      assert.equal(document.querySelector('.ProseMirror').editor, editor, 'no editor remount');
+      assert.equal(document.querySelector('.compose-window'), compose, 'no compose remount');
+      assert.match(editor.getHTML(), /The contract is attached/);
+      await hideTab();
+      assert.equal(saved.length, 0, 'a skin change does not create or rewrite a draft');
+    } finally {
+      await React.act(async () => { useStore.getState().setLayout(previousLayout); });
+    }
+  });
+
   test('does not autosave a draft that was only opened', async () => {
     await hideTab();
     assert.equal(saved.length, 0, 'an untouched draft must not be rewritten');
