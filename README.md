@@ -696,12 +696,11 @@ MailFlow is free and open source, and built and maintained by one person. Sponso
 <!-- SPONSORS-START -->
 #### Sponsors
 
-<a href="https://github.com/phillip9933" title="phillip9933"><img src="https://avatars.githubusercontent.com/u/19641186?s=192&amp;u=f5eed97c62db0fed8c5274adcf7fd750e42bcd93&amp;v=4" width="48" height="48" alt="phillip9933" style="border-radius:50%;margin:4px"></a>
 <a href="https://github.com/Samuarcher" title="Samuarcher"><img src="https://avatars.githubusercontent.com/u/3508826?s=192&amp;u=b51d075a84fc497706806bb220253de08683bf1c&amp;v=4" width="48" height="48" alt="Samuarcher" style="border-radius:50%;margin:4px"></a>
 
 #### Past supporters
 
-<sub><a href="https://github.com/Rainson12">Rene Steen</a>, <a href="https://github.com/rahhing">rahh</a>, <a href="https://github.com/MikeScanlan5">Mike Scanlan</a>, <a href="https://github.com/lindstrm">Joachim Lindström</a>, <a href="https://github.com/shamoon">shamoon</a>, <a href="https://github.com/chip-well">Christopher Hipwell</a></sub>
+<sub><a href="https://github.com/Rainson12">Rene Steen</a>, <a href="https://github.com/rahhing">rahh</a>, <a href="https://github.com/MikeScanlan5">Mike Scanlan</a>, <a href="https://github.com/lindstrm">Joachim Lindström</a>, <a href="https://github.com/shamoon">shamoon</a>, <a href="https://github.com/chip-well">Christopher Hipwell</a>, <a href="https://github.com/phillip9933">phillip9933</a></sub>
 <!-- SPONSORS-END -->
 
 ---
