@@ -305,6 +305,23 @@ describe('MessageList replacement search feedback', () => {
     await settle();
     await respond({ messages: [] });
   });
+
+  // Search results have no page numbers, and paginated mode drew no Load more for them, so a
+  // search stopped at its first page with no way to the rest.
+  test('paginated mode: a full page of search results offers Load more', async () => {
+    await mount({ scrollMode: 'paginated' });
+    useStore.setState({ pageSize: 2 });
+    await search('Synthetic');
+    await settle();
+    await respond({ messages: [hit('a'), hit('b')] });
+    const more = [...container().querySelectorAll('button')].find(b => /messageList\.loadMore/.test(b.textContent));
+    assert.ok(more, 'a full page offers more');
+    await React.act(async () => { more.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    assert.match(await respond({ messages: [hit('c')] }), /offset=2/);
+    assert.deepEqual(useStore.getState().searchResults.map(m => m.id), ['a', 'b', 'c']);
+    assert.match(text(), /messageList\.noMoreMessages/);
+    assert.doesNotMatch(text(), /messageList\.pageOf/, 'still no folder page numbers');
+  });
 });
 
 describe('MessageList search scope note', () => {

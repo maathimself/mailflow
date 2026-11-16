@@ -4364,8 +4364,10 @@ function MailboxList() {
           />
         )}
 
-        {/* Infinite scroll footer */}
-        {scrollMode === 'infinite' && (<>
+        {/* List footer. Search results have no page numbers, so they load more in either scroll
+            mode; paginated search used to stop at its first page with no way on. The folder
+            list's Load more is infinite scroll only. */}
+        {(scrollMode === 'infinite' || !!searchQuery.trim()) && (<>
           {/* Search mode: load more search results */}
           {searchQuery.trim() ? (!isSearching && <>
             {searchLoadingMore && (
