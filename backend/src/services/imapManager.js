@@ -1991,6 +1991,9 @@ export const ACQUIRE_TIMEOUT_MS = 35000;
 // How long a click's body fetch on the IDLE session may take (it can queue behind a sync tick
 // there) before the click tries the pool instead, inside the body route's 40s deadline.
 const PERSISTENT_BODY_TIMEOUT_MS = 15000;
+// INBOX's message count on an IDLE session when a body fetch last found it selected, so mail that
+// arrives while the fetch has another folder selected is noticed (_reselectIdleInbox).
+const idleInboxExists = new WeakMap();
 
 // How long a leased pooled connection may wait on a reply, with nothing arriving, before
 // it is closed. imapflow has no per-command timeout. The `commandTimeout` this file
@@ -2631,10 +2634,10 @@ export async function withFreshClient(account, fn, { stallTimeout = true, backgr
 // grab a second frozen connection and return a blank body, so the retry must be genuinely
 // fresh. Not pooled itself — a body fetch is user-initiated and infrequent, so the
 // one-off login cost is acceptable for guaranteed correctness.
-async function withFreshLogin(account, fn) {
+async function withFreshLogin(account, fn, { background = false } = {}) {
   const fresh = await ensureFreshToken(account);
   const { resolved, policy } = await resolveAccountHost(fresh);
-  const client = await connectImapClient(fresh, resolved, { policy }, 30000, 'IMAP fresh-login connect', { session: 'user' });
+  const client = await connectImapClient(fresh, resolved, { policy }, 30000, 'IMAP fresh-login connect', { session: background ? undefined : 'user' });
   try {
     return await fn(client);
   } finally {
@@ -6299,6 +6302,8 @@ export class ImapManager {
     console.log(`Bulk flag refresh: ${nullResult.rows.length} unevaluated messages for ${logAccount(account)}`);
 
     for (const [folder, msgs] of byFolder) {
+      // One login per folder: a refusal stops the walk, as it does backfill's.
+      if (this._secondaryConnectBlocked(account.id)) return;
       let client = null;
       try {
         const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
@@ -6338,7 +6343,9 @@ export class ImapManager {
         }
         console.log(`Bulk flag refresh: ${updates.length}/${msgs.length} updated in ${folder} for ${logAccount(account)}`);
       } catch (err) {
-        console.warn(`Bulk flag refresh error for ${logAccount(account)}/${folder}: ${err.message}`);
+        const detail = extractImapError(err);
+        console.warn(`Bulk flag refresh error for ${logAccount(account)}/${folder}: ${detail}`);
+        if (isConnectionRefusal(detail) || isAuthFailure(detail)) this._noteSecondaryRefusal(account);
       } finally {
         if (client) { try { client.close(); } catch { /* ignore */ } }
       }
@@ -7237,14 +7244,32 @@ export class ImapManager {
     const client = this.connections.get(account.id);
     if (!client || client.usable === false) return null;
     return (_acct, fn) => {
+      if (client.mailbox?.path === 'INBOX') idleInboxExists.set(client, client.mailbox.exists);
       const run = fn(client);
-      run.catch(() => {}).then(() => {
-        if (client.usable === false || !client.mailbox || client.mailbox.path === 'INBOX') return;
-        client.getMailboxLock('INBOX').then(lock => lock.release()).catch(err =>
-          console.warn(`Could not select INBOX again on the IDLE session of ${logAccount(account)}: ${extractImapError(err)}`));
-      });
+      run.catch(() => {}).then(() => this._reselectIdleInbox(account, client));
       return raceTimeout(run, PERSISTENT_BODY_TIMEOUT_MS, 'Body fetch on the IDLE session');
     };
+  }
+
+  async _reselectIdleInbox(account, client) {
+    // Also when no mailbox is selected: a failed SELECT leaves none, and imapflow does not IDLE
+    // without one.
+    if (client.usable === false || client.mailbox?.path === 'INBOX') return;
+    let count;
+    try {
+      const lock = await client.getMailboxLock('INBOX');
+      count = client.mailbox?.path === 'INBOX' ? client.mailbox.exists : undefined;
+      lock.release();
+    } catch (err) {
+      console.warn(`Could not select INBOX again on the IDLE session of ${logAccount(account)}: ${extractImapError(err)}`);
+      return;
+    }
+    // The SELECT reply carries mail that came while another folder was selected, and imapflow
+    // raises no 'exists' for it, so it would wait for the next sync tick. Raise it here.
+    const prevCount = idleInboxExists.get(client);
+    if (typeof count !== 'number') return;
+    idleInboxExists.set(client, count);
+    if (typeof prevCount === 'number' && count > prevCount) client.emit('exists', { path: 'INBOX', count, prevCount });
   }
 
   // Uses a fresh connection to avoid lock contention with sync connection.
@@ -7580,8 +7605,9 @@ export class ImapManager {
     // size-2 pool and inheriting a frozen/half-open pooled session view that would hang the
     // fetch until the hand-out NOOP or POOL_STALL_TIMEOUT_MS closed it. Other providers keep
     // pool-first for TLS reuse.
+    const freshLogin = (acct, fn) => withFreshLogin(acct, fn, { background });
     const firstAcquire = providerProfile(account).preferFreshBodyFetch
-      ? withFreshLogin
+      ? freshLogin
       : (acct, fn) => withFreshClient(acct, fn, { background });
     let triedPersistent = false;
     const viaPersistent = () => { triedPersistent = true; return doFetch(onPersistent); };
@@ -7634,7 +7660,7 @@ export class ImapManager {
           throw wrapped;
         }
         try {
-          return await (retryOnPersistent ? viaPersistent() : doFetch(withFreshLogin));
+          return await (retryOnPersistent ? viaPersistent() : doFetch(freshLogin));
         } catch (retryErr) {
           const retryDetail = extractImapError(retryErr);
           // 'Command failed' on the retry means the UID FETCH returned nothing both

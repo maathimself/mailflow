@@ -124,6 +124,31 @@ describe('per-mailbox session cap', () => {
     expect(order).toEqual(['user', 'background']);
   });
 
+  it("queues a background body retry's login behind a user's", async () => {
+    const mgr = new ImapManager({ clients: new Set() });
+    const account = outlook();
+    evictPool(account.id);
+    const holder = await connectImapClient(account, resolved, cfg, 1000, 'test');
+    const order = [];
+    const user = connectImapClient(account, resolved, cfg, 1000, 'test', { session: 'user' })
+      .then(c => { order.push('user'); return c; });
+    // The prefetch's pooled session finds nothing, so it retries on a fresh login.
+    ImapFlow.mockImplementationOnce(function () {
+      const c = fakeClient();
+      c.fetch = vi.fn(async function* () {});
+      opened.push(c);
+      return c;
+    });
+    const prefetch = mgr.fetchMessageBody(account, 42, 'INBOX', { background: true })
+      .then(b => { order.push('prefetch'); return b; });
+    for (let i = 0; i < 20; i++) await flush();
+    holder.close();
+    (await user).close();
+    expect((await prefetch).text).toBe('hello');
+    expect(order).toEqual(['user', 'prefetch']);
+    evictPool(account.id);
+  });
+
   it('frees the slot of a login that failed', async () => {
     const account = outlook();
     connectImpl = () => Promise.reject(Object.assign(new Error('Command failed'), { responseText: OUTLOOK_TEXT }));
@@ -149,6 +174,20 @@ describe("Outlook's session refusal", () => {
   it('reads as a refusal, in both shapes imapflow reports it', () => {
     expect(isConnectionRefusal(OUTLOOK_TEXT)).toBe(true);
     expect(isConnectionRefusal(`Authentication failed: ${OUTLOOK_TEXT}`)).toBe(true);
+  });
+
+  it('stops the bulk flag refresh at the first refused login', async () => {
+    const mgr = new ImapManager({ clients: new Set() });
+    const account = outlook();
+    query.mockImplementation(async (sql) => ({
+      rows: /is_bulk IS NULL/.test(sql)
+        ? [{ id: 'm1', uid: 1, folder: 'INBOX' }, { id: 'm2', uid: 2, folder: 'Archive' }, { id: 'm3', uid: 3, folder: 'Sent' }]
+        : [account],
+    }));
+    connectImpl = () => Promise.reject(Object.assign(new Error('Command failed'), { responseText: OUTLOOK_TEXT }));
+    await mgr.refreshBulkFlags(account);
+    expect(ImapFlow).toHaveBeenCalledTimes(1);
+    expect(mgr._secondaryConnectBlocked(account.id)).toBeTruthy();
   });
 
   it('backs a refused reconnect off instead of retrying it every health check', async () => {
@@ -187,10 +226,42 @@ describe('which session serves an opened message', () => {
 
   it('selects INBOX again after reading another folder over the IDLE session', async () => {
     const account = withIdleSession(outlook());
+    const exists = [];
+    idle.on('exists', e => exists.push(e));
     await mgr.fetchMessageBody(account, 42, 'Archive');
     await flush();
     expect(idle.locks).toEqual(['Archive', 'INBOX']);
     expect(idle.mailbox.path).toBe('INBOX');
+    expect(exists).toEqual([]); // nothing new arrived
+  });
+
+  // imapflow leaves no mailbox selected after a failed SELECT, and does not IDLE without one.
+  it('selects INBOX again when the other folder could not be selected', async () => {
+    const account = withIdleSession(outlook());
+    idle.getMailboxLock.mockImplementationOnce(async (p) => {
+      idle.locks.push(p);
+      idle.mailbox = false;
+      throw new Error('Mailbox does not exist');
+    });
+    await mgr.fetchMessageBody(account, 42, 'Archive').catch(() => {});
+    await flush();
+    expect(idle.locks.slice(0, 2)).toEqual(['Archive', 'INBOX']);
+    expect(idle.mailbox.path).toBe('INBOX');
+  });
+
+  // The SELECT reply carries the new count and imapflow raises no 'exists' for it.
+  it('reports mail that reached INBOX while another folder was selected', async () => {
+    const account = withIdleSession(outlook());
+    idle.getMailboxLock.mockImplementation(async (p) => {
+      idle.locks.push(p);
+      idle.mailbox = { path: p, exists: p === 'INBOX' ? 2 : 7 };
+      return { release() {} };
+    });
+    const exists = [];
+    idle.on('exists', e => exists.push(e));
+    await mgr.fetchMessageBody(account, 42, 'Archive');
+    await flush();
+    expect(exists).toEqual([{ path: 'INBOX', count: 2, prevCount: 1 }]);
   });
 
   it('keeps background prefetch off the IDLE session', async () => {
