@@ -448,6 +448,8 @@
     "messagesPerPage": "Messaggi per pagina",
     "selectAll": "Seleziona tutto",
     "deselectAll": "Deseleziona tutto",
+    "selectPage": "Seleziona questa pagina",
+    "selectLoaded": "Seleziona i messaggi caricati",
     "starSelected": "Aggiungi stella",
     "unstarSelected": "Rimuovi stella",
     "markReadSelected": "Segna come letto",

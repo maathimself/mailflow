@@ -450,6 +450,8 @@
     "messagesPerPage": "Wiadomości na stronę",
     "selectAll": "Zaznacz wszystkie",
     "deselectAll": "Odznacz wszystkie",
+    "selectPage": "Zaznacz tę stronę",
+    "selectLoaded": "Zaznacz wczytane wiadomości",
     "starSelected": "Oznacz gwiazdką",
     "unstarSelected": "Usuń gwiazdkę",
     "markReadSelected": "Oznacz jako przeczytane",

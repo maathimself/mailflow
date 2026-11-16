@@ -448,6 +448,8 @@
     "messagesPerPage": "每页邮件数",
     "selectAll": "全选",
     "deselectAll": "取消全选",
+    "selectPage": "选择本页",
+    "selectLoaded": "选择已加载的邮件",
     "starSelected": "加星标",
     "unstarSelected": "取消星标",
     "markReadSelected": "标为已读",

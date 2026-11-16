@@ -2834,7 +2834,14 @@ function MailboxList() {
   const hoverPrefetch = useHoverPrefetch({ enabled: !isMobile && !selectionMode });
   const selectedMsgs = displayMessages.filter(m => selectedIds.has(m.id));
   const selectedCount = selectedIds.size;
-  const allSelected = displayMessages.length > 0 && selectedIds.size === displayMessages.length;
+  // The select-all box speaks for the rows on screen. A page change keeps the selection, so
+  // counting selectedIds would call another page's rows this page's (#741).
+  const allSelected = displayMessages.length > 0 && selectedMsgs.length === displayMessages.length;
+  const someSelected = selectedMsgs.length > 0 && !allSelected;
+  // It takes the loaded rows only: one page when paginated, or what has scrolled in so far.
+  const selectAllLabel = allSelected
+    ? t('messageList.deselectAll')
+    : t(scrollMode === 'paginated' && !searchQuery.trim() ? 'messageList.selectPage' : 'messageList.selectLoaded');
   const selectedAccountIds = [...new Set(selectedMsgs.map(m => m.account_id))];
   const canMove = selectedAccountIds.length === 1;
   const bulkMarkAsRead = selectedMsgs.some(m => !m.is_read);
@@ -3879,8 +3886,11 @@ function MailboxList() {
             <input
               type="checkbox"
               checked={allSelected}
+              // Mixed when some rows on screen are selected; clicking it then selects them all.
+              ref={el => { if (el) el.indeterminate = someSelected; }}
               onChange={e => e.target.checked ? selectAll(displayMessages) : clearSelection()}
-              title={allSelected ? t('messageList.deselectAll') : t('messageList.selectAll')}
+              title={selectAllLabel}
+              aria-label={selectAllLabel}
               style={{ cursor: 'pointer', accentColor: 'var(--accent)', flexShrink: 0 }}
             />
             <span style={{ fontSize: 12, color: 'var(--text-secondary)', flex: 1, userSelect: 'none' }}>

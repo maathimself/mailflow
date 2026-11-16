@@ -322,6 +322,8 @@
     "messagesPerPage": "Zpráv na stránku",
     "selectAll": "Vybrat vše",
     "deselectAll": "Zrušit výběr",
+    "selectPage": "Vybrat tuto stránku",
+    "selectLoaded": "Vybrat načtené zprávy",
     "starSelected": "Označit hvězdičkou",
     "unstarSelected": "Odebrat hvězdičku",
     "markReadSelected": "Označit jako přečtené",

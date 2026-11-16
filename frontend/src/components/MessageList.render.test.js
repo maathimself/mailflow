@@ -1546,3 +1546,60 @@ describe('MessageList — a cold launch', () => {
     assert.ok(!container.querySelector('.skeleton-line'), 'the loading rows go once the list is in');
   });
 });
+
+// The selection bar's select-all box (#741): it says which rows it takes (this page, or the rows
+// loaded so far), shows a mixed state when only some of them are selected, and judges both by
+// the rows on screen, since a page change keeps rows selected on another page.
+describe('MessageList — select-all box scope and mixed state (#741)', () => {
+  const M2 = { ...MESSAGE, id: 'msg-b', uid: 2, message_id: '<m2@example.com>', subject: 'Second' };
+  const M3 = { ...MESSAGE, id: 'msg-c', uid: 3, message_id: '<m3@example.com>', subject: 'Third' };
+  const box = () => container.querySelector('input[type="checkbox"][aria-label]');
+  const ctrlClick = async (msgid) => {
+    const row = container.querySelector(`[data-msgid="${msgid}"]`);
+    const target = row.querySelector('[draggable]') || row;
+    await React.act(async () => {
+      target.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+    });
+  };
+  const clickBox = async () => { await React.act(async () => { box().click(); }); };
+
+  test('some rows selected shows mixed; clicking selects every loaded row, then clears', async () => {
+    await mount({ rows: [MESSAGE, M2, M3], threadedView: false });
+    await ctrlClick('msg-b');
+    assert.ok(box(), 'the selection bar shows its select-all box');
+    assert.equal(box().checked, false);
+    assert.equal(box().indeterminate, true, 'one of three selected is mixed');
+    assert.equal(box().getAttribute('aria-label'), 'messageList.selectLoaded', 'infinite scroll names the loaded rows');
+
+    await clickBox();
+    assert.equal(box().checked, true);
+    assert.equal(box().indeterminate, false);
+    assert.equal(box().getAttribute('aria-label'), 'messageList.deselectAll');
+
+    await clickBox();
+    assert.equal(box(), null, 'clearing the selection closes the bar');
+  });
+
+  test('paginated mode names the page', async (t) => {
+    useStore.setState({ scrollMode: 'paginated' });
+    t.after(() => React.act(async () => { useStore.setState({ scrollMode: 'infinite' }); }));
+    await mount({ rows: [MESSAGE, M2], threadedView: false });
+    await ctrlClick('msg-1');
+    assert.equal(box().getAttribute('aria-label'), 'messageList.selectPage');
+    assert.equal(box().indeterminate, true);
+  });
+
+  test('rows selected elsewhere do not make the rows on screen look selected', async () => {
+    await mount({ rows: [MESSAGE, M2, M3], threadedView: false });
+    await ctrlClick('msg-b');
+    await clickBox();
+    assert.equal(box().checked, true);
+    // Another page's rows, with the three still selected: the counts match, the rows do not.
+    const others = ['p2-a', 'p2-b', 'p2-c'].map((id, i) => ({ ...MESSAGE, id, uid: 20 + i, message_id: `<${id}@example.com>` }));
+    await React.act(async () => { useStore.setState({ messages: others }); });
+    assert.equal(box().checked, false, 'none of the rows on screen is selected');
+    assert.equal(box().indeterminate, false);
+    await ctrlClick('p2-a');
+    assert.equal(box().indeterminate, true, 'one of the three on screen is mixed');
+  });
+});

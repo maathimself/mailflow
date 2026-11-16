@@ -448,6 +448,8 @@
     "messagesPerPage": "Сообщений на странице",
     "selectAll": "Выбрать все",
     "deselectAll": "Снять выделение",
+    "selectPage": "Выбрать эту страницу",
+    "selectLoaded": "Выбрать загруженные сообщения",
     "starSelected": "Отметить звездой",
     "unstarSelected": "Убрать звезду",
     "markReadSelected": "Отметить как прочитанное",
