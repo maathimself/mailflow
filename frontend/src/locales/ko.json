@@ -462,6 +462,7 @@
     "nextPage": "다음",
     "pageOf": "{{total}} 중 {{current}} 페이지",
     "loadMore": "더 보기",
+    "loadMoreFailed": "결과를 더 불러오지 못했습니다.",
     "deleted": {
       "body": "제거됨.",
       "title": "메시지가 삭제되었습니다.",

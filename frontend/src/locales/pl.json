@@ -468,6 +468,7 @@
     "nextPage": "Dalej",
     "pageOf": "Strona {{current}} z {{total}}",
     "loadMore": "Wczytaj więcej",
+    "loadMoreFailed": "Nie udało się wczytać kolejnych wyników.",
     "noMoreMessages": "Brak kolejnych wiadomości",
     "deleted": {
       "title": "Wiadomość usunięta",

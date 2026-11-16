@@ -466,6 +466,7 @@
     "nextPage": "Weiter",
     "pageOf": "Seite {{current}} von {{total}}",
     "loadMore": "Mehr laden",
+    "loadMoreFailed": "Weitere Ergebnisse konnten nicht geladen werden.",
     "noMoreMessages": "Keine weiteren Nachrichten",
     "deleted": {
       "title": "Nachricht gelöscht",

@@ -278,6 +278,8 @@ function MailboxList() {
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
+  // A Load more that failed: the button stays, as a retry, with a line saying so (#742).
+  const [searchLoadMoreFailed, setSearchLoadMoreFailed] = useState(false);
   const searchFetchedOffsetRef = useRef(0);
   const listRef = useRef(null);
   const searchInputRef = useRef(null); // for focusSearch shortcut
@@ -659,6 +661,9 @@ function MailboxList() {
   // Search
   useEffect(() => {
     clearTimeout(searchTimer.current);
+    // A new search owns the Load more area: an older one's pending page or failure is not its own.
+    setSearchLoadingMore(false);
+    setSearchLoadMoreFailed(false);
     if (!searchQuery.trim()) {
       searchSeq.current += 1;
       setIsSearching(false);
@@ -719,6 +724,7 @@ function MailboxList() {
     const qSnapshot = searchQuery; // capture before async gap
     const seq = searchSeq.current;
     setSearchLoadingMore(true);
+    setSearchLoadMoreFailed(false);
     try {
       const offset = searchFetchedOffsetRef.current;
       const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, limit: searchPageSize, folder: searchFolder });
@@ -730,8 +736,10 @@ function MailboxList() {
       setSearchHasMore(data.messages.length === searchPageSize);
     } catch (err) {
       console.error('Search load more failed:', err);
+      if (searchSeq.current === seq && useStore.getState().searchQuery === qSnapshot) setSearchLoadMoreFailed(true);
     } finally {
-      setSearchLoadingMore(false);
+      // A page asked for by a replaced search must not end the current one's.
+      if (searchSeq.current === seq) setSearchLoadingMore(false);
     }
   }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchLoadingMore, applyReadGuard]);
 
@@ -2836,6 +2844,7 @@ function MailboxList() {
   const selectedCount = selectedIds.size;
   // The select-all box speaks for the rows on screen. A page change keeps the selection, so
   // counting selectedIds would call another page's rows this page's (#741).
+  const staleSearchRows = isSearching && !!searchQuery.trim() && displayMessages.length > 0;
   const allSelected = displayMessages.length > 0 && selectedMsgs.length === displayMessages.length;
   const someSelected = selectedMsgs.length > 0 && !allSelected;
   // It takes the loaded rows only: one page when paginated, or what has scrolled in so far.
@@ -3698,7 +3707,12 @@ function MailboxList() {
           onPointerMove={hoverPrefetch.onPointerMove}
           onPointerLeave={hoverPrefetch.onPointerLeave}
           tabIndex={0}
-          style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', outline: 'none', overscrollBehavior: 'contain' }}
+          aria-busy={staleSearchRows || undefined}
+          style={{
+            height: '100%', overflowY: 'auto', overflowX: 'hidden', outline: 'none', overscrollBehavior: 'contain',
+            // Rows from the search being replaced stay, dimmed, so they don't read as its matches (#742).
+            opacity: staleSearchRows ? 0.5 : 1, transition: 'opacity 0.15s',
+          }}
         >
           {showGtdTab ? <GtdTabList /> : (<>
           {/* Pull-to-refresh indicator */}
@@ -4366,6 +4380,11 @@ function MailboxList() {
             )}
             {!searchLoadingMore && searchHasMore && displayMessages.length > 0 && (
               <div style={{ padding: '12px 16px', textAlign: 'center' }}>
+                {searchLoadMoreFailed && (
+                  <div role="alert" style={{ marginBottom: 8, color: 'var(--text-secondary)', fontSize: 12 }}>
+                    {t('messageList.loadMoreFailed')}
+                  </div>
+                )}
                 <button
                   onClick={loadMoreSearch}
                   style={{
@@ -4377,7 +4396,7 @@ function MailboxList() {
                   onMouseEnter={e => { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}
                   onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = 'var(--text-secondary)'; }}
                 >
-                  {t('messageList.loadMore')}
+                  {searchLoadMoreFailed ? t('common.retry') : t('messageList.loadMore')}
                 </button>
               </div>
             )}

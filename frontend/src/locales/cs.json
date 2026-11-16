@@ -340,6 +340,7 @@
     "nextPage": "Další",
     "pageOf": "Strana {{current}} z {{total}}",
     "loadMore": "Načíst další",
+    "loadMoreFailed": "Další výsledky se nepodařilo načíst.",
     "noMoreMessages": "Žádné další zprávy",
     "deleted": {
       "title": "Zpráva smazána",

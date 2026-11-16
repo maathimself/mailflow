@@ -466,6 +466,7 @@
     "nextPage": "Sig.",
     "pageOf": "Página {{current}} de {{total}}",
     "loadMore": "Cargar más",
+    "loadMoreFailed": "No se pudieron cargar más resultados.",
     "noMoreMessages": "No hay más mensajes",
     "deleted": {
       "title": "Mensaje eliminado",

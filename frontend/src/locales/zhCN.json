@@ -466,6 +466,7 @@
     "nextPage": "下一页",
     "pageOf": "第 {{current}} 页，共 {{total}} 页",
     "loadMore": "加载更多",
+    "loadMoreFailed": "无法加载更多结果。",
     "noMoreMessages": "没有更多邮件了",
     "deleted": {
       "title": "邮件已删除",

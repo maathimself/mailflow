@@ -466,6 +466,7 @@
     "nextPage": "Далее",
     "pageOf": "Страница {{current}} из {{total}}",
     "loadMore": "Загрузить ещё",
+    "loadMoreFailed": "Не удалось загрузить больше результатов.",
     "noMoreMessages": "Больше сообщений нет",
     "deleted": {
       "title": "Сообщение удалено",
