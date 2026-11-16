@@ -67,6 +67,8 @@ globalThis.__VITE_ENV__ = { MODE: 'test', DEV: false, PROD: true };
 // needs a real shape; everything else can be an empty object, unless a test serves a path
 // through ROUTES as [status, body].
 let SERVED = [];
+// The list's total as the server reports it: the folder counter, which can run ahead of the rows.
+let SERVED_TOTAL = null;
 let ROUTES = {};
 // Every request, with its JSON body, for tests that assert what reached the server.
 let CALLS = [];
@@ -77,7 +79,7 @@ globalThis.fetch = async (url, opts = {}) => {
   CALLS.push({ path, method: opts.method || 'GET', body: sent });
   // A route may carry response headers as a third element.
   const [status, body, headers = {}] = Object.entries(ROUTES).find(([p]) => path.endsWith(p))?.[1]
-    ?? [200, path.includes('/mail/messages?') ? { messages: SERVED, total: SERVED.length } : {}];
+    ?? [200, path.includes('/mail/messages?') ? { messages: SERVED, total: SERVED_TOTAL ?? SERVED.length } : {}];
   return { ok: status < 400, status, headers: { get: name => headers[name] ?? (/content-type/i.test(name) ? 'application/json' : null) }, json: async () => body, text: async () => JSON.stringify(body) };
 };
 
@@ -1391,6 +1393,9 @@ describe('MessageList: the next page', () => {
       }
       return plain(url, opts);
     };
+    // One row per page, so the first page is full: a short page is the end of the list (#743).
+    const pageSize = useStore.getState().pageSize;
+    useStore.setState({ pageSize: 1 });
     try {
       await mount({ rows: [MESSAGE], threadedView: false });
       const more = [...container.querySelectorAll('button')].find(b => b.textContent === 'messageList.loadMore');
@@ -1407,6 +1412,7 @@ describe('MessageList: the next page', () => {
       assert.deepEqual(useStore.getState().messages.map(m => m.id), ['msg-arch']);
     } finally {
       globalThis.fetch = plain;
+      useStore.setState({ pageSize });
     }
   });
 });
@@ -1601,5 +1607,22 @@ describe('MessageList — select-all box scope and mixed state (#741)', () => {
     assert.equal(box().indeterminate, false);
     await ctrlClick('p2-a');
     assert.equal(box().indeterminate, true, 'one of the three on screen is mixed');
+  });
+});
+
+// #743: the total is the folder counter, which can say more mail exists than can be listed. A page
+// that came back short used to leave Load more up, returning nothing every time it was pressed
+// or the list was scrolled to the bottom.
+describe('MessageList — a short page ends Load more (#743)', () => {
+  test('8 rows under a counter of 60: no Load more, the end is shown', async (t) => {
+    SERVED_TOTAL = 60;
+    t.after(() => { SERVED_TOTAL = null; });
+    const rows = Array.from({ length: 8 }, (_, i) => ({ ...MESSAGE, id: `short-${i}`, uid: 100 + i, message_id: `<short-${i}@example.com>` }));
+    await mount({ rows, threadedView: false });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    assert.equal(useStore.getState().hasMoreMessages, false);
+    const text = container.textContent;
+    assert.doesNotMatch(text, /messageList\.loadMore/);
+    assert.match(text, /messageList\.noMoreMessages/);
   });
 });

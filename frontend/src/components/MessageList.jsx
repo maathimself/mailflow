@@ -51,7 +51,7 @@ import SpamExplainModal from './SpamExplainModal.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { RowTagPills } from '../tags/TagPills.jsx';
 import { createLatestRequest } from '../utils/latestRequest.js';
-import { refreshListWindow, createTrailingRefresh } from '../utils/listRefresh.js';
+import { refreshListWindow, createTrailingRefresh, hasMoreRows, fetchListWindow, fetchPageOrLast } from '../utils/listRefresh.js';
 import { applyReadGuard as guardReads, clearReadGuard, failMarkRead, setPending, settleMarkRead } from '../utils/pendingReads.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.js';
 import {
@@ -523,7 +523,7 @@ function MailboxList() {
             setMessagesTotal(data.total);
             setMessages(applyReadGuard(data.messages));
             setMessagesOffset(data.messages.length);
-            setHasMoreMessages(data.messages.length < data.total);
+            setHasMoreMessages(hasMoreRows({ fetched: data.messages.length, limit: pageSize, offset: 0, total: data.total }));
 
             // Pull the folder from IMAP whenever it is opened, not only when it happens to
             // be empty. Only INBOX is polled in the background, so every other folder showed
@@ -578,7 +578,7 @@ function MailboxList() {
       if (listGenRef.current !== gen) return;
       appendMessages(applyReadGuard(data.messages));
       setMessagesOffset(currentOffset + data.messages.length);
-      setHasMoreMessages(currentOffset + data.messages.length < data.total);
+      setHasMoreMessages(hasMoreRows({ fetched: data.messages.length, limit: pageSize, offset: currentOffset, total: data.total }));
     } catch (err) {
       console.error('Failed to load more messages:', err);
     } finally {
@@ -594,19 +594,23 @@ function MailboxList() {
       try {
         const state = useStore.getState();
         const sm = state.scrollMode;
-        const params = refreshListWindow({
+        const win = refreshListWindow({
           scrollMode: sm,
           currentPage: currentPageRef.current,
           pageSize: state.pageSize,
           loadedCount: state.messagesOffset,
         });
+        const params = {};
         scopeListParams(params, selectedAccountId, selectedFolder);
         applyListOrder(params, listOrder);
         if (unreadOnly) params.unreadOnly = 'true';
         if (state.threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
+        const fetchPage = (page) => api.getMessages({ ...params, ...page });
         await refreshRequestRef.current.run(
-          () => api.getMessages(params),
+          () => (sm === 'paginated'
+            ? fetchPageOrLast(fetchPage, { page: currentPageRef.current, pageSize: state.pageSize })
+            : fetchListWindow(fetchPage, win)),
           (data) => {
             setMessagesTotal(data.total);
             // If the unread filter is on and the currently open message was just marked
@@ -620,9 +624,14 @@ function MailboxList() {
             setMessages(msgs);
             if (sm === 'paginated') {
               setHasMoreMessages(false);
+              // The page emptied (mail deleted or moved elsewhere): show the one it moved back to.
+              if (data.page !== currentPageRef.current) {
+                currentPageRef.current = data.page;
+                setCurrentPage(data.page);
+              }
             } else {
-              setMessagesOffset(data.messages.length);
-              setHasMoreMessages(data.messages.length < data.total);
+              setMessagesOffset(data.fetched);
+              setHasMoreMessages(data.hasMore);
             }
           },
         );
@@ -790,18 +799,20 @@ function MailboxList() {
     setLoadingMessages(true);
     setCurrentPage(pageNum);
     try {
-      const params = { limit: pageSize, offset: (pageNum - 1) * pageSize };
+      const params = {};
       scopeListParams(params, selectedAccountId, selectedFolder);
       applyListOrder(params, listOrder);
       if (unreadOnly) params.unreadOnly = 'true';
       if (threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       await refreshRequestRef.current.run(
-        () => api.getMessages(params),
+        () => fetchPageOrLast(page => api.getMessages({ ...params, ...page }), { page: pageNum, pageSize }),
         (data) => {
+          // A page past the end moves back to the last one with mail.
+          if (data.page !== pageNum) setCurrentPage(data.page);
           setMessagesTotal(data.total);
           setMessages(applyReadGuard(data.messages));
-          setMessagesOffset((pageNum - 1) * pageSize + data.messages.length);
+          setMessagesOffset((data.page - 1) * pageSize + data.messages.length);
           setHasMoreMessages(false);
           setExpandedThreadId(null);
           if (listRef.current) listRef.current.scrollTop = 0;
