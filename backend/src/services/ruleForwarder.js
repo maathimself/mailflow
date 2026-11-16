@@ -203,10 +203,13 @@ async function loadForwardContent({ row, account, imapManager }) {
   let fetchedParts = [];
   let inlineParts = [];
   if (!text && !html) {
+    // Background: nobody is waiting on it, and it runs inside the sync that holds the IDLE
+    // session's mailbox lock, so it must not queue for that session (fetchMessageBody).
     const fetched = await imapManager.fetchMessageBody(
       account,
       row.uid,
-      row.folder
+      row.folder,
+      { background: true }
     );
     text = fetched.text;
     html = fetched.html;
