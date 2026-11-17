@@ -289,9 +289,10 @@ export function isConnectionRefusal(detail) {
   // IMAP is off (accountErrorCode.js classifies that from the same text), or the front end that
   // answered cannot reach the mailbox. A hotmail.com mailbox was refused by every front end in
   // some regions and served by every one in another (see IMAP_RESOLVE_VIA), and a session already
-  // open on a serving front end kept working. Unmatched, a refused reconnect was retried on every
-  // health check, about 40 times an hour for as long as the refusal lasted, and every background
-  // job kept logging in.
+  // open on a serving front end kept working. Its reconnect logged the bare text (the
+  // "Authentication failed: …" shape already reads as an auth failure), and unmatched, it was
+  // retried on every health check, about 40 times an hour for as long as the refusal lasted, while
+  // every background job kept logging in.
   return /\[LIMIT\]|connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout|authenticated but not connected/i.test(String(detail || ''));
 }
 
@@ -1941,9 +1942,11 @@ export const POOL_SIZE = 4;
 // that the next caller grows and then releases cannot serve it.
 export const ACQUIRE_TIMEOUT_MS = 35000;
 
-// How long a click's body fetch on the IDLE session may take (it can queue behind a sync tick
-// there) before the click tries the pool instead, inside the body route's 40s deadline.
+// How long a click's body fetch on the IDLE session may take, inside the body route's 40s
+// deadline. It can queue behind a sync tick there, so the wait for the mailbox lock is bounded
+// below it, as setFlag's store on that session is.
 const PERSISTENT_BODY_TIMEOUT_MS = 15000;
+const PERSISTENT_BODY_LOCK_MS = 12000;
 // INBOX's message count on an IDLE session when a body fetch last found it selected, so mail that
 // arrives while the fetch has another folder selected is noticed (_reselectIdleInbox).
 const idleInboxExists = new WeakMap();
@@ -7198,9 +7201,13 @@ export class ImapManager {
     if (!client || client.usable === false) return null;
     return (_acct, fn) => {
       if (client.mailbox?.path === 'INBOX') idleInboxExists.set(client, client.mailbox.exists);
-      const run = fn(client);
+      // A fetch given up on must not run later for nobody, ahead of the sync tick: its lock wait
+      // is bounded, and a lock granted after the deadline is released unused.
+      let expired = false;
+      const run = fn(client, { acquireTimeout: PERSISTENT_BODY_LOCK_MS, expired: () => expired });
       run.catch(() => {}).then(() => this._reselectIdleInbox(account, client));
-      return raceTimeout(run, PERSISTENT_BODY_TIMEOUT_MS, 'Body fetch on the IDLE session');
+      return raceTimeout(run, PERSISTENT_BODY_TIMEOUT_MS, 'Body fetch on the IDLE session')
+        .catch(err => { expired = true; throw err; });
     };
   }
 
@@ -7252,7 +7259,8 @@ export class ImapManager {
     // the first attempt uses the pool (withFreshClient); the retry uses a genuinely fresh
     // login (withFreshLogin) so a frozen/half-open pooled connection can't hang or return
     // a blank body for recently-arrived mail.
-    const doFetch = (acquire) => acquire(account, async (client) => {
+    // `idleSession`: set when the fetch runs on the persistent IDLE session (_persistentBodySession).
+    const doFetch = (acquire) => acquire(account, async (client, idleSession) => {
       let html = null;
       let text = null;
       let attachments;
@@ -7269,7 +7277,11 @@ export class ImapManager {
       // quota is hit.
       const uidStr = String(uid);
 
-      const lock = await client.getMailboxLock(folder);
+      const lock = await client.getMailboxLock(folder, idleSession && { acquireTimeout: idleSession.acquireTimeout });
+      if (idleSession?.expired()) {
+        lock.release();
+        throw new Error('Body fetch on the IDLE session expired');
+      }
       try {
         let structure = null;
         const prefetched = new Map(); // part number -> Buffer

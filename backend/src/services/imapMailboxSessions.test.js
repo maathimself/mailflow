@@ -213,6 +213,31 @@ describe('which session serves an opened message', () => {
     expect(ImapFlow).toHaveBeenCalledTimes(1);
   });
 
+  // A sync tick can hold the IDLE session's mailbox lock. A click given up on must not run later,
+  // for nobody, ahead of that sync.
+  it('bounds the wait for the IDLE session and never runs a click given up on', async () => {
+    vi.useFakeTimers();
+    try {
+      const account = refusing(withIdleSession(outlook()));
+      let grant;
+      const release = vi.fn();
+      idle.getMailboxLock.mockImplementationOnce((path, opts) => new Promise((resolve) => {
+        idle.lockOpts = opts;
+        grant = () => resolve({ release });
+      }));
+      const click = mgr.fetchMessageBody(account, 42, 'Archive').catch(e => e);
+      await vi.advanceTimersByTimeAsync(16000);
+      expect(await click).toMatchObject({ providerRefusing: true });
+      expect(idle.lockOpts.acquireTimeout).toBeLessThan(16000);
+      grant(); // the sync tick lets go at last
+      await vi.advanceTimersByTimeAsync(0);
+      expect(idle.fetch).not.toHaveBeenCalled();
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('answers typed when the IDLE session cannot serve a refused click either', async () => {
     const account = refusing(withIdleSession(outlook()));
     idle.getMailboxLock.mockImplementationOnce(async () => { throw new Error('Connection not available'); });
