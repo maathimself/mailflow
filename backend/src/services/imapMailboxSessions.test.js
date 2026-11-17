@@ -1,10 +1,10 @@
-// Outlook.com caps concurrent IMAP sessions per mailbox. Past the cap a login succeeds and the
-// next command answers "User is authenticated but not connected.", while sessions already open
-// keep working. An Outlook.com mailbox was seen refusing every second session while MailFlow
-// held only its IDLE one, so no uncached message could be opened.
+// Outlook answers a login it will not serve with "User is authenticated but not connected.",
+// while a session already open keeps working. A hotmail.com mailbox was refused that way by
+// every front end in one region and served by every one in another, so with only its IDLE
+// session working, no uncached message could be opened.
 //
-// These pin the per-mailbox session cap (counted by construction: ImapFlow is mocked, so one
-// call is one login), the refusal text arming the backoff, and which session serves a click.
+// These pin the refusal text arming the backoffs (counted by construction: ImapFlow is mocked,
+// so one call is one login), which session serves a click, and IMAP_RESOLVE_VIA.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
@@ -23,7 +23,7 @@ vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./spamPipeline.js', () => ({ classifyAndTagMessage: vi.fn() }));
 vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }));
 
-import { ImapManager, connectImapClient, otherSessionLimit, providerProfile, isConnectionRefusal, acquirePooledClient, releasePooledClient, evictPool, resolveAccountHost, makeClientCfg } from './imapManager.js';
+import { ImapManager, isConnectionRefusal, acquirePooledClient, releasePooledClient, evictPool, resolveAccountHost, makeClientCfg } from './imapManager.js';
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
 import { resolveForConnection } from './hostValidation.js';
@@ -80,96 +80,6 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); });
 
-describe('per-mailbox session cap', () => {
-  it('gives Outlook three sessions: IDLE, one pooled, one for everything else', () => {
-    const profile = providerProfile({ imap_host: 'outlook.office365.com' });
-    expect(profile.maxSessions).toBe(3);
-    expect(profile.poolSize).toBe(1);
-    expect(otherSessionLimit(profile)).toBe(1);
-    // Every other provider stays uncapped.
-    for (const host of ['imap.gmail.com', 'imap.mail.yahoo.com', 'imap.purelymail.com', 'imap.zoho.com', 'imap.example.com']) {
-      expect(otherSessionLimit(providerProfile({ imap_host: host }))).toBe(Infinity);
-    }
-  });
-
-  it('queues a second background login until the first session closes', async () => {
-    const account = outlook();
-    const first = await connectImapClient(account, resolved, cfg, 30000, 'Backfill connect');
-    const second = connectImapClient(account, resolved, cfg, 30000, 'Snippet indexer connect');
-    await flush();
-    expect(ImapFlow).toHaveBeenCalledTimes(1);
-
-    // The IDLE session and the pool have their own share and do not wait.
-    await connectImapClient(account, resolved, cfg, 30000, 'IMAP connect', { session: 'persistent' });
-    await connectImapClient(account, resolved, cfg, 30000, 'IMAP pool connect', { session: 'pool' });
-    expect(ImapFlow).toHaveBeenCalledTimes(3);
-
-    first.close();
-    (await second).close();
-    expect(ImapFlow).toHaveBeenCalledTimes(4);
-  });
-
-  it('lets a login a user is waiting on go ahead of queued background work', async () => {
-    const account = outlook();
-    const holder = await connectImapClient(account, resolved, cfg, 30000, 'Backfill connect');
-    const order = [];
-    const background = connectImapClient(account, resolved, cfg, 30000, 'Flag-sync connect').then(c => { order.push('background'); return c; });
-    await flush();
-    const user = connectImapClient(account, resolved, cfg, 30000, 'IMAP fresh-login connect', { session: 'user' }).then(c => { order.push('user'); return c; });
-    await flush();
-
-    holder.close();
-    (await user).close();
-    (await background).close();
-    expect(order).toEqual(['user', 'background']);
-  });
-
-  it("queues a background body retry's login behind a user's", async () => {
-    const mgr = new ImapManager({ clients: new Set() });
-    const account = outlook();
-    evictPool(account.id);
-    const holder = await connectImapClient(account, resolved, cfg, 1000, 'test');
-    const order = [];
-    const user = connectImapClient(account, resolved, cfg, 1000, 'test', { session: 'user' })
-      .then(c => { order.push('user'); return c; });
-    // The prefetch's pooled session finds nothing, so it retries on a fresh login.
-    ImapFlow.mockImplementationOnce(function () {
-      const c = fakeClient();
-      c.fetch = vi.fn(async function* () {});
-      opened.push(c);
-      return c;
-    });
-    const prefetch = mgr.fetchMessageBody(account, 42, 'INBOX', { background: true })
-      .then(b => { order.push('prefetch'); return b; });
-    for (let i = 0; i < 20; i++) await flush();
-    holder.close();
-    (await user).close();
-    expect((await prefetch).text).toBe('hello');
-    expect(order).toEqual(['user', 'prefetch']);
-    evictPool(account.id);
-  });
-
-  it('frees the slot of a login that failed', async () => {
-    const account = outlook();
-    connectImpl = () => Promise.reject(Object.assign(new Error('Command failed'), { responseText: OUTLOOK_TEXT }));
-    await expect(connectImapClient(account, resolved, cfg, 30000, 'Backfill connect')).rejects.toThrow();
-    connectImpl = () => Promise.resolve();
-    const next = await connectImapClient(account, resolved, cfg, 30000, 'Backfill connect');
-    expect(next).toBeTruthy();
-    next.close();
-  });
-
-  it('counts each mailbox on its own, and leaves uncapped providers alone', async () => {
-    const a = outlook();
-    const b = outlook();
-    const held = [await connectImapClient(a, resolved, cfg, 30000, 'Backfill connect'), await connectImapClient(b, resolved, cfg, 30000, 'Backfill connect')];
-    const gmail = mailbox('imap.gmail.com');
-    for (let i = 0; i < 4; i++) held.push(await connectImapClient(gmail, resolved, cfg, 30000, 'Backfill connect'));
-    expect(ImapFlow).toHaveBeenCalledTimes(6);
-    for (const c of held) c.close();
-  });
-});
-
 describe("Outlook's session refusal", () => {
   it('reads as a refusal, in both shapes imapflow reports it', () => {
     expect(isConnectionRefusal(OUTLOOK_TEXT)).toBe(true);
@@ -214,10 +124,12 @@ describe('which session serves an opened message', () => {
     evictPool(account.id);
     return account;
   }
+  // The provider has refused a login, so the secondary backoff is armed.
+  const refusing = (account) => { mgr._secondaryCooldown.set(account.id, { until: Date.now() + 30000, failures: 1 }); return account; };
   afterEach(() => { if (mgr) for (const id of mgr.connections.keys()) evictPool(id); });
 
-  it('reads it over the IDLE session on a capped mailbox, with no login', async () => {
-    const account = withIdleSession(outlook());
+  it('reads it over the IDLE session while the provider refuses logins, with no login', async () => {
+    const account = refusing(withIdleSession(outlook()));
     const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
     expect(body.text).toBe('hello');
     expect(idle.fetch).toHaveBeenCalled();
@@ -225,7 +137,7 @@ describe('which session serves an opened message', () => {
   });
 
   it('selects INBOX again after reading another folder over the IDLE session', async () => {
-    const account = withIdleSession(outlook());
+    const account = refusing(withIdleSession(outlook()));
     const exists = [];
     idle.on('exists', e => exists.push(e));
     await mgr.fetchMessageBody(account, 42, 'Archive');
@@ -237,7 +149,7 @@ describe('which session serves an opened message', () => {
 
   // imapflow leaves no mailbox selected after a failed SELECT, and does not IDLE without one.
   it('selects INBOX again when the other folder could not be selected', async () => {
-    const account = withIdleSession(outlook());
+    const account = refusing(withIdleSession(outlook()));
     idle.getMailboxLock.mockImplementationOnce(async (p) => {
       idle.locks.push(p);
       idle.mailbox = false;
@@ -251,7 +163,7 @@ describe('which session serves an opened message', () => {
 
   // The SELECT reply carries the new count and imapflow raises no 'exists' for it.
   it('reports mail that reached INBOX while another folder was selected', async () => {
-    const account = withIdleSession(outlook());
+    const account = refusing(withIdleSession(outlook()));
     idle.getMailboxLock.mockImplementation(async (p) => {
       idle.locks.push(p);
       idle.mailbox = { path: p, exists: p === 'INBOX' ? 2 : 7 };
@@ -265,15 +177,16 @@ describe('which session serves an opened message', () => {
   });
 
   it('keeps background prefetch off the IDLE session', async () => {
-    const account = withIdleSession(outlook());
-    await mgr.fetchMessageBody(account, 42, 'INBOX', { background: true });
+    const account = refusing(withIdleSession(outlook()));
+    await expect(mgr.fetchMessageBody(account, 42, 'INBOX', { background: true })).rejects.toMatchObject({ providerRefusing: true });
     expect(idle.fetch).not.toHaveBeenCalled();
-    expect(ImapFlow).toHaveBeenCalledTimes(1); // the pooled session
+    expect(ImapFlow).not.toHaveBeenCalled();
   });
 
   it('uses an idle pooled session when there is one', async () => {
     const account = withIdleSession(outlook());
     releasePooledClient(account, await acquirePooledClient(account));
+    refusing(account);
     const body = await mgr.fetchMessageBody(account, 42, 'INBOX');
     expect(body.text).toBe('hello');
     expect(idle.fetch).not.toHaveBeenCalled();
@@ -293,11 +206,18 @@ describe('which session serves an opened message', () => {
     expect(ImapFlow.mock.calls.length).toBe(logins);
   });
 
-  it('leaves an uncapped provider on the pool while nothing refuses it', async () => {
-    const account = withIdleSession(mailbox('imap.gmail.com'));
+  it('leaves a click on the pool while nothing refuses it', async () => {
+    const account = withIdleSession(outlook());
     await mgr.fetchMessageBody(account, 42, 'INBOX');
     expect(idle.fetch).not.toHaveBeenCalled();
     expect(ImapFlow).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers typed when the IDLE session cannot serve a refused click either', async () => {
+    const account = refusing(withIdleSession(outlook()));
+    idle.getMailboxLock.mockImplementationOnce(async () => { throw new Error('Connection not available'); });
+    await expect(mgr.fetchMessageBody(account, 42, 'INBOX')).rejects.toMatchObject({ providerRefusing: true });
+    expect(ImapFlow).not.toHaveBeenCalled();
   });
 
   it('still fails fast and typed while refused when there is no IDLE session', async () => {
@@ -309,9 +229,8 @@ describe('which session serves an opened message', () => {
   });
 });
 
-// Outlook's Singapore front ends answered a Japan-hosted mailbox's every login with the same text
-// as the session cap, while its Tokyo ones served it. IMAP_RESOLVE_VIA sends the host to the pool
-// that can serve it.
+// The front ends a Singapore server's DNS returned answered a mailbox's every login with that
+// text, while Tokyo ones served it. IMAP_RESOLVE_VIA sends the host to a pool that can serve it.
 describe('front ends named by IMAP_RESOLVE_VIA', () => {
   afterEach(() => { delete process.env.IMAP_RESOLVE_VIA; });
 

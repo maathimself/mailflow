@@ -37,9 +37,10 @@ const logAccount = (account) => redactEmail(account?.email_address || '');
 
 // IMAP_RESOLVE_VIA="outlook.office365.com=HND-efz.ms-acdc.office.com" connects to the addresses
 // of another name for a host, while TLS still authenticates the host itself. It is for a provider
-// whose nearest front ends cannot serve a mailbox. On 2026-11-17 every Singapore front end of
-// outlook.office365.com answered a hotmail.com mailbox's login with "User is authenticated but
-// not connected.", while every Tokyo one (HND-efz) served it, from the same server and token.
+// whose nearest front ends cannot serve a mailbox. On 2026-11-17 every front end in the
+// outlook.office365.com pool a Singapore server's DNS returned (SIN-efz) answered a hotmail.com
+// mailbox's login with "User is authenticated but not connected.", while every Tokyo one
+// (HND-efz) served it, with the same token from the same server.
 export function resolveViaFor(host, value = process.env.IMAP_RESOLVE_VIA) {
   const want = String(host || '').trim().toLowerCase();
   for (const pair of String(value || '').split(',')) {
@@ -97,23 +98,11 @@ const hostConnectSem = createKeyedSemaphore(CONNECT_CONCURRENCY_PER_HOST);
 // host, retry once forcing IPv4-only, which sidesteps the stalled IPv6 handshake. Only a timeout
 // triggers the retry — refusals / auth / cert errors are not a family problem, so they propagate
 // unchanged. Returns a connected client the caller owns (it attaches its own 'close'/idle listeners).
-// `session` says which of the mailbox's sessions this is, for the per-mailbox cap (see
-// holdMailboxSession): 'persistent', 'pool', 'user' (a login someone is waiting on), or
-// omitted for background work. Exported for imapMailboxSessions.test.js.
-export async function connectImapClient(account, resolved, cfgOpts, timeoutMs, label, { session } = {}) {
+async function connectImapClient(account, resolved, cfgOpts, timeoutMs, label) {
   const host = (account.imap_host || '').toLowerCase();
   let sawRefusal = false; // a provider refusal ('Connection not available' etc.) fired mid-attempt
   const attempt = async (res, tag) => {
-    const releaseSession = await holdMailboxSession(account, session);
-    let client;
-    try {
-      client = new ImapFlow(makeClientCfg(account, res, cfgOpts));
-    } catch (err) {
-      releaseSession();
-      throw err;
-    }
-    // 'close' fires once, whether the caller closes the client or the server drops it.
-    client.on('close', releaseSession);
+    const client = new ImapFlow(makeClientCfg(account, res, cfgOpts));
     // Set immediately before we deliberately tear this client down, so the 'error' the
     // close itself emits is not reported as a failure. Abandoning a stalled attempt is the
     // recovery path (#382), not a fault: logging it as `IMAP error … Connection not
@@ -144,7 +133,6 @@ export async function connectImapClient(account, resolved, cfgOpts, timeoutMs, l
       // wedged/half-open connection (the exact failure we're recovering from).
       abandoned = true;
       try { client.close(); } catch { /* already closed */ }
-      releaseSession();
       throw err;
     } finally {
       hostConnectSem.release(host);
@@ -184,22 +172,19 @@ export function shouldRetryIPv4(errMessage, addresses, sawRefusal = false) {
 // host so a user with many accounts on one provider doesn't open a backfill connection for
 // every account at once (which trips per-IP/per-account connection limits, bans, locks).
 // Every acquire() MUST be paired with exactly one release(key) in a finally.
-// `limit` per acquire is for a semaphore whose keys have different limits (the mailbox session
-// cap); `front` queues ahead of the other waiters, for work a user is waiting on.
 export function createKeyedSemaphore(limit) {
   const slots = new Map(); // key -> { active: number, waiters: (() => void)[] }
   return {
-    async acquire(key, { timeoutMs = 0, limit: cap = limit, front = false } = {}) {
+    async acquire(key, { timeoutMs = 0 } = {}) {
       let s = slots.get(key);
       if (!s) { s = { active: 0, waiters: [] }; slots.set(key, s); }
-      if (s.active < cap) { s.active++; return; }
+      if (s.active < limit) { s.active++; return; }
       // At capacity — wait to be handed a slot by a future release (active is not
       // incremented here; release hands its own slot over without changing the count).
       await new Promise((resolve, reject) => {
         let timer;
         const granted = () => { clearTimeout(timer); resolve(); };
-        if (front) s.waiters.unshift(granted);
-        else s.waiters.push(granted);
+        s.waiters.push(granted);
         if (timeoutMs > 0) timer = setTimeout(() => {
           const index = s.waiters.indexOf(granted);
           if (index < 0) return;
@@ -232,40 +217,6 @@ export function createKeyedSemaphore(limit) {
 // (IDLE + the periodic interval) is separate and always flows. Keyed by host, so other
 // providers/accounts are unaffected. See _bgConnSem.
 const BACKGROUND_CONN_MAX_PER_HOST = 2;
-
-// Per-MAILBOX session cap, for a provider that limits how many sessions one mailbox may hold at
-// once (profile.maxSessions; the budgets above are per host). The persistent IDLE session and
-// the pool (poolSize) keep their own share of it. Every other login (backfill, the snippet
-// indexer, the bulk flag refresh, a probe, a body retry) takes a slot from what is left and
-// holds it until its session closes, so on a full mailbox it queues instead of opening one more
-// session for the provider to refuse. A login a user is waiting on queues ahead of background
-// work. A profile without maxSessions is unlimited, as before.
-const mailboxSessionSem = createKeyedSemaphore(Infinity);
-// Past imapflow's 5-minute socketTimeout, so a holder whose connection hung closes first.
-const BACKGROUND_SESSION_WAIT_MS = 10 * 60 * 1000;
-// Under the body route's 40s deadline.
-const USER_SESSION_WAIT_MS = 30 * 1000;
-
-export function otherSessionLimit(profile) {
-  if (!Number.isFinite(profile?.maxSessions)) return Infinity;
-  return Math.max(1, profile.maxSessions - 1 - Math.min(POOL_SIZE, profile.poolSize ?? POOL_SIZE));
-}
-
-// Waits for one of the account's other-session slots. Returns its release, safe to call twice.
-async function holdMailboxSession(account, session) {
-  const limit = session === 'persistent' || session === 'pool' ? Infinity : otherSessionLimit(providerProfile(account));
-  if (!Number.isFinite(limit) || !account?.id) return () => {};
-  const user = session === 'user';
-  const waitMs = user ? USER_SESSION_WAIT_MS : BACKGROUND_SESSION_WAIT_MS;
-  try {
-    await mailboxSessionSem.acquire(account.id, { limit, front: user, timeoutMs: waitMs });
-  } catch {
-    // Our own budget, not the provider: poolExhausted makes the body route say "busy, retry".
-    throw Object.assign(new Error(`No IMAP session free for this mailbox after ${waitMs / 1000}s (at most ${providerProfile(account).maxSessions} per mailbox)`), { poolExhausted: true });
-  }
-  let held = true;
-  return () => { if (held) { held = false; mailboxSessionSem.release(account.id); } };
-}
 
 // Concurrent auto-moves (spamPipeline's move to the spam folder) allowed per account.
 //
@@ -334,11 +285,13 @@ export function isConnectionRefusal(detail) {
   // while every refusal was flattened to "Command failed", nothing here ever matched and
   // no cooldown was ever armed against a provider that was actively refusing us.
   //
-  // "User is authenticated but not connected." is Outlook's answer to a session past its
-  // per-mailbox IMAP limit (about 15 across all of a user's clients; sessions already open keep
-  // working). It is also its answer when IMAP is off, which accountErrorCode.js classifies from
-  // the same text. Unmatched, a refused reconnect was retried on every health check, about 40
-  // times an hour for as long as the refusal lasted, and every background job kept logging in.
+  // "User is authenticated but not connected." is Outlook's answer to a login it will not serve:
+  // IMAP is off (accountErrorCode.js classifies that from the same text), or the front end that
+  // answered cannot reach the mailbox. A hotmail.com mailbox was refused by every front end in
+  // some regions and served by every one in another (see IMAP_RESOLVE_VIA), and a session already
+  // open on a serving front end kept working. Unmatched, a refused reconnect was retried on every
+  // health check, about 40 times an hour for as long as the refusal lasted, and every background
+  // job kept logging in.
   return /\[LIMIT\]|connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout|authenticated but not connected/i.test(String(detail || ''));
 }
 
@@ -1569,9 +1522,6 @@ function safeDate(d) {
 //                      Disabled for providers that throttle body fetches too aggressively.
 // skipFolderPatterns:  folder path substrings to skip during backfill (label-view dedup).
 // skipFolderNames:     exact folder paths to skip (non-selectable namespace containers).
-// maxSessions:         concurrent sessions per mailbox, for a provider that refuses more
-//                      (see otherSessionLimit). Pair it with secondaryOverPool, so probes
-//                      reuse the pooled session rather than wait for a slot.
 // batchSize/Delay/errorDelay/batchesPerConn: backfill rate-limit tuning.
 // connectStaggerMs:     base gap between successive account connects at startup, to keep the
 //                       initial burst under a provider's per-IP connection rate limit.
@@ -1640,20 +1590,6 @@ export const PROVIDERS = {
     speculativeFetch: true,
     skipFolderPatterns: [],
     skipFolderNames: [],
-    // Outlook.com and Exchange Online limit concurrent IMAP sessions per mailbox, about 15
-    // shared by every client the user runs, and count a dead session until it times out.
-    // Past the limit a login succeeds and the next command answers "User is authenticated
-    // but not connected.", while sessions already open keep working. An Outlook.com
-    // mailbox was seen refusing every second session while MailFlow held only its IDLE one,
-    // so no uncached message could be opened. MailFlow used to open its IDLE session, a
-    // pool of four and a fresh login per background job. So: three sessions at most (IDLE,
-    // one pooled, one for background jobs), the Yahoo recipe for the rest (no pre-warm;
-    // folder status and the staleness probe reuse the pooled session), and an opened
-    // message is read over the IDLE session when no other one is free (fetchMessageBody).
-    maxSessions: 3,
-    poolSize: 1,
-    poolPrewarm: false,
-    secondaryOverPool: true,
   },
   purelymail: {
     // PurelyMail (Dovecot-based) is connection-sensitive, but it runs IMAP IDLE reliably —
@@ -2482,7 +2418,7 @@ export async function acquirePooledClient(account, { background = false } = {}) 
       const { resolved, policy } = await resolveAccountHost(freshAccount);
       // Connect with the shared IPv4-fallback helper (#382); it attaches the #360 handshake-error
       // listener and recovers from a stalled IPv6 handshake by retrying IPv4-only.
-      const client = await connectImapClient(freshAccount, resolved, { policy }, 30000, 'IMAP pool connect', { session: 'pool' });
+      const client = await connectImapClient(freshAccount, resolved, { policy }, 30000, 'IMAP pool connect');
       // Remove from pool immediately when the server closes the socket, then
       // wake any waiters so they can claim another idle connection if one exists.
       client.on('close', () => {
@@ -2651,10 +2587,10 @@ export async function withFreshClient(account, fn, { stallTimeout = true, backgr
 // grab a second frozen connection and return a blank body, so the retry must be genuinely
 // fresh. Not pooled itself — a body fetch is user-initiated and infrequent, so the
 // one-off login cost is acceptable for guaranteed correctness.
-async function withFreshLogin(account, fn, { background = false } = {}) {
+async function withFreshLogin(account, fn) {
   const fresh = await ensureFreshToken(account);
   const { resolved, policy } = await resolveAccountHost(fresh);
-  const client = await connectImapClient(fresh, resolved, { policy }, 30000, 'IMAP fresh-login connect', { session: background ? undefined : 'user' });
+  const client = await connectImapClient(fresh, resolved, { policy }, 30000, 'IMAP fresh-login connect');
   try {
     return await fn(client);
   } finally {
@@ -3704,7 +3640,7 @@ export class ImapManager {
       // IPv4-only (#382).
       client = await connectImapClient(account, resolved,
         { enableIdle: providerProfile(account).usesIdle !== false, policy, idleKeepaliveMs: providerProfile(account).idleKeepaliveMs },
-        30000, 'IMAP connect', { session: 'persistent' });
+        30000, 'IMAP connect');
       if (superseded()) {
         try { client.close(); } catch { /* already closed */ }
         console.log(`Connect of ${logAccount(account)} abandoned: disconnected meanwhile`);
@@ -4240,7 +4176,7 @@ export class ImapManager {
           if (!setup) return; // account deleted/disabled mid-reconnect
           pendingClient = await connectImapClient(setup.freshAccount, setup.resolved,
             { enableIdle: providerProfile(setup.freshAccount).usesIdle !== false, policy: setup.policy, idleKeepaliveMs: providerProfile(setup.freshAccount).idleKeepaliveMs },
-            30000, 'Reconnect', { session: 'persistent' });
+            30000, 'Reconnect');
           activeClient = pendingClient;
           // Into the object this interval holds, so later ticks and the IDLE listeners below
           // share the reconnect's account data (see _refreshLiveAccount).
@@ -7296,12 +7232,10 @@ export class ImapManager {
   // the user (see acquirePooledClient).
   async fetchMessageBody(account, uid, folder, { background = false } = {}) {
     // A message someone opened can be read over the persistent IDLE session, which costs no
-    // login. It is used when no other session may serve the click: the provider is refusing
-    // other logins, or the mailbox is capped (maxSessions) and has no idle pooled session, so
-    // the click neither waits behind background work nor needs a session the provider may
-    // refuse. Background prefetch never uses it.
+    // login. It is used while the provider refuses other logins and no pooled session is idle:
+    // a session already open can still be served when every new one is refused. Background
+    // prefetch never uses it.
     const onPersistent = background ? null : this._persistentBodySession(account);
-    const capped = Number.isFinite(providerProfile(account).maxSessions);
     // While the provider is refusing secondary logins, a body click can only succeed over a
     // session that already exists. If the pool holds an idle client, use it (no new LOGIN);
     // otherwise fail fast with a typed error the route turns into a clear 503, instead of
@@ -7622,28 +7556,27 @@ export class ImapManager {
     // size-2 pool and inheriting a frozen/half-open pooled session view that would hang the
     // fetch until the hand-out NOOP or POOL_STALL_TIMEOUT_MS closed it. Other providers keep
     // pool-first for TLS reuse.
-    const freshLogin = (acct, fn) => withFreshLogin(acct, fn, { background });
     const firstAcquire = providerProfile(account).preferFreshBodyFetch
-      ? freshLogin
+      ? withFreshLogin
       : (acct, fn) => withFreshClient(acct, fn, { background });
     let triedPersistent = false;
     const viaPersistent = () => { triedPersistent = true; return doFetch(onPersistent); };
     // Whether the IDLE session should serve the click after the pool failed it.
-    const persistentNext = () => !!onPersistent && !triedPersistent && (capped || !!this._secondaryConnectBlocked(account.id));
-    if (onPersistent && !idlePooled && (blocked || capped)) {
+    const persistentNext = () => !!onPersistent && !triedPersistent && !!this._secondaryConnectBlocked(account.id);
+    if (onPersistent && !idlePooled && blocked) {
       try {
         return await viaPersistent();
       } catch (err) {
         console.warn(`fetchMessageBody: uid=${uid} folder=${folder} account=${logAccount(account)}: the IDLE session could not serve it: ${extractImapError(err)}`);
-        if (blocked) throw gateError();
+        throw gateError();
       }
     }
     try {
       return await doFetch(firstAcquire);
     } catch (firstErr) {
       const detail = extractImapError(firstErr);
-      // A refused login (which armed the backoff) or a busy capped pool: the IDLE session can
-      // still serve the click. If it cannot, the pool's error is the one reported.
+      // A refused login armed the backoff: the IDLE session can still serve the click. If it
+      // cannot, the pool's error is the one reported.
       if (persistentNext() && (firstErr.providerRefusing || firstErr.poolExhausted || isConnectionRefusal(detail))) {
         try { return await viaPersistent(); } catch { /* reported below */ }
       }
@@ -7677,7 +7610,7 @@ export class ImapManager {
           throw wrapped;
         }
         try {
-          return await (retryOnPersistent ? viaPersistent() : doFetch(freshLogin));
+          return await (retryOnPersistent ? viaPersistent() : doFetch(withFreshLogin));
         } catch (retryErr) {
           const retryDetail = extractImapError(retryErr);
           // 'Command failed' on the retry means the UID FETCH returned nothing both
