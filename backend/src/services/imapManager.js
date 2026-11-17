@@ -35,11 +35,28 @@ import { randomBytes, randomUUID } from 'crypto';
 // Shorthand for log lines — keeps domain visible while masking the local part.
 const logAccount = (account) => redactEmail(account?.email_address || '');
 
+// IMAP_RESOLVE_VIA="outlook.office365.com=HND-efz.ms-acdc.office.com" connects to the addresses
+// of another name for a host, while TLS still authenticates the host itself. It is for a provider
+// whose nearest front ends cannot serve a mailbox. On 2026-11-17 every Singapore front end of
+// outlook.office365.com answered a hotmail.com mailbox's login with "User is authenticated but
+// not connected.", while every Tokyo one (HND-efz) served it, from the same server and token.
+export function resolveViaFor(host, value = process.env.IMAP_RESOLVE_VIA) {
+  const want = String(host || '').trim().toLowerCase();
+  for (const pair of String(value || '').split(',')) {
+    const [from, via] = pair.split('=').map(s => (s || '').trim().toLowerCase());
+    if (from && via && from === want) return via;
+  }
+  return null;
+}
+
 // Resolves the IMAP host for an account, applying server-level connection policy.
 // Returns { resolved, policy } so callers can pass policy to makeClientCfg.
-const resolveAccountHost = async (account) => {
+// Exported for imapMailboxSessions.test.js.
+export const resolveAccountHost = async (account) => {
   const policy = await getConnectionPolicy();
-  const resolved = await resolveForConnection(account.imap_host, { allowPrivate: policy.allowPrivateHosts });
+  const via = resolveViaFor(account.imap_host);
+  const resolved = await resolveForConnection(via || account.imap_host, { allowPrivate: policy.allowPrivateHosts });
+  if (via && resolved.servername) resolved.servername = account.imap_host.trim();
   return { resolved, policy };
 };
 

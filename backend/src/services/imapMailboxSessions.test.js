@@ -23,7 +23,7 @@ vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./spamPipeline.js', () => ({ classifyAndTagMessage: vi.fn() }));
 vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }));
 
-import { ImapManager, connectImapClient, otherSessionLimit, providerProfile, isConnectionRefusal, acquirePooledClient, releasePooledClient, evictPool } from './imapManager.js';
+import { ImapManager, connectImapClient, otherSessionLimit, providerProfile, isConnectionRefusal, acquirePooledClient, releasePooledClient, evictPool, resolveAccountHost, makeClientCfg } from './imapManager.js';
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
 import { resolveForConnection } from './hostValidation.js';
@@ -306,5 +306,30 @@ describe('which session serves an opened message', () => {
     mgr._secondaryCooldown.set(account.id, { until: Date.now() + 30000, failures: 1 });
     await expect(mgr.fetchMessageBody(account, 42, 'INBOX')).rejects.toMatchObject({ providerRefusing: true });
     expect(ImapFlow).not.toHaveBeenCalled();
+  });
+});
+
+// Outlook's Singapore front ends answered a Japan-hosted mailbox's every login with the same text
+// as the session cap, while its Tokyo ones served it. IMAP_RESOLVE_VIA sends the host to the pool
+// that can serve it.
+describe('front ends named by IMAP_RESOLVE_VIA', () => {
+  afterEach(() => { delete process.env.IMAP_RESOLVE_VIA; });
+
+  it("connects to the named pool's addresses and still verifies the account's host", async () => {
+    process.env.IMAP_RESOLVE_VIA = 'imap.example.com=other.example.com, Outlook.Office365.com = HND-efz.ms-acdc.office.com';
+    const lookup = () => {};
+    resolveForConnection.mockResolvedValueOnce({ host: '40.99.65.66', servername: 'hnd-efz.ms-acdc.office.com', addresses: ['40.99.65.66'], lookup });
+    const account = outlook();
+    const { resolved, policy } = await resolveAccountHost(account);
+    expect(resolveForConnection).toHaveBeenCalledWith('hnd-efz.ms-acdc.office.com', expect.anything());
+    const cfg = makeClientCfg(account, resolved, { policy });
+    expect(cfg.host).toBe('outlook.office365.com');
+    expect(cfg.tls).toMatchObject({ servername: 'outlook.office365.com', lookup, rejectUnauthorized: true });
+  });
+
+  it('leaves every other host on its own DNS', async () => {
+    process.env.IMAP_RESOLVE_VIA = 'outlook.office365.com=HND-efz.ms-acdc.office.com';
+    await resolveAccountHost(mailbox('imap.gmail.com'));
+    expect(resolveForConnection).toHaveBeenCalledWith('imap.gmail.com', expect.anything());
   });
 });
