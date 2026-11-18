@@ -4,6 +4,9 @@ export const AI_CONNECTION_METHOD_API = 'api';
 export const AI_CONNECTION_METHOD_ACCOUNT = 'account';
 export const DEFAULT_CODEX_MODEL = 'gpt-5.6-luna';
 export const OPENAI_MODELS_URL = 'https://developers.openai.com/api/docs/models';
+// What the server sends back in place of a stored secret (the API key, an extra header's value).
+export const MASKED_SECRET = '••••••••';
+export const MAX_EXTRA_HEADERS = 10;
 
 export const AI_CONNECTION_METHOD_OPTIONS = [
   { value: AI_CONNECTION_METHOD_API, labelKey: 'admin.ai.connectionMethodApi' },
@@ -22,6 +25,36 @@ function cleanString(value) {
 
 function cleanBaseUrl(value) {
   return cleanString(value).replace(/\/+$/, '');
+}
+
+// Extra request headers for the API connection (#746). A row read back from the server carries
+// its value masked; storedName remembers the name it was stored under, since the server keeps a
+// masked value only under that name.
+function normalizeExtraHeaders(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter(header => header && typeof header === 'object').map((header) => {
+    const name = typeof header.name === 'string' ? header.name : '';
+    const headerValue = typeof header.value === 'string' ? header.value : '';
+    const storedName = typeof header.storedName === 'string'
+      ? header.storedName
+      : (headerValue === MASKED_SECRET ? name.trim() : '');
+    return { name, value: headerValue, storedName };
+  });
+}
+
+// Renaming a stored header takes its masked value with it: the server cannot know which value a
+// new name means, so it is entered again.
+export function renameExtraHeader(header, name) {
+  const keepsStored = header.storedName && name.trim().toLowerCase() === header.storedName.toLowerCase();
+  return { ...header, name, value: header.value === MASKED_SECRET && !keepsStored ? '' : header.value };
+}
+
+// Typing into a masked value starts a new one rather than adding to the mask, and deleting part
+// of the mask clears it. Text that replaced the whole mask is the new value.
+export function editExtraHeaderValue(header, value) {
+  if (header.value !== MASKED_SECRET) return { ...header, value };
+  if (value.startsWith(MASKED_SECRET)) return { ...header, value: value.slice(MASKED_SECRET.length) };
+  return { ...header, value: value.includes(MASKED_SECRET[0]) ? '' : value };
 }
 
 export function normalizeAiForm(raw = {}) {
@@ -58,6 +91,7 @@ export function normalizeAiForm(raw = {}) {
       baseUrl: cleanBaseUrl(apiKeyConfig.baseUrl),
       apiKey: typeof apiKeyConfig.apiKey === 'string' ? apiKeyConfig.apiKey : '',
       model: cleanString(apiKeyConfig.model),
+      extraHeaders: normalizeExtraHeaders(apiKeyConfig.extraHeaders),
     },
     chatgptConfig: {
       model: cleanString(chatgptConfig.model) || DEFAULT_CODEX_MODEL,
@@ -100,7 +134,15 @@ export function buildAiSavePayload(form = {}) {
     provider: normalized.connectionMethod === AI_CONNECTION_METHOD_ACCOUNT
       ? normalized.accountProvider
       : AI_PROVIDER_API_KEY,
-    apiKeyConfig: normalized.apiKeyConfig,
+    apiKeyConfig: {
+      baseUrl: normalized.apiKeyConfig.baseUrl,
+      apiKey: normalized.apiKeyConfig.apiKey,
+      model: normalized.apiKeyConfig.model,
+      // A row left completely empty is not a header; the server checks the rest.
+      extraHeaders: normalized.apiKeyConfig.extraHeaders
+        .filter(header => header.name.trim() || header.value.trim())
+        .map(header => ({ name: header.name.trim(), value: header.value })),
+    },
     chatgptConfig: normalized.chatgptConfig,
     features: normalized.features,
     newUsersEnabled: normalized.newUsersEnabled,

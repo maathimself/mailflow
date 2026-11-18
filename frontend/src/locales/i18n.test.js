@@ -115,6 +115,9 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Two locales sharing a value is only allowed if both appear in the same group.
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
+  // Spanish and Portuguese share the word.
+  'admin.ai.headerValue': [['es', 'ptBR']],
+  'admin.ai.headerValueFor': [['es', 'ptBR']],
   'templates.name': [['en', 'de'], ['it', 'ptBR']],
   'templates.variables.date': [['en', 'fr'], ['it', 'ptBR', 'pl'], ['de', 'cs']],
   'templates.variables.groups.date': [['en', 'fr'], ['it', 'ptBR', 'pl'], ['de', 'cs']],
