@@ -182,6 +182,26 @@ export const PROVIDERS = {
     poolPrewarm: false,
     secondaryOverPool: true,
   },
+  // Tencent (QQ / Exmail) and NetEase (126 / 163 / yeah) cannot deliver new mail over IDLE
+  // reliably; see _startStatusWatcher in imapManager.js for the measurements behind this.
+  // INBOX is polled with STATUS instead, which never selects a mailbox and so can never be
+  // starved by the syncs.
+  statusPolled: {
+    batchSize: 100, batchDelay: 1500, errorDelay: 15000, batchesPerConn: 15,
+    connectStaggerMs: 500,
+    fetchBody: false,
+    pushesFlags: true,
+    snippetIndex: true,
+    speculativeFetch: true,
+    skipFolderPatterns: [],
+    skipFolderNames: [],
+    // Switching IDLE off also stops the NOOP loop NetEase falls back to, which reported
+    // client.idling === true and hid the problem from the health check.
+    usesIdle: false,
+    // New-mail detection interval for the STATUS watcher: one round trip on an already-open
+    // idle socket, with in-flight ticks skipped rather than queued.
+    statusWatchMs: 3000,
+  },
   generic: {
     batchSize: 100, batchDelay: 1500, errorDelay: 15000, batchesPerConn: 15,
     connectStaggerMs: 500, // unknown provider — moderate connect spacing (#218)
@@ -205,5 +225,7 @@ export function providerProfile(account) {
   // imap.zoho.com, imappro.zoho.com and Zoho's regional data centers (imap.zoho.eu, imap.zohocloud.ca
   // in Canada, and so on).
   if (/(^|\.)(zoho\.(com|eu|in|com\.au|jp|com\.cn|sa|uk)|zohocloud\.ca)$/.test(host)) return PROVIDERS.zoho;
+  // Tencent (QQ / Exmail) and NetEase (126 / 163 / yeah): see PROVIDERS.statusPolled.
+  if (host.includes('.qq.com') || host.includes('.126.com') || host.includes('.163.com') || host.includes('.yeah.net')) return PROVIDERS.statusPolled;
   return PROVIDERS.generic;
 }
