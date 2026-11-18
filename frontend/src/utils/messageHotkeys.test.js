@@ -6,7 +6,7 @@ const selectedMessage = hotkeys.selectedMessage ?? (() => null);
 const markMessageUnread = hotkeys.markMessageUnread ?? (() => false);
 
 describe('selected message hotkeys', () => {
-  const inbox = { id: 'inbox', account_id: 'acct', is_read: true, category: 'primary' };
+  const inbox = { id: 'inbox', account_id: 'acct', folder: 'INBOX', is_read: true, category: 'primary' };
   const rail = { id: 'rail', account_id: 'acct', is_read: true };
 
   it('resolves normal, search, thread, and GTD rail selections; no selection is a no-op', () => {
@@ -45,5 +45,19 @@ describe('selected message hotkeys', () => {
     }), true);
     await Promise.resolve();
     assert.deepEqual(calls.slice(1), ['cancel', ['update', 'inbox', { is_read: false }], 'increment', 'category', ['patch', ['inbox'], false]]);
+  });
+
+  it('marking a message outside INBOX unread leaves the badge and categories alone, failure included', async () => {
+    const calls = [];
+    const archived = { ...inbox, id: 'arch', folder: 'Archive' };
+    markMessageUnread(archived, {
+      update: (id, data) => calls.push(['update', id, data]),
+      incrementUnread: () => calls.push('increment'),
+      decrementUnread: () => calls.push('decrement'),
+      adjustCategoryCount: () => calls.push('category'),
+      patch: async () => { throw new Error('network'); },
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.deepEqual(calls, [['update', 'arch', { is_read: false }], ['update', 'arch', { is_read: true }]]);
   });
 });

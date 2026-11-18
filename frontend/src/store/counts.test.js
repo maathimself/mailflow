@@ -101,3 +101,22 @@ test('changing unified scope does not turn the displayed optimistic count into a
   mock.timers.tick(PENDING_COUNT_MS);
   assert.equal(useStore.getState().unreadCounts.total,10);
 });
+test('a change of nothing opens no window, so an arrival still reaches the badge', () => {
+  // utils/inboxBadge.js charges 0 for mail outside INBOX. An empty window would still hold the
+  // badge at its old count for PENDING_COUNT_MS, keeping new mail off it.
+  useStore.getState().decrementUnread('a', 0);
+  useStore.getState().incrementUnread('b', 0);
+  useStore.getState().adjustUnread('a', 0, { undoable: true });
+  useStore.getState().adjustUnread('a', Number.NaN);
+  assert.deepEqual(useStore.getState().pendingCounts, {});
+  useStore.getState().setUnreadCounts(snapshot(12,20,'2'));
+  assert.equal(useStore.getState().unreadCounts.byAccount.a, 12, 'the arrival shows at once');
+});
+test('a category count change of nothing leaves the counts as they are', () => {
+  useStore.getState().setCategoryCounts({ primary: 4 });
+  const before = useStore.getState().categoryCounts;
+  useStore.getState().adjustCategoryCount('promotions', 0);
+  assert.equal(useStore.getState().categoryCounts, before);
+  useStore.getState().adjustCategoryCount('primary', -1);
+  assert.equal(useStore.getState().categoryCounts.primary, 3);
+});

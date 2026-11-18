@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { totalBadge, unreadBadge } from '../utils/unreadBadge.js';
 import { api } from '../utils/api.js';
+import { inboxMoveDelta } from '../utils/inboxBadge.js';
 import { resolveThreadMessages } from '../utils/threadActions.js';
 import { keepDraftsApart } from '../utils/conversationActions.js';
 import { folderDisplayName, folderDisplayNameForPath, folderRole } from '../utils/folderDisplay.js';
@@ -380,9 +381,11 @@ export default function Sidebar() {
       movedIds = msgs.map(m => m.id);
     }
     if (!msgs.length) return;
+    // Down for unread mail leaving INBOX, up for unread mail dropped into it (inboxBadge.js).
+    const moveDelta = new Map(msgs.map(msg => [msg.id, inboxMoveDelta(msg, targetFolder)]));
     msgs.forEach(msg => {
       state.removeMessage(msg.id);
-      if (!msg.is_read) state.decrementUnread(msg.account_id, 1, { undoable: true });
+      state.adjustUnread(msg.account_id, moveDelta.get(msg.id), { undoable: true });
     });
     let undone = false;
     const timer = holdUndoable(async () => {
@@ -399,7 +402,7 @@ export default function Sidebar() {
         const s = useStore.getState();
         if (failedMsgs.length > 0) {
           s.restoreMessages(failedMsgs);
-          failedMsgs.forEach(m => { if (!m.is_read) s.incrementUnread(m.account_id); });
+          failedMsgs.forEach(m => s.adjustUnread(m.account_id, -moveDelta.get(m.id)));
           s.addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: failedIds.length }) });
         } else {
           s.recordRecentFolder({ accountId: msgs[0].account_id, path: targetFolder });
@@ -407,7 +410,7 @@ export default function Sidebar() {
       } catch {
         const s = useStore.getState();
         s.restoreMessages(msgs);
-        msgs.forEach(m => { if (!m.is_read) s.incrementUnread(m.account_id); });
+        msgs.forEach(m => s.adjustUnread(m.account_id, -moveDelta.get(m.id)));
         s.addNotification({ title: t('messageList.bulkMoved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: movedIds.length }) });
       }
     }, UNDO_COMMIT_DELAY_MS);
@@ -420,7 +423,7 @@ export default function Sidebar() {
         undone = true;
         const s = useStore.getState();
         s.restoreMessages(msgs);
-        msgs.forEach(m => { if (!m.is_read) s.incrementUnread(m.account_id); });
+        msgs.forEach(m => s.adjustUnread(m.account_id, -moveDelta.get(m.id)));
       },
     });
   }, [t]);

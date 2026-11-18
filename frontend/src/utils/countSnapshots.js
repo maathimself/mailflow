@@ -1,4 +1,5 @@
 import { isAccountInUnifiedInbox } from './unifiedInbox.js';
+import { inInbox } from './inboxBadge.js';
 
 // Absolute backstop on an optimistic window. Reaching it means the observation our mutation
 // was supposed to trigger never arrived, so adopting the server value is the honest outcome.
@@ -104,7 +105,9 @@ export function mergeFolderSnapshots(previous = [], incoming = []) {
 
 // How many of `messages` change unread state when the conversation is marked `read`, grouped
 // by the account whose badge each change belongs to. A message with no account_id is charged
-// to `fallbackAccountId`, the acted-on row's account.
+// to `fallbackAccountId`, the acted-on row's account. Only messages in INBOX count: the badge is
+// that folder's unread count, and a conversation's copies in Archive or Sent are not in it
+// (utils/inboxBadge.js).
 //
 // With conversations on, one thread row can hold another account's copy of the same email
 // (#476). Charging the row's whole unread_count to the row's own account, which is what the
@@ -115,7 +118,7 @@ export function mergeFolderSnapshots(previous = [], incoming = []) {
 export function unreadDeltaByAccount(messages, read, fallbackAccountId) {
   const out = new Map();
   for (const m of messages || []) {
-    if (!m) continue;
+    if (!m || !inInbox(m)) continue;
     const changes = read ? !m.is_read : !!m.is_read;
     if (!changes) continue;
     const account = m.account_id ?? fallbackAccountId;

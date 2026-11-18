@@ -191,8 +191,8 @@ import { unreadDeltaByAccount } from './countSnapshots.js';
 describe('unreadDeltaByAccount (#476 badge attribution)', () => {
   it('splits a cross-account conversation unread delta per account', () => {
     const msgs = [
-      { id: 'w', account_id: 'work', is_read: false },
-      { id: 'h', account_id: 'home', is_read: false },
+      { id: 'w', account_id: 'work', folder: 'INBOX', is_read: false },
+      { id: 'h', account_id: 'home', folder: 'INBOX', is_read: false },
     ];
     const d = unreadDeltaByAccount(msgs, true, 'work');
     assert.deepEqual([...d.entries()].sort(), [['home', 1], ['work', 1]]);
@@ -200,20 +200,32 @@ describe('unreadDeltaByAccount (#476 badge attribution)', () => {
 
   it('counts only messages whose state actually changes', () => {
     const msgs = [
-      { id: 'a', account_id: 'work', is_read: true },   // already read: no change when marking read
-      { id: 'b', account_id: 'work', is_read: false },
+      { id: 'a', account_id: 'work', folder: 'INBOX', is_read: true },   // already read: no change when marking read
+      { id: 'b', account_id: 'work', folder: 'INBOX', is_read: false },
     ];
     assert.deepEqual([...unreadDeltaByAccount(msgs, true, 'work')], [['work', 1]]);
     assert.deepEqual([...unreadDeltaByAccount(msgs, false, 'work')], [['work', 1]]);
   });
 
   it('charges a message with no account to the acted-on row account', () => {
-    const msgs = [{ id: 'x', is_read: false }];
+    const msgs = [{ id: 'x', folder: 'INBOX', is_read: false }];
     assert.deepEqual([...unreadDeltaByAccount(msgs, true, 'work')], [['work', 1]]);
   });
 
   it('is empty when nothing changes', () => {
-    assert.equal(unreadDeltaByAccount([{ id: 'a', account_id: 'work', is_read: true }], true, 'work').size, 0);
+    assert.equal(unreadDeltaByAccount([{ id: 'a', account_id: 'work', folder: 'INBOX', is_read: true }], true, 'work').size, 0);
     assert.equal(unreadDeltaByAccount(null, true, 'work').size, 0);
+  });
+
+  it('counts only the conversation\'s INBOX messages: the badge is the INBOX count', () => {
+    const msgs = [
+      { id: 'i', account_id: 'work', folder: 'INBOX', is_read: false },
+      { id: 'a', account_id: 'work', folder: 'Archive', is_read: false },
+      { id: 's', account_id: 'work', folder: 'Sent', is_read: true },
+      { id: 'n', account_id: 'work', is_read: false }, // no folder: not known to be in INBOX
+    ];
+    assert.deepEqual([...unreadDeltaByAccount(msgs, true, 'work')], [['work', 1]]);
+    assert.deepEqual([...unreadDeltaByAccount(msgs, false, 'work')], []);
+    assert.equal(unreadDeltaByAccount(msgs.slice(1), true, 'work').size, 0);
   });
 });

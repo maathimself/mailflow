@@ -9,7 +9,6 @@ const {
   invalidateThreadLoad,
   isCurrentThreadLoad,
   removeThreadCacheEntry,
-  unreadCountsByAccount,
 } = threadedArchive;
 
 describe('findVisibleArchiveMessage', () => {
@@ -78,19 +77,6 @@ describe('archiveViewKey', () => {
         threadedArchive.archiveViewKey(original),
       );
     }
-  });
-});
-
-describe('unreadCountsByAccount', () => {
-  it('groups only unread archive targets by account', () => {
-    assert.deepEqual(
-      [...unreadCountsByAccount([
-        { account_id: 'account-1', is_read: false },
-        { account_id: 'account-1', is_read: true },
-        { account_id: 'account-2', is_read: false },
-      ])],
-      [['account-1', 1], ['account-2', 1]],
-    );
   });
 });
 

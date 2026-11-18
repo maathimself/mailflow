@@ -3,6 +3,7 @@ import AccountMark from './AccountMark.jsx';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
+import { inboxShare, inboxMoveDelta } from '../utils/inboxBadge.js';
 import { formatMessageDateTime } from '../utils/formatDate.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { canHandlePaneShortcut } from '../utils/shortcutApplicability.js';
@@ -82,7 +83,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   const { t } = useTranslation();
   const {
     messages, searchResults, searchQuery, selectedMessageId: globalSelectedId, setSelectedMessage,
-    updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
+    updateMessage, removeMessage, decrementUnread, incrementUnread, adjustUnread, openCompose, accounts, addNotification,
     imageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
     replyDefault, recentFolders, favoriteFolders, todoistConnected,
     categorizationEnabled, setCategoryCounts, adjustCategoryCount,
@@ -174,11 +175,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
   // here so the MessagePane doesn't need to reach into MessageList internals.
   const performSingleSpamLabel = useCallback(async (label) => {
     if (!message) return;
-    const wasUnread = !message.is_read;
+    // Marked spam, unread INBOX mail leaves the badge. "Not spam" moves it to the account's mapped
+    // inbox, which need not be the INBOX the badge counts, so the server's count brings that.
+    const badgeDelta = label === 'spam' ? inboxShare(message, message.is_read ? 0 : 1) : 0;
     advanceSelectionAfterRemoval(message.id);
     removeMessage(message.id);
     closeWindowIfWindowed();
-    if (wasUnread) decrementUnread(message.account_id, 1, { undoable: true });
+    if (badgeDelta > 0) decrementUnread(message.account_id, badgeDelta, { undoable: true });
     let settled = false;
     let timer;
     const undo = () => {
@@ -186,7 +189,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       if (!releaseUndoable(timer)) return;
       settled = true;
       useStore.getState().restoreMessages([message]);
-      if (wasUnread) incrementUnread(message.account_id);
+      if (badgeDelta > 0) incrementUnread(message.account_id, badgeDelta);
     };
     timer = holdUndoable(async () => {
       if (settled) return;
@@ -195,7 +198,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         await fn(message.id);
       } catch (err) {
         useStore.getState().restoreMessages([message]);
-        if (wasUnread) incrementUnread(message.account_id);
+        if (badgeDelta > 0) incrementUnread(message.account_id, badgeDelta);
         addNotification({
           type: 'error',
           title: t(label === 'spam' ? 'spam.failTitle' : 'spam.failHamTitle'),
@@ -851,7 +854,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     advanceSelectionAfterRemoval(moved.id);
     removeMessage(moved.id);
     closeWindowIfWindowed();
-    if (!moved.is_read) decrementUnread(moved.account_id, 1, { undoable: true });
+    // Down for unread mail leaving INBOX, up for unread mail moved into it (inboxBadge.js).
+    const moveDelta = inboxMoveDelta(moved, folder);
+    adjustUnread(moved.account_id, moveDelta, { undoable: true });
     let undone = false;
     const timer = holdUndoable(async () => {
       if (undone) return;
@@ -861,7 +866,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       } catch (err) {
         console.error('Move failed:', err);
         useStore.getState().restoreMessages([moved]);
-        if (!moved.is_read) incrementUnread(moved.account_id);
+        adjustUnread(moved.account_id, -moveDelta);
         addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
       }
     }, UNDO_COMMIT_DELAY_MS);
@@ -873,10 +878,10 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         if (!releaseUndoable(timer)) return;
         undone = true;
         useStore.getState().restoreMessages([moved]);
-        if (!moved.is_read) incrementUnread(moved.account_id);
+        adjustUnread(moved.account_id, -moveDelta);
       },
     });
-  }, [message, removeMessage, decrementUnread, incrementUnread, addNotification, t, closeWindowIfWindowed]);
+  }, [message, removeMessage, adjustUnread, addNotification, t, closeWindowIfWindowed]);
 
   // Close move picker when the selected message changes and handle click-outside
   useEffect(() => {
@@ -970,7 +975,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     advanceSelectionAfterRemoval(deleted.id);
     removeMessage(deleted.id);
     closeWindowIfWindowed();
-    if (!deleted.is_read) decrementUnread(deleted.account_id, 1, { undoable: true });
+    const unreadDelta = inboxShare(deleted, deleted.is_read ? 0 : 1);
+    if (unreadDelta > 0) decrementUnread(deleted.account_id, unreadDelta, { undoable: true });
     let undone = false;
     const timer = holdUndoable(async () => {
       if (undone) return;
@@ -980,7 +986,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       } catch {
         clearDeleteGuard(deleted.id);
         useStore.getState().restoreMessages([deleted]);
-        if (!deleted.is_read) incrementUnread(deleted.account_id);
+        if (unreadDelta > 0) incrementUnread(deleted.account_id, unreadDelta);
         addNotification({ type: 'error', title: t('messageList.deleted.failTitle'), body: t('messageList.deleted.failBody') });
       }
     }, UNDO_COMMIT_DELAY_MS);
@@ -993,7 +999,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         undone = true;
         clearPendingDelete(deleted.id);
         useStore.getState().restoreMessages([deleted]);
-        if (!deleted.is_read) incrementUnread(deleted.account_id);
+        if (unreadDelta > 0) incrementUnread(deleted.account_id, unreadDelta);
       },
     });
   };
@@ -1003,7 +1009,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     advanceSelectionAfterRemoval(archived.id);
     removeMessage(archived.id);
     closeWindowIfWindowed();
-    if (!archived.is_read) decrementUnread(archived.account_id, 1, { undoable: true });
+    const unreadDelta = inboxShare(archived, archived.is_read ? 0 : 1);
+    if (unreadDelta > 0) decrementUnread(archived.account_id, unreadDelta, { undoable: true });
     let undone = false;
     const timer = holdUndoable(async () => {
       if (undone) return;
@@ -1026,7 +1033,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         undone = true;
         // Back into the list it left, not into one opened since (#630).
         useStore.getState().restoreMessages([archived]);
-        if (!archived.is_read) incrementUnread(archived.account_id);
+        if (unreadDelta > 0) incrementUnread(archived.account_id, unreadDelta);
       },
     });
   };
@@ -1111,12 +1118,12 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           advanceSelectionAfterRemoval(snoozedMsg.id);
           removeMessage(snoozedMsg.id);
           closeWindowIfWindowed();
-          if (!snoozedMsg.is_read) decrementUnread(snoozedMsg.account_id);
+          if (!snoozedMsg.is_read) decrementUnread(snoozedMsg.account_id, inboxShare(snoozedMsg));
           addNotification({ title: t('message.snoozed.title'), body: snoozedMsg.subject || t('common.noSubject') });
           api.snoozeMessage(snoozedMsg.id, data).then(refreshCounts).catch(err => {
             console.error('Snooze failed:', err.message);
             useStore.getState().restoreMessages([snoozedMsg]);
-            if (!snoozedMsg.is_read) incrementUnread(snoozedMsg.account_id);
+            if (!snoozedMsg.is_read) incrementUnread(snoozedMsg.account_id, inboxShare(snoozedMsg));
             addNotification({ title: t('message.snoozed.failTitle'), body: t('message.snoozed.failBody') });
           });
         }
@@ -1216,10 +1223,10 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           const { removeMessage, decrementUnread, restoreMessages, incrementUnread } = useStore.getState();
           advanceSelectionAfterRemoval(msg.id);
           removeMessage(msg.id);
-          if (!msg.is_read) decrementUnread(msg.account_id);
+          if (!msg.is_read) decrementUnread(msg.account_id, inboxShare(msg));
           api.deleteMessage(msg.id).catch(() => {
             restoreMessages([msg]);
-            if (!msg.is_read) incrementUnread(msg.account_id);
+            if (!msg.is_read) incrementUnread(msg.account_id, inboxShare(msg));
           });
         },
       });
