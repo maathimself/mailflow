@@ -348,3 +348,87 @@ describe('installResumeRefresh: a resync that fails', () => {
     assert.equal(timers.pending.size, 0);
   });
 });
+
+// #748: the list says where a resync stands, and its Retry runs one at once.
+describe('installResumeRefresh: what the list is told', () => {
+  test('syncing while it runs, then idle once it works', async () => {
+    const h = fakeHost(), timers = fakeTimers();
+    const states = [];
+    installResumeRefresh({ doc: h.doc, win: h.win, ...timers, onState: s => states.push(s), onResync: () => Promise.resolve() });
+    h.fire('win', 'pageshow', { persisted: true });
+    assert.deepEqual(states, ['syncing']);
+    await settle();
+    assert.deepEqual(states, ['syncing', 'idle']);
+  });
+
+  test('a failure stays said through the retries, as retrying while one runs, until one works', async () => {
+    const h = fakeHost(), timers = fakeTimers();
+    const states = [];
+    const outcomes = [false, false, true];
+    let calls = 0;
+    installResumeRefresh({ doc: h.doc, win: h.win, ...timers, onState: s => states.push(s),
+      onResync: () => (outcomes[calls++] ? Promise.resolve() : Promise.reject(new Error('offline'))) });
+    h.fire('win', 'pageshow', { persisted: true });
+    await settle();
+    assert.deepEqual(states, ['syncing', 'failed']);
+    timers.fire(); await settle();
+    assert.deepEqual(states, ['syncing', 'failed', 'retrying', 'failed'], 'never back to syncing in between');
+    timers.fire(); await settle();
+    assert.deepEqual(states, ['syncing', 'failed', 'retrying', 'failed', 'retrying', 'idle']);
+  });
+
+  test('a resync that hangs is told as failed at the timeout', async () => {
+    const h = fakeHost(), timers = fakeTimers();
+    const states = [];
+    installResumeRefresh({ doc: h.doc, win: h.win, ...timers, onState: s => states.push(s), onResync: () => new Promise(() => {}) });
+    h.fire('win', 'pageshow', { persisted: true });
+    assert.deepEqual(timers.delays(), [RESUME_TIMEOUT_MS]);
+    timers.fire(); await settle();
+    assert.equal(states.at(-1), 'failed');
+  });
+
+  test('the socket catching up clears a failure', async () => {
+    const h = fakeHost(), timers = fakeTimers();
+    const states = [];
+    installResumeRefresh({ doc: h.doc, win: h.win, ...timers, onState: s => states.push(s), onResync: () => Promise.reject(new Error('offline')) });
+    h.fire('win', 'pageshow', { persisted: true });
+    await settle();
+    h.fire('win', SOCKET_CAUGHT_UP_EVENT);
+    assert.equal(states.at(-1), 'idle');
+    assert.equal(timers.pending.size, 0);
+  });
+
+  test('retryNow runs the resync at once instead of waiting for the backoff', async () => {
+    const h = fakeHost(), timers = fakeTimers();
+    let calls = 0;
+    const outcomes = [false, true];
+    const states = [];
+    const stop = installResumeRefresh({ doc: h.doc, win: h.win, ...timers, onState: s => states.push(s),
+      onResync: () => (outcomes[calls++] ? Promise.resolve() : Promise.reject(new Error('offline'))) });
+    h.fire('win', 'pageshow', { persisted: true });
+    await settle();
+    assert.equal(timers.pending.size, 1, 'a retry is waiting');
+    assert.equal(stop.retryNow(), true);
+    assert.equal(calls, 2);
+    assert.equal(timers.pending.size, 1, 'the waiting retry gave way to the timeout of the one running');
+    await settle();
+    assert.equal(states.at(-1), 'idle');
+    assert.equal(timers.pending.size, 0);
+  });
+
+  test('retryNow does not start a second resync while one runs, nor one while locked', async () => {
+    const h = fakeHost(), timers = fakeTimers();
+    let calls = 0;
+    let locked = false;
+    const stop = installResumeRefresh({ doc: h.doc, win: h.win, ...timers, shouldSkip: () => locked,
+      onResync: () => { calls++; return new Promise(() => {}); } });
+    h.fire('win', 'pageshow', { persisted: true });
+    assert.equal(stop.retryNow(), false);
+    assert.equal(calls, 1);
+    timers.fire(); await settle(); // the hung one times out
+    locked = true;
+    assert.equal(stop.retryNow(), false);
+    assert.equal(calls, 1);
+    stop();
+  });
+});

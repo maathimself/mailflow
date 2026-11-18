@@ -467,6 +467,9 @@
     "pageOf": "Pagina {{current}} di {{total}}",
     "loadMore": "Carica altro",
     "loadMoreFailed": "Impossibile caricare altri risultati.",
+    "resumeUpdating": "Aggiornamento…",
+    "resumeFailed": "Impossibile aggiornare. Nuovo tentativo automatico.",
+    "resumeRetrying": "Nuovo tentativo…",
     "noMoreMessages": "Nessun altro messaggio",
     "deleted": {
       "title": "Messaggio eliminato",

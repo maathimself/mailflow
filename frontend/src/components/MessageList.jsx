@@ -11,6 +11,8 @@ import { shouldSyncFolder, folderSyncKey } from '../utils/folderSync.js';
 import { resolveThreadMessages } from '../utils/threadActions.js';
 import { keepDraftsApart } from '../utils/conversationActions.js';
 import { unreadDeltaByAccount } from '../utils/countSnapshots.js';
+import { createClaimQueue } from '../utils/listRefreshClaims.js';
+import ResumeStatus from './ResumeStatus.jsx';
 import { inInbox, inboxShare, inboxUnreadByAccount, inboxMoveDelta, rowInboxUnread } from '../utils/inboxBadge.js';
 import { splitDraftSignature } from '../utils/draftSignature.js';
 import { draftAttachmentFields } from '../utils/openSavedDraft.js';
@@ -402,6 +404,12 @@ function MailboxList() {
   if (refreshRequestRef.current === null) refreshRequestRef.current = createLatestRequest();
   const trailingRefreshRef = useRef(null);
   if (trailingRefreshRef.current === null) trailingRefreshRef.current = createTrailingRefresh();
+  // A resync after the app resumes waits for the list to reload (utils/listRefreshClaims.js). Each
+  // load or refresh settles the claims made before it started, once it has landed or failed.
+  const listClaimsRef = useRef(null);
+  if (listClaimsRef.current === null) listClaimsRef.current = createClaimQueue();
+  // A list that goes away has nothing left on screen to bring up to date.
+  useEffect(() => () => listClaimsRef.current.settle(true), []);
   // Bumped to force the search effect to re-run (e.g. after rules move messages) so an
   // active search snapshot drops messages that no longer match. See #223.
   const [searchReloadToken, setSearchReloadToken] = useState(0);
@@ -504,6 +512,7 @@ function MailboxList() {
       // resolves, finds no account IDs, and returns empty — causing the blank
       // "All Inboxes" on first load.
       if (!accountsReady) return;
+      const claimsUpTo = listClaimsRef.current.mark();
       listGenRef.current += 1;
       setLoadingMessages(true);
       setMessagesOffset(0);
@@ -516,7 +525,7 @@ function MailboxList() {
         if (unreadOnly) params.unreadOnly = 'true';
         if (threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
-        await refreshRequestRef.current.run(
+        const applied = await refreshRequestRef.current.run(
           () => api.getMessages(params),
           (data) => {
             if (cancelled) return;
@@ -549,9 +558,12 @@ function MailboxList() {
             }
           },
         );
+        // Dropped for a newer load or a local change, the newer one covers these claims too.
+        if (applied || !cancelled) listClaimsRef.current.settle(true, null, claimsUpTo);
       } catch (err) {
         console.error('Failed to load messages:', err);
         setFolderSyncing(false);
+        listClaimsRef.current.settle(false, err, claimsUpTo);
       } finally {
         if (!cancelled) setLoadingMessages(false);
       }
@@ -591,6 +603,7 @@ function MailboxList() {
   // opened, give its body request a brief head start before reloading the full list.
   useEffect(() => {
     const run = async () => {
+      const claimsUpTo = listClaimsRef.current.mark();
       try {
         const state = useStore.getState();
         const sm = state.scrollMode;
@@ -635,13 +648,23 @@ function MailboxList() {
             }
           },
         );
-      } catch { /* intentional */ }
+        // Applied, or dropped for a newer request or a local change: either way these claims are
+        // covered (a newer request settles its own).
+        listClaimsRef.current.settle(true, null, claimsUpTo);
+      } catch (err) {
+        // The list stays as it was; a resync waiting on it is told so (utils/listRefreshClaims.js).
+        listClaimsRef.current.settle(false, err, claimsUpTo);
+      }
     };
 
-    const handler = () => {
+    const handler = (event) => {
+      // A resync waiting for this reload (utils/listRefreshClaims.js).
+      const claim = event?.detail?.claim;
       // Search results are their own list. The refresh is held, not dropped: clearing the search
-      // hands it over (below), or the folder would come back as it was before the search.
-      if (searchQuery.trim()) { trailingRefreshRef.current.request(true); return; }
+      // hands it over (below), or the folder would come back as it was before the search. Nothing
+      // on screen is the folder list meanwhile, so a resync has nothing to wait for.
+      if (searchQuery.trim()) { claim?.().done(); trailingRefreshRef.current.request(true); return; }
+      if (claim) listClaimsRef.current.add(claim());
       if (trailingRefreshRef.current.request(useStore.getState().loadingMessages)) {
         const delayMs = Math.max(0, recentMessageOpenUntilRef.current - Date.now());
         clearTimeout(deferredRefreshTimerRef.current);
@@ -3711,6 +3734,9 @@ function MailboxList() {
           )}
         </div>
       )}
+
+      {/* Catching up after the app resumed, or failed to (#748). */}
+      <ResumeStatus />
 
       {/* Message list */}
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>

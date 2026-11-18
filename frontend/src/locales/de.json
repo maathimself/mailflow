@@ -467,6 +467,9 @@
     "pageOf": "Seite {{current}} von {{total}}",
     "loadMore": "Mehr laden",
     "loadMoreFailed": "Weitere Ergebnisse konnten nicht geladen werden.",
+    "resumeUpdating": "Wird aktualisiert…",
+    "resumeFailed": "Aktualisierung fehlgeschlagen. Wird automatisch erneut versucht.",
+    "resumeRetrying": "Erneuter Versuch…",
     "noMoreMessages": "Keine weiteren Nachrichten",
     "deleted": {
       "title": "Nachricht gelöscht",

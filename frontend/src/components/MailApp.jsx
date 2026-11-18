@@ -10,7 +10,8 @@ import { useMobile } from '../hooks/useMobile.js';
 import { LAYOUTS } from '../layouts.js';
 import { closeOpenMessage } from '../utils/closeMessage.js';
 import { updateFaviconBadge } from '../themes.js';
-import { installResumeRefresh } from '../utils/resumeRefresh.js';
+import { installResumeRefresh, RESUME_RETRY_EVENT } from '../utils/resumeRefresh.js';
+import { refreshListAndWait } from '../utils/listRefreshClaims.js';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { dispatchHoveredGtdShortcut } from '../utils/gtdHoveredRow.js';
 import { runMailboxShortcut, canRunMailboxShortcut, browserShortcutFallback } from '../utils/visibleMailboxes.js';
@@ -514,22 +515,28 @@ export default function MailApp() {
     const stopResume = installResumeRefresh({
       doc: document, win: window,
       shouldSkip: () => useStore.getState().isLocked,
-      // The counts request stands for the whole resync: the list reload and the folder requests
-      // fail on their own without saying so, and when the network is not back yet, all of them
-      // do. Its failure has installResumeRefresh run the resync again.
+      // Done once the list on screen has reloaded and the counts are in (#748): the counts alone
+      // can be current while the list still shows mail from before the phone slept. Either
+      // failing has installResumeRefresh run the resync again. The folder requests fail on their
+      // own without saying so; when the network is not back yet, the list and counts fail too.
       onResync: () => {
         if (!accountsLoaded) loadAccounts();
         refreshFolders();
-        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
-        return api.getUnreadCounts().then(setUnreadCounts);
+        return Promise.all([refreshListAndWait(), api.getUnreadCounts().then(setUnreadCounts)]);
       },
+      // Said in the list (ResumeStatus.jsx), and back to nothing when the session ends.
+      onState: state => useStore.getState().setResumeSync(state),
     });
+    const retryResume = () => stopResume.retryNow();
+    window.addEventListener(RESUME_RETRY_EVENT, retryResume);
 
     window.addEventListener('mailflow:counts_refresh', refreshCounts);
     return () => {
       clearInterval(interval);
       clearTimeout(accountsRetry);
       stopResume();
+      useStore.getState().setResumeSync('idle');
+      window.removeEventListener(RESUME_RETRY_EVENT, retryResume);
       window.removeEventListener('mailflow:counts_refresh', refreshCounts);
     };
   }, [setAccounts, setUnreadCounts, setTodoistConnected]);

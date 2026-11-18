@@ -467,6 +467,9 @@
     "pageOf": "Página {{current}} de {{total}}",
     "loadMore": "Carregar mais",
     "loadMoreFailed": "Não foi possível carregar mais resultados.",
+    "resumeUpdating": "Atualizando…",
+    "resumeFailed": "Não foi possível atualizar. Tentando de novo automaticamente.",
+    "resumeRetrying": "Tentando de novo…",
     "noMoreMessages": "Não há mais mensagens",
     "deleted": {
       "title": "Mensagem excluída",

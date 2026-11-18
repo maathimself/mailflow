@@ -467,6 +467,9 @@
     "pageOf": "第 {{current}} 页，共 {{total}} 页",
     "loadMore": "加载更多",
     "loadMoreFailed": "无法加载更多结果。",
+    "resumeUpdating": "正在更新…",
+    "resumeFailed": "刷新失败，正在自动重试。",
+    "resumeRetrying": "正在重试…",
     "noMoreMessages": "没有更多邮件了",
     "deleted": {
       "title": "邮件已删除",

@@ -341,6 +341,9 @@
     "pageOf": "Strana {{current}} z {{total}}",
     "loadMore": "Načíst další",
     "loadMoreFailed": "Další výsledky se nepodařilo načíst.",
+    "resumeUpdating": "Aktualizace…",
+    "resumeFailed": "Obnovení se nezdařilo. Zkouší se znovu automaticky.",
+    "resumeRetrying": "Zkouší se znovu…",
     "noMoreMessages": "Žádné další zprávy",
     "deleted": {
       "title": "Zpráva smazána",

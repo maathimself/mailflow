@@ -467,6 +467,9 @@
     "pageOf": "Page {{current}} of {{total}}",
     "loadMore": "Load more",
     "loadMoreFailed": "Couldn't load more results.",
+    "resumeUpdating": "Updating…",
+    "resumeFailed": "Couldn't refresh. Trying again automatically.",
+    "resumeRetrying": "Retrying…",
     "noMoreMessages": "No more messages",
     "deleted": {
       "title": "Message deleted",

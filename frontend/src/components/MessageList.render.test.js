@@ -1626,3 +1626,97 @@ describe('MessageList — a short page ends Load more (#743)', () => {
     assert.match(text, /messageList\.noMoreMessages/);
   });
 });
+
+// #748: a resync after the app resumes waits for the list on screen to reload
+// (utils/listRefreshClaims.js), and hears when it could not.
+describe('MessageList: a resync waits for the list to reload', () => {
+  const NEW = { ...MESSAGE, id: 'msg-resumed', uid: 7, message_id: '<resumed@example.com>', subject: 'Arrived while asleep' };
+  const listFetches = () => CALLS.filter(c => c.path.includes('/mail/messages?')).length;
+
+  test('resolves once the reload has landed, with the new mail on screen', async () => {
+    const { refreshListAndWait } = await import('../utils/listRefreshClaims.js');
+    await mount({ rows: [MESSAGE], threadedView: false });
+    SERVED = [NEW, MESSAGE];
+    let listedWhenDone = null;
+    await React.act(async () => {
+      await refreshListAndWait(window).then(() => {
+        listedWhenDone = useStore.getState().messages.some(m => m.id === 'msg-resumed');
+      });
+    });
+    assert.equal(listedWhenDone, true, 'the reload is in the list when the wait ends');
+    assert.ok(container.querySelector('[data-msgid="msg-resumed"]'), 'and on screen');
+  });
+
+  test('a reload held behind a load in flight is the one it waits for', async () => {
+    const { refreshListAndWait } = await import('../utils/listRefreshClaims.js');
+    await mount({ rows: [MESSAGE], threadedView: false });
+    const realFetch = globalThis.fetch;
+    let release;
+    const held = new Promise(r => { release = r; });
+    let calls = 0;
+    globalThis.fetch = async (url, opts) => {
+      if (String(url).includes('/mail/messages?')) {
+        calls += 1;
+        if (calls === 1) { await held; SERVED = [MESSAGE]; } else SERVED = [NEW, MESSAGE];
+      }
+      return realFetch(url, opts);
+    };
+    try {
+      await React.act(async () => { useStore.setState(s => ({ messagesRefreshToken: s.messagesRefreshToken + 1 })); });
+      let settled = false;
+      let wait;
+      await React.act(async () => { wait = refreshListAndWait(window).then(() => { settled = true; }); });
+      await React.act(async () => { await new Promise(r => setTimeout(r, 20)); });
+      assert.equal(settled, false, 'not done while the load it waits behind is in flight');
+      // Released, then awaited in its own act: the held reload is started by an effect, which act
+      // would hold back until a scope that is itself waiting on it ended.
+      await React.act(async () => { release(); await new Promise(r => setTimeout(r, 50)); });
+      await React.act(async () => { await wait; });
+      assert.equal(settled, true);
+      assert.ok(container.querySelector('[data-msgid="msg-resumed"]'), 'and the held reload has landed');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test('rejects when the reload fails, leaving the list as it was', async () => {
+    const { refreshListAndWait } = await import('../utils/listRefreshClaims.js');
+    await mount({ rows: [MESSAGE], threadedView: false });
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, opts) => {
+      if (String(url).includes('/mail/messages?')) throw new TypeError('Failed to fetch');
+      return realFetch(url, opts);
+    };
+    try {
+      let outcome = 'pending';
+      await React.act(async () => {
+        await refreshListAndWait(window).then(() => { outcome = 'done'; }, () => { outcome = 'failed'; });
+      });
+      assert.equal(outcome, 'failed');
+      assert.ok(container.querySelector('[data-msgid="msg-1"]'), 'the rows on screen stay');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test('a list showing search results has nothing to wait for', async () => {
+    const { refreshListAndWait } = await import('../utils/listRefreshClaims.js');
+    await mount({ rows: [MESSAGE], threadedView: false });
+    await React.act(async () => { useStore.setState({ searchQuery: 'invoice' }); await new Promise(r => setTimeout(r, 400)); });
+    const before = listFetches();
+    let done = false;
+    await React.act(async () => { await refreshListAndWait(window).then(() => { done = true; }); });
+    assert.equal(done, true);
+    assert.equal(listFetches(), before, 'and nothing was fetched for it');
+    await React.act(async () => { useStore.setState({ searchQuery: '' }); await new Promise(r => setTimeout(r, 30)); });
+  });
+
+  test('with no list mounted it resolves at once', async () => {
+    const { refreshListAndWait } = await import('../utils/listRefreshClaims.js');
+    await React.act(async () => { root?.unmount(); });
+    root = null;
+    let done = false;
+    await refreshListAndWait(window).then(() => { done = true; });
+    assert.equal(done, true);
+  });
+});

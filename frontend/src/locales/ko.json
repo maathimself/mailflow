@@ -463,6 +463,9 @@
     "pageOf": "{{total}} 중 {{current}} 페이지",
     "loadMore": "더 보기",
     "loadMoreFailed": "결과를 더 불러오지 못했습니다.",
+    "resumeUpdating": "업데이트 중…",
+    "resumeFailed": "새로 고치지 못했습니다. 자동으로 다시 시도합니다.",
+    "resumeRetrying": "다시 시도하는 중…",
     "deleted": {
       "body": "제거됨.",
       "title": "메시지가 삭제되었습니다.",

@@ -519,6 +519,11 @@ export const useStore = create((set, get) => ({
     folders: { ...state.folders, [accountId]: mergeFolderSnapshots(state.folders[accountId], folders) }
   })),
 
+  // Where a resync after the app resumes stands (utils/resumeRefresh.js), for the list to say so:
+  // 'idle', 'syncing', 'failed' or 'retrying' (#748).
+  resumeSync: 'idle',
+  setResumeSync: (resumeSync) => set({ resumeSync }),
+
   // UI state
   sidebarCollapsed: localStorage.getItem('mailflow_sidebar_collapsed') === 'true',
   toggleSidebar: () => set(state => {
