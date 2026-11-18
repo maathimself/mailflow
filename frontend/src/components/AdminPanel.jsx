@@ -36,7 +36,7 @@ import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
 import DiagnosticsReportModal from './DiagnosticsReportModal.jsx';
 import { getEffectiveShortcuts, getGroupedActions, getShortcutConflicts, shortcutActionText, shortcutBindingFromEvent, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
-import { isValidForwardAddress } from '../utils/ruleActions.js';
+import { isValidForwardAddress, labelNameErrorKey, MAX_LABEL_NAME_LENGTH } from '../utils/ruleActions.js';
 import { folderParentLabel } from '../utils/folderDisplay.js';
 import AdminUserEditor from './AdminUserEditor.jsx';
 import AccountErrorCallout from './AccountErrorCallout.jsx';
@@ -6050,6 +6050,8 @@ function RulesTab() {
       if (detail.ok === false) setRunError(t('admin.rules.runError'));
       else setRunResult({ processed: detail.processed, matched: detail.matched });
       setRunningRules(false);
+      // A run can record or clear an Apply label failure (D#751): show the rules as they are now.
+      api.getRules().then(setRules).catch(() => {});
     };
     window.addEventListener('mailflow:rules-run-complete', onRunComplete);
     return () => window.removeEventListener('mailflow:rules-run-complete', onRunComplete);
@@ -6172,6 +6174,12 @@ function RulesTab() {
       setFormError(t('admin.rules.errorForwardEmail'));
       return;
     }
+    const labelAction = actions.find(action => action.type === 'apply_label');
+    const labelError = labelAction && labelNameErrorKey(labelAction.value);
+    if (labelError) {
+      setFormError(t(labelError));
+      return;
+    }
     setFormSaving(true);
     setFormError('');
     try {
@@ -6265,13 +6273,32 @@ function RulesTab() {
     }).join(` ${rule.condition_logic} `) + (conds.length > 2 ? ` +${conds.length - 2}` : '');
   }
 
+  // Where the rule's Apply label last failed, per account (D#751), as the list says it. An account
+  // since removed is left out; the next save or successful run clears it anyway.
+  function labelFailures(rule) {
+    const recorded = rule.label_failures && typeof rule.label_failures === 'object' ? rule.label_failures : {};
+    return Object.entries(recorded).flatMap(([accountId, failure]) => {
+      const account = accounts.find(a => a.id === accountId);
+      if (!account || !failure) return [];
+      const when = failure.at ? new Date(failure.at) : null;
+      return [{
+        accountId,
+        label: failure.label || '',
+        account: account.email_address || account.name || '',
+        when: when && !Number.isNaN(when.getTime()) ? formatDateTime(when) : '',
+        error: failure.subject ? `${failure.error} (“${failure.subject}”)` : failure.error,
+      }];
+    });
+  }
+
   function actionSummary(rule) {
     const acts = Array.isArray(rule.actions) ? rule.actions : [];
     if (!acts.length) return '—';
-    const labels = { mark_read: t('admin.rules.actionMarkRead'), star: t('admin.rules.actionStar'), forward: t('admin.rules.actionForward'), archive: t('admin.rules.actionArchive'), delete: t('admin.rules.actionDelete'), move: t('admin.rules.actionMove'), set_category: t('admin.rules.actionSetCategory'), notify: t('admin.rules.actionNotify') };
-    // Show the move destination and the category so same-named rules are tellable apart at a glance.
+    const labels = { mark_read: t('admin.rules.actionMarkRead'), star: t('admin.rules.actionStar'), forward: t('admin.rules.actionForward'), archive: t('admin.rules.actionArchive'), delete: t('admin.rules.actionDelete'), move: t('admin.rules.actionMove'), set_category: t('admin.rules.actionSetCategory'), notify: t('admin.rules.actionNotify'), apply_label: t('admin.rules.actionApplyLabel') };
+    // Show the move destination, the label and the category so same-named rules are tellable apart at a glance.
     return acts.map(a => {
       if (a.type === 'move' && a.value) return `${labels.move} → ${a.value}`;
+      if (a.type === 'apply_label' && a.value) return `${labels.apply_label} → ${a.value}`;
       if (a.type === 'set_category' && a.value) return `${labels.set_category} → ${t(`messageList.categories.${a.value}`)}`;
       return labels[a.type] || a.type;
     }).join(', ');
@@ -6302,6 +6329,7 @@ function RulesTab() {
     { type: 'archive',   label: t('admin.rules.actionArchive') },
     { type: 'delete',    label: t('admin.rules.actionDelete') },
     { type: 'move',      label: t('admin.rules.actionMove') },
+    { type: 'apply_label', label: t('admin.rules.actionApplyLabel') },
     { type: 'set_category', label: t('admin.rules.actionSetCategory') },
     { type: 'notify',    label: t('admin.rules.actionNotify') },
   ];
@@ -6517,6 +6545,24 @@ function RulesTab() {
                     {t('admin.rules.actionNotifyHint')}
                   </div>
                 )}
+                {type === 'apply_label' && checked && (
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    maxLength={MAX_LABEL_NAME_LENGTH}
+                    aria-label={t('admin.rules.actionApplyLabel')}
+                    aria-describedby="rule-apply-label-hint"
+                    style={{ ...inputStyle, marginTop: 6, marginLeft: 22 }}
+                    value={fd.actions.find(action => action.type === 'apply_label')?.value || ''}
+                    onChange={event => setActionValue('apply_label', event.target.value)}
+                    placeholder={t('admin.rules.actionApplyLabelPlaceholder')}
+                  />
+                )}
+                {type === 'apply_label' && (
+                  <div id="rule-apply-label-hint" style={{ fontSize: 11, color: 'var(--text-tertiary)', marginLeft: 22, marginTop: 2, lineHeight: 1.4 }}>
+                    {t('admin.rules.actionApplyLabelHint')}
+                  </div>
+                )}
                 {type === 'set_category' && checked && (
                   <select
                     aria-label={t('admin.rules.actionSetCategory')}
@@ -6696,6 +6742,11 @@ function RulesTab() {
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {conditionSummary(rule)} → {actionSummary(rule)}
                   </div>
+                  {labelFailures(rule).map(failure => (
+                    <div key={failure.accountId} role="note" style={{ fontSize: 11, color: 'var(--red)', marginTop: 4, lineHeight: 1.4, overflowWrap: 'anywhere' }}>
+                      {t('admin.rules.labelFailed', failure)} {t('admin.rules.labelFailedRetry')}
+                    </div>
+                  ))}
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                   <button

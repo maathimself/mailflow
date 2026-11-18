@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { query } from '../services/db.js';
 import { findOwnedAccount, findOwnedMessage } from '../services/ownership.js';
 import { requireAuth } from '../middleware/auth.js';
-import { applyInboxRules, isDangerousRegex, RULE_CATEGORIES } from '../services/inboxRules.js';
+import { applyInboxRules, isDangerousRegex, labelNameError, RULE_CATEGORIES } from '../services/inboxRules.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -43,6 +43,13 @@ export function validateActions(actions) {
     if (action.type === 'set_category' && !RULE_CATEGORIES.has(action.value)) {
       return 'Set category action requires one of: primary, newsletter, promotion, automated, social';
     }
+    // A label by name, resolved in each account the rule runs for (D#751), so all-account rules
+    // may use it, unlike move.
+    if (action.type === 'apply_label') {
+      const labelError = labelNameError(action.value);
+      if (labelError) return labelError;
+      continue;
+    }
     if (action.type !== 'forward') continue;
     const value = typeof action.value === 'string' ? action.value.trim() : '';
     if (!FORWARD_EMAIL_RE.test(value) || /[\r\n\0]/.test(value)) {
@@ -52,14 +59,15 @@ export function validateActions(actions) {
   return null;
 }
 
-// Strip duplicate destination and forward actions (keeping the first) and trim
-// move and forward values.
+// Strip duplicate destination, forward and label actions (keeping the first) and trim
+// move, forward and label values.
 // Silently drops malformed entries (null, non-object, missing/non-string type).
 export function normalizeActions(actions) {
   let destSeen = false;
   let forwardSeen = false;
   let categorySeen = false;
   let notifySeen = false;
+  let labelSeen = false;
   return actions
     .filter(a => {
       if (!a || typeof a.type !== 'string') return false;
@@ -81,10 +89,15 @@ export function normalizeActions(actions) {
         if (notifySeen) return false;
         notifySeen = true;
       }
+      // One label per rule, as the rule editor offers it.
+      if (a.type === 'apply_label') {
+        if (labelSeen) return false;
+        labelSeen = true;
+      }
       return true;
     })
     .map(a => (
-      ['move', 'forward'].includes(a.type) && typeof a.value === 'string'
+      ['move', 'forward', 'apply_label'].includes(a.type) && typeof a.value === 'string'
         ? { ...a, value: a.value.trim() }
         : a
     ));
@@ -380,6 +393,20 @@ router.post('/', async (req, res) => {
   }
 });
 
+// A label failure (D#751) speaks of the rule as it was: a change of what it does, or of the account
+// it runs for, clears it, while turning the rule off and on keeps it. SET reads the row as it was
+// before this UPDATE, so the comparison is with the old actions and account. Exported for
+// rules.labels.postgres.test.js.
+export const UPDATE_RULE_SQL = `UPDATE inbox_rules
+       SET name = $1, enabled = $3, stop_processing = $4,
+           condition_logic = $5, conditions = $6, updated_at = NOW(),
+           label_failures = CASE
+             WHEN actions IS DISTINCT FROM $7::jsonb OR account_id IS DISTINCT FROM $2::uuid THEN '{}'::jsonb
+             ELSE label_failures END,
+           account_id = $2, actions = $7
+       WHERE id = $8 AND user_id = $9
+       RETURNING *`;
+
 router.put('/:id', async (req, res) => {
   const { name, accountId, conditionLogic, conditions, actions, enabled, stopProcessing } = req.body;
   if (!Array.isArray(conditions) || !Array.isArray(actions)) {
@@ -410,11 +437,7 @@ router.put('/:id', async (req, res) => {
       }
     }
     const result = await query(
-      `UPDATE inbox_rules
-       SET name = $1, account_id = $2, enabled = $3, stop_processing = $4,
-           condition_logic = $5, conditions = $6, actions = $7, updated_at = NOW()
-       WHERE id = $8 AND user_id = $9
-       RETURNING *`,
+      UPDATE_RULE_SQL,
       [
         name || '',
         accountId || null,

@@ -1,0 +1,11 @@
+-- Where a rule's Apply label action last failed, per account (D#751).
+--
+-- A global rule applies its label in every account, each into a folder of that name, so one
+-- account can fail while the others work: the server refused to create the folder, the copy
+-- failed, the account was offline. The rule list shows each account's last failure, and the
+-- next run that labels mail there clears it. Keyed by account id:
+--   { "<account id>": { "at": "<ISO time>", "label": "Receipt", "error": "...", "subject": "..." } }
+-- Saving the rule clears it, since it speaks of the rule as it was.
+--
+-- A constant default: PostgreSQL adds the column without rewriting the table.
+ALTER TABLE inbox_rules ADD COLUMN IF NOT EXISTS label_failures JSONB NOT NULL DEFAULT '{}';
