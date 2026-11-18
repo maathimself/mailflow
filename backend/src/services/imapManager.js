@@ -1629,6 +1629,25 @@ export const PROVIDERS = {
     skipFolderNames: [],
     disableIMAP4rev2: true,
   },
+  // Tencent (QQ / Exmail) and NetEase (126 / 163 / yeah) cannot deliver new mail over IDLE
+  // reliably; see _startStatusWatcher for the measurements behind this. INBOX is polled with
+  // STATUS instead, which never selects a mailbox and so can never be starved by the syncs.
+  statusPolled: {
+    batchSize: 100, batchDelay: 1500, errorDelay: 15000, batchesPerConn: 15,
+    connectStaggerMs: 500,
+    fetchBody: false,
+    pushesFlags: true,
+    snippetIndex: true,
+    speculativeFetch: true,
+    skipFolderPatterns: [],
+    skipFolderNames: [],
+    // Switching IDLE off also stops the NOOP loop NetEase falls back to, which reported
+    // client.idling === true and hid the problem from the health check.
+    usesIdle: false,
+    // New-mail detection interval for the STATUS watcher: one round trip on an already-open
+    // idle socket, with in-flight ticks skipped rather than queued.
+    statusWatchMs: 3000,
+  },
   generic: {
     batchSize: 100, batchDelay: 1500, errorDelay: 15000, batchesPerConn: 15,
     connectStaggerMs: 500, // unknown provider — moderate connect spacing (#218)
@@ -1821,6 +1840,8 @@ export function providerProfile(account) {
   if (host.includes('.outlook.com') || host.includes('office365.com') || host.includes('.hotmail.com') || host.includes('.live.com') || (account.oauth_provider === 'microsoft')) return PROVIDERS.microsoft;
   if (host.includes('purelymail.com')) return PROVIDERS.purelymail;
   if (host.includes('.strato.')) return PROVIDERS.strato;
+  // Tencent (QQ / Exmail) and NetEase (126 / 163 / yeah): see PROVIDERS.statusPolled.
+  if (host.includes('.qq.com') || host.includes('.126.com') || host.includes('.163.com') || host.includes('.yeah.net')) return PROVIDERS.statusPolled;
   return PROVIDERS.generic;
 }
 
@@ -2967,6 +2988,7 @@ export class ImapManager {
         .catch(err => console.warn('Folder status scheduler:', err.message));
     }, 10000);
     this.connections = new Map();   // accountId -> ImapFlow (persistent sync connection)
+    this.statusWatchers = new Map(); // accountId -> { client, timer, busy, stopped, lastMessages } (STATUS-polled providers)
     this.syncIntervals = new Map();
     this.pluginSyncIntervals = new Map(); // `${accountId}::${pluginId}` -> timer for a plugin's periodic sync tick
     this.backfillRunning = new Set(); // `${accountId}:${folder}` — prevent duplicate folder backfills
@@ -3477,6 +3499,96 @@ export class ImapManager {
     }
   }
 
+  // New-mail detection for providers whose IDLE cannot be relied on.
+  //
+  // IDLE requires the server to send an untagged EXISTS on a session that has INBOX selected,
+  // AND requires that session to be the one the server regards as the mailbox's push owner.
+  // Neither holds everywhere:
+  //
+  //   * NetEase (126 / 163 / yeah) does not advertise IDLE at all — imapflow silently falls
+  //     back to a NOOP loop — yet still reports client.idling === true, so the health check
+  //     that is supposed to catch a deaf IDLE session cannot see it.
+  //   * Tencent (QQ / Exmail) does advertise and accept IDLE, but hands the mailbox's push
+  //     channel to whichever session selected INBOX last and never gives it back. Measured on
+  //     a live account: an undisturbed session saw EXISTS 6.8s after delivery; the very same
+  //     session then stayed silent for a whole 79s window once a second session had selected
+  //     that INBOX; re-issuing SELECT on it did not restore delivery (80s silent). Every sync
+  //     tick, backfill and staleness probe opens such a session, so IDLE here is deaf most of
+  //     the time while still reporting healthy — which is exactly the "mail shows up half a
+  //     minute late or only after a manual refresh" symptom.
+  //
+  // STATUS is the way out: it does not open a mailbox, so it cannot take the push channel
+  // away, and it cannot be starved by whoever holds it. One extra login per account, kept
+  // idle otherwise, is far cheaper than the polling-only fallback that once saturated a
+  // per-IP limit (see the PROVIDERS.purelymail note), and it needs no fresh login per tick.
+  // Measured on QQ at 3s spacing: new mail observed 7-8s after delivery, i.e. the same order
+  // as a healthy IDLE push.
+  //
+  // Only `messages` is read on purpose. Tencent does not update uidNext in a STATUS response
+  // (measured: constant across a delivery), so a count comparison is the only reliable trigger.
+  _startStatusWatcher(account) {
+    const intervalMs = providerProfile(account).statusWatchMs;
+    if (!intervalMs) return;
+    this._stopStatusWatcher(account.id);
+    const state = { client: null, timer: null, busy: false, stopped: false, lastMessages: null };
+    this.statusWatchers.set(account.id, state);
+
+    const tick = async () => {
+      // Never queue: a slow round trip must not build a backlog of overlapping polls.
+      if (state.stopped || state.busy) return;
+      state.busy = true;
+      try {
+        if (!state.client || !state.client.usable) {
+          if (state.client) { try { state.client.close(); } catch { /* already closed */ } }
+          state.client = null;
+          state.lastMessages = null; // a fresh session has no baseline; re-read it silently
+          const { resolved, policy } = await resolveAccountHost(account);
+          const client = await connectImapClient(account, resolved,
+            { enableIdle: false, policy }, 20000, 'STATUS watch');
+          if (state.stopped) { try { client.close(); } catch { /* already closed */ } return; }
+          state.client = client;
+        }
+        const status = await state.client.status('INBOX', { messages: true });
+        const messages = Number(status?.messages);
+        if (!Number.isSafeInteger(messages) || messages < 0) return;
+        if (state.lastMessages !== null && messages > state.lastMessages) {
+          console.log('STATUS watcher: new mail for ' + logAccount(account) + ' (' + state.lastMessages + ' -> ' + messages + ')');
+          this.broadcast(
+            { type: 'exists_hint', accountId: account.id, delta: messages - state.lastMessages },
+            account.user_id
+          );
+          // Same hand-off as the EXISTS listener: a running sync owns the mailbox, so queue
+          // rather than start a second one over it.
+          if (this.syncingAccounts.has(account.id)) this._pendingNewMail.add(account.id);
+          else setImmediate(() => { this._syncTick(account).catch(() => {}); });
+        }
+        state.lastMessages = messages;
+      } catch (err) {
+        // Idle sockets get reaped by the server; that is expected, not an outage. Drop the
+        // client and let the next tick log in again. Debug-level: this runs every few seconds.
+        if (state.client) { try { state.client.close(); } catch { /* already closed */ } }
+        state.client = null;
+        logger.debug(`STATUS watch for ${logAccount(account)}: ${extractImapError(err)}`);
+      } finally {
+        state.busy = false;
+      }
+    };
+    console.log('STATUS watcher armed for ' + logAccount(account) + ', every ' + intervalMs + 'ms');
+    state.timer = setInterval(tick, intervalMs);
+    if (typeof state.timer.unref === 'function') state.timer.unref();
+    tick();
+  }
+
+  _stopStatusWatcher(accountId) {
+    const state = this.statusWatchers.get(accountId);
+    if (!state) return;
+    state.stopped = true;
+    if (state.timer) clearInterval(state.timer);
+    if (state.client) { try { state.client.close(); } catch { /* already closed */ } }
+    this.statusWatchers.delete(accountId);
+  }
+
+
   // Attach the three IDLE event listeners shared by both the initial connect path
   // and the in-_syncTick reconnect path. Centralised here so a fix in one place
   // automatically covers both code paths.
@@ -3700,6 +3812,7 @@ export class ImapManager {
 
       const intervalMs = this.userSyncIntervalMs.get(account.user_id) || 60000;
       this._startSyncInterval(account, intervalMs);
+      this._startStatusWatcher(account);
       // Arm any plugin-declared background sync ticks whose isActive gate accepts this account
       // (e.g. GTD's label-folder tick when gtd_enabled). A plugin with no active tick for this
       // account starts no timer at all, so ticks stay inert when nobody uses the feature.
@@ -3756,6 +3869,7 @@ export class ImapManager {
     this._syncErrorState.delete(accountId);
     this._pendingFlagSync.delete(accountId);
     this._pendingNewMail.delete(accountId);
+    this._stopStatusWatcher(accountId);
     const flagTimer = this._flagDebounceTimers.get(accountId);
     if (flagTimer) { clearTimeout(flagTimer); this._flagDebounceTimers.delete(accountId); }
     const expungeTimer = this._expungeDebounceTimers.get(accountId);
