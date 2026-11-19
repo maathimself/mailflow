@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { descale } from '../hooks/useUiScale.js';
 import { TABLE_DEFAULTS } from '../utils/editorTable.js';
@@ -49,10 +50,17 @@ export default function TableInsertMenu({ position, uiScale, containerRef, onIns
   };
 
   return (
-    <div ref={containerRef}>
-      {advanced ? (
-        <div className="table-insert-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <div ref={advanced ? undefined : containerRef}>
+      {/* Keep the fixed overlay outside the composer's transformed and scaled ancestors. */}
+      {advanced ? createPortal(
+        <div ref={containerRef} className="table-insert-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
           <form ref={dialogRef} className="table-insert-dialog" role="dialog" aria-modal="true"
+            style={{
+              transform: uiScale === 1 ? undefined : `scale(${uiScale})`,
+              transformOrigin: 'center',
+              maxWidth: `calc(${100 / uiScale}vw - ${32 / uiScale}px)`,
+              maxHeight: `calc(${100 / uiScale}dvh - ${32 / uiScale}px)`,
+            }}
             aria-labelledby={titleId} onKeyDown={trapFocus}
             onSubmit={event => { event.preventDefault(); onInsert(values); }}>
             <h3 id={titleId}>{editing ? t('compose.tableMenu.properties') : t('compose.toolbar.insertTable')}</h3>
@@ -100,7 +108,7 @@ export default function TableInsertMenu({ position, uiScale, containerRef, onIns
               <button type="submit" className="table-insert-submit">{editing ? t('compose.toolbar.apply') : t('compose.toolbar.insertTable')}</button>
             </div>
           </form>
-        </div>
+        </div>, document.body
       ) : (
         <div className="table-insert-picker" style={{
           top: descale(position.top, uiScale), left: descale(position.left, uiScale),
