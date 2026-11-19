@@ -102,15 +102,6 @@ export async function archiveInChunks(ids, archive, chunkSize = 500) {
   return { archived, noArchiveFolder, unconfirmed: [], error: null };
 }
 
-export function unreadCountsByAccount(messages) {
-  const counts = new Map();
-  for (const message of Array.isArray(messages) ? messages : []) {
-    if (!message?.account_id || message.is_read) continue;
-    counts.set(message.account_id, (counts.get(message.account_id) || 0) + 1);
-  }
-  return counts;
-}
-
 export function currentThreadLoadVersion(versions, threadId) {
   return versions.get(threadId) || 0;
 }

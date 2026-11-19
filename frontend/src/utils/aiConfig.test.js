@@ -128,7 +128,7 @@ describe('normalizeAiForm', () => {
       enabled: true,
       connectionMethod: '',
       accountProvider: '',
-      apiKeyConfig: { baseUrl: '', apiKey: '', model: '' },
+      apiKeyConfig: { baseUrl: '', apiKey: '', model: '', extraHeaders: [] },
       chatgptConfig: { model: 'gpt-5.6-luna' },
       features: { compose: true, summarize: true },
       newUsersEnabled: true,
@@ -146,7 +146,7 @@ describe('normalizeAiForm', () => {
       enabled: true,
       connectionMethod: 'api',
       accountProvider: '',
-      apiKeyConfig: { baseUrl: 'http://ollama:11434/v1', apiKey: '••••••••', model: 'llama3' },
+      apiKeyConfig: { baseUrl: 'http://ollama:11434/v1', apiKey: '••••••••', model: 'llama3', extraHeaders: [] },
       chatgptConfig: { model: 'gpt-5.6-luna' },
       features: { compose: false, summarize: true },
       newUsersEnabled: true,
@@ -163,7 +163,7 @@ describe('normalizeAiForm', () => {
       enabled: false,
       connectionMethod: 'account',
       accountProvider: 'chatgpt',
-      apiKeyConfig: { baseUrl: 'https://api.example/v1', apiKey: '••••••••', model: 'fallback' },
+      apiKeyConfig: { baseUrl: 'https://api.example/v1', apiKey: '••••••••', model: 'fallback', extraHeaders: [] },
       chatgptConfig: { model: 'gpt-5.4' },
       features: { compose: true, summarize: true },
       newUsersEnabled: true,
@@ -278,7 +278,7 @@ describe('buildAiSavePayload', () => {
     assert.deepEqual(payload, {
       enabled: true,
       provider: 'api-key',
-      apiKeyConfig: { baseUrl: 'https://api.example/v1', apiKey: '••••••••', model: 'fallback' },
+      apiKeyConfig: { baseUrl: 'https://api.example/v1', apiKey: '••••••••', model: 'fallback', extraHeaders: [] },
       chatgptConfig: { model: 'gpt-5.4-mini' },
       features: { compose: true, summarize: true },
       newUsersEnabled: true,
@@ -299,7 +299,7 @@ describe('buildAiSavePayload', () => {
     assert.deepEqual(buildAiSavePayload(accountForm), {
       enabled: true,
       provider: 'chatgpt',
-      apiKeyConfig: { baseUrl: 'https://api.example/v1', apiKey: '••••••••', model: 'fallback' },
+      apiKeyConfig: { baseUrl: 'https://api.example/v1', apiKey: '••••••••', model: 'fallback', extraHeaders: [] },
       chatgptConfig: { model: 'gpt-5.4-mini' },
       features: { compose: true, summarize: true },
       newUsersEnabled: true,
@@ -323,6 +323,49 @@ describe('buildAiSavePayload', () => {
   });
 });
 
+
+// #746: extra request headers for a gateway in front of the provider.
+describe('extra request headers in the form', () => {
+  const { renameExtraHeader, editExtraHeaderValue, MASKED_SECRET } = aiConfig;
+  const stored = () => normalizeAiForm({
+    provider: 'api-key',
+    apiKeyConfig: { baseUrl: 'https://gw.example/v1', model: 'm', extraHeaders: [{ name: 'cf-aig-authorization', value: '••••••••' }] },
+  });
+
+  it('reads stored headers back masked, remembering the name each is stored under', () => {
+    assert.equal(MASKED_SECRET, '••••••••');
+    assert.deepEqual(stored().apiKeyConfig.extraHeaders, [{ name: 'cf-aig-authorization', value: '••••••••', storedName: 'cf-aig-authorization' }]);
+    assert.deepEqual(normalizeAiForm(stored()).apiKeyConfig.extraHeaders, stored().apiKeyConfig.extraHeaders, 'stable when normalized again');
+  });
+
+  it('saves the list without the form bookkeeping, keeping masked values for the server to resolve', () => {
+    const form = stored();
+    form.apiKeyConfig.extraHeaders.push({ name: '  X-Team ', value: 'mail', storedName: '' }, { name: ' ', value: '', storedName: '' });
+    assert.deepEqual(buildAiSavePayload(form).apiKeyConfig.extraHeaders, [
+      { name: 'cf-aig-authorization', value: '••••••••' },
+      { name: 'X-Team', value: 'mail' },
+    ], 'an empty row is dropped, a half-filled one goes on for the server to refuse');
+    form.apiKeyConfig.extraHeaders.push({ name: '', value: 'orphan', storedName: '' });
+    assert.deepEqual(buildAiSavePayload(form).apiKeyConfig.extraHeaders.at(-1), { name: '', value: 'orphan' });
+  });
+
+  it('clears a masked value when its header is renamed, and keeps it for a change of case', () => {
+    const [header] = stored().apiKeyConfig.extraHeaders;
+    assert.equal(renameExtraHeader(header, 'CF-AIG-Authorization').value, '••••••••');
+    assert.equal(renameExtraHeader(header, 'cf-aig-authorization ').value, '••••••••');
+    assert.equal(renameExtraHeader(header, 'x-other').value, '');
+    assert.equal(renameExtraHeader({ name: 'X-New', value: 'typed', storedName: '' }, 'X-Newer').value, 'typed');
+  });
+
+  it('starts a new value when typing into a masked one, and clears it when part of the mask is deleted', () => {
+    const [header] = stored().apiKeyConfig.extraHeaders;
+    assert.equal(editExtraHeaderValue(header, '••••••••a').value, 'a');
+    assert.equal(editExtraHeaderValue(header, '•••••••').value, '');
+    assert.equal(editExtraHeaderValue(header, 'abc').value, 'abc', 'text that replaced the whole mask');
+    assert.equal(editExtraHeaderValue(header, '').value, '');
+    assert.equal(editExtraHeaderValue({ ...header, value: 'abc' }, 'abcd').value, 'abcd');
+  });
+});
 
 describe('createCodexDevicePoller', () => {
   it('publishes only the display code, link, and timing state on start', async () => {

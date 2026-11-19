@@ -495,6 +495,9 @@ export const useStore = create((set, get) => ({
   }),
   // { undoable: true } marks a change the server only hears about once its undo window closes.
   adjustUnread: (accountId, delta, { undoable = false } = {}) => {
+    // No change opens no window: an empty one would still hold the badge at its old count, and
+    // keep an arrival off it, for PENDING_COUNT_MS (utils/inboxBadge.js charges 0 often).
+    if (!Number.isFinite(delta) || delta === 0) return;
     set(state => {
       if (state.isLocked) return {};
       const displayed = displayCountSnapshot(state.serverUnreadCounts, state.pendingCounts, state.accounts);
@@ -515,6 +518,11 @@ export const useStore = create((set, get) => ({
   setFolders: (accountId, folders) => set(state => state.isLocked ? {} : ({
     folders: { ...state.folders, [accountId]: mergeFolderSnapshots(state.folders[accountId], folders) }
   })),
+
+  // Where a resync after the app resumes stands (utils/resumeRefresh.js), for the list to say so:
+  // 'idle', 'syncing', 'failed' or 'retrying' (#748).
+  resumeSync: 'idle',
+  setResumeSync: (resumeSync) => set({ resumeSync }),
 
   // UI state
   sidebarCollapsed: localStorage.getItem('mailflow_sidebar_collapsed') === 'true',
@@ -1000,6 +1008,7 @@ export const useStore = create((set, get) => ({
   categoryTotals: {},
   setCategoryCounts: (counts, totals) => set(totals ? { categoryCounts: counts, categoryTotals: totals } : { categoryCounts: counts }),
   adjustCategoryCount: (category, delta) => set(state => {
+    if (!Number.isFinite(delta) || delta === 0) return {};
     const key = category || 'primary';
     const current = state.categoryCounts[key] || 0;
     return { categoryCounts: { ...state.categoryCounts, [key]: Math.max(0, current + delta) } };

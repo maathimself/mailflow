@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as done from './inboxDone.js';
 
 const doneInboxGtdMessage = done.doneInboxGtdMessage ?? (() => null);
-const row = { id: 'one', account_id: 'acct', subject: 'One', unread_count: 3 };
+const row = { id: 'one', account_id: 'acct', folder: 'INBOX', subject: 'One', unread_count: 3 };
 
 function harness(reply = { ok: true }) {
   const events = [];
@@ -25,6 +25,17 @@ describe('GTD main-list Done adapter', () => {
     const h = harness();
     await doneInboxGtdMessage(row, h.deps);
     assert.deepEqual(h.events.slice(0, 4), [['advance', 'one'], ['remove', 'one'], ['decrement', 'acct', 3], ['api', 'one']]);
+  });
+
+  it('charges nothing to the badge for a row outside INBOX, and gives nothing back', async () => {
+    const outside = { ...row, folder: 'Archive' };
+    const ok = harness();
+    await doneInboxGtdMessage(outside, ok.deps);
+    const failed = harness(new Error('network'));
+    await doneInboxGtdMessage(outside, failed.deps);
+    for (const { events } of [ok, failed]) {
+      assert.equal(events.some(([event]) => event === 'decrement' || event === 'increment'), false);
+    }
   });
 
   it('preserves partial archive failure notification and rollback on request failure', async () => {

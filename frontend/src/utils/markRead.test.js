@@ -177,6 +177,40 @@ describe('applyMarkRead', () => {
   });
 });
 
+// The badge and the category counts are INBOX only (utils/inboxBadge.js).
+describe('applyMarkRead and the counts', () => {
+  const seed = () => {
+    useStore.setState({ isLocked: false, pendingCounts: {}, accounts: [{ id: 'acct', enabled: true }] });
+    useStore.getState().setUnreadCounts({ byAccount: { acct: 5 },
+      snapshots: { acct: { revision: '1', known: true, stale: false, observedAt: new Date().toISOString() } } });
+    useStore.getState().setCategoryCounts({ primary: 5 });
+  };
+  const counts = () => [useStore.getState().unreadCounts.byAccount.acct, useStore.getState().categoryCounts.primary];
+
+  test('reading an INBOX message lowers both, and a failure puts them back', async () => {
+    seed();
+    failNext = true;
+    applyMarkRead({ ...MSG, folder: 'INBOX' });
+    assert.deepEqual(counts(), [4, 4]);
+    await tick();
+    assert.deepEqual(counts(), [5, 5]);
+  });
+
+  test('reading a message in another folder leaves both alone, failure included', async () => {
+    seed();
+    applyMarkRead({ ...MSG, folder: 'Newsletters' });
+    assert.equal(readFlag(), true, 'the message itself is still marked read');
+    assert.deepEqual(counts(), [5, 5]);
+    assert.deepEqual(useStore.getState().pendingCounts, {});
+    await tick();
+    useStore.getState().setMessages([{ ...MSG }]);
+    failNext = true;
+    applyMarkRead({ ...MSG, folder: 'Newsletters' });
+    await tick();
+    assert.deepEqual(counts(), [5, 5]);
+  });
+});
+
 describe('scheduleMarkRead', () => {
   test('explicit unread cancels every pending reader timer for that message', async () => {
     useStore.setState({ markReadBehavior: 'delay', markReadDelay: 0.03 });

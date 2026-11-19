@@ -18,11 +18,14 @@ import {
   AI_CONNECTION_METHOD_OPTIONS,
   AI_PROVIDER_API_KEY,
   AI_PROVIDER_CHATGPT,
+  MAX_EXTRA_HEADERS,
   OPENAI_MODELS_URL,
   buildAiSavePayload,
   createCodexDevicePoller,
+  editExtraHeaderValue,
   isAiFormValid,
   normalizeAiForm,
+  renameExtraHeader,
   selectAiConnectionMethod,
 } from '../utils/aiConfig.js';
 import { THEMES, applyTheme, applyCustomCss } from '../themes.js';
@@ -33,7 +36,7 @@ import { usePushNotifications } from '../hooks/usePushNotifications.js';
 import SignatureEditor from './SignatureEditor.jsx';
 import DiagnosticsReportModal from './DiagnosticsReportModal.jsx';
 import { getEffectiveShortcuts, getGroupedActions, getShortcutConflicts, shortcutActionText, shortcutBindingFromEvent, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.js';
-import { isValidForwardAddress } from '../utils/ruleActions.js';
+import { isValidForwardAddress, labelNameErrorKey, MAX_LABEL_NAME_LENGTH } from '../utils/ruleActions.js';
 import { folderParentLabel } from '../utils/folderDisplay.js';
 import AdminUserEditor from './AdminUserEditor.jsx';
 import AccountErrorCallout from './AccountErrorCallout.jsx';
@@ -3932,6 +3935,66 @@ function AISection() {
     </div>
   );
 
+  // Extra request headers for a gateway in front of the provider (#746).
+  const setExtraHeaders = update => setForm(f => ({
+    ...f, apiKeyConfig: { ...f.apiKeyConfig, extraHeaders: update(f.apiKeyConfig.extraHeaders) },
+  }));
+  const updateExtraHeader = (index, change) => setExtraHeaders(list => list.map((header, i) => (i === index ? change(header) : header)));
+  const headerInputStyle = { flex: '1 1 0', minWidth: 0, background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', color: 'var(--text-primary)', fontSize: 13 };
+  const extraHeadersSection = (
+    <div style={{ marginBottom: 14 }}>
+      <div id="ai-extra-headers-label" style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 3 }}>{t('admin.ai.extraHeaders')}</div>
+      <div id="ai-extra-headers-help" style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 8, lineHeight: 1.4 }}>{t('admin.ai.extraHeadersHelp')}</div>
+      {form.apiKeyConfig.extraHeaders.map((header, index) => (
+        <div
+          key={index}
+          role="group"
+          aria-labelledby="ai-extra-headers-label"
+          style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}
+        >
+          <input
+            type="text"
+            value={header.name}
+            onChange={e => updateExtraHeader(index, h => renameExtraHeader(h, e.target.value))}
+            placeholder={t('admin.ai.headerNamePh')}
+            aria-label={t('admin.ai.headerName')}
+            autoComplete="off"
+            spellCheck={false}
+            style={headerInputStyle}
+          />
+          <input
+            type="password"
+            value={header.value}
+            onChange={e => updateExtraHeader(index, h => editExtraHeaderValue(h, e.target.value))}
+            placeholder={t('admin.ai.headerValue')}
+            aria-label={t('admin.ai.headerValueFor', { name: header.name.trim() || t('admin.ai.headerName') })}
+            aria-describedby="ai-extra-headers-help"
+            autoComplete="new-password"
+            style={headerInputStyle}
+          />
+          <button
+            type="button"
+            onClick={() => setExtraHeaders(list => list.filter((_, i) => i !== index))}
+            aria-label={t('admin.ai.removeHeader', { name: header.name.trim() || t('admin.ai.headerName') })}
+            title={t('admin.ai.removeHeader', { name: header.name.trim() || t('admin.ai.headerName') })}
+            style={{ flexShrink: 0, alignSelf: 'stretch', width: 34, background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      {form.apiKeyConfig.extraHeaders.length < MAX_EXTRA_HEADERS && (
+        <button
+          type="button"
+          onClick={() => setExtraHeaders(list => [...list, { name: '', value: '', storedName: '' }])}
+          style={{ fontSize: 12, padding: '5px 10px', background: 'none', border: '1px dashed var(--border)', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer' }}
+        >
+          {t('admin.ai.addHeader')}
+        </button>
+      )}
+    </div>
+  );
+
   // A switch inside its label, so the text toggles it too and a screen reader reads its state.
   const toggle = (label, checked, onChange) => (
     <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 10 }}>
@@ -4035,6 +4098,7 @@ function AISection() {
             {field(t('admin.ai.baseUrl'), form.apiKeyConfig.baseUrl, value => setForm(f => ({ ...f, apiKeyConfig: { ...f.apiKeyConfig, baseUrl: value } })), 'text', t('admin.ai.baseUrlPh'))}
             {field(t('admin.ai.apiKey'), form.apiKeyConfig.apiKey, value => setForm(f => ({ ...f, apiKeyConfig: { ...f.apiKeyConfig, apiKey: value } })), 'password', t('admin.ai.apiKeyPh'))}
             {field(t('admin.ai.model'), form.apiKeyConfig.model, value => setForm(f => ({ ...f, apiKeyConfig: { ...f.apiKeyConfig, model: value } })), 'text', t('admin.ai.modelPh'))}
+            {extraHeadersSection}
             {config?.provider === AI_PROVIDER_API_KEY && (
               <button type="button" onClick={handleTest} disabled={testing} style={{ fontSize: 12, padding: '6px 12px', marginBottom: 14, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', cursor: testing ? 'default' : 'pointer', opacity: testing ? 0.6 : 1 }}>
                 {testing ? t('admin.ai.testing') : t('admin.ai.test')}
@@ -5986,6 +6050,8 @@ function RulesTab() {
       if (detail.ok === false) setRunError(t('admin.rules.runError'));
       else setRunResult({ processed: detail.processed, matched: detail.matched });
       setRunningRules(false);
+      // A run can record or clear an Apply label failure (D#751): show the rules as they are now.
+      api.getRules().then(setRules).catch(() => {});
     };
     window.addEventListener('mailflow:rules-run-complete', onRunComplete);
     return () => window.removeEventListener('mailflow:rules-run-complete', onRunComplete);
@@ -6108,6 +6174,12 @@ function RulesTab() {
       setFormError(t('admin.rules.errorForwardEmail'));
       return;
     }
+    const labelAction = actions.find(action => action.type === 'apply_label');
+    const labelError = labelAction && labelNameErrorKey(labelAction.value);
+    if (labelError) {
+      setFormError(t(labelError));
+      return;
+    }
     setFormSaving(true);
     setFormError('');
     try {
@@ -6201,13 +6273,32 @@ function RulesTab() {
     }).join(` ${rule.condition_logic} `) + (conds.length > 2 ? ` +${conds.length - 2}` : '');
   }
 
+  // Where the rule's Apply label last failed, per account (D#751), as the list says it. An account
+  // since removed is left out; the next save or successful run clears it anyway.
+  function labelFailures(rule) {
+    const recorded = rule.label_failures && typeof rule.label_failures === 'object' ? rule.label_failures : {};
+    return Object.entries(recorded).flatMap(([accountId, failure]) => {
+      const account = accounts.find(a => a.id === accountId);
+      if (!account || !failure) return [];
+      const when = failure.at ? new Date(failure.at) : null;
+      return [{
+        accountId,
+        label: failure.label || '',
+        account: account.email_address || account.name || '',
+        when: when && !Number.isNaN(when.getTime()) ? formatDateTime(when) : '',
+        error: failure.subject ? `${failure.error} (“${failure.subject}”)` : failure.error,
+      }];
+    });
+  }
+
   function actionSummary(rule) {
     const acts = Array.isArray(rule.actions) ? rule.actions : [];
     if (!acts.length) return '—';
-    const labels = { mark_read: t('admin.rules.actionMarkRead'), star: t('admin.rules.actionStar'), forward: t('admin.rules.actionForward'), archive: t('admin.rules.actionArchive'), delete: t('admin.rules.actionDelete'), move: t('admin.rules.actionMove'), set_category: t('admin.rules.actionSetCategory'), notify: t('admin.rules.actionNotify') };
-    // Show the move destination and the category so same-named rules are tellable apart at a glance.
+    const labels = { mark_read: t('admin.rules.actionMarkRead'), star: t('admin.rules.actionStar'), forward: t('admin.rules.actionForward'), archive: t('admin.rules.actionArchive'), delete: t('admin.rules.actionDelete'), move: t('admin.rules.actionMove'), set_category: t('admin.rules.actionSetCategory'), notify: t('admin.rules.actionNotify'), apply_label: t('admin.rules.actionApplyLabel') };
+    // Show the move destination, the label and the category so same-named rules are tellable apart at a glance.
     return acts.map(a => {
       if (a.type === 'move' && a.value) return `${labels.move} → ${a.value}`;
+      if (a.type === 'apply_label' && a.value) return `${labels.apply_label} → ${a.value}`;
       if (a.type === 'set_category' && a.value) return `${labels.set_category} → ${t(`messageList.categories.${a.value}`)}`;
       return labels[a.type] || a.type;
     }).join(', ');
@@ -6238,6 +6329,7 @@ function RulesTab() {
     { type: 'archive',   label: t('admin.rules.actionArchive') },
     { type: 'delete',    label: t('admin.rules.actionDelete') },
     { type: 'move',      label: t('admin.rules.actionMove') },
+    { type: 'apply_label', label: t('admin.rules.actionApplyLabel') },
     { type: 'set_category', label: t('admin.rules.actionSetCategory') },
     { type: 'notify',    label: t('admin.rules.actionNotify') },
   ];
@@ -6453,6 +6545,24 @@ function RulesTab() {
                     {t('admin.rules.actionNotifyHint')}
                   </div>
                 )}
+                {type === 'apply_label' && checked && (
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    maxLength={MAX_LABEL_NAME_LENGTH}
+                    aria-label={t('admin.rules.actionApplyLabel')}
+                    aria-describedby="rule-apply-label-hint"
+                    style={{ ...inputStyle, marginTop: 6, marginLeft: 22 }}
+                    value={fd.actions.find(action => action.type === 'apply_label')?.value || ''}
+                    onChange={event => setActionValue('apply_label', event.target.value)}
+                    placeholder={t('admin.rules.actionApplyLabelPlaceholder')}
+                  />
+                )}
+                {type === 'apply_label' && (
+                  <div id="rule-apply-label-hint" style={{ fontSize: 11, color: 'var(--text-tertiary)', marginLeft: 22, marginTop: 2, lineHeight: 1.4 }}>
+                    {t('admin.rules.actionApplyLabelHint')}
+                  </div>
+                )}
                 {type === 'set_category' && checked && (
                   <select
                     aria-label={t('admin.rules.actionSetCategory')}
@@ -6632,6 +6742,11 @@ function RulesTab() {
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {conditionSummary(rule)} → {actionSummary(rule)}
                   </div>
+                  {labelFailures(rule).map(failure => (
+                    <div key={failure.accountId} role="note" style={{ fontSize: 11, color: 'var(--red)', marginTop: 4, lineHeight: 1.4, overflowWrap: 'anywhere' }}>
+                      {t('admin.rules.labelFailed', failure)} {t('admin.rules.labelFailedRetry')}
+                    </div>
+                  ))}
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                   <button

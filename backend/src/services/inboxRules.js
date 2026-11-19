@@ -2,6 +2,80 @@ import { notifyMessageRowsDeleted } from './messageRowsDeleted.js';
 import { query } from './db.js';
 import { rememberDroppedRows } from './movedRowCarry.js';
 import { resolveArchiveFolder, isAllMailFolder, resolveTrashFolder, resolveAllTrashPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
+import { applyLabel } from './labels.js';
+
+// ── Apply label (D#751) ────────────────────────────────────────────────────────────────────────
+// A rule can file mail under a label by name, in any account: the name resolves, per account, to
+// a folder of that name in the account's own hierarchy ('Receipt', or 'INBOX.Receipt' on a server
+// that nests everything under INBOX), created the first time it is used, and the message is
+// COPIED there (labels.js), as GTD's labels are. On Gmail that copy is a real Gmail label.
+//
+// A label is applied before any rule moves the message (the forward barrier below covers it), and
+// a label that could not be applied keeps every move, archive or delete from taking the message
+// out of the inbox: it is still there for the next run, which applies the label once it can.
+// Each account's last failure is kept on the rule (label_failures) for the rule list to show.
+export const MAX_LABEL_NAME_LENGTH = 100;
+const hasControlCharacter = value => [...value].some(ch => ch.charCodeAt(0) < 0x20 || ch.charCodeAt(0) === 0x7f);
+
+// Why `name` cannot be a label, or null. '/' nests ('Receipts/2026'); IMAP's list wildcards and
+// control characters cannot be part of a folder name, and INBOX is not a label.
+export function labelNameError(name) {
+  const value = typeof name === 'string' ? name.trim() : '';
+  if (!value) return 'Apply label needs a label name';
+  if (value.length > MAX_LABEL_NAME_LENGTH) return `Label names can be at most ${MAX_LABEL_NAME_LENGTH} characters`;
+  if (/[*%\\]/.test(value) || hasControlCharacter(value)) return 'Label names cannot contain *, %, \\ or control characters';
+  const parts = value.split('/');
+  if (parts.some(part => !part.trim() || part === '.' || part === '..')) {
+    return 'Label names cannot start or end with /, or have an empty part';
+  }
+  if (parts[0].trim().toUpperCase() === 'INBOX') return 'A label cannot be named INBOX';
+  return null;
+}
+
+// The label's folder in this account, created if missing: once per run of the rules for each
+// account and label, a failure included, so a batch does not open a connection per message.
+function labelFolderFor(imapManager, account, name, resolverCache) {
+  const key = `label:${account.id}:${name}`;
+  if (!resolverCache[key]) {
+    resolverCache[key] = imapManager.ensureFolder(account, name, { resolvePath: true }).then(result => result.path);
+    resolverCache[key].catch(() => {});
+  }
+  return resolverCache[key];
+}
+
+// Each Apply label rule's outcome in this run, per account: { ok, error, subject }.
+function noteLabelOutcome(resolverCache, ruleId, accountId, outcome) {
+  const outcomes = (resolverCache.labelOutcomes ||= new Map());
+  const key = `${ruleId}:${accountId}`;
+  const seen = outcomes.get(key) || { ruleId, accountId, ok: 0 };
+  if (outcome.error) Object.assign(seen, { error: outcome.error, subject: outcome.subject, label: outcome.label });
+  else seen.ok += 1;
+  outcomes.set(key, seen);
+}
+
+// Keeps each rule's per-account failure: a failure in this run replaces it, a run that labelled
+// mail without one clears it. A rule without a failure on record and nothing failed is left alone.
+async function recordLabelOutcomes(rules, resolverCache) {
+  const outcomes = resolverCache.labelOutcomes;
+  if (!outcomes?.size) return;
+  for (const { ruleId, accountId, ok, error, subject, label } of outcomes.values()) {
+    const rule = rules.find(r => r.id === ruleId);
+    try {
+      if (error) {
+        const entry = { at: new Date().toISOString(), label, error: String(error).slice(0, 300), subject: String(subject || '').slice(0, 120) };
+        await query(
+          `UPDATE inbox_rules SET label_failures = jsonb_set(COALESCE(label_failures, '{}'), ARRAY[$2::text], $3::jsonb)
+           WHERE id = $1`,
+          [ruleId, accountId, JSON.stringify(entry)]
+        );
+      } else if (ok > 0 && rule?.label_failures && Object.hasOwn(rule.label_failures, accountId)) {
+        await query('UPDATE inbox_rules SET label_failures = label_failures - $2::text WHERE id = $1', [ruleId, accountId]);
+      }
+    } catch (err) {
+      console.error(`inboxRules: could not record the label outcome of rule ${ruleId}:`, err.message);
+    }
+  }
+}
 
 async function getRulesForAccount(userId, accountId) {
   const result = await query(
@@ -210,10 +284,12 @@ export async function applyInboxRules(messages, account, imapManager) {
   // Messages a matching rule asked to be notified about, and those a rule deleted (never alerted).
   const notifyIds = new Set();
   const deletedIds = new Set();
+  // The last rule that forwards or applies a label: moves from rules before it wait for it, so a
+  // forward or a label is never attempted on mail already moved out, and its failure can keep it.
   const lastForwardRuleIndex = rules.reduce(
     (lastIndex, rule, index) =>
       Array.isArray(rule.actions) &&
-      rule.actions.some(action => action?.type === 'forward')
+      rule.actions.some(action => action?.type === 'forward' || action?.type === 'apply_label')
         ? index
         : lastIndex,
     -1
@@ -293,6 +369,21 @@ export async function applyInboxRules(messages, account, imapManager) {
         }
       }
 
+      // Then labels, still before anything can move the message. One that could not be applied
+      // blocks every destination for this message, as a failed forward does: it stays in the
+      // inbox for the next run to label.
+      for (const action of actions.filter(action => action.type === 'apply_label')) {
+        const label = typeof action.value === 'string' ? action.value.trim() : '';
+        try {
+          await applyAction(action, msg, account, imapManager, rule.id, resolverCache);
+          noteLabelOutcome(resolverCache, rule.id, account.id, { label });
+        } catch (err) {
+          destinationBlockedIds.add(msg.id);
+          noteLabelOutcome(resolverCache, rule.id, account.id, { error: err.message || 'Unknown error', subject: msg.subject, label });
+          console.error(`inboxRules: label "${label}" failed for msg ${msg.id}; destination actions suppressed:`, err.message);
+        }
+      }
+
       // Once no later rule can run a forward, release destinations queued by
       // higher-priority rules before continuing this rule's ordinary actions.
       // A matching stop_processing rule also makes all later rules unreachable.
@@ -305,7 +396,7 @@ export async function applyInboxRules(messages, account, imapManager) {
       }
 
       let destSeen = false;
-      for (const action of actions.filter(action => action.type !== 'forward')) {
+      for (const action of actions.filter(action => action.type !== 'forward' && action.type !== 'apply_label')) {
         // "Notify me" does nothing to the message; it only marks it for an alert.
         if (action.type === 'notify') { notifyIds.add(msg.id); continue; }
         const isDest = action.type === 'move' || action.type === 'archive' || action.type === 'delete';
@@ -330,6 +421,8 @@ export async function applyInboxRules(messages, account, imapManager) {
 
     await flushDeferredDestinations();
   }
+
+  await recordLabelOutcomes(rules, resolverCache);
 
   // Asked for explicitly, so a notify rule's alert wins over a mark_read rule's silence.
   for (const id of notifyIds) mutedIds.delete(id);
@@ -469,6 +562,25 @@ async function applyAction(action, msg, account, imapManager, ruleId, resolverCa
         imapManager,
         recipient: action.value,
       });
+    }
+
+    case 'apply_label': {
+      const name = typeof action.value === 'string' ? action.value.trim() : '';
+      const nameError = labelNameError(name);
+      if (nameError) throw new Error(nameError);
+      if (msg.uid == null) throw new Error('its place on the mail server is not known yet');
+      // The copy is recognized as already made by its Message-ID (labels.js), which a run of the
+      // rules over the inbox does not load. Without one there is no telling, and copying again on
+      // every run would pile up copies, so it is left unlabelled.
+      let messageId = msg.message_id ?? msg.messageId;
+      if (messageId === undefined) {
+        const { rows } = await query('SELECT message_id FROM messages WHERE id = $1', [msg.id]);
+        messageId = rows[0]?.message_id;
+      }
+      if (!messageId) throw new Error('it has no Message-ID, so MailFlow cannot tell whether it is already labelled');
+      const folder = await labelFolderFor(imapManager, account, name, resolverCache);
+      await applyLabel(imapManager, account, { uid: msg.uid, folder: msg.folder, message_id: messageId, account_id: account.id }, folder);
+      return false;
     }
 
     case 'set_category': {

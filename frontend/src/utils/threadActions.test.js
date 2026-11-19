@@ -240,6 +240,71 @@ describe('moveThread', () => {
   });
 });
 
+// The account badge counts INBOX only (utils/inboxBadge.js): a conversation action moves it by
+// the unread INBOX messages it takes, or brings into INBOX, and puts back exactly that.
+describe('the account badge follows INBOX only', () => {
+  const seedBadge = (n) => {
+    useStore.setState({ isLocked: false, pendingCounts: {} });
+    useStore.getState().setUnreadCounts({ byAccount: { acct: n },
+      snapshots: { acct: { revision: '1', known: true, stale: false, observedAt: new Date().toISOString() } } });
+  };
+  const badge = () => useStore.getState().unreadCounts.byAccount.acct;
+  const FILED = THREAD.map(m => (m.folder === 'INBOX' ? { ...m, folder: 'Projects' } : m));
+
+  test('archiving from INBOX takes its unread INBOX message; undo puts it back', () => {
+    seedBadge(5);
+    archiveThread(THREAD, { t, addNotification, anchorId: 'a3', folder: 'INBOX', accountId: 'acct' });
+    assert.equal(badge(), 4);
+    notifications[0].onUndo();
+    assert.equal(badge(), 5);
+  });
+
+  test('archiving unread mail shown from another folder leaves the badge alone', () => {
+    seedBadge(5);
+    useStore.getState().setMessages(FILED.map(m => ({ ...m })));
+    archiveThread(FILED, { t, addNotification, anchorId: 'a1', folder: 'Projects', accountId: 'acct' });
+    assert.equal(badge(), 5);
+    notifications[0].onUndo();
+    assert.equal(badge(), 5);
+  });
+
+  test('deleting a conversation takes only its INBOX unread', () => {
+    seedBadge(5);
+    const mixed = [...THREAD, { id: 'a5', account_id: 'acct', folder: 'Archive', subject: 'Re: Hello', from_email: 'them@x.z', date: '2026-01-05T00:00:00Z', is_read: false }];
+    useStore.getState().setMessages(mixed.map(m => ({ ...m })));
+    deleteThread(mixed, { t, addNotification, anchorId: 'a3', accountId: 'acct' });
+    assert.equal(badge(), 4, 'a3 (INBOX) counts, a5 (Archive) does not');
+    notifications[0].onUndo();
+    assert.equal(badge(), 5);
+  });
+
+  test('moving unread mail into INBOX raises the badge; undo lowers it again', () => {
+    seedBadge(5);
+    useStore.getState().setMessages(FILED.map(m => ({ ...m })));
+    moveThread(FILED, 'INBOX', { t, addNotification });
+    assert.equal(badge(), 6);
+    notifications[0].onUndo();
+    assert.equal(badge(), 5);
+  });
+
+  test('moving out of INBOX lowers it, and a failed move gives it back', async () => {
+    seedBadge(5);
+    failNext = true;
+    moveThread(THREAD, 'Archive/2026', { t, addNotification });
+    assert.equal(badge(), 4);
+    await tick(UNDO_WINDOW + 50);
+    assert.equal(badge(), 5);
+  });
+
+  test('moving between two other folders leaves it alone', () => {
+    seedBadge(5);
+    useStore.getState().setMessages(FILED.map(m => ({ ...m })));
+    moveThread(FILED, 'Archive/2026', { t, addNotification });
+    assert.equal(badge(), 5);
+    assert.deepEqual(useStore.getState().pendingCounts, {}, 'and opens no window that would hold it');
+  });
+});
+
 // A saved reply in the conversation (marked is_draft by the thread route). Deleting a draft
 // expunges it, so deleting or moving the conversation must leave it alone.
 describe('drafts in the conversation', () => {

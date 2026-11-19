@@ -14,7 +14,7 @@ vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy: vi.fn() }));
 vi.mock('./spamPipeline.js', () => ({ classifyAndTagMessage: vi.fn() }));
 vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }));
 
-import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, rollbackCopiedMessageOnInsertFailure, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, contentLocationFromMimeHeader, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, pairMovedCopies, computeThreadId, noteDraftsChanged } from './imapManager.js';
+import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, rollbackCopiedMessageOnInsertFailure, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createdPathFor, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, contentLocationFromMimeHeader, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, pairMovedCopies, computeThreadId, noteDraftsChanged } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { ensureFreshToken, clearChangedSinceIgnored, isServerLimitFailure } from './imapManager.js';
 import { fetchSnippetBatch, structureParts } from './imapManager.js';
@@ -852,6 +852,43 @@ describe('ensureMailbox — namespace + already-exists matrix', () => {
     const client = clientReturning(undefined);
     const res = await ensureMailbox(client, 'Reference');
     expect(res).toEqual({ path: 'Reference', created: false });
+  });
+});
+
+// ── ensureMailbox — a plain-NO already-exists on a nested name (D#751) ─────────
+// GreenMail (and other servers without RFC 5530 codes) answer a repeated CREATE with a plain NO and
+// no path. The path is then the one the CREATE asked for, spelled as imapflow spelled it: the bare
+// requested 'Reading/Later' named no folder on a '.'-delimited server, so every later COPY failed.
+describe('ensureMailbox — the path of a folder that already existed, without a code', () => {
+  const alreadyExists = () => Object.assign(new Error('Command failed'), { responseText: 'CREATE failed. Mailbox Reading.Later already exists.' });
+
+  it.each([
+    [{ prefix: '', delimiter: '.' }, 'Reading/Later', 'Reading.Later'],
+    [{ prefix: 'INBOX.', delimiter: '.' }, 'Reading/Later', 'INBOX.Reading.Later'],
+    [{ prefix: 'INBOX.', delimiter: '.' }, 'Receipt', 'INBOX.Receipt'],
+    [{ prefix: '', delimiter: '/' }, 'Reading/Later', 'Reading/Later'],
+    [{ prefix: 'INBOX.', delimiter: '.' }, 'inbox', 'INBOX'],
+  ])('namespace %j: %s is %s', async (namespace, requested, expected) => {
+    const client = { namespace, mailboxCreate: vi.fn().mockRejectedValue(alreadyExists()) };
+    expect(await ensureMailbox(client, requested)).toEqual({ path: expected, created: false });
+  });
+
+  it('then resolves the casing of that path, not of the bare name', async () => {
+    const client = {
+      namespace: { prefix: '', delimiter: '.' },
+      mailboxCreate: vi.fn().mockRejectedValue(alreadyExists()),
+      list: vi.fn().mockResolvedValue([{ path: 'INBOX' }, { path: 'Reading' }, { path: 'Reading.later' }]),
+    };
+    expect(await ensureMailbox(client, 'Reading/Later', { resolvePath: true })).toEqual({ path: 'Reading.later', created: false });
+  });
+
+  it('createdPathFor matches imapflow normalizePath for the arrays ensureMailbox hands it', async () => {
+    const { default: tools } = await import('imapflow/lib/tools.js');
+    for (const namespace of [{ prefix: '', delimiter: '.' }, { prefix: 'INBOX.', delimiter: '.' }, { prefix: '', delimiter: '/' }]) {
+      for (const name of ['Todo', 'Work/Todo', 'INBOX', 'INBOX.Todo', 'a/b/c']) {
+        expect(createdPathFor({ namespace }, name)).toBe(tools.normalizePath({ namespace }, name.split('/')));
+      }
+    }
   });
 });
 
@@ -5218,6 +5255,33 @@ describe('backfill — a reconnect that cannot succeed', () => {
     expect(run.settled).toBe(true);
     expect(mgr.refreshBulkFlags).toHaveBeenCalledWith(acct);
     expect(mgr.startSnippetIndexer).toHaveBeenCalledWith(acct);
+  });
+});
+
+// A folder the server lists as \\Noselect (a parent that only holds folders) cannot be selected,
+// so backfilling it failed on every pass. The folder query leaves those out.
+describe('backfillAllFolders — skips folders that cannot be selected', () => {
+  it('backfills INBOX and the selectable folders only', async () => {
+    const FOLDERS = [
+      { path: 'Archive', no_select: false },
+      { path: 'Reading', no_select: true },
+      { path: 'Reading.Later', no_select: false },
+    ];
+    query.mockReset().mockImplementation(async (sql) => {
+      if (/FROM folders WHERE account_id = \$1 AND path != 'INBOX'/.test(sql)) {
+        // The folder table answering this query, by its own filter.
+        return { rows: FOLDERS.filter(f => !/NOT no_select/.test(sql) || !f.no_select).map(({ path }) => ({ path })) };
+      }
+      if (/FROM email_accounts WHERE id = \$1 AND enabled/.test(sql)) return { rows: [] };
+      return { rows: [] };
+    });
+    const mgr = new ImapManager(null);
+    clearInterval(mgr._healthCheckTimer);
+    clearInterval(mgr._snippetSchedulerTimer);
+    mgr.backfillMessages = vi.fn(() => Promise.resolve());
+    mgr.broadcast = vi.fn();
+    await mgr.backfillAllFolders({ id: 'acc-ns', user_id: 'u1', imap_host: 'imap.example.com' });
+    expect(mgr.backfillMessages.mock.calls.map(([, folder]) => folder)).toEqual(['INBOX', 'Archive', 'Reading.Later']);
   });
 });
 

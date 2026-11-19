@@ -31,6 +31,8 @@ export const RESUME_RETRY_MS = [2000, 5000, 15000, 30000, 30000, 60000];
 export const RESUME_TIMEOUT_MS = 20000;
 /** Dispatched on window when the WebSocket reconnects; its catch-up settles an owed resync. */
 export const SOCKET_CAUGHT_UP_EVENT = 'mailflow:socket_caught_up';
+/** Dispatched on window by the list's Retry (ResumeStatus.jsx): run the resync now. */
+export const RESUME_RETRY_EVENT = 'mailflow:resume_retry';
 
 /**
  * @param minHiddenMs how long the page must have been hidden for a plain visibility return to count
@@ -78,9 +80,15 @@ export function createResumeTracker({ minHiddenMs = RESUME_MIN_HIDDEN_MS, coales
  * @param onResync    called when a resynchronization is due; a promise it returns that rejects
  *                    (or a throw) means the resync failed and is tried again
  * @param shouldSkip  suppress while the session is locked, without discarding the hidden clock
+ * @param onState     hears where the resync stands, for the list to say so (#748): 'syncing' while
+ *                    one runs, 'failed' once one failed and until one works, 'retrying' while a
+ *                    retry after a failure runs, 'idle' otherwise
+ *
+ * Returns the cleanup function, carrying retryNow(): run the resync at once, as the Retry button
+ * asks. It returns whether it started one (not while one runs, or while the session is locked).
  */
 export function installResumeRefresh({
-  doc, win, onResync, shouldSkip = () => false, now = () => Date.now(), tracker = createResumeTracker(),
+  doc, win, onResync, onState = () => {}, shouldSkip = () => false, now = () => Date.now(), tracker = createResumeTracker(),
   coalesceMs = RESUME_COALESCE_MS, retryMs = RESUME_RETRY_MS, timeoutMs = RESUME_TIMEOUT_MS,
   setTimer = setTimeout, clearTimer = clearTimeout,
 }) {
@@ -95,6 +103,12 @@ export function installResumeRefresh({
   let inFlight = null;     // generation of the run not yet settled
   let lastRunAt = null;
   let warned = false;      // one warning per wake, not one per retry
+  let state = 'idle';
+  const report = (next) => {
+    if (next === state) return;
+    state = next;
+    onState(next);
+  };
   const cancel = () => {
     generation += 1;
     inFlight = null;
@@ -107,6 +121,8 @@ export function installResumeRefresh({
     const gen = ++generation;
     inFlight = gen;
     lastRunAt = now();
+    // After a failure the list keeps saying so while it tries again, rather than flickering.
+    report(owed ? 'retrying' : 'syncing');
     let done;
     try { done = Promise.resolve(onResync()); } catch (err) { done = Promise.reject(err); }
     // Otherwise a request hanging on a dead network holds the run in flight until the next resume.
@@ -119,9 +135,11 @@ export function installResumeRefresh({
       inFlight = null;
       failures = 0;
       owed = false;
+      report('idle');
     }, () => {
       if (gen !== generation) return;
       inFlight = null;
+      report('failed');
       if (!warned) { warned = true; console.warn('Resync after resume failed; trying again'); }
       owed = true;
       retryTimer = setTimer(retry, retryMs[Math.min(failures, retryMs.length - 1)]);
@@ -159,17 +177,26 @@ export function installResumeRefresh({
     cancel();
     owed = false;
     failures = 0;
+    report('idle');
+  };
+  const retryNow = () => {
+    if (shouldSkip() || inFlight !== null) return false;
+    warned = false;
+    run();
+    return true;
   };
 
   doc.addEventListener('visibilitychange', onVisibility);
   win.addEventListener('pageshow', onPageShow);
   win.addEventListener('online', onOnline);
   win.addEventListener(SOCKET_CAUGHT_UP_EVENT, onCaughtUp);
-  return () => {
+  const cleanup = () => {
     cancel();
     doc.removeEventListener('visibilitychange', onVisibility);
     win.removeEventListener('pageshow', onPageShow);
     win.removeEventListener('online', onOnline);
     win.removeEventListener(SOCKET_CAUGHT_UP_EVENT, onCaughtUp);
   };
+  cleanup.retryNow = retryNow;
+  return cleanup;
 }

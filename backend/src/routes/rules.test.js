@@ -174,3 +174,22 @@ describe('set_category actions (#489)', () => {
     ])).toEqual([{ type: 'set_category', value: 'social' }, { type: 'mark_read', value: '' }]);
   });
 });
+
+describe('apply_label actions (D#751)', () => {
+  it('needs a usable label name, and is allowed in an all-account rule', () => {
+    expect(validateActions([{ type: 'apply_label', value: 'Receipt' }])).toBeNull();
+    expect(validateActions([{ type: 'apply_label', value: 'Receipts/2026' }])).toBeNull();
+    expect(validateActions([{ type: 'apply_label', value: '' }])).toBe('Apply label needs a label name');
+    expect(validateActions([{ type: 'apply_label' }])).toBe('Apply label needs a label name');
+    expect(validateActions([{ type: 'apply_label', value: 'INBOX' }])).toBe('A label cannot be named INBOX');
+    expect(validateActions([{ type: 'apply_label', value: 'a%b' }])).toMatch(/cannot contain/);
+  });
+
+  it('keeps one label per rule, trimmed, beside the other actions', () => {
+    expect(normalizeActions([
+      { type: 'apply_label', value: '  Receipt ' },
+      { type: 'archive', value: '' },
+      { type: 'apply_label', value: 'Other' },
+    ])).toEqual([{ type: 'apply_label', value: 'Receipt' }, { type: 'archive', value: '' }]);
+  });
+});

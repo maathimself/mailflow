@@ -305,6 +305,23 @@ describe('MessageList replacement search feedback', () => {
     await settle();
     await respond({ messages: [] });
   });
+
+  // Search results have no page numbers, and paginated mode drew no Load more for them, so a
+  // search stopped at its first page with no way to the rest.
+  test('paginated mode: a full page of search results offers Load more', async () => {
+    await mount({ scrollMode: 'paginated' });
+    useStore.setState({ pageSize: 2 });
+    await search('Synthetic');
+    await settle();
+    await respond({ messages: [hit('a'), hit('b')] });
+    const more = [...container().querySelectorAll('button')].find(b => /messageList\.loadMore/.test(b.textContent));
+    assert.ok(more, 'a full page offers more');
+    await React.act(async () => { more.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    assert.match(await respond({ messages: [hit('c')] }), /offset=2/);
+    assert.deepEqual(useStore.getState().searchResults.map(m => m.id), ['a', 'b', 'c']);
+    assert.match(text(), /messageList\.noMoreMessages/);
+    assert.doesNotMatch(text(), /messageList\.pageOf/, 'still no folder page numbers');
+  });
 });
 
 describe('MessageList search scope note', () => {
@@ -367,5 +384,71 @@ describe('MessageList search scope note', () => {
     assert.equal(note(), 'Deleted Items');
     assert.ok(!allFoldersButton(), 'an unflagged "Deleted Items" is skipped by name');
     await drain();
+  });
+});
+
+// #742: a replaced search's rows stay, dimmed and marked busy, until the new results arrive; a
+// failed Load more says so and offers a retry; and a replaced search's page cannot touch the
+// new search's Load more.
+describe('MessageList replaced results and Load more failures (#742)', () => {
+  const list = () => container().querySelector('[data-msgid]')?.closest('[tabindex="0"]');
+  const button = (re) => [...container().querySelectorAll('button')].find(b => re.test(b.textContent));
+  const click = (el) => React.act(async () => { el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+
+  test('dims the previous rows while the replacement runs, and only then', async () => {
+    await mount();
+    await search('Synthetic');
+    await settle();
+    await respond({ messages: [hit('previous')] });
+    assert.equal(list().style.opacity, '1');
+    assert.equal(list().getAttribute('aria-busy'), null);
+    await search('Replacement');
+    assert.equal(list().style.opacity, '0.5', 'dimmed during the debounce');
+    assert.equal(list().getAttribute('aria-busy'), 'true');
+    await settle();
+    assert.equal(list().style.opacity, '0.5', 'still dimmed while the request is pending');
+    await respond({ messages: [hit('replacement')] });
+    assert.equal(list().style.opacity, '1');
+    assert.equal(list().getAttribute('aria-busy'), null);
+  });
+
+  test('a failed Load more says so, keeps the rows, and the retry asks for the same offset', async () => {
+    await mount();
+    useStore.setState({ pageSize: 2 });
+    await search('Synthetic');
+    await settle();
+    await respond({ messages: [hit('a'), hit('b')] });
+    await click(button(/messageList\.loadMore/));
+    const failed = pending.shift();
+    assert.match(failed.path, /offset=2/);
+    await React.act(async () => { failed.reject(new Error('network down')); await new Promise(r => setTimeout(r, 0)); });
+    assert.ok(container().querySelector('[role="alert"]'), 'the failure is announced');
+    assert.match(text(), /messageList\.loadMoreFailed/);
+    assert.deepEqual(useStore.getState().searchResults.map(m => m.id), ['a', 'b'], 'the loaded rows stay');
+    const retry = button(/common\.retry/);
+    assert.ok(retry, 'the button offers a retry');
+    await click(retry);
+    assert.doesNotMatch(text(), /messageList\.loadMoreFailed/, 'the failure clears when retrying');
+    assert.match(await respond({ messages: [hit('c')] }), /offset=2/);
+    assert.deepEqual(useStore.getState().searchResults.map(m => m.id), ['a', 'b', 'c']);
+    assert.match(text(), /messageList\.noMoreMessages/);
+  });
+
+  test('a replaced search\'s Load more neither blocks nor fails the new one', async () => {
+    await mount();
+    useStore.setState({ pageSize: 2 });
+    await search('Synthetic');
+    await settle();
+    await respond({ messages: [hit('a'), hit('b')] });
+    await click(button(/messageList\.loadMore/));
+    const old = pending.shift();
+    await search('Replacement');
+    await settle();
+    await respond({ messages: [hit('x'), hit('y')] });
+    assert.ok(button(/messageList\.loadMore/), 'the new search offers Load more while the old page is pending');
+    await React.act(async () => { old.reject(new Error('late failure')); await new Promise(r => setTimeout(r, 0)); });
+    assert.doesNotMatch(text(), /messageList\.loadMoreFailed/, 'the old page\'s failure is not shown');
+    assert.ok(button(/messageList\.loadMore/), 'and Load more is still there');
+    assert.deepEqual(useStore.getState().searchResults.map(m => m.id), ['x', 'y']);
   });
 });

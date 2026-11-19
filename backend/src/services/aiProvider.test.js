@@ -98,7 +98,7 @@ describe('normalizeAiConfig', () => {
       enabled: true,
       provider: AI_PROVIDER_API_KEY,
       apiKeyConfig: {
-        baseUrl: 'http://ollama:11434/v1', apiKey: 'encrypted:key', model: 'llama3',
+        baseUrl: 'http://ollama:11434/v1', apiKey: 'encrypted:key', model: 'llama3', extraHeaders: [],
       },
       chatgptConfig: { model: 'gpt-5.6-luna' },
       features: { compose: false, summarize: true },
@@ -114,7 +114,7 @@ describe('normalizeAiConfig', () => {
     })).toEqual({
       enabled: false,
       provider: AI_PROVIDER_CHATGPT,
-      apiKeyConfig: { baseUrl: 'https://api.example/v1', apiKey: null, model: 'api-model' },
+      apiKeyConfig: { baseUrl: 'https://api.example/v1', apiKey: null, model: 'api-model', extraHeaders: [] },
       chatgptConfig: { model: 'gpt-5.4' },
       features: { compose: true, summarize: true },
     });
@@ -540,6 +540,143 @@ describe('API-key provider regression', () => {
     expect(error.message.length).toBeLessThan(9000);
     expect(error.message).not.toMatch(/secret-tail|api-secret/);
     expect(cancelled).toBe(true);
+  });
+});
+
+// #746: extra request headers for a gateway in front of the provider.
+describe('extra request headers', () => {
+  const base = {
+    enabled: true,
+    provider: AI_PROVIDER_API_KEY,
+    apiKeyConfig: { baseUrl: 'https://gateway.example/v1', apiKey: 'encrypted:api-secret', model: 'model' },
+    chatgptConfig: { model: 'gpt-5.4' },
+    features: { compose: true, summarize: true },
+  };
+  const withHeaders = (extraHeaders) => ({ ...base, apiKeyConfig: { ...base.apiKeyConfig, extraHeaders } });
+  const save = (provider, extraHeaders, overrides = {}) => provider.saveAiConfig({
+    ...base,
+    apiKeyConfig: { ...base.apiKeyConfig, apiKey: MASKED_API_KEY, ...(extraHeaders === undefined ? {} : { extraHeaders }) },
+    ...overrides,
+  });
+
+  it('stores values encrypted and only ever returns them masked', async () => {
+    const { provider, settings } = factory({ initial: base });
+    const saved = await save(provider, [{ name: 'cf-aig-authorization', value: '  Bearer gw-secret ' }]);
+    expect(settings.read().apiKeyConfig.extraHeaders).toEqual([{ name: 'cf-aig-authorization', value: 'encrypted:Bearer gw-secret' }]);
+    expect(saved.apiKeyConfig.extraHeaders).toEqual([{ name: 'cf-aig-authorization', value: MASKED_API_KEY }]);
+    expect(JSON.stringify(saved)).not.toContain('gw-secret');
+    const loaded = await provider.getAdminAiConfig();
+    expect(loaded.apiKeyConfig.extraHeaders).toEqual([{ name: 'cf-aig-authorization', value: MASKED_API_KEY }]);
+    expect(JSON.stringify(loaded)).not.toContain('gw-secret');
+  });
+
+  it('keeps a stored value sent back masked, matching the name in any case', async () => {
+    const { provider, settings } = factory({ initial: withHeaders([{ name: 'Helicone-Auth', value: 'encrypted:h-secret' }]) });
+    await save(provider, [{ name: 'helicone-auth', value: MASKED_API_KEY }, { name: 'X-Team', value: 'mail' }]);
+    expect(settings.read().apiKeyConfig.extraHeaders).toEqual([
+      { name: 'helicone-auth', value: 'encrypted:h-secret' },
+      { name: 'X-Team', value: 'encrypted:mail' },
+    ]);
+  });
+
+  it('asks for the value again when a masked header was renamed or never stored', async () => {
+    const { provider, settings } = factory({ initial: withHeaders([{ name: 'X-Old', value: 'encrypted:v' }]) });
+    await expect(save(provider, [{ name: 'X-New', value: MASKED_API_KEY }]))
+      .rejects.toMatchObject({ status: 400, message: 'Enter a value for the X-New header' });
+    expect(settings.read().apiKeyConfig.extraHeaders).toEqual([{ name: 'X-Old', value: 'encrypted:v' }]);
+  });
+
+  it('keeps the headers when a save leaves the list out, and removes them with an empty list', async () => {
+    const stored = [{ name: 'X-Gateway', value: 'encrypted:g' }];
+    const { provider, settings } = factory({ initial: withHeaders(stored) });
+    await save(provider, undefined);
+    expect(settings.read().apiKeyConfig.extraHeaders).toEqual(stored);
+    await save(provider, undefined, { provider: AI_PROVIDER_CHATGPT });
+    expect(settings.read().apiKeyConfig.extraHeaders).toEqual(stored);
+    await save(provider, []);
+    expect(settings.read().apiKeyConfig.extraHeaders).toEqual([]);
+  });
+
+  it.each([
+    [[{ name: '', value: 'v' }], 'Each extra header needs a name'],
+    [[{ name: 'Bad Name', value: 'v' }], '"Bad Name" is not a valid header name'],
+    [[{ name: 'X:Y', value: 'v' }], '"X:Y" is not a valid header name'],
+    [[{ name: 'X-Ok', value: '' }], 'Enter a value for the X-Ok header'],
+    [[{ name: 'X-Ok', value: 'a\r\nInjected: yes' }], 'The value of the X-Ok header can only hold printable ASCII on one line'],
+    [[{ name: 'X-Ok', value: 'café' }], 'The value of the X-Ok header can only hold printable ASCII on one line'],
+    [[{ name: 'X-Ok', value: 'x'.repeat(4097) }], 'The value of the X-Ok header can only hold printable ASCII on one line'],
+    [[{ name: 'X-Ok', value: 'a' }, { name: 'x-ok', value: 'b' }], 'The x-ok header is listed twice'],
+    [Array.from({ length: 11 }, (_, i) => ({ name: `X-H${i}`, value: 'v' })), 'At most 10 extra headers can be added'],
+    ['X-Ok: v', 'Extra headers must be a list'],
+    [[null], 'Each extra header needs a name and a value'],
+  ])('rejects %j', async (extraHeaders, message) => {
+    const { provider, settings } = factory({ initial: base });
+    await expect(save(provider, extraHeaders)).rejects.toMatchObject({ status: 400, message });
+    expect(settings.read().apiKeyConfig.extraHeaders).toBeUndefined();
+  });
+
+  it.each([
+    'Authorization', 'content-type', 'Content-Length', 'Host', 'Cookie', 'Transfer-Encoding',
+    'Connection', 'Keep-Alive', 'TE', 'Trailer', 'Upgrade', 'Expect', 'Proxy-Authorization', 'proxy-anything',
+  ])('refuses the %s header, which MailFlow owns', async (name) => {
+    const { provider } = factory({ initial: base });
+    await expect(save(provider, [{ name, value: 'v' }]))
+      .rejects.toMatchObject({ status: 400, message: `The ${name} header is set by MailFlow and cannot be added` });
+  });
+
+  it('sends them with a completion and a stream, beside the key MailFlow sets', async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: 'ok' } }] }))
+      .mockResolvedValueOnce(sseResponse([completionEvent('hi'), 'data: [DONE]\n\n']));
+    const { provider } = factory({
+      initial: withHeaders([{ name: 'cf-aig-authorization', value: 'encrypted:Bearer gw' }, { name: 'X-Team', value: 'encrypted:mail' }]),
+      fetchFn,
+    });
+    await provider.completeText([{ role: 'user', content: 'Hi' }]);
+    await collect(provider.streamChat([{ role: 'user', content: 'Hi' }]));
+    for (const [, init] of fetchFn.mock.calls) {
+      expect(init.headers).toEqual({
+        'cf-aig-authorization': 'Bearer gw',
+        'X-Team': 'mail',
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer api-secret',
+      });
+    }
+  });
+
+  it('leaves out a stored header the rules refuse, and never lets one replace the key', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ choices: [{ message: { content: 'ok' } }] }));
+    const { provider } = factory({
+      initial: withHeaders([{ name: 'authorization', value: 'encrypted:Bearer other' }, { name: 'X-Fine', value: 'encrypted:f' }]),
+      fetchFn,
+    });
+    await provider.completeText([{ role: 'user', content: 'Hi' }]);
+    expect(fetchFn.mock.calls[0][1].headers).toEqual({
+      'X-Fine': 'f', 'Content-Type': 'application/json', Authorization: 'Bearer api-secret',
+    });
+  });
+
+  it('redacts header values from provider errors, as it does the key', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: { message: 'gateway rejected gw-secret-value for api-secret' } }, 401));
+    const { provider } = factory({ initial: withHeaders([{ name: 'X-Gateway', value: 'encrypted:gw-secret-value' }]), fetchFn });
+    const error = await provider.completeText([{ role: 'user', content: 'Hi' }]).catch(cause => cause);
+    expect(error.message).toMatch(/401/);
+    expect(error.message).not.toMatch(/gw-secret-value|api-secret/);
+    const streamFetch = vi.fn().mockResolvedValue(sseResponse([JSON.stringify({ error: { message: 'bad gw-secret-value' } })], { status: 403 }));
+    const streaming = factory({ initial: withHeaders([{ name: 'X-Gateway', value: 'encrypted:gw-secret-value' }]), fetchFn: streamFetch });
+    const streamError = await collect(streaming.provider.streamChat([{ role: 'user', content: 'Hi' }])).catch(cause => cause);
+    expect(streamError.message).not.toMatch(/gw-secret-value/);
+  });
+
+  it('is not used by the ChatGPT provider', async () => {
+    const fetchFn = vi.fn();
+    const { provider, deps } = factory({
+      initial: { ...withHeaders([{ name: 'X-Gateway', value: 'encrypted:g' }]), provider: AI_PROVIDER_CHATGPT },
+      fetchFn,
+    });
+    await provider.completeText([{ role: 'user', content: 'Hi' }]);
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(JSON.stringify(deps.completeCodexTextFn.mock.calls)).not.toContain('X-Gateway');
   });
 });
 

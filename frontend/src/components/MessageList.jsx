@@ -11,6 +11,9 @@ import { shouldSyncFolder, folderSyncKey } from '../utils/folderSync.js';
 import { resolveThreadMessages } from '../utils/threadActions.js';
 import { keepDraftsApart } from '../utils/conversationActions.js';
 import { unreadDeltaByAccount } from '../utils/countSnapshots.js';
+import { createClaimQueue } from '../utils/listRefreshClaims.js';
+import ResumeStatus from './ResumeStatus.jsx';
+import { inInbox, inboxShare, inboxUnreadByAccount, inboxMoveDelta, rowInboxUnread } from '../utils/inboxBadge.js';
 import { splitDraftSignature } from '../utils/draftSignature.js';
 import { draftAttachmentFields } from '../utils/openSavedDraft.js';
 import { useSwipeRow } from '../hooks/useSwipeRow.js';
@@ -51,7 +54,7 @@ import SpamExplainModal from './SpamExplainModal.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { RowTagPills } from '../tags/TagPills.jsx';
 import { createLatestRequest } from '../utils/latestRequest.js';
-import { refreshListWindow, createTrailingRefresh } from '../utils/listRefresh.js';
+import { refreshListWindow, createTrailingRefresh, hasMoreRows, fetchListWindow, fetchPageOrLast } from '../utils/listRefresh.js';
 import { applyReadGuard as guardReads, clearReadGuard, failMarkRead, setPending, settleMarkRead } from '../utils/pendingReads.js';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.js';
 import {
@@ -63,7 +66,6 @@ import {
   findVisibleArchiveMessage,
   invalidateThreadLoad,
   isCurrentThreadLoad,
-  unreadCountsByAccount,
 } from '../utils/threadedArchive.js';
 import { createUndoableCommit, holdUndoable, releaseUndoable, UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
 import { resolveConversationSelection, selectListedMessage } from '../utils/conversation.js';
@@ -180,7 +182,7 @@ function MailboxList() {
     setMessagesOffset, hasMoreMessages, setHasMoreMessages,
     loadingMessages, setLoadingMessages, selectedMessageId, lastViewedMessageId,
     updateMessage, removeMessage, removeMessages,
-    decrementUnread, incrementUnread, addNotification, notifications, removeNotification,
+    decrementUnread, incrementUnread, adjustUnread, addNotification, notifications, removeNotification,
     searchQuery, setSearchQuery, setIsSearching,
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
     messagesRefreshToken, layout, setLayout, pageSize, setPageSize, scrollMode,
@@ -278,6 +280,8 @@ function MailboxList() {
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
+  // A Load more that failed: the button stays, as a retry, with a line saying so (#742).
+  const [searchLoadMoreFailed, setSearchLoadMoreFailed] = useState(false);
   const searchFetchedOffsetRef = useRef(0);
   const listRef = useRef(null);
   const searchInputRef = useRef(null); // for focusSearch shortcut
@@ -400,6 +404,12 @@ function MailboxList() {
   if (refreshRequestRef.current === null) refreshRequestRef.current = createLatestRequest();
   const trailingRefreshRef = useRef(null);
   if (trailingRefreshRef.current === null) trailingRefreshRef.current = createTrailingRefresh();
+  // A resync after the app resumes waits for the list to reload (utils/listRefreshClaims.js). Each
+  // load or refresh settles the claims made before it started, once it has landed or failed.
+  const listClaimsRef = useRef(null);
+  if (listClaimsRef.current === null) listClaimsRef.current = createClaimQueue();
+  // A list that goes away has nothing left on screen to bring up to date.
+  useEffect(() => () => listClaimsRef.current.settle(true), []);
   // Bumped to force the search effect to re-run (e.g. after rules move messages) so an
   // active search snapshot drops messages that no longer match. See #223.
   const [searchReloadToken, setSearchReloadToken] = useState(0);
@@ -502,6 +512,7 @@ function MailboxList() {
       // resolves, finds no account IDs, and returns empty — causing the blank
       // "All Inboxes" on first load.
       if (!accountsReady) return;
+      const claimsUpTo = listClaimsRef.current.mark();
       listGenRef.current += 1;
       setLoadingMessages(true);
       setMessagesOffset(0);
@@ -514,14 +525,14 @@ function MailboxList() {
         if (unreadOnly) params.unreadOnly = 'true';
         if (threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
-        await refreshRequestRef.current.run(
+        const applied = await refreshRequestRef.current.run(
           () => api.getMessages(params),
           (data) => {
             if (cancelled) return;
             setMessagesTotal(data.total);
             setMessages(applyReadGuard(data.messages));
             setMessagesOffset(data.messages.length);
-            setHasMoreMessages(data.messages.length < data.total);
+            setHasMoreMessages(hasMoreRows({ fetched: data.messages.length, limit: pageSize, offset: 0, total: data.total }));
 
             // Pull the folder from IMAP whenever it is opened, not only when it happens to
             // be empty. Only INBOX is polled in the background, so every other folder showed
@@ -547,9 +558,12 @@ function MailboxList() {
             }
           },
         );
+        // Dropped for a newer load or a local change, the newer one covers these claims too.
+        if (applied || !cancelled) listClaimsRef.current.settle(true, null, claimsUpTo);
       } catch (err) {
         console.error('Failed to load messages:', err);
         setFolderSyncing(false);
+        listClaimsRef.current.settle(false, err, claimsUpTo);
       } finally {
         if (!cancelled) setLoadingMessages(false);
       }
@@ -576,7 +590,7 @@ function MailboxList() {
       if (listGenRef.current !== gen) return;
       appendMessages(applyReadGuard(data.messages));
       setMessagesOffset(currentOffset + data.messages.length);
-      setHasMoreMessages(currentOffset + data.messages.length < data.total);
+      setHasMoreMessages(hasMoreRows({ fetched: data.messages.length, limit: pageSize, offset: currentOffset, total: data.total }));
     } catch (err) {
       console.error('Failed to load more messages:', err);
     } finally {
@@ -589,22 +603,27 @@ function MailboxList() {
   // opened, give its body request a brief head start before reloading the full list.
   useEffect(() => {
     const run = async () => {
+      const claimsUpTo = listClaimsRef.current.mark();
       try {
         const state = useStore.getState();
         const sm = state.scrollMode;
-        const params = refreshListWindow({
+        const win = refreshListWindow({
           scrollMode: sm,
           currentPage: currentPageRef.current,
           pageSize: state.pageSize,
           loadedCount: state.messagesOffset,
         });
+        const params = {};
         scopeListParams(params, selectedAccountId, selectedFolder);
         applyListOrder(params, listOrder);
         if (unreadOnly) params.unreadOnly = 'true';
         if (state.threadedView) params.threaded = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
+        const fetchPage = (page) => api.getMessages({ ...params, ...page });
         await refreshRequestRef.current.run(
-          () => api.getMessages(params),
+          () => (sm === 'paginated'
+            ? fetchPageOrLast(fetchPage, { page: currentPageRef.current, pageSize: state.pageSize })
+            : fetchListWindow(fetchPage, win)),
           (data) => {
             setMessagesTotal(data.total);
             // If the unread filter is on and the currently open message was just marked
@@ -618,19 +637,34 @@ function MailboxList() {
             setMessages(msgs);
             if (sm === 'paginated') {
               setHasMoreMessages(false);
+              // The page emptied (mail deleted or moved elsewhere): show the one it moved back to.
+              if (data.page !== currentPageRef.current) {
+                currentPageRef.current = data.page;
+                setCurrentPage(data.page);
+              }
             } else {
-              setMessagesOffset(data.messages.length);
-              setHasMoreMessages(data.messages.length < data.total);
+              setMessagesOffset(data.fetched);
+              setHasMoreMessages(data.hasMore);
             }
           },
         );
-      } catch { /* intentional */ }
+        // Applied, or dropped for a newer request or a local change: either way these claims are
+        // covered (a newer request settles its own).
+        listClaimsRef.current.settle(true, null, claimsUpTo);
+      } catch (err) {
+        // The list stays as it was; a resync waiting on it is told so (utils/listRefreshClaims.js).
+        listClaimsRef.current.settle(false, err, claimsUpTo);
+      }
     };
 
-    const handler = () => {
+    const handler = (event) => {
+      // A resync waiting for this reload (utils/listRefreshClaims.js).
+      const claim = event?.detail?.claim;
       // Search results are their own list. The refresh is held, not dropped: clearing the search
-      // hands it over (below), or the folder would come back as it was before the search.
-      if (searchQuery.trim()) { trailingRefreshRef.current.request(true); return; }
+      // hands it over (below), or the folder would come back as it was before the search. Nothing
+      // on screen is the folder list meanwhile, so a resync has nothing to wait for.
+      if (searchQuery.trim()) { claim?.().done(); trailingRefreshRef.current.request(true); return; }
+      if (claim) listClaimsRef.current.add(claim());
       if (trailingRefreshRef.current.request(useStore.getState().loadingMessages)) {
         const delayMs = Math.max(0, recentMessageOpenUntilRef.current - Date.now());
         clearTimeout(deferredRefreshTimerRef.current);
@@ -659,6 +693,9 @@ function MailboxList() {
   // Search
   useEffect(() => {
     clearTimeout(searchTimer.current);
+    // A new search owns the Load more area: an older one's pending page or failure is not its own.
+    setSearchLoadingMore(false);
+    setSearchLoadMoreFailed(false);
     if (!searchQuery.trim()) {
       searchSeq.current += 1;
       setIsSearching(false);
@@ -719,6 +756,7 @@ function MailboxList() {
     const qSnapshot = searchQuery; // capture before async gap
     const seq = searchSeq.current;
     setSearchLoadingMore(true);
+    setSearchLoadMoreFailed(false);
     try {
       const offset = searchFetchedOffsetRef.current;
       const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, limit: searchPageSize, folder: searchFolder });
@@ -730,8 +768,10 @@ function MailboxList() {
       setSearchHasMore(data.messages.length === searchPageSize);
     } catch (err) {
       console.error('Search load more failed:', err);
+      if (searchSeq.current === seq && useStore.getState().searchQuery === qSnapshot) setSearchLoadMoreFailed(true);
     } finally {
-      setSearchLoadingMore(false);
+      // A page asked for by a replaced search must not end the current one's.
+      if (searchSeq.current === seq) setSearchLoadingMore(false);
     }
   }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchLoadingMore, applyReadGuard]);
 
@@ -782,18 +822,20 @@ function MailboxList() {
     setLoadingMessages(true);
     setCurrentPage(pageNum);
     try {
-      const params = { limit: pageSize, offset: (pageNum - 1) * pageSize };
+      const params = {};
       scopeListParams(params, selectedAccountId, selectedFolder);
       applyListOrder(params, listOrder);
       if (unreadOnly) params.unreadOnly = 'true';
       if (threadedView) params.threaded = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       await refreshRequestRef.current.run(
-        () => api.getMessages(params),
+        () => fetchPageOrLast(page => api.getMessages({ ...params, ...page }), { page: pageNum, pageSize }),
         (data) => {
+          // A page past the end moves back to the last one with mail.
+          if (data.page !== pageNum) setCurrentPage(data.page);
           setMessagesTotal(data.total);
           setMessages(applyReadGuard(data.messages));
-          setMessagesOffset((pageNum - 1) * pageSize + data.messages.length);
+          setMessagesOffset((data.page - 1) * pageSize + data.messages.length);
           setHasMoreMessages(false);
           setExpandedThreadId(null);
           if (listRef.current) listRef.current.scrollTop = 0;
@@ -975,6 +1017,8 @@ function MailboxList() {
     // For thread rows this is the aggregate already present on the row;
     // for single messages it is always 1 (or 0 if already in the target state).
     const estimatedDelta = isThreadRow && Number.isFinite(unreadCount) ? unreadCount : 1;
+    // What of it the badge and the category counts take: they count INBOX only (inboxBadge.js).
+    const badgeEstimate = inboxShare(message, estimatedDelta);
 
     // Immediate optimistic update — do not wait for thread resolution.
     // For unexpanded thread rows this avoids a visible delay caused by the
@@ -988,14 +1032,14 @@ function MailboxList() {
       updateMessage(message.id, { is_read: read, unread_count: read ? 0 : 1 });
     }
     if (read) {
-      if (estimatedDelta > 0) {
-        decrementUnread(message.account_id, estimatedDelta);
-        adjustCategoryCount(message.category, -estimatedDelta);
+      if (badgeEstimate > 0) {
+        decrementUnread(message.account_id, badgeEstimate);
+        adjustCategoryCount(message.category, -badgeEstimate);
       }
     } else {
-      if (estimatedDelta > 0) {
-        incrementUnread(message.account_id, estimatedDelta);
-        adjustCategoryCount(message.category, estimatedDelta);
+      if (badgeEstimate > 0) {
+        incrementUnread(message.account_id, badgeEstimate);
+        adjustCategoryCount(message.category, badgeEstimate);
       }
     }
 
@@ -1013,8 +1057,8 @@ function MailboxList() {
       } else {
         updateMessage(message.id, { is_read: !read, unread_count: !read ? 0 : 1 });
       }
-      if (read && estimatedDelta > 0) { incrementUnread(message.account_id, estimatedDelta); adjustCategoryCount(message.category, estimatedDelta); }
-      else if (!read && estimatedDelta > 0) { decrementUnread(message.account_id, estimatedDelta); adjustCategoryCount(message.category, -estimatedDelta); }
+      if (read && badgeEstimate > 0) { incrementUnread(message.account_id, badgeEstimate); adjustCategoryCount(message.category, badgeEstimate); }
+      else if (!read && badgeEstimate > 0) { decrementUnread(message.account_id, badgeEstimate); adjustCategoryCount(message.category, -badgeEstimate); }
       return;
     }
 
@@ -1028,6 +1072,8 @@ function MailboxList() {
     // account's copy of the same email (#476); that copy's unread belongs to THAT account's
     // badge, while the estimate above had to charge the whole row to the row's own account.
     const actualByAccount = unreadDeltaByAccount(actionMessages, read, message.account_id);
+    // Its INBOX messages only, as actualByAccount counts them: what the category counts move by.
+    const actualInbox = [...actualByAccount.values()].reduce((sum, n) => sum + n, 0);
 
     // Now update the thread cache and correct the parent row if our estimate was off.
     if (isThreadRow) {
@@ -1040,7 +1086,7 @@ function MailboxList() {
     // Correct the sidebar badges per account: each account's actual change, minus what the
     // estimate already charged to it (all of it went to the row's own account, none elsewhere).
     for (const accountId of new Set([message.account_id, ...actualByAccount.keys()])) {
-      const diff = (actualByAccount.get(accountId) || 0) - (accountId === message.account_id ? estimatedDelta : 0);
+      const diff = (actualByAccount.get(accountId) || 0) - (accountId === message.account_id ? badgeEstimate : 0);
       if (diff === 0) continue;
       if (read) {
         if (diff > 0) decrementUnread(accountId, diff);
@@ -1051,8 +1097,8 @@ function MailboxList() {
       }
     }
     // Category counts are not per account, so the total delta still applies.
-    if (actualDelta !== estimatedDelta) {
-      const diff = actualDelta - estimatedDelta;
+    if (actualInbox !== badgeEstimate) {
+      const diff = actualInbox - badgeEstimate;
       adjustCategoryCount(message.category, read ? -diff : diff);
     }
 
@@ -1080,7 +1126,7 @@ function MailboxList() {
       for (const [accountId, n] of actualByAccount) {
         if (read) incrementUnread(accountId, n); else decrementUnread(accountId, n);
       }
-      if (actualDelta > 0) adjustCategoryCount(message.category, read ? actualDelta : -actualDelta);
+      if (actualInbox > 0) adjustCategoryCount(message.category, read ? actualInbox : -actualInbox);
     }
   }, [
     resolveMessagesForThreadAction, isThreadListRow, updateMessage, setCachedThreadRead,
@@ -1146,10 +1192,12 @@ function MailboxList() {
     removeMessage(visibleMessage.id);
     if (expandedThreadId === tid) setExpandedThreadId(null);
 
+    // What the delete takes from the badge: the INBOX row's own unread count, else the unread
+    // INBOX messages of the conversation it deletes (inboxBadge.js). A failure gives back no more.
     const unreadCount = Number.parseInt(message.unread_count, 10);
-    const unreadDelta = Number.isFinite(unreadCount)
-      ? unreadCount
-      : deleteMessages.filter(msg => !msg.is_read).length;
+    const unreadDelta = inInbox(message) && Number.isFinite(unreadCount)
+      ? Math.max(0, unreadCount)
+      : (inboxUnreadByAccount(deleteMessages).get(message.account_id) || 0);
     if (unreadDelta > 0) decrementUnread(message.account_id, unreadDelta, { undoable: true });
 
     const timer = setTimeout(async () => {
@@ -1162,7 +1210,9 @@ function MailboxList() {
           const failedIds = ids.filter(id => !deletedSet.has(id));
           if (failedIds.length > 0) {
             const idToMsg = new Map(deleteMessages.map(m => [m.id, m]));
-            const failedUnreadDelta = failedIds.filter(id => idToMsg.has(id) && !idToMsg.get(id).is_read).length;
+            const failedUnreadDelta = Math.min(unreadDelta, inboxUnreadByAccount(
+              failedIds.map(id => idToMsg.get(id)).filter(m => m?.account_id === message.account_id),
+            ).get(message.account_id) || 0);
             useStore.getState().restoreMessages([visibleMessage]);
             if (failedUnreadDelta > 0) incrementUnread(message.account_id, failedUnreadDelta);
             addNotification({
@@ -1227,11 +1277,9 @@ function MailboxList() {
 
     // Optimistic local update: remove from view + drop unread badges. A selection in All Inboxes
     // can span accounts, so each account's badge moves by its own unread messages.
-    const unreadByAccount = (list) => {
-      const counts = new Map();
-      list.forEach(m => { if (!m.is_read) counts.set(m.account_id, (counts.get(m.account_id) || 0) + 1); });
-      return counts;
-    };
+    // Marked spam, unread INBOX mail leaves the badge. "Not spam" moves mail to the account's
+    // mapped inbox, which need not be the INBOX the badge counts, so the server's count brings it.
+    const unreadByAccount = (list) => (label === 'spam' ? inboxUnreadByAccount(list) : new Map());
     const unread = unreadByAccount(messages);
     const accountIds = [...new Set(messages.map(m => m.account_id))];
     messages.forEach(m => removeMessage(m.id));
@@ -1399,10 +1447,7 @@ function MailboxList() {
     advanceSelectionAfterRemoval(message.id);
     removeMessage(message.id);
     if (threadRow && expandedThreadId === threadId) setExpandedThreadId(null);
-    const aggregateUnread = Number.parseInt(message.unread_count, 10);
-    const optimisticUnread = threadRow && Number.isFinite(aggregateUnread)
-      ? aggregateUnread
-      : (message.is_read ? 0 : 1);
+    const optimisticUnread = rowInboxUnread(message, threadRow);
     if (optimisticUnread > 0) decrementUnread(message.account_id, optimisticUnread, { undoable: true });
     // The conversation read now as well, for a flush that cannot wait to read it (see flushUndoables).
     const early = threadRow ? resolveMessagesForThreadAction(message).catch(() => null) : null;
@@ -1627,8 +1672,10 @@ function MailboxList() {
     if (shouldPrefetchSearch) {
       prefetchSearchAfterRemoval(searchOffsetBeforeRemoval);
     }
+    // A row outside INBOX takes nothing from the badge (inboxBadge.js).
+    const rowUnread = msg => inboxShare(msg, parseInt(msg.unread_count) || (msg.is_read ? 0 : 1));
     msgs.forEach(msg => {
-      const delta = parseInt(msg.unread_count) || (msg.is_read ? 0 : 1);
+      const delta = rowUnread(msg);
       if (delta > 0) decrementUnread(msg.account_id, delta, { undoable: true });
     });
     setSelectedIds(new Set());
@@ -1655,7 +1702,7 @@ function MailboxList() {
         const failedMsgs = msgs.filter(msg => failedSet.has(msg.id));
         useStore.getState().restoreMessages(failedMsgs);
         failedMsgs.forEach(msg => {
-          const delta = parseInt(msg.unread_count) || (msg.is_read ? 0 : 1);
+          const delta = rowUnread(msg);
           if (delta > 0) incrementUnread(msg.account_id, delta);
         });
         addNotification({ type: 'error', title: t('messageList.bulkDeleted.failTitle'), body: t('messageList.bulkDeleted.failBody', { count: failedIds.length }) });
@@ -1678,7 +1725,7 @@ function MailboxList() {
         deleteIds.forEach(id => clearPendingDelete(id));
         useStore.getState().restoreMessages(msgs);
         msgs.forEach(msg => {
-          const delta = parseInt(msg.unread_count) || (msg.is_read ? 0 : 1);
+          const delta = rowUnread(msg);
           if (delta > 0) incrementUnread(msg.account_id, delta);
         });
       },
@@ -1701,7 +1748,9 @@ function MailboxList() {
       console.error('Failed to load thread for bulk move:', err.message);
     }
     ids.forEach(id => removeMessage(id));
-    msgs.forEach(msg => { if (!msg.is_read) decrementUnread(msg.account_id, 1, { undoable: true }); });
+    // Down for unread mail leaving INBOX, up for unread mail moved into it (inboxBadge.js).
+    const moveDeltas = msgs.map(msg => [msg.account_id, inboxMoveDelta(msg, folder)]);
+    moveDeltas.forEach(([accountId, delta]) => adjustUnread(accountId, delta, { undoable: true }));
     setSelectedIds(new Set());
     setSelectionModeActive(false);
     setShowFolderPicker(false);
@@ -1733,10 +1782,10 @@ function MailboxList() {
         if (!releaseUndoable(timer)) return;
         undone = true;
         useStore.getState().restoreMessages(msgs);
-        msgs.forEach(msg => { if (!msg.is_read) incrementUnread(msg.account_id); });
+        moveDeltas.forEach(([accountId, delta]) => adjustUnread(accountId, -delta));
       },
     });
-  }, [removeMessage, decrementUnread, incrementUnread, resolveMessagesForThreadAction, addNotification, t]);
+  }, [removeMessage, adjustUnread, resolveMessagesForThreadAction, addNotification, t]);
 
   const handleRowMove = useCallback((e, msg) => {
     e.stopPropagation();
@@ -1783,10 +1832,7 @@ function MailboxList() {
     removeMessages(ids);
     let unreadByAccount = new Map();
     msgs.forEach((message) => {
-      const aggregateUnread = Number.parseInt(message.unread_count, 10);
-      const count = isThreadListRow(message) && Number.isFinite(aggregateUnread)
-        ? aggregateUnread
-        : (message.is_read ? 0 : 1);
+      const count = rowInboxUnread(message, isThreadListRow(message));
       if (count <= 0) return;
       decrementUnread(message.account_id, count, { undoable: true });
       unreadByAccount.set(message.account_id, (unreadByAccount.get(message.account_id) || 0) + count);
@@ -1827,7 +1873,7 @@ function MailboxList() {
           const archiveIds = targets.map(target => target.id);
           archiveIds.forEach(setPendingDelete);
 
-          const resolvedUnreadByAccount = unreadCountsByAccount(targets);
+          const resolvedUnreadByAccount = inboxUnreadByAccount(targets);
           const accountIds = new Set([...unreadByAccount.keys(), ...resolvedUnreadByAccount.keys()]);
           accountIds.forEach((accountId) => {
             const correction = (resolvedUnreadByAccount.get(accountId) || 0) - (unreadByAccount.get(accountId) || 0);
@@ -1860,7 +1906,7 @@ function MailboxList() {
               ))
               .map(({ row }) => row);
             if (failedVisibleRows.length > 0) restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, failedVisibleRows);
-            unreadCountsByAccount(failedTargets).forEach((count, accountId) => incrementUnread(accountId, count));
+            inboxUnreadByAccount(failedTargets).forEach((count, accountId) => incrementUnread(accountId, count));
             window.dispatchEvent(new Event('mailflow:refresh'));
             if (!result.error && result.noArchiveFolder.length) {
               addNotification({ title: t('messageList.bulkArchived.noFolderTitle'), body: t('messageList.bulkArchived.noFolderBody') });
@@ -1918,10 +1964,8 @@ function MailboxList() {
       if (threadRow && expandedThreadId === threadId) setExpandedThreadId(null);
     }
 
-    const aggregateUnread = Number.parseInt(message.unread_count, 10);
-    const optimisticUnread = threadRow && Number.isFinite(aggregateUnread)
-      ? aggregateUnread
-      : (message.is_read ? 0 : 1);
+    // The same estimate the swipe and the context menu charged before calling this with alreadyRemoved.
+    const optimisticUnread = rowInboxUnread(message, threadRow);
     let unreadByAccount = new Map();
     if (!alreadyRemoved && optimisticUnread > 0) decrementUnread(message.account_id, optimisticUnread);
     if (optimisticUnread > 0) unreadByAccount.set(message.account_id, optimisticUnread);
@@ -1931,7 +1975,7 @@ function MailboxList() {
       const resolved = (resolvedEarly && await resolvedEarly) || await resolveMessagesForThreadAction(message);
       targets = archiveTargetsForFolder(message, resolved, activeFolder, threadRow, selectedAccountId);
 
-      const resolvedUnreadByAccount = unreadCountsByAccount(targets);
+      const resolvedUnreadByAccount = inboxUnreadByAccount(targets);
       const accounts = new Set([...unreadByAccount.keys(), ...resolvedUnreadByAccount.keys()]);
       accounts.forEach((accountId) => {
         const correction = (resolvedUnreadByAccount.get(accountId) || 0) - (unreadByAccount.get(accountId) || 0);
@@ -1965,7 +2009,7 @@ function MailboxList() {
       }
 
       if (threadGuard) clearDeleteGuard(threadGuard);
-      unreadCountsByAccount(failed).forEach((count, accountId) => incrementUnread(accountId, count));
+      inboxUnreadByAccount(failed).forEach((count, accountId) => incrementUnread(accountId, count));
       if (!archived.has(message.id)) {
         restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, [message]);
       }
@@ -1998,6 +2042,8 @@ function MailboxList() {
     const deltaByAccount = {};
     const deltaByCategory = {};
     msgs.forEach(msg => {
+      // Only INBOX mail is in the badge and the category counts (inboxBadge.js).
+      if (!inInbox(msg)) return;
       if (!deltaByAccount[msg.account_id]) deltaByAccount[msg.account_id] = 0;
       const catKey = msg.category || 'primary';
       if (!deltaByCategory[catKey]) deltaByCategory[catKey] = 0;
@@ -2072,8 +2118,8 @@ function MailboxList() {
       autoMarkReadTimerRef.current = null;
       const doMarkRead = () => {
         updateMessage(msg.id, { is_read: true });
-        decrementUnread(msg.account_id);
-        adjustCategoryCount(msg.category, -1);
+        decrementUnread(msg.account_id, inboxShare(msg));
+        adjustCategoryCount(msg.category, -inboxShare(msg));
         const token = setPending(msg.id, msg.account_id);
         api.bulkRead([msg.id], true)
           .then(() => settleMarkRead(msg.id, msg.account_id, token))
@@ -2081,8 +2127,8 @@ function MailboxList() {
             console.error('markRead failed:', e.message);
             if (!failMarkRead(msg.id, token)) return;
             updateMessage(msg.id, { is_read: false });
-            incrementUnread(msg.account_id);
-            adjustCategoryCount(msg.category, 1);
+            incrementUnread(msg.account_id, inboxShare(msg));
+            adjustCategoryCount(msg.category, inboxShare(msg));
           });
       };
       if (markReadBehavior === 'delay') {
@@ -2182,8 +2228,8 @@ function MailboxList() {
       const newRead = !msg.is_read;
       updateMessage(selectedMessageId, { is_read: newRead });
       if (newRead) {
-        decrementUnread(msg.account_id);
-        adjustCategoryCount(msg.category, -1);
+        decrementUnread(msg.account_id, inboxShare(msg));
+        adjustCategoryCount(msg.category, -inboxShare(msg));
         const token = setPending(selectedMessageId, msg.account_id);
         api.bulkRead([selectedMessageId], true)
           .then(() => settleMarkRead(selectedMessageId, msg.account_id, token))
@@ -2192,8 +2238,8 @@ function MailboxList() {
             failMarkRead(selectedMessageId, token);
           });
       } else {
-        incrementUnread(msg.account_id);
-        adjustCategoryCount(msg.category, 1);
+        incrementUnread(msg.account_id, inboxShare(msg));
+        adjustCategoryCount(msg.category, inboxShare(msg));
         clearReadGuard(selectedMessageId);
         api.bulkRead([selectedMessageId], false).catch(console.error);
       }
@@ -2394,10 +2440,7 @@ function MailboxList() {
         advanceSelectionAfterRemoval(archived.id);
         removeMessage(archived.id);
         if (threadRow && expandedThreadId === threadId) setExpandedThreadId(null);
-        const aggregateUnread = Number.parseInt(archived.unread_count, 10);
-        const optimisticUnread = threadRow && Number.isFinite(aggregateUnread)
-          ? aggregateUnread
-          : (archived.is_read ? 0 : 1);
+        const optimisticUnread = rowInboxUnread(archived, threadRow);
         if (optimisticUnread > 0) decrementUnread(archived.account_id, optimisticUnread, { undoable: true });
         // The conversation read now as well, for a flush that cannot wait to read it (see flushUndoables).
         const early = threadRow ? resolveMessagesForThreadAction(archived).catch(() => null) : null;
@@ -2448,7 +2491,9 @@ function MailboxList() {
         const moveIds = [...new Set(moveMessages.map(msg => msg.id).filter(Boolean))];
         if (!moveIds.length) moveIds.push(moved.id);
         removeMessage(moved.id);
-        if (!moved.is_read) decrementUnread(moved.account_id, 1, { undoable: true });
+        // Down for unread mail leaving INBOX, up for unread mail moved into it (inboxBadge.js).
+        const moveDelta = inboxMoveDelta(moved, folder);
+        adjustUnread(moved.account_id, moveDelta, { undoable: true });
         // Remove the moved message from the selection so the action bar doesn't
         // stay around claiming "X selected" for messages that are no longer here.
         if (selectedIds.has(moved.id)) {
@@ -2470,7 +2515,7 @@ function MailboxList() {
             if (failedCount > 0) {
               if (!movedSet.has(moved.id)) {
                 useStore.getState().restoreMessages([moved]);
-                if (!moved.is_read) incrementUnread(moved.account_id);
+                adjustUnread(moved.account_id, -moveDelta);
               }
               addNotification({ type: 'error', title: t('message.moved.failTitle'), body: t('messageList.bulkMoved.failBody', { count: failedCount }) });
             } else {
@@ -2479,7 +2524,7 @@ function MailboxList() {
           } catch (err) {
             console.error('Move failed:', err.message);
             useStore.getState().restoreMessages([moved]);
-            if (!moved.is_read) incrementUnread(moved.account_id);
+            adjustUnread(moved.account_id, -moveDelta);
             addNotification({ title: t('message.moved.failTitle'), body: t('message.moved.failBody') });
           }
         }, UNDO_COMMIT_DELAY_MS);
@@ -2491,7 +2536,7 @@ function MailboxList() {
             if (!releaseUndoable(moveTimer)) return;
             moveUndone = true;
             useStore.getState().restoreMessages([moved]);
-            if (!moved.is_read) incrementUnread(moved.account_id);
+            adjustUnread(moved.account_id, -moveDelta);
           },
         });
         break;
@@ -2501,7 +2546,7 @@ function MailboxList() {
         const untilIso = data;
         if (!untilIso) break;
         removeMessage(snoozedMsg.id);
-        if (!snoozedMsg.is_read) decrementUnread(snoozedMsg.account_id);
+        if (!snoozedMsg.is_read) decrementUnread(snoozedMsg.account_id, inboxShare(snoozedMsg));
         if (selectedIds.has(snoozedMsg.id)) {
           const next = new Set(selectedIds);
           next.delete(snoozedMsg.id);
@@ -2512,7 +2557,7 @@ function MailboxList() {
         api.snoozeMessage(snoozedMsg.id, untilIso).then(refreshCounts).catch(err => {
           console.error('Snooze failed:', err.message);
           useStore.getState().restoreMessages([snoozedMsg]);
-          if (!snoozedMsg.is_read) incrementUnread(snoozedMsg.account_id);
+          if (!snoozedMsg.is_read) incrementUnread(snoozedMsg.account_id, inboxShare(snoozedMsg));
           addNotification({ title: t('message.snoozed.failTitle'), body: t('message.snoozed.failBody') });
         });
         break;
@@ -2728,8 +2773,8 @@ function MailboxList() {
     const prevUnread = message.unread_count;
     const doMarkRead = () => {
       updateMessage(message.id, { is_read: true, unread_count: 0 });
-      decrementUnread(message.account_id);
-      adjustCategoryCount(message.category, -1);
+      decrementUnread(message.account_id, inboxShare(message));
+      adjustCategoryCount(message.category, -inboxShare(message));
       const token = setPending(message.id, message.account_id);
       api.bulkRead([message.id], true)
         .catch(() => api.bulkRead([message.id], true))
@@ -2738,8 +2783,8 @@ function MailboxList() {
           console.error('markRead failed:', e.message);
           if (!failMarkRead(message.id, token)) return;
           updateMessage(message.id, { is_read: false, unread_count: prevUnread });
-          incrementUnread(message.account_id);
-          adjustCategoryCount(message.category, 1);
+          incrementUnread(message.account_id, inboxShare(message));
+          adjustCategoryCount(message.category, inboxShare(message));
         });
     };
     if (markReadBehavior === 'delay') {
@@ -2834,7 +2879,15 @@ function MailboxList() {
   const hoverPrefetch = useHoverPrefetch({ enabled: !isMobile && !selectionMode });
   const selectedMsgs = displayMessages.filter(m => selectedIds.has(m.id));
   const selectedCount = selectedIds.size;
-  const allSelected = displayMessages.length > 0 && selectedIds.size === displayMessages.length;
+  // The select-all box speaks for the rows on screen. A page change keeps the selection, so
+  // counting selectedIds would call another page's rows this page's (#741).
+  const staleSearchRows = isSearching && !!searchQuery.trim() && displayMessages.length > 0;
+  const allSelected = displayMessages.length > 0 && selectedMsgs.length === displayMessages.length;
+  const someSelected = selectedMsgs.length > 0 && !allSelected;
+  // It takes the loaded rows only: one page when paginated, or what has scrolled in so far.
+  const selectAllLabel = allSelected
+    ? t('messageList.deselectAll')
+    : t(scrollMode === 'paginated' && !searchQuery.trim() ? 'messageList.selectPage' : 'messageList.selectLoaded');
   const selectedAccountIds = [...new Set(selectedMsgs.map(m => m.account_id))];
   const canMove = selectedAccountIds.length === 1;
   const bulkMarkAsRead = selectedMsgs.some(m => !m.is_read);
@@ -3682,6 +3735,9 @@ function MailboxList() {
         </div>
       )}
 
+      {/* Catching up after the app resumed, or failed to (#748). */}
+      <ResumeStatus />
+
       {/* Message list */}
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         <div
@@ -3691,7 +3747,12 @@ function MailboxList() {
           onPointerMove={hoverPrefetch.onPointerMove}
           onPointerLeave={hoverPrefetch.onPointerLeave}
           tabIndex={0}
-          style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', outline: 'none', overscrollBehavior: 'contain' }}
+          aria-busy={staleSearchRows || undefined}
+          style={{
+            height: '100%', overflowY: 'auto', overflowX: 'hidden', outline: 'none', overscrollBehavior: 'contain',
+            // Rows from the search being replaced stay, dimmed, so they don't read as its matches (#742).
+            opacity: staleSearchRows ? 0.5 : 1, transition: 'opacity 0.15s',
+          }}
         >
           {showGtdTab ? <GtdTabList /> : (<>
           {/* Pull-to-refresh indicator */}
@@ -3879,8 +3940,11 @@ function MailboxList() {
             <input
               type="checkbox"
               checked={allSelected}
+              // Mixed when some rows on screen are selected; clicking it then selects them all.
+              ref={el => { if (el) el.indeterminate = someSelected; }}
               onChange={e => e.target.checked ? selectAll(displayMessages) : clearSelection()}
-              title={allSelected ? t('messageList.deselectAll') : t('messageList.selectAll')}
+              title={selectAllLabel}
+              aria-label={selectAllLabel}
               style={{ cursor: 'pointer', accentColor: 'var(--accent)', flexShrink: 0 }}
             />
             <span style={{ fontSize: 12, color: 'var(--text-secondary)', flex: 1, userSelect: 'none' }}>
@@ -4340,8 +4404,10 @@ function MailboxList() {
           />
         )}
 
-        {/* Infinite scroll footer */}
-        {scrollMode === 'infinite' && (<>
+        {/* List footer. Search results have no page numbers, so they load more in either scroll
+            mode; paginated search used to stop at its first page with no way on. The folder
+            list's Load more is infinite scroll only. */}
+        {(scrollMode === 'infinite' || !!searchQuery.trim()) && (<>
           {/* Search mode: load more search results */}
           {searchQuery.trim() ? (!isSearching && <>
             {searchLoadingMore && (
@@ -4356,6 +4422,11 @@ function MailboxList() {
             )}
             {!searchLoadingMore && searchHasMore && displayMessages.length > 0 && (
               <div style={{ padding: '12px 16px', textAlign: 'center' }}>
+                {searchLoadMoreFailed && (
+                  <div role="alert" style={{ marginBottom: 8, color: 'var(--text-secondary)', fontSize: 12 }}>
+                    {t('messageList.loadMoreFailed')}
+                  </div>
+                )}
                 <button
                   onClick={loadMoreSearch}
                   style={{
@@ -4367,7 +4438,7 @@ function MailboxList() {
                   onMouseEnter={e => { e.target.style.borderColor = 'var(--accent)'; e.target.style.color = 'var(--accent)'; }}
                   onMouseLeave={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.color = 'var(--text-secondary)'; }}
                 >
-                  {t('messageList.loadMore')}
+                  {searchLoadMoreFailed ? t('common.retry') : t('messageList.loadMore')}
                 </button>
               </div>
             )}

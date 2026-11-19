@@ -2615,11 +2615,25 @@ export async function ensureMailbox(client, path, { resolvePath = false } = {}) 
     if (!alreadyExists) {
       throw err;
     }
-    // A plain-NO already-exists carries no server path, so the casing lookup can only match
-    // from the bare requested name — enough for a flat case-insensitive server, but a prefixed
-    // server's real path (INBOX.Todo) won't match and falls back to the input.
-    return { path: resolvePath ? await resolveServerFolderCasing(client, requested) : requested, created: false };
+    // A plain-NO already-exists carries no server path. The path is the one the CREATE asked
+    // for, as imapflow spelled it (createdPathFor): returning the bare requested name gave
+    // 'Reading/Later' for a server whose folder is 'Reading.Later', and a COPY into that path
+    // failed on every run after the folder was created (D#751).
+    const known = createdPathFor(client, requested);
+    return { path: resolvePath ? await resolveServerFolderCasing(client, known) : known, created: false };
   }
+}
+
+// The path imapflow's CREATE used for `requested`, by its normalizePath (lib/tools.js): the
+// '/'-separated segments joined with the namespace delimiter, under the namespace prefix, INBOX
+// as itself. A client whose namespace is not known (a bare test client) keeps the name as given.
+export function createdPathFor(client, requested) {
+  const namespace = client?.namespace;
+  if (!namespace) return requested;
+  const path = requested.split('/').join(namespace.delimiter || '');
+  if (path.toUpperCase() === 'INBOX') return 'INBOX';
+  if (namespace.prefix && !path.startsWith(namespace.prefix)) return namespace.prefix + path;
+  return path;
 }
 
 // Resolve the server's REAL casing for a mailbox that already exists, by case-insensitive
@@ -6290,9 +6304,12 @@ export class ImapManager {
       // INBOX first — highest priority, existing behaviour
       await this.backfillMessages(account, 'INBOX');
 
-      // Then all other known folders (discovered at connect time by syncFolders)
+      // Then all other known folders (discovered at connect time by syncFolders). Not one the
+      // server lists as \Noselect (a parent that exists only to hold folders, as a nested label's
+      // does on GreenMail): selecting it fails, which cost a login and a 'Backfill failed' line on
+      // every pass.
       const folderResult = await query(
-        "SELECT path FROM folders WHERE account_id = $1 AND path != 'INBOX' ORDER BY path",
+        "SELECT path FROM folders WHERE account_id = $1 AND path != 'INBOX' AND NOT no_select ORDER BY path",
         [account.id]
       );
 

@@ -1,5 +1,6 @@
 import { useStore } from '../store/index.js';
 import { api } from './api.js';
+import { inboxShare } from './inboxBadge.js';
 import { setPending, settleMarkRead, failMarkRead, onReadRollback, pendingMarkReadMap, completedMarkReadMap } from './pendingReads.js';
 
 const scheduledByMessage = new Map();
@@ -57,8 +58,9 @@ export function applyMarkRead(msg, { onChange } = {}) {
   }
   st.updateMessage(msg.id, { is_read: true });
   onChange?.(true);
-  st.decrementUnread(msg.account_id);
-  st.adjustCategoryCount(msg.category, -1);
+  // The badge and the category counts are INBOX only (inboxBadge.js).
+  st.decrementUnread(msg.account_id, inboxShare(msg));
+  st.adjustCategoryCount(msg.category, -inboxShare(msg));
   // The guard stops a concurrent sync from reverting the optimistic flag before
   // the server has committed.
   const token = setPending(msg.id, msg.account_id);
@@ -72,8 +74,8 @@ export function applyMarkRead(msg, { onChange } = {}) {
       if (!failMarkRead(msg.id, token)) return;
       st.updateMessage(msg.id, { is_read: false });
       onChange?.(false);
-      st.incrementUnread(msg.account_id);
-      st.adjustCategoryCount(msg.category, 1);
+      st.incrementUnread(msg.account_id, inboxShare(msg));
+      st.adjustCategoryCount(msg.category, inboxShare(msg));
     });
 }
 

@@ -1,4 +1,5 @@
 import { getGtdMetadataSessionGeneration, refreshGtdMetadata } from './metadataStore.js';
+import { inboxShare } from '../../utils/inboxBadge.js';
 // The main-list checkmark and keyboard shortcut use the same optimistic action.
 export async function doneInboxGtdMessage(message, {
   advance, remove, restore, decrementUnread, incrementUnread, gtdDone, notify, t,
@@ -8,7 +9,8 @@ export async function doneInboxGtdMessage(message, {
   advance(message.id);
   remove(message.id);
   const unreadCount = Number.parseInt(message.unread_count, 10);
-  const unreadDelta = Number.isFinite(unreadCount) ? unreadCount : (message.is_read ? 0 : 1);
+  // Only an INBOX row is in the account badge (utils/inboxBadge.js).
+  const unreadDelta = inboxShare(message, Number.isFinite(unreadCount) ? unreadCount : (message.is_read ? 0 : 1));
   if (unreadDelta > 0) decrementUnread(message.account_id, unreadDelta);
   try {
     const result = await gtdDone(message.id);
