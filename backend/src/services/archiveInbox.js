@@ -1,7 +1,7 @@
 import { notifyMessageRowsDeleted } from './messageRowsDeleted.js';
 import { query } from './db.js';
 import { rememberDroppedRows } from './movedRowCarry.js';
-import { resolveArchiveFolder, isAllMailFolder, adjustFolderCounts } from '../utils/mailUtils.js';
+import { resolveArchiveFolder, isAllMailFolder, adjustFolderCounts, dismissSentInboxThreads } from '../utils/mailUtils.js';
 
 // Archive a single INBOX copy of a message: the one guarded per-copy archive move, shared
 // by any route that needs "move this INBOX row to the account's Archive and repoint the DB".
@@ -52,6 +52,12 @@ export async function archiveInboxCopy(imapManager, account, inboxCopy, fromFold
     if (allMail) {
       write = await query('DELETE FROM messages WHERE id = $1 AND folder = $2 RETURNING is_read, account_id, folder, thread_key', [inboxCopy.id, fromFolder]);
       applied = write.rowCount > 0;
+      if (applied && fromFolder === 'INBOX') {
+        await dismissSentInboxThreads([{
+          account_id: accountId,
+          thread_key: inboxCopy.thread_key || write.rows?.[0]?.thread_key,
+        }]);
+      }
     } else if (newUid != null) {
       write = await query('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3 AND folder = $4 RETURNING is_read', [archiveFolder, newUid, inboxCopy.id, fromFolder]);
       applied = write.rowCount > 0;

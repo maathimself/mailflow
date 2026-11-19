@@ -3,6 +3,7 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveAccountScope } from '../services/unifiedInbox.js';
 import { gmailServerMatches } from '../services/gmailServerSearch.js';
+import { draftMessageSql } from '../utils/mailUtils.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -137,7 +138,7 @@ export function freeTextTermCondition(likeIdx, ftsIdx) {
 }
 
 router.get('/', searchLimiter, async (req, res) => {
-  const { q, accountId, limit = 50, offset = 0 } = req.query;
+  const { q, accountId, limit = 50, offset = 0, threaded } = req.query;
   const trimmed = (q || '').trim();
   if (!trimmed) return res.json({ messages: [] });
   if (trimmed.length > 500) return res.status(400).json({ error: 'Search query too long' });
@@ -271,8 +272,97 @@ router.get('/', searchLimiter, async (req, res) => {
   const off = Math.max(0, parseInt(offset) || 0);
   params.push(cap);
   params.push(off);
+  const isThreaded = threaded === 'true' || threaded === true;
 
   try {
+    if (isThreaded) {
+      const result = await query(`
+        WITH matched AS (
+          SELECT
+            m.id, m.uid, m.folder, m.message_id, m.thread_key AS thread_id,
+            m.subject, m.from_name, m.from_email,
+            m.to_addresses, m.cc_addresses, m.reply_to, m.delivery_addresses,
+            m.in_reply_to, m.thread_references,
+            m.date, m.snippet, m.is_read, m.is_starred, m.has_attachments, m.account_id,
+            a.name AS account_name, a.email_address AS account_email, a.color AS account_color,
+            (co.id IS NOT NULL) AS has_contact_photo,
+            ${draftMessageSql('m')} AS is_draft
+          FROM messages m
+          JOIN email_accounts a ON m.account_id = a.id
+          LEFT JOIN contacts co ON co.user_id = a.user_id
+                                AND co.primary_email = lower(m.from_email)
+                                AND co.photo_data IS NOT NULL
+          WHERE m.account_id = ANY($1)
+            AND m.is_deleted = false
+            AND ${conditions.join('\n            AND ')}
+        ),
+        paged_threads AS (
+          SELECT thread_id,
+                 ROW_NUMBER() OVER (ORDER BY COALESCE(MAX(date) FILTER (WHERE NOT is_draft), MAX(date)) DESC, thread_id) AS pos
+          FROM matched
+          GROUP BY thread_id
+          ORDER BY COALESCE(MAX(date) FILTER (WHERE NOT is_draft), MAX(date)) DESC, thread_id
+          LIMIT $${p} OFFSET $${p + 1}
+        ),
+        deduped AS (
+          SELECT DISTINCT ON (account_id, thread_id, COALESCE(message_id, id::text))
+                 id, uid, folder, message_id, thread_id,
+                 subject, from_name, from_email,
+                 to_addresses, cc_addresses, reply_to, delivery_addresses,
+                 in_reply_to, thread_references,
+                 date, snippet, is_read, is_starred, has_attachments, account_id,
+                 account_name, account_email, account_color, has_contact_photo, is_draft
+          FROM matched
+          WHERE thread_id IN (SELECT thread_id FROM paged_threads)
+          ORDER BY account_id,
+                   thread_id,
+                   COALESCE(message_id, id::text),
+                   CASE WHEN is_draft THEN 2 WHEN folder = 'INBOX' THEN 0 ELSE 1 END,
+                   date ASC
+        ),
+        thread_totals AS (
+          SELECT m.thread_key AS thread_id,
+                 COUNT(DISTINCT (m.account_id, m.message_id))::int AS message_count
+          FROM messages m
+          WHERE m.account_id = ANY($1)
+            AND m.is_deleted = false
+            AND m.message_id IS NOT NULL
+            AND NOT ${draftMessageSql('m')}
+            AND m.thread_key IN (SELECT thread_id FROM paged_threads)
+          GROUP BY m.thread_key
+        ),
+        ranked AS (
+          SELECT d.*,
+                 COALESCE(tt.message_count, 1) AS message_count,
+                 COUNT(*) FILTER (WHERE NOT d.is_read AND (NOT d.is_draft OR tt.message_count IS NULL)) OVER (PARTITION BY d.thread_id)::int AS unread_count,
+                 FIRST_VALUE(d.subject)           OVER (PARTITION BY d.thread_id ORDER BY d.is_draft ASC, d.date ASC, d.id ASC) AS thread_subject,
+                 FIRST_VALUE(d.from_name)         OVER (PARTITION BY d.thread_id ORDER BY d.is_draft ASC, d.date ASC, d.id ASC) AS thread_from_name,
+                 FIRST_VALUE(d.from_email)        OVER (PARTITION BY d.thread_id ORDER BY d.is_draft ASC, d.date ASC, d.id ASC) AS thread_from_email,
+                 FIRST_VALUE(d.has_contact_photo) OVER (PARTITION BY d.thread_id ORDER BY d.is_draft ASC, d.date ASC, d.id ASC) AS thread_has_contact_photo,
+                 FIRST_VALUE(d.to_addresses)      OVER (PARTITION BY d.thread_id ORDER BY d.is_draft ASC, d.date ASC, d.id ASC) AS thread_to_addresses,
+                 FIRST_VALUE(d.folder)            OVER (PARTITION BY d.thread_id ORDER BY d.is_draft ASC, d.date ASC, d.id ASC) AS thread_folder,
+                 ROW_NUMBER() OVER (PARTITION BY d.thread_id ORDER BY d.is_draft ASC, d.date DESC, d.is_read ASC, d.id) AS rn
+          FROM deduped d
+          LEFT JOIN thread_totals tt ON tt.thread_id = d.thread_id
+        )
+        SELECT id, uid, folder, message_id, thread_id, thread_subject AS subject,
+               thread_from_name AS from_name, thread_from_email AS from_email,
+               from_name AS reply_from_name, from_email AS reply_from_email, subject AS reply_subject,
+               thread_to_addresses, thread_folder,
+               to_addresses, cc_addresses, reply_to, delivery_addresses, in_reply_to, thread_references,
+               date, snippet, is_starred, is_read, has_attachments, account_id,
+               account_name, account_email, account_color,
+               message_count, unread_count,
+               thread_has_contact_photo AS has_contact_photo
+        FROM ranked
+        JOIN paged_threads pt USING (thread_id)
+        WHERE rn = 1
+        ORDER BY pt.pos
+      `, params);
+
+      return res.json({ messages: result.rows, query: q, threaded: true });
+    }
+
     const result = await query(`
       SELECT
         m.id, m.uid, m.folder, m.message_id, m.subject, m.from_name, m.from_email,

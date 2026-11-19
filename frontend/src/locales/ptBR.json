@@ -362,7 +362,8 @@
       "conversationTitle": "Conversa arquivada",
       "nothingFromAccount": "Nada desta conta para arquivar nesta conversa",
       "otherAccountMessage": "Nada foi arquivado: a mensagem aberta é de outra conta",
-      "otherAccountDraft": "Nada foi arquivado: o rascunho aberto é de outra conta"
+      "otherAccountDraft": "Nada foi arquivado: o rascunho aberto é de outra conta",
+      "sentOnlyNotice": "Nada foi arquivado: esta conversa contém apenas mensagens enviadas"
     },
     "moved": {
       "title": "Mensagem movida",
@@ -1371,6 +1372,12 @@
       "threadingOnDesc": "Respostas agrupadas em conversas",
       "threadingPane": "Painel de leitura",
       "threadingPaneDesc": "A conversa inteira abre junta",
+      "threadInboxSent": "Exibir conversas enviadas na Caixa de entrada",
+      "threadInboxSentDesc": "Incluir tópicos iniciados em Enviados e suas respostas enviadas na Caixa de entrada quando o agrupamento estiver ativo",
+      "threadedSearch": "Agrupar resultados da busca em conversas",
+      "threadedSearchDesc": "Exibir os tópicos encontrados como conversas em vez de mensagens individuais",
+      "inlineQuickReply": "Resposta rápida integrada nas conversas",
+      "inlineQuickReplyDesc": "Exibir uma caixa de resposta rápida fixa dentro da conversa em vez de abrir o modal de redação",
       "composeFormat": "Formato de composição",
       "composeRichText": "Texto formatado",
       "composeRichTextDesc": "Envia HTML — suporta formatação e assinaturas estilizadas",
@@ -2550,5 +2557,11 @@
     "adminEnable": "Permitir webhooks de notificação para usuários",
     "origins": "Origens privadas permitidas (uma por linha)",
     "originsHelp": "Informe origens exatas com protocolo, host e porta, sem caminho. Destinos públicos exigem HTTPS. Destinos privados permitidos podem usar HTTP; endereços de loopback, link-local e reservados continuam bloqueados."
+  },
+  "quickReply": {
+    "regionLabel": "Resposta rápida",
+    "placeholder": "Escreva uma resposta rápida…",
+    "popOut": "Abrir no editor completo",
+    "signatureIncluded": "A assinatura será adicionada"
   }
 }

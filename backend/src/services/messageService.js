@@ -1,6 +1,6 @@
 import { query } from './db.js';
 import { resolveAccountScope } from './unifiedInbox.js';
-import { draftMessageSql } from '../utils/mailUtils.js';
+import { draftMessageFromRolesSql, draftMessageSql, sentFolderFromRolesSql, sentInboxRoleCtes } from '../utils/mailUtils.js';
 
 // Where snoozed mail waits (routes/mail.js snoozes into it, imapManager wakes it from it). On a
 // server with an INBOX. namespace prefix the folder is INBOX.Snoozed: the snooze route stores the
@@ -49,7 +49,39 @@ function listOrderSql({ sort, dir, starredFirst, threaded }) {
   return keys.join(', ');
 }
 
-export async function listMessages({ userId, accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, category, sort, dir, starredFirst }) {
+// Eligible Sent rows to include alongside INBOX when threadInboxSent is enabled:
+// Case A: a Sent reply/message belonging to a thread that still has a live copy in INBOX.
+// Case B: a Sent-initiated thread (root or follow-up whose root is a Sent message with no
+// in_reply_to) that has no copy in any non-Sent folder (neither INBOX nor Archive/Trash/etc.)
+// and was not dismissed from Inbox (e.g. via Gmail All-Mail archive).
+// Assumes sentInboxRoleCtes(...) is present in the enclosing query's WITH list.
+const sentEligibleSql = (m = 'm') => `(${sentFolderFromRolesSql(m)} AND NOT ${draftMessageFromRolesSql(m)} AND (
+  EXISTS (
+    SELECT 1 FROM messages inb
+    WHERE inb.account_id = ${m}.account_id AND inb.thread_key = ${m}.thread_key
+      AND inb.folder = 'INBOX' AND inb.is_deleted = false AND NOT ${draftMessageFromRolesSql('inb')}
+  )
+  OR (
+    (COALESCE(NULLIF(trim(${m}.in_reply_to), ''), NULL) IS NULL OR EXISTS (
+      SELECT 1 FROM messages root
+      WHERE root.account_id = ${m}.account_id AND root.thread_key = ${m}.thread_key
+        AND root.is_deleted = false AND ${sentFolderFromRolesSql('root')} AND NOT ${draftMessageFromRolesSql('root')}
+        AND COALESCE(NULLIF(trim(root.in_reply_to), ''), NULL) IS NULL
+    ))
+    AND NOT EXISTS (
+      SELECT 1 FROM messages other
+      WHERE other.account_id = ${m}.account_id AND other.thread_key = ${m}.thread_key
+        AND other.is_deleted = false AND other.folder <> ${m}.folder
+        AND NOT ${sentFolderFromRolesSql('other')} AND NOT ${draftMessageFromRolesSql('other')}
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM sent_inbox_dismissed sid
+      WHERE sid.account_id = ${m}.account_id AND sid.thread_key = ${m}.thread_key
+    )
+  )
+))`;
+
+export async function listMessages({ userId, accountId, folder = 'INBOX', limit = 50, offset = 0, unreadOnly, threaded, includeSent, category, sort, dir, starredFirst }) {
   const accountsResult = await query(
     'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
     [userId]
@@ -70,19 +102,29 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   let p = 1;
 
   const isSpecificAccount = resolvedAccountId !== null;
+  const isThreaded = !isSnoozedView && (threaded === 'true' || threaded === true);
+  const withSent = isThreaded && (includeSent === 'true' || includeSent === true) && (!isSpecificAccount || folder === 'INBOX');
+  const roleCtes = withSent ? sentInboxRoleCtes(isSpecificAccount ? 'ea.id = $1' : 'ea.id = ANY($1)') : null;
+  const withRolePrefix = roleCtes ? `WITH ${roleCtes}\n` : '';
+  const draftSql = withSent ? draftMessageFromRolesSql : draftMessageSql;
 
   if (isSpecificAccount) {
     whereConditions.push(`m.account_id = $${p++}`);
     values.push(resolvedAccountId);
-    whereConditions.push(`m.folder = $${p++}`);
+    const folderParam = `$${p++}`;
     values.push(folder);
+    whereConditions.push(withSent
+      ? `(m.folder = ${folderParam} OR ${sentEligibleSql('m')})`
+      : `m.folder = ${folderParam}`);
   } else {
     const accountsParam = `$${p++}`;
     whereConditions.push(`m.account_id = ANY(${accountsParam})`);
     values.push(scopedAccountIds);
     whereConditions.push(isSnoozedView
       ? `(m.folder = '${SNOOZED_FOLDER}' OR ${snoozedElsewhereSql(accountsParam)})`
-      : `m.folder = 'INBOX'`);
+      : withSent
+        ? `(m.folder = 'INBOX' OR ${sentEligibleSql('m')})`
+        : `m.folder = 'INBOX'`);
   }
 
   const isUnreadOnly = unreadOnly === 'true' || unreadOnly === true;
@@ -91,10 +133,43 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   // Category filter: 'primary' matches NULL and 'primary'; others match exactly.
   const safeCategory = typeof category === 'string' && category.length > 0 ? category : null;
   if (safeCategory && safeCategory !== 'primary') {
-    whereConditions.push(`m.category = $${p++}`);
+    const catParam = `$${p++}`;
     values.push(safeCategory);
+    if (withSent) {
+      whereConditions.push(`(
+        (m.folder = 'INBOX' AND m.category = ${catParam})
+        OR (${sentEligibleSql('m')} AND EXISTS (
+          SELECT 1 FROM messages cat_inb
+          WHERE cat_inb.account_id = m.account_id AND cat_inb.thread_key = m.thread_key
+            AND cat_inb.folder = 'INBOX' AND cat_inb.is_deleted = false AND NOT ${draftSql('cat_inb')}
+            AND cat_inb.category = ${catParam}
+        ))
+      )`);
+    } else {
+      whereConditions.push(`m.category = ${catParam}`);
+    }
   } else if (safeCategory === 'primary') {
-    whereConditions.push(`(m.category IS NULL OR m.category = 'primary')`);
+    if (withSent) {
+      whereConditions.push(`(
+        (m.folder = 'INBOX' AND (m.category IS NULL OR m.category = 'primary'))
+        OR (${sentEligibleSql('m')} AND (
+          EXISTS (
+            SELECT 1 FROM messages cat_inb
+            WHERE cat_inb.account_id = m.account_id AND cat_inb.thread_key = m.thread_key
+              AND cat_inb.folder = 'INBOX' AND cat_inb.is_deleted = false AND NOT ${draftSql('cat_inb')}
+              AND (cat_inb.category IS NULL OR cat_inb.category = 'primary')
+          ) OR (
+            NOT EXISTS (
+              SELECT 1 FROM messages cat_inb
+              WHERE cat_inb.account_id = m.account_id AND cat_inb.thread_key = m.thread_key
+                AND cat_inb.folder = 'INBOX' AND cat_inb.is_deleted = false AND NOT ${draftSql('cat_inb')}
+            ) AND (m.category IS NULL OR m.category = 'primary')
+          )
+        ))
+      )`);
+    } else {
+      whereConditions.push(`(m.category IS NULL OR m.category = 'primary')`);
+    }
   }
 
   // #407: hide UID-only placeholder rows whose envelope has not been fetched yet. During a
@@ -123,7 +198,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
       // A category tab lists only that category's mail; the folder's counts are of all its mail,
       // so the list offered pages, or a "Load more", with nothing on them (#611). Counted by
       // row, as the threaded list is.
-      const r = await query(`SELECT COUNT(*)::int AS n FROM messages m WHERE ${where}`, values);
+      const r = await query(`${withRolePrefix}SELECT COUNT(*)::int AS n FROM messages m WHERE ${where}`, values);
       total = r.rows[0]?.n ?? 0;
     } else if (isSpecificAccount) {
       const r = await query(
@@ -156,12 +231,12 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     total = 0;
   }
 
-  if (!isSnoozedView && (threaded === 'true' || threaded === true)) {
+  if (isThreaded) {
     const filterValues = [...values];
     const threadAccountParam = isSpecificAccount ? [resolvedAccountId] : scopedAccountIds;
 
     const threadResult = await query(`
-      WITH paged_threads AS (
+      WITH ${roleCtes ? `${roleCtes},\n      ` : ''}paged_threads AS (
         SELECT m.thread_key AS thread_id,
                -- Starred on top orders by any starred message (listOrderSql); see others_starred.
                COUNT(*) FILTER (WHERE m.is_starred)::int AS starred_count,
@@ -221,7 +296,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
         WHERE m.account_id = ANY($${p})
           AND m.is_deleted = false
           AND m.message_id IS NOT NULL
-          AND NOT ${draftMessageSql('m')}
+          AND NOT ${draftSql('m')}
           AND m.thread_key IN (SELECT thread_id FROM paged_threads)
         GROUP BY m.thread_key
       ),
@@ -229,10 +304,12 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
         SELECT d.*,
                COALESCE(tt.message_count, 1) AS message_count,
                COUNT(*) FILTER (WHERE NOT d.is_read) OVER (PARTITION BY d.thread_id)::int AS unread_count,
-               FIRST_VALUE(d.subject)           OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_subject,
-               FIRST_VALUE(d.from_name)          OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_name,
-               FIRST_VALUE(d.from_email)         OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_from_email,
-               FIRST_VALUE(d.has_contact_photo)  OVER (PARTITION BY d.thread_id ORDER BY d.date ASC) AS thread_has_contact_photo,
+               FIRST_VALUE(d.subject)           OVER (PARTITION BY d.thread_id ORDER BY d.date ASC, d.id ASC) AS thread_subject,
+               FIRST_VALUE(d.from_name)         OVER (PARTITION BY d.thread_id ORDER BY d.date ASC, d.id ASC) AS thread_from_name,
+               FIRST_VALUE(d.from_email)        OVER (PARTITION BY d.thread_id ORDER BY d.date ASC, d.id ASC) AS thread_from_email,
+               FIRST_VALUE(d.has_contact_photo) OVER (PARTITION BY d.thread_id ORDER BY d.date ASC, d.id ASC) AS thread_has_contact_photo,
+               FIRST_VALUE(d.to_addresses)      OVER (PARTITION BY d.thread_id ORDER BY d.date ASC, d.id ASC) AS thread_to_addresses,
+               FIRST_VALUE(d.folder)            OVER (PARTITION BY d.thread_id ORDER BY d.date ASC, d.id ASC) AS thread_folder,
                -- Representative for the thread row. On an exact date tie prefer the UNREAD
                -- copy (is_read ASC puts false first), so a thread holding unread mail never
                -- renders as its already-read duplicate; d.id keeps the choice deterministic.
@@ -243,6 +320,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
       SELECT id, uid, folder, message_id, thread_id, thread_subject AS subject,
              thread_from_name AS from_name, thread_from_email AS from_email,
              from_name AS reply_from_name, from_email AS reply_from_email, subject AS reply_subject,
+             thread_to_addresses, thread_folder,
              to_addresses, cc_addresses, reply_to, in_reply_to, thread_references,
              date, snippet, is_starred, is_read, has_attachments, account_id,
              account_name, account_email, account_color,
@@ -260,7 +338,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     `, [...filterValues, threadAccountParam, safeLimit, safeOffset]);
 
     const threadCountResult = await query(`
-      SELECT COUNT(DISTINCT m.thread_key)::int AS total
+      ${withRolePrefix}SELECT COUNT(DISTINCT m.thread_key)::int AS total
       FROM messages m
       WHERE ${where}
     `, filterValues);

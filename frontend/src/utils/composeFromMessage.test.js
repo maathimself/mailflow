@@ -666,3 +666,53 @@ describe('sent reply recipients', () => {
     });
   });
 });
+
+describe('formatAddressStrings, plainToComposeBody, and buildReplyDraftData', () => {
+  it('formats recipient objects cleanly into RFC address strings with comma-name quoting', () => {
+    assert.deepEqual(
+      compose.formatAddressStrings([
+        { name: 'Doe, Jane', email: 'jane@example.com' },
+        { name: 'Bob', email: 'bob@example.com' },
+        { email: 'noname@example.com' },
+        'raw@example.com',
+        {},
+      ]),
+      ['"Doe, Jane" <jane@example.com>', 'Bob <bob@example.com>', 'noname@example.com', 'raw@example.com'],
+    );
+  });
+
+  it('converts plain quick-reply text to TipTap HTML paragraphs when rich text is active', () => {
+    assert.equal(compose.plainToComposeBody('', false), '');
+    assert.equal(compose.plainToComposeBody('Hi <Ana>\n\nLine 2', false), '<p>Hi &lt;Ana&gt;</p><p></p><p>Line 2</p>');
+    assert.equal(compose.plainToComposeBody('Hi <Ana>\n\nLine 2', true), 'Hi <Ana>\n\nLine 2');
+  });
+
+  it('builds synchronized draft data with custom prefilled body for quick-reply popout', async () => {
+    const account = { id: 'a', email_address: 'me@example.com', aliases: [{ id: 'al1', email: 'alias@example.com' }] };
+    const draft = await compose.buildReplyDraftData(
+      {
+        id: 'm9',
+        account_id: 'a',
+        thread_id: 't9',
+        message_id: '<m9@x>',
+        in_reply_to: '<m0@x>',
+        subject: 'Update',
+        from_name: 'Sender',
+        from_email: 's@example.com',
+        to_addresses: [{ email: 'alias@example.com' }, { email: 'team@example.com' }],
+      },
+      {
+        accounts: [account],
+        folders: {},
+        getMessageBody: async () => ({ text: 'orig', html: '<p>orig</p>' }),
+        replyAll: true,
+        body: '<p>Sounds good!</p>',
+      },
+    );
+    assert.equal(draft.body, '<p>Sounds good!</p>');
+    assert.equal(draft.aliasId, 'al1');
+    assert.deepEqual(draft.to, [{ name: 'Sender', email: 's@example.com' }]);
+    assert.deepEqual(draft.cc, [{ email: 'team@example.com' }]);
+    assert.equal(draft.references, '<m0@x> <m9@x>');
+  });
+});

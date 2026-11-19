@@ -343,3 +343,32 @@ describe('listMessages — ghost row suppression (#407)', () => {
     expect(query.mock.calls[3][0]).toContain('NOT (m.message_id IS NULL');
   });
 });
+
+describe('listMessages — includeSent in threaded Inbox', () => {
+  it('adds Sent eligibility predicate and projects opener folder/recipients when includeSent=true', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', include_in_unified_inbox: true }] })
+      .mockResolvedValueOnce({ rows: [{ n: 2 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await listMessages({ userId: 'user-1', threaded: 'true', includeSent: 'true' });
+
+    const sql = query.mock.calls[2][0];
+    expect(sql).toContain('sent_inbox_dismissed');
+    expect(sql).toContain('thread_to_addresses');
+    expect(sql).toContain('thread_folder');
+  });
+
+  it('ignores includeSent on non-INBOX specific account folders', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 2, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'Archive', threaded: 'true', includeSent: 'true' });
+
+    expect(query.mock.calls[2][0]).not.toContain('sent_inbox_dismissed');
+  });
+});

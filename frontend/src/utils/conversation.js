@@ -61,9 +61,9 @@ export function reconcileExpandedMessageIds({ previousMessages = [], nextMessage
   return { expandedIds: nextExpandedIds, automaticExpandedId: newest.id };
 }
 
-export const shouldUseConversationPane = ({ mode, searchQuery, message }) =>
+export const shouldUseConversationPane = ({ mode, searchQuery, message, threadedSearch = false }) =>
   mode === 'pane'
-  && !searchQuery?.trim()
+  && (!searchQuery?.trim() || Boolean(threadedSearch))
   && Boolean(message?.thread_id)
   && (message.message_count == null || Number(message.message_count) > 1);
 

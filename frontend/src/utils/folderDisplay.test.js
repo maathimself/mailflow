@@ -15,6 +15,7 @@ import {
   folderDisplayName,
   folderDisplayNameForPath,
   folderRole,
+  isSentFolderPath,
 } from './folderDisplay.js';
 
 describe('folderDelimiter', () => {
@@ -455,5 +456,20 @@ describe('movePickerSectionHeading', () => {
     assert.equal(movePickerSectionHeading({ key: 'recent', heading: null }, t), 't:contextMenu.folders.recent');
     assert.equal(movePickerSectionHeading({ key: 'favorites', heading: null }, t), 't:contextMenu.folders.favorites');
     assert.equal(movePickerSectionHeading({ key: 'all', heading: null }, t), null);
+  });
+});
+
+describe('isSentFolderPath', () => {
+  it('detects Sent folders by mapping, folder role metadata, and canonical path fallback', () => {
+    const folders = [
+      { path: 'INBOX', name: 'INBOX' },
+      { path: 'Envoyes', name: 'Envoyés', special_use: '\\Sent' },
+      { path: 'Clients/Sent', name: 'Sent', delimiter: '/' },
+    ];
+    assert.equal(isSentFolderPath('Envoyes', folders, {}), true);
+    assert.equal(isSentFolderPath('CustomOut', folders, { sent: 'CustomOut' }), true);
+    assert.equal(isSentFolderPath('Clients/Sent', folders, {}), false);
+    assert.equal(isSentFolderPath('INBOX', folders, {}), false);
+    assert.equal(isSentFolderPath('[Gmail]/Sent Mail', undefined, {}), true);
   });
 });

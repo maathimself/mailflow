@@ -969,6 +969,32 @@ describe('a conversation another account also received', () => {
     }
   });
 
+  test('mailflow:thread_refresh silently refreshes the open conversation in place for matching accounts', async () => {
+    await open();
+    await click(document.querySelector('[data-message-id="m1"] > button[aria-expanded]'));
+    assert.deepEqual(openIds(), ['m1', 'm3']);
+    const SENT_EXT = { ...THREAD[1], id: 'm5', message_id: '<5@x>', thread_id: '<1@x>', date: '2026-01-05T10:00:00Z', is_read: true, snippet: 'external sent reply' };
+    served['<1@x>'] = [...THREAD, B3, SENT_EXT];
+    requests.length = 0;
+    try {
+      await React.act(async () => {
+        window.dispatchEvent(new dom.window.CustomEvent('mailflow:thread_refresh', { detail: { accountId: 'other-account' } }));
+      });
+      await wait(50);
+      assert.equal(threadFetches().length, 0, 'ignores thread_refresh for a different account');
+
+      await React.act(async () => {
+        window.dispatchEvent(new dom.window.CustomEvent('mailflow:thread_refresh', { detail: { accountId: 'acct' } }));
+      });
+      await wait(50);
+      assert.equal(threadFetches().length, 1, 'refetches open thread for matching account');
+      assert.ok(cardIds().includes('m5'), 'external sent reply appears in open conversation');
+      assert.deepEqual(openIds(), ['m1', 'm3'], 'preserves existing open/collapsed card state');
+    } finally {
+      delete served['<1@x>'];
+    }
+  });
+
   test('opening it marks the row account\'s copy read, not the other account\'s', async () => {
     await open();
     const read = requests.filter(r => r.url.includes('/bulk-read')).flatMap(r => r.body.ids);
@@ -1426,6 +1452,24 @@ describe('a conversation another account also received', () => {
     assert.deepEqual(sentIds(/bulk-delete/), ['b3', 'm1', 'm2', 'm3']);
   });
 
+  test('ReadingPane opens search hits in ConversationPane when threadedSearch is on, and MessagePane when off', async () => {
+    const searchRow = { ...ROW, id: 's-hit', thread_id: '<1@x>', message_count: 2 };
+    for (const [threadedSearch, expectConversation] of [[true, true], [false, false]]) {
+      requests.length = 0;
+      await React.act(async () => {
+        useStore.setState({
+          conversationMode: 'pane', threadedSearch, selectedAccountId: 'acct', selectedFolder: 'INBOX',
+          searchQuery: 'Welcome', searchResults: [searchRow], messages: [], threadMessages: {},
+          selectedMessageId: searchRow.id, notifications: [],
+        });
+        root.render(React.createElement(ReadingPane, { key: `search-${threadedSearch}` }));
+      });
+      await wait(50);
+      assert.equal(Boolean(document.querySelector('[role="group"][aria-label="message.conversationActions"]')), expectConversation, `threadedSearch=${threadedSearch}`);
+      assert.equal(threadFetches().length > 0, expectConversation, `thread fetched when threadedSearch=${threadedSearch}`);
+    }
+  });
+
   test('a GTD row whose copy is gone opens none of another account\'s mail in its account\'s view', async (t) => {
     // The click recovers through the row's thread, which now holds only acct-b's copy. Parked, that
     // copy would have the pane act for acct-b from acct's row. The unified inbox still opens it.
@@ -1453,6 +1497,20 @@ describe('a conversation another account also received', () => {
       await wait(50);
       assert.equal(useStore.getState().selectedMessageId, selected, `selected in ${selectedAccountId || 'the unified'} view`);
     }
+  });
+
+  test('Archive on a Sent-only thread in INBOX keeps the conversation open and shows the Sent-only notice', async () => {
+    const SENT_ONLY = [
+      { ...THREAD[1], id: 'so1', folder: 'Sent', message_id: '<so1@x>', thread_id: '<so1@x>' },
+      { ...THREAD[1], id: 'so2', folder: 'Sent', message_id: '<so2@x>', thread_id: '<so1@x>', date: '2026-01-04T10:00:00Z' },
+    ];
+    served['<so1@x>'] = SENT_ONLY;
+    const row = { ...SENT_ONLY[1], message_count: 2, unread_count: 0 };
+    await open({ selected: row, rows: [row], folder: 'INBOX' });
+    await commitWindow(button('message.archive'));
+    assert.equal(useStore.getState().selectedMessageId, 'so2', 'the pane stays open');
+    assert.ok(!requests.some(r => /bulk-archive/.test(r.url)), 'nothing is archived');
+    assert.deepEqual(notices(), ['message.archived.sentOnlyNotice'], 'the reader is told why');
   });
 });
 
@@ -1486,4 +1544,381 @@ test('GTD conversation header uses the displayed account on desktop and mobile',
       searchQuery: original.searchQuery, selectedMessageId: original.selectedMessageId, selectedAccountId: original.selectedAccountId });
     root = createRoot(document.getElementById('root'));
   }); }
+});
+
+describe('inline quick reply', () => {
+  const wait = ms => React.act(async () => { await new Promise(r => setTimeout(r, ms)); });
+  const click = async el => {
+    await React.act(async () => { el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    await wait(30);
+  };
+  const setTextarea = async (el, value) => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set;
+    await React.act(async () => {
+      setter.call(el, value);
+      el.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    });
+  };
+
+  const QUICK_THREAD = [
+    {
+      id: 'qm1',
+      account_id: 'acct-qr',
+      folder: 'INBOX',
+      message_id: '<q1@x>',
+      thread_id: '<q1@x>',
+      subject: 'Project kickoff',
+      from_email: 'alice@partner.example',
+      from_name: 'Alice',
+      to_addresses: [{ email: 'me@example.com', name: 'Me' }, { email: 'bob@partner.example', name: 'Bob' }],
+      cc_addresses: [{ email: 'carol@partner.example', name: 'Carol' }],
+      date: '2026-01-01T10:00:00Z',
+      is_read: true,
+      is_draft: false,
+      snippet: 'first note',
+    },
+    {
+      id: 'qm2',
+      account_id: 'acct-qr',
+      folder: 'INBOX',
+      message_id: '<q2@x>',
+      in_reply_to: '<q1@x>',
+      thread_id: '<q1@x>',
+      subject: 'Re: Project kickoff',
+      from_email: 'dave@partner.example',
+      from_name: 'Dave',
+      to_addresses: [{ email: 'me@example.com', name: 'Me' }, { email: 'eve@partner.example', name: 'Eve' }],
+      cc_addresses: [{ email: 'frank@partner.example', name: 'Frank' }],
+      date: '2026-01-02T10:00:00Z',
+      is_read: true,
+      is_draft: false,
+      snippet: 'latest follow-up',
+    },
+  ];
+
+  test('renders docked quick reply when inlineQuickReply is enabled and hides it when disabled', async (t) => {
+    const saved = useStore.getState();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, opts = {}) => {
+      if (String(url).includes('/mail/thread?')) {
+        return { ok: true, status: 200, json: async () => ({ messages: QUICK_THREAD }) };
+      }
+      return realFetch(url, opts);
+    };
+    t.after(async () => {
+      globalThis.fetch = realFetch;
+      await React.act(async () => {
+        useStore.setState({
+          accounts: saved.accounts,
+          folders: saved.folders,
+          inlineQuickReply: saved.inlineQuickReply,
+          replyDefault: saved.replyDefault,
+          plaintextEmail: saved.plaintextEmail,
+          notifications: [],
+          composeData: null,
+          composing: false,
+          messageWindows: saved.messageWindows,
+          user: saved.user,
+        });
+        root.render(React.createElement('div'));
+      });
+    });
+
+    await React.act(async () => {
+      useStore.setState({
+        user: { id: 'u1' },
+        accounts: [{ id: 'acct-qr', email_address: 'me@example.com', signature: '<p>Best,<br>Me</p>', signature_enabled: true }],
+        folders: { 'acct-qr': [{ path: 'INBOX' }, { path: 'Sent', specialUse: '\\Sent' }] },
+        inlineQuickReply: true,
+        replyDefault: 'reply',
+        plaintextEmail: false,
+        notifications: [],
+        composeData: null,
+        composing: false,
+        messageWindows: [],
+      });
+      root.render(React.createElement(ConversationPane, { key: 'qr-on', threadId: '<q1@x>', folder: 'INBOX', accountId: 'acct-qr' }));
+    });
+    await wait(50);
+
+    const qr = document.querySelector('[data-inline-quick-reply]');
+    assert.ok(qr, 'quick reply bar renders when inlineQuickReply is enabled');
+    assert.equal(qr.getAttribute('aria-label'), 'quickReply.regionLabel');
+    assert.match(qr.textContent, /Dave/, 'defaults target to the newest non-draft message');
+    assert.match(qr.textContent, /quickReply\.signatureIncluded/, 'indicates when signature will be appended');
+    const sendBtn = [...qr.querySelectorAll('button')].find(b => b.textContent === 'compose.send');
+    assert.equal(sendBtn?.disabled, true, 'Send stays disabled while empty');
+
+    await React.act(async () => { useStore.setState({ inlineQuickReply: false }); });
+    assert.equal(document.querySelector('[data-inline-quick-reply]'), null, 'disabling inlineQuickReply hides the bar');
+  });
+
+  test('routes card Reply and shortcuts inline when enabled and to ComposeModal when disabled, leaving AI Reply and Forward in modal', async (t) => {
+    const saved = useStore.getState();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes('/mail/thread?')) return { ok: true, status: 200, json: async () => ({ messages: QUICK_THREAD }) };
+      if (u.includes('/ai/status')) return { ok: true, status: 200, json: async () => ({ enabled: true, features: { summarize: true, compose: true } }) };
+      return realFetch(url, opts);
+    };
+    t.after(async () => {
+      globalThis.fetch = realFetch;
+      await React.act(async () => {
+        useStore.getState().closeCompose();
+        useStore.setState({
+          accounts: saved.accounts,
+          folders: saved.folders,
+          inlineQuickReply: saved.inlineQuickReply,
+          replyDefault: saved.replyDefault,
+          messageWindows: saved.messageWindows,
+          user: saved.user,
+        });
+        root.render(React.createElement('div'));
+      });
+    });
+
+    await React.act(async () => {
+      useStore.setState({
+        user: { id: 'u1' },
+        accounts: [{ id: 'acct-qr', email_address: 'me@example.com' }],
+        folders: { 'acct-qr': [{ path: 'INBOX' }, { path: 'Sent', specialUse: '\\Sent' }] },
+        inlineQuickReply: true,
+        replyDefault: 'reply',
+        plaintextEmail: false,
+        messageWindows: [],
+        composeData: null,
+        composing: false,
+      });
+      root.render(React.createElement(ConversationPane, {
+        key: 'qr-routing',
+        threadId: '<q1@x>',
+        folder: 'INBOX',
+        accountId: 'acct-qr',
+        selectedMessageId: 'qm1',
+      }));
+    });
+    await wait(50);
+
+    const m1Card = () => document.querySelector('[data-message-id="qm1"]');
+    const qr = () => document.querySelector('[data-inline-quick-reply]');
+    const textarea = () => qr().querySelector('textarea');
+
+    // Card Reply targets m1 inline without opening ComposeModal
+    await click(m1Card().querySelector('button[aria-label="message.reply"]'));
+    assert.equal(useStore.getState().composeData, null, 'inline Reply does not open ComposeModal');
+    assert.equal(document.activeElement, textarea(), 'focus moves into quick reply textarea');
+    assert.match(qr().textContent, /Alice/, 'quick reply switches target to m1 sender');
+    const replyAllBtn = () => [...qr().querySelectorAll('button')].find(b => b.textContent === 'message.replyAll');
+    assert.equal(replyAllBtn()?.getAttribute('aria-pressed'), 'false');
+
+    // Card Reply options -> Reply All switches inline mode to Reply All and displays Cc
+    await click(m1Card().querySelector('button[aria-label="message.replyOptions"]'));
+    const replyAllItem = m1Card().querySelector('[role="menuitem"]');
+    assert.ok(replyAllItem, 'reply dropdown shows Reply All item');
+    await click(replyAllItem);
+    assert.equal(useStore.getState().composeData, null);
+    assert.equal(replyAllBtn()?.getAttribute('aria-pressed'), 'true');
+    assert.match(qr().textContent, /compose\.cc:.*Bob.*Carol/);
+
+    // Toggling back to Reply clears Cc summary
+    await click([...qr().querySelectorAll('button')].find(b => b.textContent === 'message.reply'));
+    assert.doesNotMatch(qr().textContent, /compose\.cc:/);
+
+    // Shortcut 'replyAll' switches back to Reply All; ignored when detached window is open
+    textarea().blur();
+    await React.act(async () => { shortcutBus.emit('replyAll'); });
+    assert.equal(replyAllBtn()?.getAttribute('aria-pressed'), 'true');
+    assert.equal(document.activeElement, textarea());
+
+    await click([...qr().querySelectorAll('button')].find(b => b.textContent === 'message.reply'));
+    textarea().blur();
+    await React.act(async () => {
+      useStore.setState({ messageWindows: [{ key: 'detached-1' }] });
+      shortcutBus.emit('replyAll');
+    });
+    assert.equal(replyAllBtn()?.getAttribute('aria-pressed'), 'false', 'shortcut ignored when detached message window is open');
+    await React.act(async () => { useStore.setState({ messageWindows: [] }); });
+
+    // AI Reply & Forward continue opening ComposeModal even with inlineQuickReply=true
+    await click(m1Card().querySelector('button[aria-label="compose.toolbar.aiReply"]'));
+    assert.equal(useStore.getState().composeData?.aiReply, true);
+    assert.equal(useStore.getState().composeData?.inReplyTo, '<q1@x>');
+    await React.act(async () => { useStore.getState().closeCompose(); });
+
+    await click(m1Card().querySelector('button[aria-label="message.forward"]'));
+    assert.equal(useStore.getState().composeData?.isForward, true);
+    await React.act(async () => { useStore.getState().closeCompose(); });
+
+    // When inlineQuickReply=false, both card Reply and shortcut open ComposeModal
+    await React.act(async () => { useStore.setState({ inlineQuickReply: false }); });
+    await click(m1Card().querySelector('button[aria-label="message.reply"]'));
+    assert.equal(useStore.getState().composeData?.isReply, true);
+    assert.equal(useStore.getState().composeData?.inReplyTo, '<q1@x>');
+    await React.act(async () => { useStore.getState().closeCompose(); });
+
+    await React.act(async () => { shortcutBus.emit('replyAll'); });
+    await wait(30);
+    assert.equal(useStore.getState().composeData?.isReplyAll, true);
+    assert.equal(useStore.getState().composeData?.inReplyTo, '<q1@x>');
+  });
+
+  test('does not render quick reply on a draft-only thread', async (t) => {
+    const saved = useStore.getState();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, opts = {}) => {
+      if (String(url).includes('/mail/thread?')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ messages: [{ ...QUICK_THREAD[0], id: 'qd1', folder: 'Drafts', is_draft: true }] }),
+        };
+      }
+      return realFetch(url, opts);
+    };
+    t.after(async () => {
+      globalThis.fetch = realFetch;
+      await React.act(async () => {
+        useStore.setState({ accounts: saved.accounts, inlineQuickReply: saved.inlineQuickReply, user: saved.user });
+        root.render(React.createElement('div'));
+      });
+    });
+
+    await React.act(async () => {
+      useStore.setState({
+        user: { id: 'u1' },
+        accounts: [{ id: 'acct-qr', email_address: 'me@example.com' }],
+        inlineQuickReply: true,
+      });
+      root.render(React.createElement(ConversationPane, { key: 'qr-draft-only', threadId: '<q1@x>', folder: 'Drafts', accountId: 'acct-qr' }));
+    });
+    await wait(50);
+    assert.equal(document.querySelector('[data-inline-quick-reply]'), null);
+  });
+
+  test('handles pop-out, Ctrl+Enter send, failure retention, signature-disabled payload, and undo reopen', async (t) => {
+    const saved = useStore.getState();
+    const realFetch = globalThis.fetch;
+    let sendPlan = async () => ({ ok: true, status: 200, json: async () => ({ ok: true, messageId: '<sent@x>' }) });
+    const calls = [];
+    let threadRefreshEvents = 0;
+    const onRefresh = () => { threadRefreshEvents += 1; };
+    window.addEventListener('mailflow:thread_refresh', onRefresh);
+
+    globalThis.fetch = async (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes('/mail/thread?')) return { ok: true, status: 200, json: async () => ({ messages: QUICK_THREAD }) };
+      if (u.includes('/mail/send/') && u.endsWith('/cancel')) {
+        calls.push({ url: u, method: opts.method || 'GET' });
+        return { ok: true, status: 200, json: async () => ({ cancelled: true }) };
+      }
+      if (u.endsWith('/mail/send')) {
+        calls.push({
+          url: u,
+          method: opts.method || 'GET',
+          headers: opts.headers,
+          body: opts.body ? JSON.parse(opts.body) : null,
+        });
+        return sendPlan();
+      }
+      return realFetch(url, opts);
+    };
+
+    t.after(async () => {
+      window.removeEventListener('mailflow:thread_refresh', onRefresh);
+      globalThis.fetch = realFetch;
+      await React.act(async () => {
+        useStore.getState().closeCompose();
+        useStore.setState({
+          accounts: saved.accounts,
+          folders: saved.folders,
+          inlineQuickReply: saved.inlineQuickReply,
+          replyDefault: saved.replyDefault,
+          plaintextEmail: saved.plaintextEmail,
+          notifications: [],
+          user: saved.user,
+        });
+        root.render(React.createElement('div'));
+      });
+    });
+
+    await React.act(async () => {
+      useStore.setState({
+        user: { id: 'u1' },
+        accounts: [{
+          id: 'acct-qr',
+          email_address: 'me@example.com',
+          signature: '<p>Sig</p>',
+          signature_enabled: false,
+        }],
+        folders: { 'acct-qr': [{ path: 'INBOX' }, { path: 'Sent', specialUse: '\\Sent' }] },
+        inlineQuickReply: true,
+        replyDefault: 'reply',
+        plaintextEmail: false,
+        notifications: [],
+      });
+      root.render(React.createElement(ConversationPane, { key: 'qr-send', threadId: '<q1@x>', folder: 'INBOX', accountId: 'acct-qr' }));
+    });
+    await wait(50);
+
+    const qr = () => document.querySelector('[data-inline-quick-reply]');
+    const textarea = () => qr().querySelector('textarea');
+    assert.doesNotMatch(qr().textContent, /quickReply\.signatureIncluded/, 'signature indicator hidden when disabled');
+
+    // Pop out preserves typed draft as HTML paragraphs + quoted reply and clears inline box
+    await setTextarea(textarea(), 'Line one\nLine two');
+    await click(qr().querySelector('button[aria-label="quickReply.popOut"]'));
+    const popped = useStore.getState().composeData;
+    assert.equal(popped?.body, '<p>Line one</p><p>Line two</p>');
+    assert.equal(popped?.inReplyTo, '<q2@x>');
+    assert.match(popped?.quotedBodyHtml || '', /body of qm2/);
+    assert.equal(textarea().value, '');
+    await React.act(async () => { useStore.getState().closeCompose(); });
+
+    // Failed send keeps draft text and shows alert
+    sendPlan = async () => ({ ok: false, status: 500, json: async () => ({ error: 'SMTP unavailable' }) });
+    await setTextarea(textarea(), 'Need this sent');
+    await click([...qr().querySelectorAll('button')].find(b => b.textContent === 'compose.send'));
+    await wait(30);
+    assert.equal(textarea().value, 'Need this sent', 'failed send preserves inline draft');
+    assert.match(qr().querySelector('[role="alert"]')?.textContent || '', /SMTP unavailable/);
+
+    // Ctrl+Enter succeeds with bodyIsHtml:false, editedSignature:'', X-Idempotency-Key, and triggers thread refresh
+    sendPlan = async () => ({ ok: true, status: 200, json: async () => ({ ok: true, messageId: '<sent-2@x>' }) });
+    await React.act(async () => {
+      textarea().dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
+    });
+    await wait(40);
+    const sent = calls.at(-1);
+    assert.equal(sent.body.accountId, 'acct-qr');
+    assert.deepEqual(sent.body.to, ['Dave <dave@partner.example>']);
+    assert.equal(sent.body.body, 'Need this sent');
+    assert.equal(sent.body.bodyIsHtml, false);
+    assert.equal(sent.body.editedSignature, '');
+    assert.equal(sent.body.inReplyTo, '<q2@x>');
+    assert.equal(sent.body.references, '<q1@x> <q2@x>');
+    assert.match(sent.body.quotedBodyHtml || '', /body of qm2/);
+    assert.ok(sent.headers?.['X-Idempotency-Key'], 'sends idempotency header');
+    assert.equal(textarea().value, '', 'successful send clears inline draft');
+    assert.ok(threadRefreshEvents >= 1, 'triggers immediate mailflow:thread_refresh');
+
+    // Held send shows undo notification and clicking Undo reopens ComposeModal with draft text
+    sendPlan = async () => ({
+      ok: true,
+      status: 202,
+      json: async () => ({ pending: true, pendingId: 'held-qr-1', remainingMs: 5000 }),
+    });
+    await setTextarea(textarea(), 'Hold this reply');
+    await click([...qr().querySelectorAll('button')].find(b => b.textContent === 'compose.send'));
+    await wait(30);
+    const undoToast = useStore.getState().notifications.find(n => n.heldSendId === 'held-qr-1');
+    assert.ok(undoToast?.onUndo, 'held send registers undo toast');
+    await React.act(async () => { await undoToast.onUndo(); });
+    assert.ok(calls.some(c => c.url.includes('/mail/send/held-qr-1/cancel')), 'undo cancels held send');
+    const reopened = useStore.getState().composeData;
+    assert.equal(reopened?.restored, true);
+    assert.equal(reopened?.body, '<p>Hold this reply</p>');
+    assert.deepEqual(reopened?.to, ['Dave <dave@partner.example>']);
+    assert.equal(reopened?.signature, '');
+  });
 });

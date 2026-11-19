@@ -43,7 +43,7 @@ import { saveSenderCategory } from '../utils/senderCategory.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
 import {
-  folderDisplayName, folderDisplayNameForPath, folderRole, buildMovePickerSections, movePickerSectionHeading,
+  folderDisplayName, folderDisplayNameForPath, folderRole, isSentFolderPath, buildMovePickerSections, movePickerSectionHeading,
   movePickerFoldersEmpty, runMovePickerAction,
 } from '../utils/folderDisplay.js';
 import { usePluginCollected } from '../plugins/PluginSlot.jsx';
@@ -187,7 +187,7 @@ function MailboxList() {
     searchResults, setSearchResults, openCompose, accountsReady, accounts,
     messagesRefreshToken, layout, setLayout, pageSize, setPageSize, scrollMode,
     setMobileSidebarOpen, unreadCounts, showContacts, setShowContacts,
-    threadedView: threadedSetting, expandedThreadId, setExpandedThreadId,
+    threadedView: threadedSetting, threadInboxSent, threadedSearch, expandedThreadId, setExpandedThreadId,
     threadMessages, setThreadMessages, clearThreadMessages, loadingThread, setLoadingThread,
     hoverQuickActions, hoverActionSet, showMobileAvatars, showMessagePreviews,
     swipeActions,
@@ -220,6 +220,8 @@ function MailboxList() {
   // The Snoozed view lists single messages, each with when it comes back, and the server never
   // groups it; drawn as conversation rows it showed unread mail as read and repeated row keys.
   const threadedView = threadedSetting && !isSnoozedView;
+  const isThreadedSearch = threadedView && threadedSearch;
+  const includeSentInInbox = threadedView && threadInboxSent && (isAllInboxes || selectedFolder === 'INBOX');
   const selectedAccount = accounts.find(a => a.id === selectedAccountId);
   const unifiedInboxAccountKey = accounts
     .filter(isAccountInUnifiedInbox)
@@ -229,6 +231,10 @@ function MailboxList() {
   // user toggled "search all folders". An in: operator in the query overrides this
   // server-side. undefined = search all folders.
   const searchFolder = (!isUnified && !searchAllFolders) ? selectedFolder : undefined;
+  const isMultiFolderSearch = Boolean(searchQuery.trim()) && (isUnified || searchAllFolders || queryNamesSearchFolder(searchQuery));
+  const folderForRow = useCallback((message) => (
+    isMultiFolderSearch ? (message?.folder || (selectedAccountId ? selectedFolder : 'INBOX')) : (selectedAccountId ? selectedFolder : 'INBOX')
+  ), [isMultiFolderSearch, selectedAccountId, selectedFolder]);
   const searchPageSize = Math.max(1, Math.min(Number(pageSize) || 50, 200));
   const undoableNotifications = notifications.filter(n => n.onUndo);
 
@@ -361,6 +367,8 @@ function MailboxList() {
     selectedFolder,
     searchQuery,
     threadedView,
+    threadInboxSent,
+    threadedSearch,
     unreadOnly,
     activeCategory,
     currentPage,
@@ -524,6 +532,7 @@ function MailboxList() {
         applyListOrder(params, listOrder);
         if (unreadOnly) params.unreadOnly = 'true';
         if (threadedView) params.threaded = 'true';
+        if (includeSentInInbox) params.includeSent = 'true';
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
         const applied = await refreshRequestRef.current.run(
           () => api.getMessages(params),
@@ -570,7 +579,7 @@ function MailboxList() {
     };
     run();
     return () => { cancelled = true; };
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, scrollMode, accountsReady, unifiedInboxAccountKey, messagesRefreshToken, threadedView, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, scrollMode, accountsReady, unifiedInboxAccountKey, messagesRefreshToken, threadedView, includeSentInInbox, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
 
   // Load next page (called by scroll or button)
   const loadMore = useCallback(async () => {
@@ -579,12 +588,18 @@ function MailboxList() {
     setLoadingMessages(true);
     try {
       // Read current offset directly from store to avoid stale closure
-      const currentOffset = useStore.getState().messagesOffset;
+      const currentState = useStore.getState();
+      const currentOffset = currentState.messagesOffset;
       const params = { limit: pageSize, offset: currentOffset };
       scopeListParams(params, selectedAccountId, selectedFolder);
       applyListOrder(params, listOrder);
       if (unreadOnly) params.unreadOnly = 'true';
-      if (useStore.getState().threadedView) params.threaded = 'true';
+      if (currentState.threadedView && !isSnoozedView) {
+        params.threaded = 'true';
+        if (currentState.threadInboxSent && (!selectedAccountId || selectedFolder === 'INBOX')) {
+          params.includeSent = 'true';
+        }
+      }
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       const data = await api.getMessages(params);
       if (listGenRef.current !== gen) return;
@@ -597,7 +612,7 @@ function MailboxList() {
       // The new list's own load owns the flag once the list was replaced.
       if (listGenRef.current === gen) setLoadingMessages(false);
     }
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset]);
+  }, [selectedAccountId, selectedFolder, isSnoozedView, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset]);
 
   // Listen for background refresh events from WebSocket. If a message was just
   // opened, give its body request a brief head start before reloading the full list.
@@ -617,7 +632,12 @@ function MailboxList() {
         scopeListParams(params, selectedAccountId, selectedFolder);
         applyListOrder(params, listOrder);
         if (unreadOnly) params.unreadOnly = 'true';
-        if (state.threadedView) params.threaded = 'true';
+        if (state.threadedView && !isSnoozedView) {
+          params.threaded = 'true';
+          if (state.threadInboxSent && (!selectedAccountId || selectedFolder === 'INBOX')) {
+            params.includeSent = 'true';
+          }
+        }
         if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
         const fetchPage = (page) => api.getMessages({ ...params, ...page });
         await refreshRequestRef.current.run(
@@ -680,7 +700,7 @@ function MailboxList() {
       window.removeEventListener('mailflow:refresh', handler);
       clearTimeout(deferredRefreshTimerRef.current);
     };
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, searchQuery, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal]);
+  }, [selectedAccountId, selectedFolder, isSnoozedView, unreadOnly, activeCategory, searchQuery, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal]);
 
   // Run the refresh held back while a load was in flight, once that load (and any append it
   // made) has finished.
@@ -713,7 +733,7 @@ function MailboxList() {
     const seq = ++searchSeq.current;
     searchTimer.current = setTimeout(async () => {
       try {
-        const data = await api.search(searchQuery, selectedAccountId || undefined, { offset: 0, limit: searchPageSize, folder: searchFolder });
+        const data = await api.search(searchQuery, selectedAccountId || undefined, { offset: 0, limit: searchPageSize, folder: searchFolder, threaded: isThreadedSearch });
         if (searchSeq.current !== seq) return;
         searchFetchedOffsetRef.current = data.messages.length;
         setSearchResults(applyReadGuard(data.messages));
@@ -733,7 +753,7 @@ function MailboxList() {
       }
     }, 300);
     return () => clearTimeout(searchTimer.current);
-  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchReloadToken, unifiedInboxAccountKey, applyReadGuard, setIsSearching, setSearchResults]);
+  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, isThreadedSearch, searchReloadToken, unifiedInboxAccountKey, applyReadGuard, setIsSearching, setSearchResults]);
 
   // Re-run an active search (and refresh the folder view) after inbox rules run, since
   // rules can move messages out of the searched folder and a search snapshot would
@@ -759,7 +779,7 @@ function MailboxList() {
     setSearchLoadMoreFailed(false);
     try {
       const offset = searchFetchedOffsetRef.current;
-      const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, limit: searchPageSize, folder: searchFolder });
+      const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, limit: searchPageSize, folder: searchFolder, threaded: isThreadedSearch });
       // Discard results if the query, account or folder changed while we were fetching
       if (searchSeq.current !== seq || useStore.getState().searchQuery !== qSnapshot) return;
       searchFetchedOffsetRef.current = offset + data.messages.length;
@@ -773,14 +793,14 @@ function MailboxList() {
       // A page asked for by a replaced search must not end the current one's.
       if (searchSeq.current === seq) setSearchLoadingMore(false);
     }
-  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchLoadingMore, applyReadGuard]);
+  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, isThreadedSearch, searchLoadingMore, applyReadGuard]);
 
   const prefetchSearchAfterRemoval = useCallback(async (offset) => {
     const qSnapshot = useStore.getState().searchQuery;
     if (!qSnapshot.trim()) return;
     const seq = searchSeq.current;
     try {
-      const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, limit: searchPageSize, folder: searchFolder });
+      const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, limit: searchPageSize, folder: searchFolder, threaded: isThreadedSearch });
       if (searchSeq.current !== seq || useStore.getState().searchQuery !== qSnapshot) return;
       searchFetchedOffsetRef.current = Math.max(searchFetchedOffsetRef.current, offset + data.messages.length);
       const additions = applyReadGuard(data.messages);
@@ -797,7 +817,7 @@ function MailboxList() {
     } catch (err) {
       console.error('Search prefetch after delete failed:', err);
     }
-  }, [selectedAccountId, searchFolder, searchPageSize, applyReadGuard]);
+  }, [selectedAccountId, searchFolder, searchPageSize, isThreadedSearch, applyReadGuard]);
 
   // Infinite scroll + scroll-to-top visibility
   const handleScroll = useCallback(() => {
@@ -827,6 +847,7 @@ function MailboxList() {
       applyListOrder(params, listOrder);
       if (unreadOnly) params.unreadOnly = 'true';
       if (threadedView) params.threaded = 'true';
+      if (includeSentInInbox) params.includeSent = 'true';
       if (selectedFolder === 'INBOX' && (categorizationEnabled || selectedAccount?.categorization_enabled)) params.category = activeCategory;
       await refreshRequestRef.current.run(
         () => fetchPageOrLast(page => api.getMessages({ ...params, ...page }), { page: pageNum, pageSize }),
@@ -846,7 +867,7 @@ function MailboxList() {
     } finally {
       setLoadingMessages(false);
     }
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, threadedView, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setExpandedThreadId, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, threadedView, includeSentInInbox, listOrder, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setExpandedThreadId, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal]);
 
   const handleSync = async () => {
     if (syncing) return;
@@ -960,8 +981,8 @@ function MailboxList() {
 
   const isThreadListRow = useCallback((message) => {
     const messageCount = Number.parseInt(message.message_count, 10);
-    return threadedView && !searchQuery.trim() && message.thread_id && messageCount > 1;
-  }, [threadedView, searchQuery]);
+    return (searchQuery.trim() ? isThreadedSearch : threadedView) && message.thread_id && messageCount > 1;
+  }, [isThreadedSearch, threadedView, searchQuery]);
 
   // Resolves the sub-messages a thread-wide action applies to. Defaults to the server rather
   // than the expansion-time cache: a thread gains messages while you look at it, and acting on
@@ -971,7 +992,7 @@ function MailboxList() {
   // stands for its own account's only, so that is all the action takes.
   const resolveMessagesForThreadAction = useCallback(async (message, { allowCache = false } = {}) => {
     const tid = message.thread_id || message.id;
-    const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
+    const effectiveFolder = folderForRow(message);
     return resolveThreadMessages({
       message,
       isThreadRow: isThreadListRow(message),
@@ -980,7 +1001,7 @@ function MailboxList() {
       fetchThread: () => api.getThread(tid, effectiveFolder, isUnified),
       accountId: isUnified ? null : message.account_id,
     });
-  }, [isThreadListRow, threadMessages, selectedAccountId, selectedFolder, isUnified]);
+  }, [isThreadListRow, threadMessages, folderForRow, isUnified]);
 
   const invalidateThreadCache = useCallback((threadId) => {
     invalidateThreadLoad(threadLoadVersionsRef.current, threadId);
@@ -1435,7 +1456,11 @@ function MailboxList() {
     if (!archiveMessage) return;
     const threadRow = isThreadListRow(message);
     const threadId = message.thread_id || message.id;
-    const activeFolder = selectedAccountId ? selectedFolder : 'INBOX';
+    const activeFolder = folderForRow(message);
+    if (!searchQuery.trim() && activeFolder === 'INBOX' && !threadRow && message.folder && message.folder !== 'INBOX') {
+      addNotification({ title: t('message.archived.sentOnlyNotice') });
+      return;
+    }
     const threadGuard = threadRow
       ? threadDeleteGuardKey(threadId, activeFolder, selectedAccountId)
       : null;
@@ -1469,7 +1494,7 @@ function MailboxList() {
       onUndo: archiveAction.undo,
     });
   }, [
-    isThreadListRow, selectedAccountId, selectedFolder, expandedThreadId,
+    isThreadListRow, folderForRow, selectedAccountId, searchQuery, expandedThreadId,
     removeMessage, setExpandedThreadId, decrementUnread, incrementUnread,
     addNotification, t, resolveMessagesForThreadAction,
   ]);
@@ -1580,7 +1605,7 @@ function MailboxList() {
   // registered once ([] deps), so it reads the thread predicate and the fetch context from
   // here rather than closing over values that would be stale the moment the folder changes.
   scRef.current.isThreadListRow = isThreadListRow;
-  scRef.current.threadFetchFolder = selectedAccountId ? selectedFolder : 'INBOX';
+  scRef.current.folderForRow = folderForRow;
   scRef.current.threadFetchUnified = isUnified;
 
   // Arrow-key navigation: intercepts ArrowDown/ArrowUp when the list container has focus.
@@ -1794,7 +1819,7 @@ function MailboxList() {
   }, []);
 
   const handleRowDragStart = useCallback((e, message) => {
-    const { selectedIds, isThreadListRow: isThreadRow, threadFetchFolder, threadFetchUnified } = scRef.current;
+    const { selectedIds, isThreadListRow: isThreadRow, folderForRow: rowFolder, threadFetchUnified } = scRef.current;
     const isMulti = selectedIds.size > 1 && selectedIds.has(message.id);
     const payload = isMulti
       ? { messageIds: [...selectedIds], accountId: message.account_id }
@@ -1806,7 +1831,7 @@ function MailboxList() {
     // what it covers, and silently widening it to whole threads would be worse than literal.
     if (!isMulti && isThreadRow?.(message)) {
       payload.threadId = message.thread_id || message.id;
-      payload.threadFolder = threadFetchFolder;
+      payload.threadFolder = rowFolder?.(message) || 'INBOX';
       payload.threadUnified = threadFetchUnified;
     }
     e.dataTransfer.setData('application/x-mailflow-message', JSON.stringify(payload));
@@ -1815,23 +1840,40 @@ function MailboxList() {
 
   const handleBulkArchive = useCallback((ids, msgs) => {
     const activeFolder = selectedAccountId ? selectedFolder : 'INBOX';
+    const isInboxScope = !searchQuery.trim() && activeFolder === 'INBOX';
+    const immediateSentOnly = isInboxScope
+      ? msgs.filter(message => !isThreadListRow(message) && message.folder && message.folder !== 'INBOX')
+      : [];
+    const actionableMsgs = immediateSentOnly.length
+      ? msgs.filter(message => !immediateSentOnly.includes(message))
+      : msgs;
+    const actionableIds = actionableMsgs.map(message => message.id);
+    if (immediateSentOnly.length > 0) {
+      addNotification({ title: t('message.archived.sentOnlyNotice') });
+      if (!actionableMsgs.length) {
+        setSelectedIds(new Set());
+        setSelectionModeActive(false);
+        setShowFolderPicker(false);
+        return;
+      }
+    }
     const threadGuardsByRow = new Map(
-      msgs
+      actionableMsgs
         .filter(message => isThreadListRow(message))
         .map(message => [
           message.id,
-          threadDeleteGuardKey(message.thread_id || message.id, activeFolder, selectedAccountId),
+          threadDeleteGuardKey(message.thread_id || message.id, folderForRow(message), selectedAccountId),
         ])
         .filter(([, guard]) => Boolean(guard)),
     );
-    const initialGuards = [...new Set([...ids, ...threadGuardsByRow.values()])];
+    const initialGuards = [...new Set([...actionableIds, ...threadGuardsByRow.values()])];
     const viewKey = archiveViewKeyRef.current;
 
     refreshRequestRef.current.invalidate();
     initialGuards.forEach(setPendingDelete);
-    removeMessages(ids);
+    removeMessages(actionableIds);
     let unreadByAccount = new Map();
-    msgs.forEach((message) => {
+    actionableMsgs.forEach((message) => {
       const count = rowInboxUnread(message, isThreadListRow(message));
       if (count <= 0) return;
       decrementUnread(message.account_id, count, { undoable: true });
@@ -1843,7 +1885,7 @@ function MailboxList() {
     // Conversations read now as well, for a flush that cannot wait to read them (see flushUndoables).
     // Eight at a time, as the commit reads them.
     const early = new Map();
-    const threadRows = msgs.filter(isThreadListRow);
+    const threadRows = actionableMsgs.filter(isThreadListRow);
     let previous = Promise.resolve();
     for (let offset = 0; offset < threadRows.length; offset += 8) {
       const batch = threadRows.slice(offset, offset + 8);
@@ -1858,12 +1900,23 @@ function MailboxList() {
         let targets;
         try {
           groups = await archiveTargetGroupsForRows(
-            msgs,
+            actionableMsgs,
             async message => (flushing && await early.get(message.id)) || resolveMessagesForThreadAction(message),
-            activeFolder,
+            folderForRow,
             isThreadListRow,
             selectedAccountId,
+            { excludeSentOnly: isInboxScope },
           );
+          const skippedRows = groups.filter(group => group.targets.length === 0).map(group => group.row);
+          if (skippedRows.length > 0) {
+            skippedRows.forEach((row) => {
+              clearDeleteGuard(row.id);
+              const tg = threadGuardsByRow.get(row.id);
+              if (tg) clearDeleteGuard(tg);
+            });
+            restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, skippedRows);
+            addNotification({ title: t('message.archived.sentOnlyNotice') });
+          }
           const seen = new Set();
           targets = groups.flatMap(group => group.targets).filter((target) => {
             if (!target?.id || seen.has(target.id)) return false;
@@ -1871,6 +1924,10 @@ function MailboxList() {
             return true;
           });
           const archiveIds = targets.map(target => target.id);
+          if (archiveIds.length === 0) {
+            unreadByAccount.forEach((count, accountId) => incrementUnread(accountId, count));
+            return;
+          }
           archiveIds.forEach(setPendingDelete);
 
           const resolvedUnreadByAccount = inboxUnreadByAccount(targets);
@@ -1882,18 +1939,18 @@ function MailboxList() {
           });
           unreadByAccount = resolvedUnreadByAccount;
 
-          groups.forEach(({ row }) => {
-            if (isThreadListRow(row)) invalidateThreadCache(row.thread_id || row.id);
+          groups.forEach(({ row, targets: groupTargets }) => {
+            if (groupTargets.length > 0 && isThreadListRow(row)) invalidateThreadCache(row.thread_id || row.id);
           });
 
           const result = await archiveInChunks(archiveIds, api.bulkArchive);
           if (result.error) console.error('Bulk archive chunk failed:', result.error);
           const archivedSet = new Set(result.archived);
           archiveIds.forEach(id => (archivedSet.has(id) ? setCompletedDelete(id) : clearDeleteGuard(id)));
-          ids.filter(id => !seen.has(id)).forEach(clearDeleteGuard);
+          actionableIds.filter(id => !seen.has(id)).forEach(clearDeleteGuard);
           groups.forEach(({ row, targets: groupTargets }) => {
             const threadGuard = threadGuardsByRow.get(row.id);
-            if (!threadGuard) return;
+            if (!threadGuard || groupTargets.length === 0) return;
             if (groupTargets.every(target => archivedSet.has(target.id))) setCompletedDelete(threadGuard);
             else clearDeleteGuard(threadGuard);
           });
@@ -1902,7 +1959,7 @@ function MailboxList() {
           if (failedTargets.length > 0) {
             const failedVisibleRows = groups
               .filter(({ row, targets: groupTargets }) => (
-                !archivedSet.has(row.id) && groupTargets.some(target => !archivedSet.has(target.id))
+                groupTargets.length > 0 && !archivedSet.has(row.id) && groupTargets.some(target => !archivedSet.has(target.id))
               ))
               .map(({ row }) => row);
             if (failedVisibleRows.length > 0) restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, failedVisibleRows);
@@ -1918,24 +1975,24 @@ function MailboxList() {
           console.error('Bulk archive failed:', err);
           const targetIds = targets?.map(target => target.id) || [];
           [...new Set([...initialGuards, ...targetIds])].forEach(clearDeleteGuard);
-          restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, msgs);
+          restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, actionableMsgs);
           unreadByAccount.forEach((count, accountId) => incrementUnread(accountId, count));
-          addNotification({ title: t('messageList.bulkArchived.failTitle'), body: t('messageList.bulkArchived.failBody', { count: targets?.length || ids.length }) });
+          addNotification({ title: t('messageList.bulkArchived.failTitle'), body: t('messageList.bulkArchived.failBody', { count: targets?.length || actionableIds.length }) });
         }
       },
       undo: () => {
         initialGuards.forEach(clearDeleteGuard);
-        restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, msgs);
+        restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, actionableMsgs);
         unreadByAccount.forEach((count, accountId) => incrementUnread(accountId, count));
       },
     });
     addNotification({
-      title: t('messageList.bulkArchived.title', { count: ids.length }),
+      title: t('messageList.bulkArchived.title', { count: actionableIds.length }),
       body: t('messageList.bulkArchived.body'),
       onUndo: archiveAction.undo,
     });
   }, [
-    selectedAccountId, selectedFolder, isThreadListRow, resolveMessagesForThreadAction,
+    selectedAccountId, selectedFolder, folderForRow, searchQuery, isThreadListRow, resolveMessagesForThreadAction,
     removeMessages, decrementUnread, incrementUnread, invalidateThreadCache,
     addNotification, t,
   ]);
@@ -1949,7 +2006,7 @@ function MailboxList() {
   } = {}) => {
     const threadRow = isThreadListRow(message);
     const threadId = message.thread_id || message.id;
-    const activeFolder = selectedAccountId ? selectedFolder : 'INBOX';
+    const activeFolder = folderForRow(message);
     const threadGuard = threadRow
       ? threadDeleteGuardKey(threadId, activeFolder, selectedAccountId)
       : null;
@@ -1973,7 +2030,15 @@ function MailboxList() {
     let targets;
     try {
       const resolved = (resolvedEarly && await resolvedEarly) || await resolveMessagesForThreadAction(message);
-      targets = archiveTargetsForFolder(message, resolved, activeFolder, threadRow, selectedAccountId);
+      const isInboxScope = !searchQuery.trim() && activeFolder === 'INBOX';
+      targets = archiveTargetsForFolder(message, resolved, activeFolder, threadRow, selectedAccountId, { excludeSentOnly: isInboxScope });
+      if (targets.length === 0) {
+        initialGuards.forEach(clearDeleteGuard);
+        restoreMessagesIfViewCurrent(viewKey, archiveViewKeyRef, [message]);
+        unreadByAccount.forEach((count, accountId) => incrementUnread(accountId, count));
+        addNotification({ title: t('message.archived.sentOnlyNotice') });
+        return;
+      }
 
       const resolvedUnreadByAccount = inboxUnreadByAccount(targets);
       const accounts = new Set([...unreadByAccount.keys(), ...resolvedUnreadByAccount.keys()]);
@@ -2027,7 +2092,7 @@ function MailboxList() {
       console.error('Archive failed:', err.message);
     }
   }, [
-    isThreadListRow, selectedAccountId, selectedFolder, expandedThreadId,
+    isThreadListRow, folderForRow, selectedAccountId, searchQuery, expandedThreadId,
     resolveMessagesForThreadAction, removeMessage, setExpandedThreadId,
     decrementUnread, incrementUnread, invalidateThreadCache, addNotification, t,
   ]);
@@ -2428,7 +2493,11 @@ function MailboxList() {
         if (!archiveMessage) break;
         const threadRow = isThreadListRow(archived);
         const threadId = archived.thread_id || archived.id;
-        const activeFolder = selectedAccountId ? selectedFolder : 'INBOX';
+        const activeFolder = folderForRow(archived);
+        if (!searchQuery.trim() && activeFolder === 'INBOX' && !threadRow && archived.folder && archived.folder !== 'INBOX') {
+          addNotification({ title: t('message.archived.sentOnlyNotice') });
+          break;
+        }
         const threadGuard = threadRow
           ? threadDeleteGuardKey(threadId, activeFolder, selectedAccountId)
           : null;
@@ -2823,7 +2892,7 @@ function MailboxList() {
       const loadVersion = currentThreadLoadVersion(threadLoadVersionsRef.current, tid);
       setLoadingThread(tid);
       try {
-        const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
+        const effectiveFolder = folderForRow(message);
         const data = await api.getThread(tid, effectiveFolder, isUnified);
         const msgs = data.messages || [];
         if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) {
@@ -4286,7 +4355,7 @@ function MailboxList() {
           </div>
         )}
 
-        {threadedView && !searchQuery.trim() ? (
+        {(searchQuery.trim() ? isThreadedSearch : threadedView) ? (
           displayMessages.map(message => {
             const tid = message.thread_id || message.id;
             const swipeLeftAction = swipeActions?.left || 'archive';
@@ -4295,6 +4364,8 @@ function MailboxList() {
               <ThreadRow
                 key={tid}
                 message={message}
+                accountFolders={folders[message.account_id]}
+                accountMappings={accounts.find(a => a.id === message.account_id)?.folder_mappings}
                 isExpanded={expandedThreadId === tid}
                 threadMsgs={threadMessages[tid] || null}
                 isLoadingThread={loadingThread === tid}
@@ -4819,11 +4890,32 @@ function EmptyState({ folderSyncing, searchQuery, searching, searchError, unread
   );
 }
 
-function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, selectedAcct, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, hoverActionSet, onArchive, onSnooze, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onModifierSelect, onLongPress, onExplainSpam }) {
+function ThreadRow({ message, accountFolders, accountMappings, isExpanded, threadMsgs, isLoadingThread, selectedMessageId, selectedMid, selectedAcct, lastViewedMessageId, showAccount, isNarrow, onThreadClick, onThreadToggle, showMobileAvatars, showMessagePreviews, onSelect, onOpenWindow, onMarkRead, onStar, onDelete, hoverQuickActions, hoverActionSet, onArchive, onSnooze, onContextMenu, onMove, onDragStart, isMobile, swipeLeftAction, swipeRightAction, onSwipeLeft, onSwipeRight, isChecked, selectionMode, onToggleSelect, onRangeSelect, onModifierSelect, onLongPress, onExplainSpam }) {
   const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const messageCount = message.message_count || 1;
   const unreadCount  = parseInt(message.unread_count) || 0;
+  const openerFolder = message.thread_folder || message.folder;
+  const isSentInitiated = isSentFolderPath(openerFolder, accountFolders, accountMappings);
+  const toRecipients = isSentInitiated
+    ? (Array.isArray(message.thread_to_addresses)
+      ? message.thread_to_addresses
+      : (Array.isArray(message.to_addresses) ? message.to_addresses : []))
+    : [];
+  const recipientText = toRecipients
+    .map(a => (typeof a === 'string' ? a : (a?.name || a?.email || a?.address || '')))
+    .filter(Boolean)
+    .join(', ');
+  const firstRecipient = toRecipients.find(a => a && (typeof a === 'string' || a.name || a.email || a.address));
+  const avatarEmail = typeof firstRecipient === 'string'
+    ? firstRecipient
+    : (firstRecipient?.email || firstRecipient?.address || message.from_email);
+  const avatarName = typeof firstRecipient === 'string'
+    ? firstRecipient
+    : (firstRecipient?.name || firstRecipient?.email || firstRecipient?.address || message.from_name || message.from_email);
+  const displaySender = recipientText
+    ? `${t('message.to')} ${recipientText}`
+    : (message.from_name || message.from_email || t('common.unknown', 'Unknown'));
 
   const { contentRef, swipeBgLeftRef, swipeBgRightRef, tappedRef } = useSwipeRow({
     isMobile, message, onSwipeLeft, onSwipeRight, onLongPress,
@@ -4940,7 +5032,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               position: 'relative', overflow: 'hidden',
               background: avatarAsCheckbox
                 ? (isChecked ? 'var(--accent)' : 'var(--bg-tertiary)')
-                : senderColor(message.from_email || message.from_name),
+                : senderColor(avatarEmail || avatarName),
               border: avatarAsCheckbox && !isChecked ? '2px solid var(--border)' : 'none',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 13, fontWeight: 600,
@@ -4964,10 +5056,10 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
               )
             ) : (
               <>
-                {(message.from_name || message.from_email || '?')[0].toUpperCase()}
+                {(avatarName || avatarEmail || '?')[0].toUpperCase()}
                 <SenderAvatarImage
-                  email={message.from_email}
-                  hasContactPhoto={message.has_contact_photo}
+                  email={avatarEmail}
+                  hasContactPhoto={avatarEmail === message.from_email && message.has_contact_photo}
                 />
               </>
             )}
@@ -4986,7 +5078,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
               }}>
-                {message.from_name || message.from_email || t('common.unknown', 'Unknown')}
+                {displaySender}
               </span>
               {messageCount > 1 && (
                 <button

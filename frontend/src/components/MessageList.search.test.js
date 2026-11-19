@@ -452,3 +452,42 @@ describe('MessageList replaced results and Load more failures (#742)', () => {
     assert.deepEqual(useStore.getState().searchResults.map(m => m.id), ['x', 'y']);
   });
 });
+
+describe('MessageList threaded search toggle', () => {
+  test('sends threaded=true and renders ThreadRow badges when threadedView and threadedSearch are on', async () => {
+    await mount();
+    await React.act(async () => { useStore.setState({ threadedView: 'pane', threadedSearch: true }); });
+    await search('Contract');
+    await settle();
+    const url = await respond({
+      messages: [{
+        ...hit('reply-2'),
+        thread_id: 'thr-1',
+        folder: 'Sent',
+        thread_folder: 'INBOX',
+        subject: 'Contract Review',
+        reply_from_name: 'Me',
+        reply_from_email: 'me@example.com',
+        message_count: 3,
+        unread_count: 1,
+      }],
+    });
+    assert.match(url, /threaded=true/, 'threaded search requests grouped threads from /search');
+    const toggle = container().querySelector('[data-msgid="reply-2"] button[aria-expanded]');
+    assert.ok(toggle, 'ThreadRow renders thread expand badge');
+    assert.equal(toggle.textContent.trim(), '3');
+  });
+
+  test('omits threaded=true and renders flat rows when threadedSearch is off', async () => {
+    await mount();
+    await React.act(async () => { useStore.setState({ threadedView: 'pane', threadedSearch: false }); });
+    await search('Contract');
+    await settle();
+    const url = await respond({
+      messages: [{ ...hit('flat-1'), thread_id: 'thr-1', message_count: 3 }],
+    });
+    assert.doesNotMatch(url, /threaded=true/, 'flat search omits threaded=true');
+    assert.ok(container().querySelector('[data-msgid="flat-1"]'), 'flat row renders');
+    assert.equal(container().querySelector('[data-msgid="flat-1"] button[aria-expanded]'), null, 'renders MessageRow rather than ThreadRow');
+  });
+});

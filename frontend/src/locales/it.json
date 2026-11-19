@@ -362,7 +362,8 @@
       "conversationTitle": "Conversazione archiviata",
       "nothingFromAccount": "Nessun messaggio di questo account da archiviare in questa conversazione",
       "otherAccountMessage": "Non è stato archiviato nulla: il messaggio aperto appartiene a un altro account",
-      "otherAccountDraft": "Non è stato archiviato nulla: la bozza aperta appartiene a un altro account"
+      "otherAccountDraft": "Non è stato archiviato nulla: la bozza aperta appartiene a un altro account",
+      "sentOnlyNotice": "Non è stato archiviato nulla: questa conversazione contiene solo messaggi inviati"
     },
     "moved": {
       "title": "Messaggio spostato",
@@ -1371,6 +1372,12 @@
       "threadingOnDesc": "Le risposte sono raggruppate in conversazioni",
       "threadingPane": "Riquadro di lettura",
       "threadingPaneDesc": "L'intera conversazione si apre insieme",
+      "threadInboxSent": "Mostra conversazioni inviate in Posta in arrivo",
+      "threadInboxSentDesc": "Includi i thread iniziati in Inviati e le tue risposte in uscita nella Posta in arrivo quando i thread sono attivi",
+      "threadedSearch": "Raggruppa i risultati di ricerca in conversazioni",
+      "threadedSearchDesc": "Mostra i thread trovati come conversazioni invece che come singoli messaggi",
+      "inlineQuickReply": "Risposta rapida integrata nelle conversazioni",
+      "inlineQuickReplyDesc": "Mostra un riquadro di risposta rapida ancorato nella conversazione invece di aprire la finestra di composizione",
       "composeFormat": "Formato di composizione",
       "composeRichText": "Testo formattato",
       "composeRichTextDesc": "Invia HTML — supporta formattazione e firme stilizzate",
@@ -2550,5 +2557,11 @@
     "adminEnable": "Consenti webhook di notifica agli utenti",
     "origins": "Origini private consentite (una per riga)",
     "originsHelp": "Inserisci origini esatte con protocollo, host e porta, senza percorso. Gli endpoint pubblici richiedono HTTPS. Le destinazioni private consentite possono usare HTTP; gli indirizzi di loopback, link-local e riservati restano bloccati."
+  },
+  "quickReply": {
+    "regionLabel": "Risposta rapida",
+    "placeholder": "Scrivi una risposta rapida…",
+    "popOut": "Apri nell’editor completo",
+    "signatureIncluded": "La firma verrà aggiunta"
   }
 }

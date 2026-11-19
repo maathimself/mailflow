@@ -362,6 +362,7 @@
       "nothingFromAccount": "이 대화에는 보관할 이 계정의 메일이 없습니다.",
       "otherAccountMessage": "아무것도 보관하지 않았습니다. 열린 메시지는 다른 계정의 메시지입니다.",
       "otherAccountDraft": "아무것도 보관하지 않았습니다. 열린 초안은 다른 계정의 초안입니다.",
+      "sentOnlyNotice": "아무것도 보관하지 않았습니다. 이 대화에는 보낸 메일만 포함되어 있습니다.",
       "noFolderTitle": "보관 폴더 없음"
     },
     "moved": {
@@ -1370,6 +1371,12 @@
       "composePlainText": "일반 텍스트",
       "composeRichTextDesc": "HTML 보내기 — 서식 지정 및 스타일이 지정된 서명 지원",
       "threadingPaneDesc": "대화 스레드 전체를 한 번에 펼쳐서 표시합니다",
+      "threadInboxSent": "보낸 편지함에서 시작한 대화를 받은 편지함에 표시",
+      "threadInboxSentDesc": "대화 스레드 보기 사용 시 보낸 메일로 시작한 대화와 후속 답장을 받은 편지함 목록에 포함합니다",
+      "threadedSearch": "검색 결과를 대화 스레드로 묶어 표시",
+      "threadedSearchDesc": "대화 스레드 보기 사용 시 검색 결과도 개별 메일 대신 대화 단위로 묶어 표시합니다",
+      "inlineQuickReply": "대화 창에서 바로 빠른 답장 사용",
+      "inlineQuickReplyDesc": "별도의 작성 창 대신 대화 보기 하단에 고정된 빠른 답장 입력란을 표시합니다",
       "threadingOffDesc": "각 메시지는 개별적으로 표시됩니다.",
       "syncFrequencyDesc": "MailFlow가 새 이메일을 확인하는 빈도",
       "threadingPane": "읽기 창",
@@ -2550,5 +2557,11 @@
     "adminEnable": "사용자의 알림 웹훅 허용",
     "origins": "허용된 사설 출처 (줄당 하나)",
     "originsHelp": "경로 없이 프로토콜, 호스트, 포트를 포함한 정확한 출처를 입력하세요. 공개 엔드포인트는 HTTPS가 필요합니다. 허용된 사설 대상은 HTTP를 사용할 수 있지만 루프백, 링크 로컬 및 예약 주소는 계속 차단됩니다."
+  },
+  "quickReply": {
+    "regionLabel": "빠른 답장",
+    "placeholder": "빠른 답장 작성…",
+    "popOut": "전체 작성 창에서 열기",
+    "signatureIncluded": "서명이 추가됩니다"
   }
 }

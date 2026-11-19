@@ -498,12 +498,13 @@ export const api = {
   emptyFolder: (accountId, path) => request('POST', '/mail/folders/empty', { accountId, path }),
 
   // Search
-  search: (q, accountId, { offset = 0, limit, folder } = {}) => {
+  search: (q, accountId, { offset = 0, limit, folder, threaded } = {}) => {
     const params = new URLSearchParams({ q });
     if (accountId) params.set('accountId', accountId);
     if (limit) params.set('limit', limit);
     if (folder) params.set('folder', folder);
     if (offset) params.set('offset', offset);
+    if (threaded) params.set('threaded', 'true');
     return request('GET', `/search?${params}`);
   },
   suggestContacts: (q) => request('GET', `/search/contacts?q=${encodeURIComponent(q)}`),

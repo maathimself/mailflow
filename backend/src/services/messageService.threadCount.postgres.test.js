@@ -3,7 +3,16 @@ import pg from 'pg';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (req, _res, next) => { req.session = { userId: 'owner' }; next(); } }));
-vi.mock('../index.js', () => ({ imapManager: {} }));
+vi.mock('../index.js', () => ({
+  imapManager: {
+    _guardMoveUid: vi.fn(),
+    _unguardMoveUid: vi.fn(),
+    bulkMoveMessages: vi.fn(async (_acct, uids) => ({ uidMap: new Map(), succeeded: uids, failed: [] })),
+    broadcast: vi.fn(),
+    pluginFacade: {},
+    syncFolderOnDemand: vi.fn(async () => {}),
+  },
+}));
 import express from 'express';
 import { query } from './db.js';
 import { listMessages } from './messageService.js';
@@ -36,9 +45,11 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('threaded Inbox message
         has_attachments boolean DEFAULT false, category text, list_unsubscribe text,
         list_unsubscribe_post text, delivery_addresses jsonb, spam_verdict text,
         spam_user_override text, spam_score_ml real, flags jsonb, unsubscribed_at timestamptz);
-      CREATE TEMP TABLE contacts (id uuid, user_id text, primary_email text, photo_data text)`);
+      CREATE TEMP TABLE contacts (id uuid, user_id text, primary_email text, photo_data text);
+      CREATE TEMP TABLE sent_inbox_dismissed (account_id uuid, thread_key text, dismissed_at timestamptz DEFAULT now(), PRIMARY KEY (account_id, thread_key))`);
     query.mockImplementation((sql, values) => database.query(sql, values));
     const app = express();
+    app.use(express.json());
     app.use('/api/mail', mailRoutes);
     await new Promise(resolve => { server = app.listen(0, resolve); });
     base = `http://127.0.0.1:${server.address().port}`;
@@ -48,7 +59,7 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('threaded Inbox message
     await database?.end();
   });
   beforeEach(async () => {
-    await database.query('TRUNCATE messages, folders, email_accounts, contacts');
+    await database.query('TRUNCATE messages, folders, email_accounts, contacts, sent_inbox_dismissed');
     await database.query(
       "INSERT INTO email_accounts VALUES ($1,'owner',true,true,'Work','me@example.com','#123456',NULL)",
       [account],
@@ -187,5 +198,86 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('threaded Inbox message
     await database.query("UPDATE messages SET is_deleted = true WHERE message_id = '<b@me>'");
 
     expect((await inboxRows(account))['<a@ext>'].message_count).toBe(1);
+  });
+
+  describe('includeSent=true in Inbox', () => {
+    const inboxWithSentRows = async (accountId, includeSent = true) => {
+      const result = await listMessages({ userId: 'owner', accountId, folder: 'INBOX', threaded: true, includeSent });
+      return Object.fromEntries(result.messages.map(row => [row.thread_id, row]));
+    };
+
+    it('includes Sent follow-ups on Inbox threads and Sent-initiated threads with recipient metadata', async () => {
+      await folder('INBOX');
+      await folder('Sent', { specialUse: '\\Sent' });
+      await insert('INBOX', '<a@ext>', '<a@ext>', '2026-10-01T10:00Z', 'Question');
+      await insert('Sent', '<b@me>', '<a@ext>', '2026-10-01T11:00Z', 'Re: Question');
+      await insert('Sent', '<s1@me>', '<s1@me>', '2026-10-01T12:00Z', 'Proposal');
+      await database.query(
+        `UPDATE messages SET uid = 11, from_email = 'alice@ext.test', from_name = 'Alice', to_addresses = '[{"email":"me@example.com"}]'::jsonb WHERE message_id = '<a@ext>';
+         UPDATE messages SET uid = 12, from_email = 'me@example.com', from_name = 'Me', snippet = 'my reply', in_reply_to = '<a@ext>' WHERE message_id = '<b@me>';
+         UPDATE messages SET uid = 13, from_email = 'me@example.com', from_name = 'Me', to_addresses = '[{"name":"Bob","email":"bob@ext.test"}]'::jsonb, snippet = 'initial outreach' WHERE message_id = '<s1@me>';`
+      );
+
+      const rows = await inboxWithSentRows(account, true);
+      expect(rows['<a@ext>'].thread_folder).toBe('INBOX');
+      expect(rows['<a@ext>'].reply_from_name).toBe('Me');
+      expect(rows['<a@ext>'].snippet).toBe('my reply');
+      expect(rows['<a@ext>'].message_count).toBe(2);
+
+      expect(rows['<s1@me>']).toBeDefined();
+      expect(rows['<s1@me>'].thread_folder).toBe('Sent');
+      expect(rows['<s1@me>'].thread_to_addresses).toEqual([{ name: 'Bob', email: 'bob@ext.test' }]);
+
+      // Follow-up from Sent advances date & count before any external reply arrives
+      await insert('Sent', '<s2@me>', '<s1@me>', '2026-10-01T13:00Z', 'Re: Proposal');
+      await database.query(
+        `UPDATE messages SET uid = 14, in_reply_to = '<s1@me>', snippet = 'pinging you' WHERE message_id = '<s2@me>'`
+      );
+      const afterFollowUp = await inboxWithSentRows(account, true);
+      expect(afterFollowUp['<s1@me>'].message_count).toBe(2);
+      expect(afterFollowUp['<s1@me>'].snippet).toBe('pinging you');
+
+      // Disabled toggle keeps Sent-only thread out of Inbox
+      const withoutSent = await inboxWithSentRows(account, false);
+      expect(withoutSent['<s1@me>']).toBeUndefined();
+    });
+
+    it('never resurrects archived/trashed threads, orphan Sent replies, or Gmail All-Mail archived threads until a new INBOX reply lands', async () => {
+      await folder('INBOX');
+      await folder('Sent', { specialUse: '\\Sent' });
+      await folder('[Gmail]/All Mail', { name: 'All Mail', specialUse: '\\All' });
+
+      // 1. Orphan Sent reply (Inbox copy gone externally, Sent reply has in_reply_to)
+      await insert('Sent', '<orphan@me>', '<gone@ext>', '2026-10-01T08:00Z', 'Re: Gone');
+      await database.query(`UPDATE messages SET in_reply_to = '<gone@ext>' WHERE message_id = '<orphan@me>'`);
+
+      // 2. Sent-initiated thread whose external reply was moved to Trash
+      await insert('Sent', '<trashed@me>', '<trashed@me>', '2026-10-01T09:00Z', 'Trashed thread');
+      await insert('Trash', '<tr@ext>', '<trashed@me>', '2026-10-01T10:00Z', 'Re: Trashed thread');
+
+      // 3. Sent-initiated thread whose INBOX reply gets archived via Gmail All Mail
+      await insert('Sent', '<gm@me>', '<gm@me>', '2026-10-01T11:00Z', 'Proposal');
+      await insert('INBOX', '<gm-inb@ext>', '<gm@me>', '2026-10-01T12:00Z', 'Re: Proposal');
+      const { rows: [inbRow] } = await database.query(`SELECT id FROM messages WHERE message_id = '<gm-inb@ext>'`);
+      await database.query(`UPDATE messages SET uid = 77, in_reply_to = '<gm@me>' WHERE id = $1`, [inbRow.id]);
+
+      const res = await fetch(`${base}/api/mail/messages/bulk-archive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [inbRow.id] }),
+      });
+      expect(res.status).toBe(200);
+
+      const rows = await inboxWithSentRows(undefined, true);
+      expect(rows['<gone@ext>']).toBeUndefined();
+      expect(rows['<trashed@me>']).toBeUndefined();
+      expect(rows['<gm@me>']).toBeUndefined();
+
+      // A new external reply landing in INBOX brings the thread back cleanly
+      await insert('INBOX', '<gm-r2@ext>', '<gm@me>', '2026-10-01T14:00Z', 'Re: Proposal');
+      const revived = await inboxWithSentRows(undefined, true);
+      expect(revived['<gm@me>']).toBeDefined();
+      expect(revived['<gm@me>'].message_count).toBe(2);
+    });
   });
 });

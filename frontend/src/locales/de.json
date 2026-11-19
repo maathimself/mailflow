@@ -362,7 +362,8 @@
       "conversationTitle": "Konversation archiviert",
       "nothingFromAccount": "In dieser Konversation gibt es nichts von diesem Konto zu archivieren",
       "otherAccountMessage": "Nichts archiviert: Die geöffnete Nachricht gehört zu einem anderen Konto",
-      "otherAccountDraft": "Nichts archiviert: Der geöffnete Entwurf gehört zu einem anderen Konto"
+      "otherAccountDraft": "Nichts archiviert: Der geöffnete Entwurf gehört zu einem anderen Konto",
+      "sentOnlyNotice": "Nichts archiviert: Diese Unterhaltung enthält nur gesendete Nachrichten"
     },
     "moved": {
       "title": "Nachricht verschoben",
@@ -1289,6 +1290,12 @@
       "threadingOnDesc": "Antworten in Gesprächen gruppiert",
       "threadingPane": "Lesebereich",
       "threadingPaneDesc": "Die gesamte Unterhaltung wird zusammen geöffnet",
+      "threadInboxSent": "Gesendete Unterhaltungen im Posteingang anzeigen",
+      "threadInboxSentDesc": "Von Ihnen begonnene Threads und eigene Antworten im Posteingang einbeziehen, wenn die Gruppierung aktiv ist",
+      "threadedSearch": "Suchergebnisse als Unterhaltungen gruppieren",
+      "threadedSearchDesc": "Passende Threads bei aktiver Konversationsansicht gebündelt statt als Einzelnachrichten anzeigen",
+      "inlineQuickReply": "Direkte Schnellantwort in Unterhaltungen",
+      "inlineQuickReplyDesc": "Angedocktes Schnellantwort-Feld in der Unterhaltung anzeigen, statt das Antwortfenster zu öffnen",
       "composeFormat": "Verfassungsformat",
       "composeRichText": "Rich Text",
       "composeRichTextDesc": "Sendet HTML — unterstützt Formatierung und gestaltete Signaturen",
@@ -2550,5 +2557,11 @@
     "adminEnable": "Benachrichtigungs-Webhooks für Benutzer erlauben",
     "origins": "Erlaubte private Ursprünge (einer pro Zeile)",
     "originsHelp": "Exakte Ursprünge mit Protokoll, Host und Port ohne Pfad eingeben. Öffentliche Endpunkte benötigen HTTPS. Erlaubte private Ziele dürfen HTTP verwenden; Loopback-, Link-Local- und reservierte Adressen bleiben gesperrt."
+  },
+  "quickReply": {
+    "regionLabel": "Schnellantwort",
+    "placeholder": "Schnellantwort schreiben…",
+    "popOut": "Im vollständigen Editor öffnen",
+    "signatureIncluded": "Signatur wird angehängt"
   }
 }
