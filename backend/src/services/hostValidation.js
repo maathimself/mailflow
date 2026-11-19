@@ -66,9 +66,11 @@ function isPrivateIPv6(ip) {
 }
 
 // Restricted private-network exceptions for outgoing webhooks. Unlike allowPrivate,
-// this never admits loopback, link-local, multicast or reserved destinations.
+// this never admits loopback, link-local, multicast or reserved destinations. 100.64.0.0/10
+// counts as a private network here: it is where Tailscale, NetBird and other mesh VPNs put
+// their nodes, which is where a self-hosted ntfy or Gotify often lives.
 function blockedWebhookIPv4(ip, allowPrivateNetworks) {
-  if (inCidr(ip, '10.0.0.0', 8) || inCidr(ip, '172.16.0.0', 12) || inCidr(ip, '192.168.0.0', 16)) return !allowPrivateNetworks;
+  if (inCidr(ip, '10.0.0.0', 8) || inCidr(ip, '100.64.0.0', 10) || inCidr(ip, '172.16.0.0', 12) || inCidr(ip, '192.168.0.0', 16)) return !allowPrivateNetworks;
   return isPrivateIPv4(ip) || inCidr(ip, '192.0.2.0', 24) ||
     inCidr(ip, '192.88.99.0', 24) || inCidr(ip, '198.51.100.0', 24) ||
     inCidr(ip, '203.0.113.0', 24) || inCidr(ip, '224.0.0.0', 4);
