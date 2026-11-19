@@ -257,7 +257,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
       if (win.closed) return;
       entries.push({ message, body });
     }
-    printInWindow(win, buildPrintDocument(entries));
+    printInWindow(win, buildPrintDocument(entries), entries);
   };
 
   // Both pickers open on the newest of accountId's copies (of any account's in the unified inbox):

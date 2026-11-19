@@ -67,7 +67,7 @@ test('only the owning main frame can open a registered preview', async () => {
   assert.equal(context.document.isDestroyed(), true);
 });
 
-test('rendering is serialized and canceling Save leaves the document available', async () => {
+test('rendering is serialized and canceling Save closes both windows', async () => {
   const { call, owner, document } = setup();
   await call('open', owner, 'mailflow-print-1');
   const preview = FakeWindow.instances.at(-1);
@@ -84,30 +84,26 @@ test('rendering is serialized and canceling Save leaves the document available',
   assert.deepEqual(await first, new Uint8Array([1]));
   assert.deepEqual(await second, new Uint8Array([2]));
   assert.equal(await call('save', preview, {}), false);
-  assert.equal(document.isDestroyed(), false);
-  preview.close();
+  assert.equal(preview.isDestroyed(), true);
   assert.equal(document.isDestroyed(), true);
 });
 
-test('printer errors leave preview open; success closes both windows', async () => {
-  const { call, owner, document } = setup();
-  await call('open', owner, 'mailflow-print-1');
-  const preview = FakeWindow.instances.at(-1);
-  await assert.rejects(call('submit', preview, { deviceName: 'removed-printer' }), /available printer/);
-  document.webContents.print = (_options, callback) => callback(false, 'Invalid printer settings');
-  await assert.rejects(call('submit', preview, { deviceName: 'printer-id' }), /Invalid printer settings/);
-  assert.equal(preview.isDestroyed(), false);
-  document.webContents.print = (_options, callback) => callback(false, 'Print job canceled');
-  assert.equal(await call('submit', preview, {}, true), false);
-  assert.equal(preview.isDestroyed(), false);
-  let submitted;
-  document.webContents.print = (options, callback) => { submitted = options; callback(true, ''); };
-  assert.equal(await call('submit', preview, { deviceName: 'printer-id', pages: '2-3', copies: 2 }), true);
-  assert.equal(submitted.silent, true);
-  assert.equal(submitted.copies, 2);
-  assert.deepEqual(submitted.pageRanges, [{ from: 1, to: 2 }]);
-  assert.equal(preview.isDestroyed(), true);
-  assert.equal(document.isDestroyed(), true);
+test('printer failure, cancellation, and success all close both windows', async () => {
+  for (const outcome of ['failed', 'cancelled', 'success']) {
+    const { call, owner, document } = setup();
+    await call('open', owner, 'mailflow-print-1');
+    const preview = FakeWindow.instances.at(-1);
+    let submitted;
+    document.webContents.print = (options, callback) => { submitted = options; callback(outcome === 'success', outcome === 'cancelled' ? 'Print job canceled' : 'Failed'); };
+    const result = call('submit', preview, { deviceName: 'printer-id', pages: '2-3', copies: 2 });
+    if (outcome === 'failed') await assert.rejects(result);
+    else assert.equal(await result, outcome === 'success');
+    assert.equal(submitted.silent, true);
+    assert.equal(submitted.copies, 2);
+    assert.deepEqual(submitted.pageRanges, [{ from: 1, to: 2 }]);
+    assert.equal(preview.isDestroyed(), true);
+    assert.equal(document.isDestroyed(), true);
+  }
 });
 
 test('selection mode changes the printed body and can restore the full email', async () => {
@@ -137,24 +133,58 @@ test('selection-only requests without a captured selection fail clearly', async 
   const preview = FakeWindow.instances.at(-1);
   assert.equal((await call('load', preview)).hasSelection, false);
   await assert.rejects(call('render', preview, { selectionOnly: true }), /Select part of the email/);
-  assert.equal(preview.isDestroyed(), false);
+  assert.equal(preview.isDestroyed(), true);
   preview.close();
 });
 
-test('successful PDF saving closes both windows; a failed save keeps them open', async t => {
+test('successful and failed PDF saving both close the windows', async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailflow-save-test-'));
   const file = path.join(dir, 'email.pdf');
   t.after(async () => { await fs.rm(file, { force: true }); await fs.rmdir(dir); });
-  let savePath = dir;
-  const { call, owner, document } = setup({ showSaveDialog: async () => ({ canceled: false, filePath: savePath }) });
-  await call('open', owner, 'mailflow-print-1');
+  for (const savePath of [dir, file]) {
+    const { call, owner, document } = setup({ showSaveDialog: async () => ({ canceled: false, filePath: savePath }) });
+    await call('open', owner, 'mailflow-print-1');
+    const preview = FakeWindow.instances.at(-1);
+    if (savePath === dir) await assert.rejects(call('save', preview, {}));
+    else {
+      assert.equal(await call('save', preview, {}), true);
+      assert.equal((await fs.readFile(file)).toString(), '%PDF');
+    }
+    assert.equal(preview.isDestroyed(), true);
+    assert.equal(document.isDestroyed(), true);
+  }
+});
+
+test('desktop errors and window titles use the selected locale', async () => {
+  const errors = [];
+  const { call, owner, document } = setup({ showErrorBox: (title, message) => errors.push({ title, message }) });
+  await call('open', owner, 'mailflow-print-1', { language: 'fr' });
   const preview = FakeWindow.instances.at(-1);
-  await assert.rejects(call('save', preview, {}));
-  assert.equal(preview.isDestroyed(), false);
-  assert.equal(document.isDestroyed(), false);
-  savePath = file;
-  assert.equal(await call('save', preview, {}), true);
-  assert.equal((await fs.readFile(file)).toString(), '%PDF');
-  assert.equal(preview.isDestroyed(), true);
+  const { strings, language } = await call('strings', preview);
+  assert.equal(language, 'fr');
+  assert.equal(preview.options.title, strings.title);
+  await assert.rejects(call('submit', preview, { deviceName: 'unavailable' }), { message: strings.selectPrinter });
+  assert.deepEqual(errors, [{ title: strings.title, message: strings.selectPrinter }]);
   assert.equal(document.isDestroyed(), true);
+  assert.equal(preview.isDestroyed(), true);
+});
+
+test('closing the owner or failing to generate a preview closes hidden documents', async () => {
+  for (const reason of ['owner', 'render', 'open', 'renderer']) {
+    const { call, owner, document } = setup();
+    if (reason === 'open') document.webContents.executeJavaScript = async () => { throw new Error('Load failed'); };
+    if (reason === 'open') await assert.rejects(call('open', owner, 'mailflow-print-1'));
+    else {
+      await call('open', owner, 'mailflow-print-1');
+      const preview = FakeWindow.instances.at(-1);
+      if (reason === 'owner') owner.webContents.emit('destroyed');
+      else if (reason === 'renderer') await call('failed', preview);
+      else {
+        document.webContents.printToPDF = async () => { throw new Error('PDF failed'); };
+        await assert.rejects(call('render', preview, {}));
+      }
+      assert.equal(preview.isDestroyed(), true);
+    }
+    assert.equal(document.isDestroyed(), true);
+  }
 });

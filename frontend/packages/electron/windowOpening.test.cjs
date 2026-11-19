@@ -74,7 +74,16 @@ test('keeps the email document hidden when a custom preview is registered', () =
     getHost: () => host, isAllowedExternalUrl: () => false, openExternal() {},
     onPrintWindow: (child, name) => { registered = { child, name }; },
   });
-  assert.deepEqual(contents.openWindow(printRequest), { action: 'allow', overrideBrowserWindowOptions: { show: false } });
+  assert.deepEqual(contents.openWindow(printRequest), {
+    action: 'allow',
+    overrideBrowserWindowOptions: {
+      show: false,
+      webPreferences: {
+        preload: undefined, sandbox: true, contextIsolation: true, nodeIntegration: false,
+        nodeIntegrationInSubFrames: false, webviewTag: false,
+      },
+    },
+  });
   const child = { webContents: fakeContents() };
   contents.emit('did-create-window', child, printRequest);
   assert.deepEqual(registered, { child, name: printRequest.frameName });

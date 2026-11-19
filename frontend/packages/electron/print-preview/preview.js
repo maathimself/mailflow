@@ -4,6 +4,16 @@ const pdfRoot = new URL('../../../node_modules/pdfjs-dist/', import.meta.url);
 GlobalWorkerOptions.workerSrc = new URL('build/pdf.worker.mjs', pdfRoot).href;
 const $ = id => document.getElementById(id);
 const api = window.printPreview;
+const { language, strings } = await api.strings();
+const t = (key, values = {}) => strings[key].replace(/\{\{(\w+)\}\}/g, (_match, name) => String(values[name] ?? ''));
+document.documentElement.lang = language;
+for (const element of document.querySelectorAll('[data-i18n]')) element.textContent = t(element.dataset.i18n);
+for (const [data, attribute] of [['i18nAria', 'aria-label'], ['i18nTitle', 'title'], ['i18nPlaceholder', 'placeholder']]) {
+  for (const element of document.querySelectorAll('*')) {
+    if (element.dataset[data]) element.setAttribute(attribute, t(element.dataset[data]));
+  }
+}
+document.body.hidden = false;
 let pdf = null;
 let pdfTask = null;
 let currentPage = 1;
@@ -43,14 +53,14 @@ function buttons() {
 function pageSelection(total) {
   const value = options().pages;
   if (!value.trim()) {
-    if (document.querySelector('input[name="pagesMode"]:checked').value === 'custom') throw new Error('Enter the pages you want to print.');
+    if (document.querySelector('input[name="pagesMode"]:checked').value === 'custom') throw new Error(t('enterPages'));
     return Array.from({ length: total }, (_, i) => i + 1);
   }
   const pages = new Set();
   for (const part of value.split(',')) {
     const match = part.trim().match(/^(\d+)(?:\s*-\s*(\d+))?$/);
     const start = Number(match?.[1]), end = Number(match?.[2] || match?.[1]);
-    if (!match || start < 1 || end < start || end > total) throw new Error(`Enter pages between 1 and ${total}.`);
+    if (!match || start < 1 || end < start || end > total) throw new Error(t('validPages', { total }));
     for (let page = start; page <= end; page++) pages.add(page);
   }
   return [...pages].sort((a, b) => a - b);
@@ -78,9 +88,9 @@ function drawPage() {
     renderTask = page.render({ canvas, viewport: visible, transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0] });
     try { await renderTask.promise; } catch (err) { if (err.name !== 'RenderingCancelledException') throw err; }
     $('page').value = currentPage;
-    $('page-count').textContent = `of ${pdf.numPages}`;
+    $('page-count').textContent = t('pageCount', { count: pdf.numPages });
     buttons();
-  }).catch(err => error(err.message));
+  }).catch(async () => { error(t('previewFailed')); await api.failed(); });
   return drawing;
 }
 
@@ -90,7 +100,7 @@ async function refresh() {
   buttons();
   error();
   $('status').hidden = false;
-  $('status').textContent = 'Preparing preview…';
+  $('status').textContent = t('preparing');
   try {
     const bytes = await api.render(options());
     if (request !== revision) return;
@@ -119,8 +129,9 @@ async function refresh() {
     await drawPage();
   } catch (err) {
     if (request !== revision) return;
-    error(err.message);
-    $('status').textContent = 'Preview unavailable. Check your print settings.';
+    error(Object.values(strings).includes(err.message) ? err.message : t('previewFailed'));
+    $('status').textContent = t('previewFailed');
+    if (!Object.values(strings).includes(err.message)) await api.failed();
   }
   buttons();
 }
@@ -134,7 +145,7 @@ async function action(kind) {
     if (kind === 'save') {
       await api.save(options());
     } else await api.print(options());
-  } catch (err) { error(err.message); }
+  } catch { error(t(kind === 'save' ? 'saveFailed' : 'printFailed')); }
   finally { busy = false; buttons(); }
 }
 
@@ -179,16 +190,16 @@ try {
   if (info.accentText && CSS.supports('color', info.accentText)) document.documentElement.style.setProperty('--accent-text', info.accentText);
   $('selection-only').disabled = !info.hasSelection;
   if (info.hasSelection) $('selection-label').removeAttribute('title');
-  document.title = `Print Preview — ${info.title}`;
+  document.title = `${t('title')} — ${info.title}`;
   $('printer').replaceChildren();
   hasPrinters = info.printers.length > 0;
   for (const printer of info.printers) {
     const option = new Option(printer.displayName || printer.name, printer.name, printer.isDefault, printer.isDefault);
     $('printer').add(option);
   }
-  if (!hasPrinters) $('printer').add(new Option('No printers available', ''));
+  if (!hasPrinters) $('printer').add(new Option(t('noPrinters'), ''));
   await refresh();
-} catch (err) {
-  error(err.message);
-  $('status').textContent = 'Could not load print preview.';
+} catch {
+  error(t('loadFailed'));
+  $('status').textContent = t('loadFailed');
 }

@@ -198,7 +198,8 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
 
   const handlePrint = () => {
     if (!body) return;
-    printInWindow(openPrintWindow('', printRootRef.current), buildPrintDocument([{ message, body }]));
+    const entries = [{ message, body }];
+    printInWindow(openPrintWindow('', printRootRef.current), buildPrintDocument(entries), entries);
   };
   // Remote images for this message, as the reading pane's "Load images" and the shortcut do.
   const loadRemoteImages = () => {
@@ -450,7 +451,7 @@ export default function ConversationMessageCard({ message, expanded, onToggle, o
                 padding: '14px 16px 12px', background: 'white', color: '#1a1a1a',
                 borderRadius: 4, border: '1px solid var(--border-subtle)',
               } : {}),
-            }}>{body.text}</div>
+            }} data-print-body="">{body.text}</div>
           )}
 
         </div>

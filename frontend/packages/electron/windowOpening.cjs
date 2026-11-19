@@ -19,6 +19,7 @@ function configureWindowOpening(webContents, { getHost, isAllowedExternalUrl, op
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
+          ...(onPrintWindow ? { show: false } : {}),
           webPreferences: {
             // Explicitly clear the inherited main preload: email HTML gets no native bridge.
             preload: undefined,
