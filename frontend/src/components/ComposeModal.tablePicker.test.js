@@ -86,6 +86,36 @@ describe('phone table picker positioning', () => {
   });
   const picker = () => document.querySelector('.table-insert-picker');
   for (const fontSize of [100, 130]) {
+    test(`the advanced overlay escapes the moving composer at ${fontSize}% font size`, async () => {
+      window.innerWidth = 1024;
+      useStore.setState({ user: { id: 'u1' }, fontSize, plaintextEmail: false, composing: false, composeData: null,
+        accounts: [{ id: 'acct', enabled: true, email_address: 'me@example.invalid', name: 'Me' }] });
+      useStore.getState().openCompose({ accountId: 'acct', subject: '', body: '<p>Keep this</p>' });
+      root = createRoot(document.getElementById('root'));
+      await React.act(async () => root.render(React.createElement('div', { style: { transform: `translateX(140px) scale(${fontSize / 100})` } }, React.createElement(ComposeModal))));
+      await React.act(async () => document.querySelector('button[aria-label="compose.toolbar.insertTable"]')
+        .dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true })));
+      await React.act(async () => document.querySelector('.table-insert-action').click());
+      const overlay = document.querySelector('.table-insert-overlay');
+      assert.ok(overlay);
+      assert.equal(document.getElementById('root').contains(overlay), false, 'composer transforms must not position the modal');
+      assert.equal(overlay.parentElement === document.body, true);
+      const rows = overlay.querySelector('input');
+      await React.act(async () => rows.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true })));
+      assert.ok(document.querySelector('.table-insert-dialog'), 'clicking a portalled input does not dismiss the table dialog');
+      await React.act(async () => {
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(rows, '5');
+        rows.dispatchEvent(new window.Event('input', { bubbles: true }));
+        window.dispatchEvent(new window.Event('resize'));
+      });
+      assert.equal(rows.value, '5');
+      assert.ok(document.querySelector('.table-insert-overlay') === overlay, 'editing or resizing keeps the overlay anchored');
+      await React.act(async () => overlay.querySelector('.table-insert-footer button').click());
+      assert.equal(document.querySelectorAll('.table-insert-overlay').length, 0);
+      assert.equal(document.querySelector('.ProseMirror').editor.getText(), 'Keep this');
+    });
+  }
+  for (const fontSize of [100, 130]) {
     test(`clamps the measured picker width on a 360px phone at ${fontSize}% font size`, async () => {
       viewportWidth = 360; window.innerWidth = viewportWidth; anchorLeft = 280; pickerWidth = 260 * fontSize / 100;
       useStore.setState({ user: { id: 'u1' }, fontSize, plaintextEmail: false, composing: false, composeData: null,
