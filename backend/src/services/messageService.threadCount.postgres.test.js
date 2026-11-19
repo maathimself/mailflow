@@ -279,5 +279,26 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('threaded Inbox message
       expect(revived['<gm@me>']).toBeDefined();
       expect(revived['<gm@me>'].message_count).toBe(2);
     });
+
+    it('falls back cleanly when a mega-thread fills the fast index-ordered window', async () => {
+      await folder('INBOX');
+      await folder('Sent', { specialUse: '\\Sent' });
+      // 305 replies in a single newest thread exceed the 300-row fast window cap,
+      // followed by two older threads that must still appear in exact order.
+      const baseMs = Date.parse('2026-10-10T00:00:00Z');
+      await database.query(
+        `INSERT INTO messages(id,account_id,folder,message_id,thread_id,thread_key,date,subject)
+         SELECT gen_random_uuid(), $1, 'INBOX', '<mega-' || g || '@ext>', '<mega@ext>', '<mega@ext>',
+                to_timestamp(($2::double precision + g * 1000.0) / 1000.0), 'Mega thread'
+         FROM generate_series(1, 305) g`,
+        [account, baseMs],
+      );
+      await insert('INBOX', '<older-1@ext>', '<older-1@ext>', '2026-10-09T12:00Z', 'Older 1');
+      await insert('Sent', '<older-sent@me>', '<older-sent@me>', '2026-10-09T11:00Z', 'Older Sent');
+
+      const result = await listMessages({ userId: 'owner', folder: 'INBOX', limit: 10, offset: 0, threaded: true, includeSent: true });
+      expect(result.messages.map(r => r.thread_id)).toEqual(['<mega@ext>', '<older-1@ext>', '<older-sent@me>']);
+      expect(result.total).toBe(3);
+    });
   });
 });
