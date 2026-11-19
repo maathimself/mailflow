@@ -1153,7 +1153,7 @@
       "errorLabelEmpty": "Enter a label name.",
       "errorLabelInvalid": "Label names can't use *, % or \\, can't start or end with /, can't be INBOX and can be at most 100 characters.",
       "labelFailed": "Couldn't apply “{{label}}” in {{account}} ({{when}}): {{error}}",
-      "labelFailedRetry": "Run rules now to try again.",
+      "labelFailedRetry": "Run rules on inbox to try again.",
       "actionSetCategorySelect": "Select a category…",
       "actionMovePlaceholder": "Exact IMAP folder path (e.g. Work or INBOX/Work)",
       "actionMoveSelectFolder": "Select a folder…",
