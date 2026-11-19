@@ -1515,6 +1515,14 @@ export const PROVIDERS = {
     // [Gmail] is a namespace container — not a selectable mailbox. It must be
     // matched exactly so that real subfolders like [Gmail]/Drafts are not skipped.
     skipFolderNames: ['[gmail]'],
+    // Gmail allows 15 IMAP sessions per account, shared by every client the user runs, and
+    // refuses the next login with "[ALERT] Too many simultaneous connections." On a
+    // 340k-message account the IDLE session, a pool of four and a fresh login for every folder
+    // status cycle and staleness probe overlapped with the background syncs enough to be
+    // refused 98 times in 48h, and the user's other mail clients were refused with it. So: a
+    // pool of two, and folder status and the staleness probe reuse the pooled session.
+    poolSize: 2,
+    secondaryOverPool: true,
   },
   yahoo: {
     batchSize: 100, batchDelay: 2000, errorDelay: 30000, batchesPerConn: 10,

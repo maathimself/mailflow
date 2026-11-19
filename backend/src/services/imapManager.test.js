@@ -187,8 +187,9 @@ describe('providerProfile — host detection', () => {
     expect(providerProfile(account(host)).pushesFlags).toBe(false);
     expect(providerProfile(account(host)).speculativeFetch).toBe(false);
     expect(providerProfile(account(host)).snippetIndex).toBe(false);
-    // secondaryOverPool is a session-limited-provider knob, not a global flip.
-    expect(providerProfile(account(host)).secondaryOverPool).toBeUndefined();
+    // Gmail's 15-session limit: a pool of two, and folder status and the staleness probe ride it.
+    expect(providerProfile(account(host)).poolSize).toBe(2);
+    expect(providerProfile(account(host)).secondaryOverPool).toBe(true);
   });
 
   it.each([
