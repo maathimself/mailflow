@@ -194,6 +194,7 @@
       "ai": "AI",
       "source": "Código fuente",
       "clipboardError": "No se pudo completar la acción del portapapeles.",
+      "nativeMenuHint": "Mayús+clic derecho para sugerencias ortográficas",
       "pasteUnavailable": "No se puede acceder al portapapeles. Usa el atajo de teclado para pegar."
     },
     "tableMenu": {
@@ -1455,6 +1456,8 @@
       "threadingOnDesc": "Las respuestas se agrupan en conversaciones",
       "threadingPane": "Panel de lectura",
       "threadingPaneDesc": "La conversación completa se abre junta",
+      "composerContextMenu": "Menú contextual del editor",
+      "composerContextMenuDesc": "Usar el menú de clic derecho de MailFlow en el editor. Desactívalo para usar el menú del navegador.",
       "composeFormat": "Formato de redacción",
       "composeRichText": "Texto enriquecido",
       "composeRichTextDesc": "Envía HTML — admite formato y firmas con estilo",

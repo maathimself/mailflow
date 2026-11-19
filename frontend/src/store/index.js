@@ -179,7 +179,7 @@ export const useStore = create((set, get) => ({
         enabledPlugins: [], autoLockMinutes: 0, sessionDays: 0, blockRemoteImages: true,
         imageWhitelist: { addresses: [], domains: [] }, shortcuts: {}, aiActions: null,
         hiddenFolders: {}, categorizationEnabled: false, gtdPetSlug: null,
-        autoOpenReplyDrafts: false, afterRemove: 'next', darkEmailBodies: true,
+        autoOpenReplyDrafts: false, afterRemove: 'next', darkEmailBodies: true, composerContextMenuEnabled: true,
         // Folder shortcuts name the previous user's accounts and folders. Left in place, the
         // next user's first favorite saved them into that user's own preferences.
         favoriteFolders: [], recentFolders: [], defaultSender: '', listSort: {},
@@ -840,6 +840,13 @@ export const useStore = create((set, get) => ({
   setThreadedView: (val) => {
     // Retained for callers that still speak the old boolean.
     get().setConversationMode(val ? 'list' : 'off');
+  },
+
+  composerContextMenuEnabled: localStorage.getItem('mailflow_composer_context_menu') !== 'false',
+  setComposerContextMenuEnabled: value => {
+    localStorage.setItem('mailflow_composer_context_menu', String(value));
+    set({ composerContextMenuEnabled: value });
+    schedulePrefSave({ composerContextMenuEnabled: value });
   },
 
   // Compose format
@@ -1504,6 +1511,10 @@ export const useStore = create((set, get) => ({
         localStorage.setItem('mailflow_conversation_mode', mode);
         localStorage.setItem('mailflow_threaded_view', String(groupsMessageList(mode)));
         set({ conversationMode: mode, threadedView: groupsMessageList(mode) });
+      }
+      if (typeof prefs.composerContextMenuEnabled === 'boolean') {
+        localStorage.setItem('mailflow_composer_context_menu', String(prefs.composerContextMenuEnabled));
+        set({ composerContextMenuEnabled: prefs.composerContextMenuEnabled });
       }
       if (typeof prefs.plaintextEmail === 'boolean') {
         localStorage.setItem('mailflow_plaintext_email', String(prefs.plaintextEmail));

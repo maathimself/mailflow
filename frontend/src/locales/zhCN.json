@@ -194,6 +194,7 @@
       "ai": "AI",
       "source": "源代码",
       "clipboardError": "无法完成剪贴板操作。",
+      "nativeMenuHint": "按住 Shift 右键单击可查看拼写建议",
       "pasteUnavailable": "无法访问剪贴板，请使用键盘快捷键粘贴。"
     },
     "tableMenu": {
@@ -1455,6 +1456,8 @@
       "threadingOnDesc": "将回复归并为同一会话",
       "threadingPane": "阅读窗格",
       "threadingPaneDesc": "整个会话一起打开",
+      "composerContextMenu": "撰写窗口右键菜单",
+      "composerContextMenuDesc": "在撰写窗口中使用 MailFlow 右键菜单。关闭后使用浏览器菜单。",
       "composeFormat": "撰写格式",
       "composeRichText": "富文本",
       "composeRichTextDesc": "以 HTML 形式发送 — 支持格式化与带样式的签名",

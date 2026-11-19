@@ -279,7 +279,7 @@ function resolveFrom(val) {
 
 export default function ComposeModal() {
   const { t, i18n } = useTranslation();
-  const { closeCompose, composeData, accounts, addNotification, plaintextEmail, setThreadMessages, setPrepareComposeSwitch, updateComposePersistedKey } = useStore();
+  const { closeCompose, composeData, accounts, addNotification, plaintextEmail, composerContextMenuEnabled, setThreadMessages, setPrepareComposeSwitch, updateComposePersistedKey } = useStore();
   const composeSession = useRef(useStore.getState().composeSession).current;
   const composeOwner = useRef(useStore.getState().user?.id).current;
   const isMobile = useMobile();
@@ -2210,7 +2210,7 @@ export default function ComposeModal() {
     else { editor?.commands.setContent(htmlSource, false); setHtmlMode(false); }
   };
   const renderComposerContextMenu = () => (
-    <ComposerContextMenu editor={editor} plain={plaintextEmail} htmlMode={htmlMode} disabled={sending}
+    <ComposerContextMenu enabled={composerContextMenuEnabled} editor={editor} plain={plaintextEmail} htmlMode={htmlMode} disabled={sending}
       textTargetRef={htmlMode ? sourceTextareaRef : textareaRef}
       onTool={setContextToolRequest}
       onAttach={() => fileInputRef.current?.click()} onImage={() => imageInputRef.current?.click()}
@@ -3972,8 +3972,9 @@ export function RichToolbar({ editor, onAttach, onInsertImage, signatureControl,
   // Layout effect positions the picker before paint; resizing it or the viewport reclamps it.
   useLayoutEffect(() => {
     if (!tablePos || !tablePopRef.current) return;
+    const popup = tablePopRef.current.querySelector('.table-insert-picker');
+    if (!popup) return; // The advanced dialog has its own centered layout.
     const clamp = () => {
-      const popup = tablePopRef.current;
       const width = popup.getBoundingClientRect().width;
       const anchor = tableBtnRef.current.getBoundingClientRect();
       const left = Math.max(4, Math.min(anchor.left, window.innerWidth - width - 4));
@@ -3981,7 +3982,7 @@ export function RichToolbar({ editor, onAttach, onInsertImage, signatureControl,
     };
     clamp();
     const observer = new ResizeObserver(clamp);
-    observer.observe(tablePopRef.current);
+    observer.observe(popup);
     window.addEventListener('resize', clamp);
     return () => { observer.disconnect(); window.removeEventListener('resize', clamp); };
   }, [tablePos, uiScale]);
@@ -4027,6 +4028,8 @@ export function RichToolbar({ editor, onAttach, onInsertImage, signatureControl,
     editor,
     selector: ({ editor: ed }) => ed ? {
       bold: ed.isActive('bold'),
+      superscript: ed.isActive('superscript'),
+      subscript: ed.isActive('subscript'),
       italic: ed.isActive('italic'),
       underline: ed.isActive('underline'),
       strike: ed.isActive('strike'),
@@ -4182,7 +4185,7 @@ export function RichToolbar({ editor, onAttach, onInsertImage, signatureControl,
     <button key={title} title={title} onMouseDown={onMD} style={{ background: active ? 'var(--bg-hover)' : 'none', border: 'none', borderRadius: 4, padding: '6px 4px', color: active ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, fontWeight: 600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 1, WebkitTapHighlightColor: 'transparent' }}>{children}</button>
   );
 
-  const moreMenuButton = (onToggleHtml || aiEnabled || extraControls || pluginContext) && (
+  const moreMenuButton = (
     <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
     <Sep />
     <button type="button" title={t('message.more')} aria-label={t('message.more')}
@@ -4239,6 +4242,10 @@ export function RichToolbar({ editor, onAttach, onInsertImage, signatureControl,
   // ============================================================================
   const moreControls = (
     <>
+      {tb(es.superscript, t('compose.context.superscript'), e => { e.preventDefault(); editor.chain().focus().toggleSuperscript().run(); }, <span>x<sup>2</sup></span>)}
+      {tb(es.subscript, t('compose.context.subscript'), e => { e.preventDefault(); editor.chain().focus().toggleSubscript().run(); }, <span>x<sub>2</sub></span>)}
+      {tb(false, t('compose.context.indentIncrease'), e => { e.preventDefault(); editor.chain().focus().changeIndent(1).run(); }, <span aria-hidden="true">⇥</span>)}
+      {tb(false, t('compose.context.indentDecrease'), e => { e.preventDefault(); editor.chain().focus().changeIndent(-1).run(); }, <span aria-hidden="true">⇤</span>)}
       {extraControls}
       {pluginContext && <PluginSlot name="compose-actions" ctx={{ ...pluginContext, isMobile }} />}
       {aiButton}

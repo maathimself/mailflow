@@ -194,6 +194,7 @@
       "ai": "AI",
       "source": "Código-fonte",
       "clipboardError": "Não foi possível concluir a ação da área de transferência.",
+      "nativeMenuHint": "Shift+clique direito para sugestões ortográficas",
       "pasteUnavailable": "O acesso à área de transferência está indisponível. Use o atalho de teclado para colar."
     },
     "tableMenu": {
@@ -1455,6 +1456,8 @@
       "threadingOnDesc": "Respostas agrupadas em conversas",
       "threadingPane": "Painel de leitura",
       "threadingPaneDesc": "A conversa inteira abre junta",
+      "composerContextMenu": "Menu de contexto do editor",
+      "composerContextMenuDesc": "Usar o menu de contexto do MailFlow no editor. Desative para usar o menu do navegador.",
       "composeFormat": "Formato de composição",
       "composeRichText": "Texto formatado",
       "composeRichTextDesc": "Envia HTML — suporta formatação e assinaturas estilizadas",

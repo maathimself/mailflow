@@ -194,6 +194,7 @@
       "ai": "AI",
       "source": "Źródło",
       "clipboardError": "Nie udało się wykonać operacji na schowku.",
+      "nativeMenuHint": "Shift+prawy przycisk myszy: sugestie pisowni",
       "pasteUnavailable": "Dostęp do schowka jest niedostępny. Użyj skrótu klawiaturowego wklejania."
     },
     "tableMenu": {
@@ -1471,6 +1472,8 @@
       "threadingOnDesc": "Odpowiedzi grupowane w rozmowy",
       "threadingPane": "Okienko odczytu",
       "threadingPaneDesc": "Cała rozmowa otwiera się razem",
+      "composerContextMenu": "Menu kontekstowe edytora",
+      "composerContextMenuDesc": "Używaj menu kontekstowego MailFlow podczas pisania. Wyłącz, aby używać menu przeglądarki.",
       "composeFormat": "Format tworzenia wiadomości",
       "composeRichText": "Tekst sformatowany",
       "composeRichTextDesc": "Wysyłaj HTML — obsługuje formatowanie i sformatowane podpisy",

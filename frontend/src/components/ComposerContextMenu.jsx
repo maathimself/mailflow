@@ -15,7 +15,7 @@ function submenuAnchor(button) {
   return { left: panel.left, right: panel.right, top: row.top, bottom: row.bottom };
 }
 
-function MenuPanel({ items = [], content, point, anchor, scale, autoFocus, onSubmenu, onBack, onClose, onScroll }) {
+function MenuPanel({ items = [], content, hint, point, anchor, scale, autoFocus, onSubmenu, onBack, onClose, onScroll }) {
   const ref = useRef(null);
   const [position, setPosition] = useState(null);
   const positioned = position !== null;
@@ -40,7 +40,10 @@ function MenuPanel({ items = [], content, point, anchor, scale, autoFocus, onSub
   }, [positioned, autoFocus]);
 
   return (
-    <div ref={ref} role="menu" className="composer-context-menu" onScroll={onScroll} onContextMenu={event => event.preventDefault()}
+    <div ref={ref} role="menu" className="composer-context-menu" onScroll={onScroll} onContextMenu={event => {
+      if (event.shiftKey) { onClose(); return; }
+      event.preventDefault();
+    }}
       style={{ left: descale(position?.x ?? 0, scale), top: descale(position?.y ?? 0, scale),
         visibility: positioned ? 'visible' : 'hidden', maxHeight: descale(window.innerHeight - 8, scale) }}
       onKeyDown={event => {
@@ -74,13 +77,14 @@ function MenuPanel({ items = [], content, point, anchor, scale, autoFocus, onSub
           {(item.children || item.render) && <span className="composer-context-arrow" aria-hidden="true">›</span>}
         </button>
       ))}
+      {hint && <div className="composer-context-hint">{hint}</div>}
     </div>
   );
 }
 
 // One controller for the rich body, plain-text body and HTML source. Its snapshot
 // keeps menu focus and asynchronous clipboard reads from changing the edit range.
-export default function ComposerContextMenu({ editor, textTargetRef, plain, htmlMode, disabled,
+export default function ComposerContextMenu({ editor, textTargetRef, plain, htmlMode, disabled, enabled = true,
   onTool, onAttach, onImage, onPasteImage, onSignature, signatureAvailable, signatureEnabled,
   onToggleHtml, aiEnabled, onAiAction, onError }) {
   const { t } = useTranslation();
@@ -88,20 +92,13 @@ export default function ComposerContextMenu({ editor, textTargetRef, plain, html
   const [menu, setMenu] = useState(null);
   const [submenus, setSubmenus] = useState([]);
   const [emoji, setEmoji] = useState(null);
-  const history = useRef({ entries: [], index: 0, applying: false });
   const rich = !plain && !htmlMode;
 
   useEffect(() => {
     const target = rich ? editor?.view.dom : textTargetRef.current;
-    if (!target || disabled) return;
-    history.current = { entries: [target.value ?? ''], index: 0, applying: false };
-    const record = () => {
-      const state = history.current;
-      if (state.applying || state.entries[state.index] === target.value) return;
-      state.entries = [...state.entries.slice(0, state.index + 1), target.value].slice(-100);
-      state.index = state.entries.length - 1;
-    };
+    if (!target || disabled || !enabled) return;
     const open = event => {
+      if (event.shiftKey) { setMenu(null); setSubmenus([]); setEmoji(null); return; }
       event.preventDefault(); event.stopPropagation();
       if (rich) {
         const clickedCell = event.target.closest?.('td, th');
@@ -131,11 +128,21 @@ export default function ComposerContextMenu({ editor, textTargetRef, plain, html
       setSubmenus([]); setEmoji(null);
     };
     target.addEventListener('contextmenu', open);
-    if (!rich) target.addEventListener('input', record);
-    return () => { target.removeEventListener('contextmenu', open); target.removeEventListener('input', record); };
-  }, [editor, rich, htmlMode, textTargetRef, disabled]);
+    return () => target.removeEventListener('contextmenu', open);
+  }, [editor, rich, htmlMode, textTargetRef, disabled, enabled]);
 
-  useEffect(() => { setMenu(null); setSubmenus([]); setEmoji(null); }, [rich, htmlMode, disabled]);
+  useEffect(() => { setMenu(null); setSubmenus([]); setEmoji(null); }, [rich, htmlMode, disabled, enabled]);
+
+  // Leave the editor hittable while the menu is open, including for Shift+right-click.
+  useEffect(() => {
+    if (!menu || emoji) return;
+    const dismiss = event => {
+      if (event.target.closest?.('.composer-context-menu')) return;
+      setMenu(null); setSubmenus([]);
+    };
+    document.addEventListener('mousedown', dismiss, true);
+    return () => document.removeEventListener('mousedown', dismiss, true);
+  }, [menu, emoji]);
 
   if (!menu && !emoji) return null;
   const close = (focus = false) => {
@@ -154,6 +161,10 @@ export default function ComposerContextMenu({ editor, textTargetRef, plain, html
   const replaceText = (snapshot, text) => {
     if (!snapshot.target.isConnected || snapshot.target.value !== snapshot.value) return;
     const { from, to } = snapshot.selection;
+    snapshot.target.focus({ preventScroll: true });
+    snapshot.target.setSelectionRange(from, to);
+    // Native insertion joins the textarea's own undo stack in supporting browsers.
+    if (document.execCommand?.('insertText', false, text)) return;
     changeText(snapshot.target, snapshot.value.slice(0, from) + text + snapshot.value.slice(to), from + text.length);
   };
   const command = action => {
@@ -192,14 +203,10 @@ export default function ComposerContextMenu({ editor, textTargetRef, plain, html
       replaceText(snapshot, mode === 'quote' ? data.text.split(/\r?\n/).map(line => `> ${line}`).join('\n') : data.text);
     }
   };
-  const textHistory = direction => {
-    const state = history.current;
-    const index = state.index + direction;
-    if (index < 0 || index >= state.entries.length) return;
-    state.index = index; state.applying = true;
-    const value = state.entries[index];
-    changeText(menu.target, value, value.length);
-    state.applying = false;
+  const textHistory = action => {
+    if (!menu.target.isConnected) return;
+    menu.target.focus({ preventScroll: true });
+    document.execCommand?.(action);
   };
   const showEmoji = async () => {
     if (rich) { onTool({ action: 'emoji', x: menu.x, y: menu.y, selection: menu.selection }); return; }
@@ -311,9 +318,12 @@ export default function ComposerContextMenu({ editor, textTargetRef, plain, html
     item('paste', t('compose.context.paste'), () => paste('paste')),
     item('pasteText', t('compose.context.pasteText'), () => paste('text')),
     item('pasteQuote', t('compose.context.pasteQuote'), () => paste('quote'), { disabled: htmlMode }), null,
-    item('undo', t('common.undo'), () => rich ? command(chain => chain.undo()) : textHistory(-1), { disabled: rich ? !editor.can().undo() : history.current.index === 0 }),
-    item('redo', t('compose.context.redo'), () => rich ? command(chain => chain.redo()) : textHistory(1), { disabled: rich ? !editor.can().redo() : history.current.index >= history.current.entries.length - 1 }), null,
-    item('selectAll', t('messageList.selectAll'), () => rich ? command(chain => chain.selectAll()) : changeText(menu.target, menu.value, 0, menu.value.length)), null,
+    item('undo', t('common.undo'), () => rich ? command(chain => chain.undo()) : textHistory('undo'), { disabled: rich && !editor.can().undo() }),
+    item('redo', t('compose.context.redo'), () => rich ? command(chain => chain.redo()) : textHistory('redo'), { disabled: rich && !editor.can().redo() }), null,
+    item('selectAll', t('messageList.selectAll'), () => {
+      if (rich) command(chain => chain.selectAll());
+      else { menu.target.focus({ preventScroll: true }); menu.target.setSelectionRange(0, menu.target.value.length); }
+    }), null,
     { id: 'format', label: t('compose.context.format'), children: formatItems, disabled: !rich },
     { id: 'justify', label: t('compose.context.justify'), children: justifyItems, disabled: !rich }, null,
     { id: 'insert', label: t('compose.context.insert'), children: insertItems },
@@ -338,8 +348,7 @@ export default function ComposerContextMenu({ editor, textTargetRef, plain, html
     return [...current.slice(0, level), value];
   });
   return <>
-    <div className="composer-context-scrim" onMouseDown={() => close(true)} onContextMenu={event => { event.preventDefault(); close(true); }} />
-    <MenuPanel items={items} point={point} scale={scale} autoFocus onSubmenu={value => openSubmenu(0, value)} onClose={() => close(true)} onScroll={() => openSubmenu(0, null)} />
+    <MenuPanel items={items} hint={t('compose.context.nativeMenuHint')} point={point} scale={scale} autoFocus onSubmenu={value => openSubmenu(0, value)} onClose={() => close(true)} onScroll={() => openSubmenu(0, null)} />
     {submenus.map((submenu, level) => <MenuPanel key={`${level}-${submenu.item.id}`} items={submenu.item.children}
       content={submenu.item.render?.()} point={point} anchor={submenu.anchor} scale={scale}
       autoFocus={submenu.keyboard} onClose={() => close(true)} onSubmenu={value => openSubmenu(level + 1, value)}

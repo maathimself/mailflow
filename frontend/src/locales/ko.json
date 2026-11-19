@@ -180,6 +180,7 @@
       "ai": "AI",
       "source": "소스",
       "clipboardError": "클립보드 작업을 완료하지 못했습니다.",
+      "nativeMenuHint": "Shift+마우스 오른쪽 클릭으로 맞춤법 제안 보기",
       "pasteUnavailable": "클립보드에 접근할 수 없습니다. 키보드 붙여넣기 단축키를 사용하세요."
     },
     "tableMenu": {
@@ -1458,6 +1459,8 @@
       "syncFrequencyDesc": "MailFlow가 새 이메일을 확인하는 빈도",
       "threadingPane": "읽기 창",
       "composeRichText": "리치 텍스트",
+      "composerContextMenu": "작성 창 바로 가기 메뉴",
+      "composerContextMenuDesc": "작성 창에서 MailFlow의 오른쪽 클릭 메뉴를 사용합니다. 끄면 브라우저 메뉴를 사용합니다.",
       "composeFormat": "작성 형식",
       "defaultReplyAll": "전체 답장",
       "composePlainTextDesc": "HTML 형식 없음 - 최대 호환성",

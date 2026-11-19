@@ -194,6 +194,7 @@
       "ai": "AI",
       "source": "Sorgente",
       "clipboardError": "Impossibile completare l’operazione negli appunti.",
+      "nativeMenuHint": "Maiusc+clic destro per i suggerimenti ortografici",
       "pasteUnavailable": "Accesso agli appunti non disponibile. Usa la scorciatoia da tastiera per incollare."
     },
     "tableMenu": {
@@ -1455,6 +1456,8 @@
       "threadingOnDesc": "Le risposte sono raggruppate in conversazioni",
       "threadingPane": "Riquadro di lettura",
       "threadingPaneDesc": "L'intera conversazione si apre insieme",
+      "composerContextMenu": "Menu contestuale di composizione",
+      "composerContextMenuDesc": "Usa il menu contestuale di MailFlow durante la composizione. Disattiva per usare il menu del browser.",
       "composeFormat": "Formato di composizione",
       "composeRichText": "Testo formattato",
       "composeRichTextDesc": "Invia HTML — supporta formattazione e firme stilizzate",

@@ -194,6 +194,7 @@
       "ai": "AI",
       "source": "Source",
       "clipboardError": "The clipboard action could not be completed.",
+      "nativeMenuHint": "Shift+right-click for spelling suggestions",
       "pasteUnavailable": "Clipboard access is unavailable. Use your keyboard paste shortcut instead."
     },
     "tableMenu": {
@@ -1455,6 +1456,8 @@
       "threadingOnDesc": "Replies grouped into conversations",
       "threadingPane": "Reading pane",
       "threadingPaneDesc": "The whole conversation opens together",
+      "composerContextMenu": "Composer context menu",
+      "composerContextMenuDesc": "Use MailFlow’s right-click menu in the composer. Turn off to use the browser menu.",
       "composeFormat": "Compose format",
       "composeRichText": "Rich text",
       "composeRichTextDesc": "Sends HTML — supports formatting and styled signatures",

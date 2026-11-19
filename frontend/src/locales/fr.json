@@ -194,6 +194,7 @@
       "ai": "AI",
       "source": "Source",
       "clipboardError": "L’action du presse-papiers a échoué.",
+      "nativeMenuHint": "Maj+clic droit pour les suggestions orthographiques",
       "pasteUnavailable": "L’accès au presse-papiers est indisponible. Utilisez le raccourci clavier pour coller."
     },
     "tableMenu": {
@@ -1455,6 +1456,8 @@
       "threadingOnDesc": "Les réponses sont regroupées en conversations",
       "threadingPane": "Volet de lecture",
       "threadingPaneDesc": "Toute la conversation s'ouvre ensemble",
+      "composerContextMenu": "Menu contextuel de rédaction",
+      "composerContextMenuDesc": "Utiliser le menu contextuel de MailFlow lors de la rédaction. Désactiver pour utiliser celui du navigateur.",
       "composeFormat": "Format de rédaction",
       "composeRichText": "Texte enrichi",
       "composeRichTextDesc": "Envoie du HTML — prend en charge la mise en forme et les signatures stylisées",

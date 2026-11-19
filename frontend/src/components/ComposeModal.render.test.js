@@ -88,6 +88,118 @@ describe('composer context menu', () => {
   const select = (editor, from, to) => React.act(async () => { editor.commands.setTextSelection({ from, to }); });
   const clipboard = value => Object.defineProperty(globalThis.navigator, 'clipboard', { configurable: true, value });
   const originalClipboard = Object.getOwnPropertyDescriptor(globalThis.navigator, 'clipboard');
+  for (const plain of [false, true]) test(`Shift+right-click stays native in ${plain ? 'plain text' : 'rich text'}`, async () => {
+    const close = await openDraft({ plaintextEmail: plain, body: plain ? 'Hello' : '<p>Hello</p>' });
+    try {
+      const target = plain ? document.querySelector('textarea[placeholder="compose.bodyPh"]') : richTarget();
+      let event;
+      await React.act(async () => {
+        event = new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, shiftKey: true });
+        target.dispatchEvent(event);
+      });
+      assert.equal(event.defaultPrevented, false);
+      assert.equal(document.querySelectorAll('.composer-context-menu').length, 0);
+      await openMenu(target);
+      assert.equal(document.querySelector('.composer-context-menu').lastElementChild.textContent, 'compose.context.nativeMenuHint');
+      await React.act(async () => target.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, shiftKey: true })));
+      assert.equal(document.querySelectorAll('.composer-context-menu').length, 0);
+    } finally { await close(); }
+  });
+
+  test('the composer menu setting disables the custom menu immediately', async () => {
+    useStore.setState({ composerContextMenuEnabled: true });
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello</p>' });
+    try {
+      await openMenu(richTarget());
+      await React.act(async () => useStore.setState({ composerContextMenuEnabled: false }));
+      assert.equal(document.querySelectorAll('.composer-context-menu').length, 0);
+      const event = new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      await React.act(async () => richTarget().dispatchEvent(event));
+      assert.equal(event.defaultPrevented, false);
+      assert.equal(document.querySelectorAll('.composer-context-menu').length, 0);
+    } finally { await close(); useStore.setState({ composerContextMenuEnabled: true }); }
+  });
+
+  test('superscript, subscript and indent stay available in More with the context menu disabled', async () => {
+    useStore.setState({ composerContextMenuEnabled: false });
+    const close = await openDraft({ plaintextEmail: false, body: '<p>Hello</p>' });
+    try {
+      const editor = richTarget().editor;
+      const selector = '[title="compose.context.superscript"]';
+      assert.equal(document.querySelector(selector), null, 'formatting stays out of the main toolbar');
+      await React.act(async () => document.querySelector('[aria-label="message.more"]').dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true })));
+      await select(editor, 1, 6);
+      const press = label => React.act(async () => document.querySelector(`[title="${label}"]`).dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true })));
+      await press('compose.context.superscript');
+      assert.match(editor.getHTML(), /<sup>Hello<\/sup>/);
+      await press('compose.context.subscript');
+      assert.match(editor.getHTML(), /<sub>Hello<\/sub>/);
+      assert.doesNotMatch(editor.getHTML(), /<sup>/);
+      await press('compose.context.indentIncrease');
+      assert.match(editor.getHTML(), /margin-left: 40px/);
+      await press('compose.context.indentDecrease');
+      assert.doesNotMatch(editor.getHTML(), /margin-left: 40px/);
+    } finally { await close(); useStore.setState({ composerContextMenuEnabled: true }); }
+  });
+
+  test('plain-text Undo and Redo use the focused textarea native history', async () => {
+    const close = await openDraft({ plaintextEmail: true, body: 'Native typing' });
+    const original = document.execCommand;
+    try {
+      const target = document.querySelector('textarea[placeholder="compose.bodyPh"]');
+      const commands = [];
+      document.execCommand = command => {
+        assert.equal(document.activeElement, target);
+        commands.push(command);
+        const value = command === 'undo' ? 'Browser undo result' : 'Browser redo result';
+        Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(target, value);
+        target.dispatchEvent(new window.Event('input', { bubbles: true }));
+        return true;
+      };
+      await openMenu(target); await clickAction('undo');
+      assert.equal(target.value, 'Browser undo result');
+      await openMenu(target); await clickAction('redo');
+      assert.equal(target.value, 'Browser redo result');
+      assert.deepEqual(commands, ['undo', 'redo']);
+      await hideTab();
+      assert.equal(saved.at(-1).body, 'Browser redo result');
+    } finally {
+      if (original) document.execCommand = original; else delete document.execCommand;
+      await close();
+    }
+  });
+
+  test('plain-text paste joins native history, and Select All does not rewrite the value', async () => {
+    const close = await openDraft({ plaintextEmail: true, body: 'Hello world' });
+    const original = document.execCommand;
+    try {
+      const target = document.querySelector('textarea[placeholder="compose.bodyPh"]');
+      target.setSelectionRange(6, 11);
+      clipboard({ readText: async () => 'native paste' });
+      const commands = [];
+      document.execCommand = (command, showUI, value) => {
+        commands.push([command, showUI, value]);
+        assert.equal(document.activeElement, target);
+        assert.equal(target.selectionStart, 6);
+        assert.equal(target.selectionEnd, 11);
+        Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(target, 'Hello native paste');
+        target.dispatchEvent(new window.Event('input', { bubbles: true }));
+        return true;
+      };
+      await openMenu(target); await clickAction('paste');
+      assert.deepEqual(commands, [['insertText', false, 'native paste']]);
+      let inputEvents = 0;
+      target.addEventListener('input', () => inputEvents++);
+      await openMenu(target); await clickAction('selectAll');
+      assert.equal(inputEvents, 0);
+      assert.equal(target.value, 'Hello native paste');
+      assert.equal(target.selectionStart, 0);
+      assert.equal(target.selectionEnd, target.value.length);
+    } finally {
+      if (original) document.execCommand = original; else delete document.execCommand;
+      await close();
+    }
+  });
   after(() => {
     if (originalClipboard) Object.defineProperty(globalThis.navigator, 'clipboard', originalClipboard);
     else delete globalThis.navigator.clipboard;
@@ -270,7 +382,7 @@ describe('composer context menu', () => {
     } finally { await close(); }
   });
 
-  test('plain-text paste, quote, undo and redo update the actual composer body', async () => {
+  test('plain-text paste and quote update the actual composer body', async () => {
     const close = await openDraft({ plaintextEmail: true, body: 'Hello world' });
     try {
       const target = document.querySelector('textarea[placeholder="compose.bodyPh"]');
@@ -280,10 +392,6 @@ describe('composer context menu', () => {
       assert.equal(document.querySelector('[data-action="format"]').disabled, true);
       assert.equal(document.querySelector('[data-action="source"]').disabled, true);
       await clickAction('pasteQuote');
-      assert.equal(target.value, 'Hello > quoted\n> text');
-      await openMenu(target); await clickAction('undo');
-      assert.equal(target.value, 'Hello world');
-      await openMenu(target); await clickAction('redo');
       assert.equal(target.value, 'Hello > quoted\n> text');
       await hideTab();
       assert.equal(saved.at(-1).body, target.value);
@@ -321,7 +429,7 @@ describe('composer context menu', () => {
       await React.act(async () => { format.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
       assert.equal(document.querySelector('.composer-context-menu'), null);
       await openMenu(richTarget());
-      await React.act(async () => { document.querySelector('.composer-context-scrim').dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true })); });
+      await React.act(async () => { document.body.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true })); });
       assert.equal(document.querySelector('.composer-context-menu'), null);
       await hideTab();
       assert.equal(saved.length, 0);
