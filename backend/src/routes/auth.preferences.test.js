@@ -41,6 +41,21 @@ beforeEach(() => {
   query.mockReset().mockResolvedValue({ rows: [] });
 });
 
+describe('PATCH /auth/preferences composer menu', () => {
+  for (const value of [true, false]) it(`persists ${value}`, async () => {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await patchPreferences({ session: { userId: 'user-1' }, body: { composerContextMenuEnabled: value } }, res);
+    expect(query.mock.calls[0][0]).toContain("jsonb_build_object('composerContextMenuEnabled', $51::boolean)");
+    expect(query.mock.calls[0][1][50]).toBe(value);
+  });
+  it('rejects nonbooleans without writing', async () => {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await patchPreferences({ session: { userId: 'user-1' }, body: { composerContextMenuEnabled: 'false' } }, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(query).not.toHaveBeenCalled();
+  });
+});
+
 describe('PATCH /auth/preferences folderOrder', () => {
   it('merges folderOrder into existing preferences as JSONB', async () => {
     const folderOrder = { 'account-1': ['Archive', 'INBOX'] };

@@ -733,6 +733,7 @@
       "ai": "AI",
       "source": "Zdrojový kód",
       "clipboardError": "Akci se schránkou se nepodařilo dokončit.",
+      "nativeMenuHint": "Shift+pravé tlačítko pro návrhy pravopisu",
       "pasteUnavailable": "Přístup ke schránce není dostupný. Použijte klávesovou zkratku pro vložení."
     },
     "tableMenu": {
@@ -1790,6 +1791,8 @@
       "threadingOnDesc": "Odpovědi se seskupují do konverzací",
       "threadingPane": "Podokno čtení",
       "threadingPaneDesc": "Celá konverzace se otevře najednou",
+      "composerContextMenu": "Kontextová nabídka editoru",
+      "composerContextMenuDesc": "Použít kontextovou nabídku MailFlow při psaní. Vypnutím se použije nabídka prohlížeče.",
       "composeFormat": "Formát zpráv",
       "composeRichText": "Formátovaný text",
       "composeRichTextDesc": "Odesílá HTML — podporuje formátování a stylované podpisy",

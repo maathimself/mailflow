@@ -8,7 +8,7 @@ import { api } from './api.js';
 export const SIGN_OUT_CLEARED_KEYS = [
   'mailflow_notification_sound', 'mailflow_custom_sound', 'mailflow_custom_sound_name',
   'mailflow_page_size', 'mailflow_scroll_mode', 'mailflow_sync_interval',
-  'mailflow_threaded_view', 'mailflow_plaintext_email',
+  'mailflow_threaded_view', 'mailflow_plaintext_email', 'mailflow_composer_context_menu',
   'mailflow_hover_quick_actions', 'mailflow_swipe_actions',
   'mailflow_expanded_accounts', 'mailflow_collapsed_folders',
   // Reading preferences the store seeds from localStorage before loadPreferences runs.

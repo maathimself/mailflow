@@ -194,6 +194,7 @@
       "ai": "AI",
       "source": "Quelltext",
       "clipboardError": "Die Zwischenablage-Aktion konnte nicht abgeschlossen werden.",
+      "nativeMenuHint": "Umschalt+Rechtsklick für Rechtschreibvorschläge",
       "pasteUnavailable": "Kein Zugriff auf die Zwischenablage. Bitte das Tastenkürzel zum Einfügen verwenden."
     },
     "tableMenu": {
@@ -1372,6 +1373,8 @@
       "threadingOnDesc": "Antworten in Gesprächen gruppiert",
       "threadingPane": "Lesebereich",
       "threadingPaneDesc": "Die gesamte Unterhaltung wird zusammen geöffnet",
+      "composerContextMenu": "Kontextmenü beim Schreiben",
+      "composerContextMenuDesc": "Das MailFlow-Kontextmenü beim Schreiben verwenden. Ausschalten, um das Browsermenü zu verwenden.",
       "composeFormat": "Verfassungsformat",
       "composeRichText": "Rich Text",
       "composeRichTextDesc": "Sendet HTML — unterstützt Formatierung und gestaltete Signaturen",

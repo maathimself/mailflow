@@ -69,7 +69,7 @@ describe('phone table picker positioning', () => {
       if (this.matches('button[aria-label="compose.toolbar.insertTable"]')) {
         return { left: anchorLeft, right: anchorLeft + 24, top: 100, bottom: 124, width: 24, height: 24 };
       }
-      if (this.style.position === 'fixed' && [...this.children].some(child => child.textContent === '3×33×44×4')) {
+      if (this.classList.contains('table-insert-picker')) {
         const scale = useStore.getState().fontSize / 100;
         const left = parseFloat(this.style.left) * scale;
         return { left, right: left + pickerWidth, top: 128, bottom: 220, width: pickerWidth, height: 92 };
@@ -84,8 +84,7 @@ describe('phone table picker positioning', () => {
     HTMLElement.prototype.getBoundingClientRect = originalRect;
     dom.window.close();
   });
-  const picker = () => [...document.querySelectorAll('div')].find(element =>
-    element.style.position === 'fixed' && [...element.children].some(child => child.textContent === '3×33×44×4'));
+  const picker = () => document.querySelector('.table-insert-picker');
   for (const fontSize of [100, 130]) {
     test(`clamps the measured picker width on a 360px phone at ${fontSize}% font size`, async () => {
       viewportWidth = 360; window.innerWidth = viewportWidth; anchorLeft = 280; pickerWidth = 260 * fontSize / 100;

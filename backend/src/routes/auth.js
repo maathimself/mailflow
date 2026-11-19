@@ -695,7 +695,10 @@ export async function patchPreferences(req, res) {
           autoLockMinutes, showMobileAvatars, gravatarAvatars, folderSyncInterval,
           folderOrder, senderFavicons, showMessagePreviews, defaultSender,
           conversationMode, hoverActionSet, autoOpenReplyDrafts, afterRemove, darkEmailBodies, listSort,
-          timeFormat, sessionDays } = req.body;
+          timeFormat, sessionDays, composerContextMenuEnabled } = req.body;
+  if (composerContextMenuEnabled !== undefined && typeof composerContextMenuEnabled !== 'boolean') {
+    return res.status(400).json({ error: 'composerContextMenuEnabled must be a boolean' });
+  }
   if (autoOpenReplyDrafts !== undefined && typeof autoOpenReplyDrafts !== 'boolean') {
     return res.status(400).json({ error: 'autoOpenReplyDrafts must be a boolean' });
   }
@@ -830,6 +833,7 @@ export async function patchPreferences(req, res) {
       || CASE WHEN $48::jsonb IS NOT NULL THEN jsonb_build_object('listSort', $48::jsonb) ELSE '{}'::jsonb END
       || CASE WHEN $49::text IS NOT NULL THEN jsonb_build_object('timeFormat', $49::text) ELSE '{}'::jsonb END
       || CASE WHEN $50::int IS NOT NULL THEN jsonb_build_object('sessionDays', $50::int) ELSE '{}'::jsonb END
+      || CASE WHEN $51::boolean IS NOT NULL THEN jsonb_build_object('composerContextMenuEnabled', $51::boolean) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -841,7 +845,7 @@ export async function patchPreferences(req, res) {
       rightSidebarWidth, rightSidebarHidden, gtdCollapsedSectionsJson, gtdPetSlug, autoLockMinutesVal,
       showMobileAvatars ?? null, gravatarAvatars ?? null, folderSyncIntervalVal, folderOrderJson, senderFaviconsVal,
       showMessagePreviews ?? null, defaultSenderVal, conversationModeVal, hoverActionSetJson, autoOpenReplyDrafts ?? null,
-      afterRemoveVal, darkEmailBodies ?? null, listSortJson, timeFormatVal, sessionDaysVal]);
+      afterRemoveVal, darkEmailBodies ?? null, listSortJson, timeFormatVal, sessionDaysVal, composerContextMenuEnabled ?? null]);
 
   if (sessionDaysVal != null) {
     rememberSessionDays(req.session.userId, sessionDaysVal);

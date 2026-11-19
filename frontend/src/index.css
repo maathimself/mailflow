@@ -361,6 +361,7 @@ body, #root {
 .composer-context-check { width: 14px; flex-shrink: 0; color: var(--accent); }
 .composer-context-arrow { margin-left: auto; font-size: 17px; line-height: 1; color: var(--text-secondary); }
 .composer-context-separator { height: 1px; background: var(--border-subtle); margin: 4px 0; }
+.composer-context-hint { border-top: 1px solid var(--border-subtle); margin-top: 4px; padding: 8px 12px 5px; color: var(--text-tertiary); font-size: 11px; }
 .composer-context-emoji { position: fixed; z-index: 12000; }
 .table-insert-picker {
   position: fixed;
