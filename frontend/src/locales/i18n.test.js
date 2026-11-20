@@ -128,6 +128,21 @@ const SAME_VALUE_ALLOWED = {
   // ── List sort menu (#528) ───────────────────────────────────────────────────
   'messageList.sortSummary':                'any', // "{{sort}}, {{dir}}": only the placeholders and a comma
   'messageList.sortDate':                   [['en', 'fr'], ['it', 'ptBR', 'pl'], ['cs', 'de']], // Date / Data / Datum
+  'compose.tableMenu.horizontally': [['es', 'ptBR']],
+  'compose.tableMenu.vertically': [['es', 'it', 'ptBR']],
+  'compose.context.ai': 'any', // AI acronym
+  'compose.context.emoji': [['en', 'de', 'es', 'it', 'ptBR', 'cs', 'pl']],
+  'compose.context.format': [['en', 'de', 'fr'], ['es', 'it']],
+  'compose.context.normal': [['en', 'de', 'es', 'fr', 'ptBR']],
+  'compose.context.signature': [['en', 'fr'], ['es', 'it'], ['cs', 'pl']],
+  'compose.context.table': [['pl', 'ptBR']],
+  'compose.context.file': [['en', 'it']],
+  'compose.context.image': [['en', 'fr']],
+  'compose.context.link': [['en', 'ptBR']],
+  'compose.context.source': [['en', 'fr']],
+  'compose.context.strikeout': [['es', 'ptBR']],
+  // Standard unit names shared by these languages.
+  'compose.table.pixels': [['de', 'it'], ['en', 'fr', 'ptBR']],
   // ── Universal placeholders / brand names (all locales share) ───────────────
   'admin.about.kofi':                       'any', // Ko-fi — brand name, same everywhere
   'admin.about.githubSponsors':             'any', // GitHub Sponsors — product name, same everywhere
