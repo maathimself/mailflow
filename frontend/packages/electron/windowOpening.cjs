@@ -9,7 +9,7 @@ function isPrintWindow({ url, frameName, referrer }, host, openerUrl) {
     && (!referrer?.url || isSameOrigin(host, referrer.url));
 }
 
-function configureWindowOpening(webContents, { getHost, isAllowedExternalUrl, openExternal }) {
+function configureWindowOpening(webContents, { getHost, isAllowedExternalUrl, openExternal, onPrintWindow }) {
   const openLink = (url) => {
     if (isAllowedExternalUrl(url)) openExternal(url);
   };
@@ -19,6 +19,7 @@ function configureWindowOpening(webContents, { getHost, isAllowedExternalUrl, op
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
+          ...(onPrintWindow ? { show: false } : {}),
           webPreferences: {
             // Explicitly clear the inherited main preload: email HTML gets no native bridge.
             preload: undefined,
@@ -35,7 +36,8 @@ function configureWindowOpening(webContents, { getHost, isAllowedExternalUrl, op
     return { action: 'deny' };
   });
 
-  webContents.on('did-create-window', (child) => {
+  webContents.on('did-create-window', (child, details) => {
+    onPrintWindow?.(child, details.frameName);
     // Print content stays in its blank, same-origin document so document.write and the
     // existing image CSP work. Links leave through the browser, never this child window.
     child.webContents.setWindowOpenHandler(({ url }) => {

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>sh.mailflow.app</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0</project_license>
+  <name>MailFlow</name>
+  <summary>A self-hosted, unified webmail client.</summary>
+  <developer_name>maathimself</developer_name>
+  <url type="homepage">https://mailflow.sh</url>
+  <url type="bugtracker">https://github.com/maathimself/mailflow/issues</url>
+  <launchable type="desktop-id">MailFlow.desktop</launchable>
+  <categories>
+    <category>Network</category>
+    <category>Email</category>
+  </categories>
+  <description>
+    <p>A self-hosted, unified webmail client.</p>
+  </description>
+  <releases>
+    <release version="4.4.0" date="2026-11-19" />
+  </releases>
+  <content_rating type="oars-1.1" />
+</component>

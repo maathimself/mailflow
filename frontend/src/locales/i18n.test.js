@@ -159,6 +159,21 @@ const SAME_VALUE_ALLOWED = {
   'login.totp.placeholder':                 'any', // 000000
 
   // ── Specific language groups ───────────────────────────────────────────────
+  // Shared printing terms have identical spelling in these languages.
+  'printPreview.all': [['es', 'ptBR']],
+  'printPreview.cancel': [['es', 'ptBR']],
+  'printPreview.copies': [['en', 'fr']],
+  'printPreview.customRange': [['es', 'ptBR']],
+  'printPreview.orientation': [['en', 'fr']],
+  'printPreview.page': [['en', 'fr'], ['es', 'ptBR']],
+  'printPreview.pageCount': [['cs', 'pl'], ['es', 'ptBR']],
+  'printPreview.pageRange': [['es', 'ptBR']],
+  'printPreview.pages': [['en', 'fr'], ['es', 'ptBR']],
+  'printPreview.pdfDocument': [['cs', 'pl'], ['es', 'it', 'ptBR']],
+  'printPreview.portrait': [['en', 'fr']],
+  'printPreview.previous': [['es', 'ptBR']],
+  'printPreview.print': [['es', 'ptBR']],
+  'printPreview.zoom': [['en', 'es', 'fr', 'it', 'ptBR']],
   // "Version" — same spelling in de, en, fr
   'admin.about.version': [['de', 'en', 'fr']],
   // "via" (on-behalf-of sender, #366) — identical preposition in en and fr
@@ -863,6 +878,21 @@ function loadSourceText() {
     }
   }
   walk(srcRoot);
+  // The desktop preview uses the same locale files through its isolated preload.
+  const desktop = resolve(srcRoot, 'packages/electron');
+  function desktopKeys(d) {
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      const full = join(d, entry.name);
+      if (entry.isDirectory()) desktopKeys(full);
+      else if (/\.(cjs|js|html)$/.test(entry.name) && !entry.name.includes('.test.')) {
+        const source = readFileSync(full, 'utf8');
+        for (const match of source.matchAll(/['"]([a-zA-Z]\w*)['"]/g)) {
+          out.push(`printPreview.${match[1]}`);
+        }
+      }
+    }
+  }
+  desktopKeys(desktop);
   return out.join('\n');
 }
 

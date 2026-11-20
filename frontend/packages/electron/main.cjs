@@ -16,6 +16,9 @@ const {
 } = require('./security.cjs');
 const { createNotificationRetainer } = require('./notificationRetainer.cjs');
 const { configureWindowOpening } = require('./windowOpening.cjs');
+const { createPrintPreview } = require('./printPreview.cjs');
+const { buildContextMenu } = require('./contextMenu.cjs');
+const printPreview = createPrintPreview({ BrowserWindow, ipcMain, dialog });
 
 // New-mail notifications stay referenced while they can be clicked (#587).
 const newMailNotifications = createNotificationRetainer();
@@ -1479,56 +1482,21 @@ function setupMenu() {
 }
 
 function showContextMenu(webContents, params) {
-  const template = [];
-  const hasSelection = Boolean(params.selectionText && params.selectionText.trim());
-  const hasLink = Boolean(params.linkURL);
-  const hasImage = params.mediaType === 'image' && Boolean(params.srcURL);
-
-  if (params.isEditable) {
-    template.push(
-      { label: 'Cut', role: 'cut' },
-      { label: 'Copy', role: 'copy', enabled: hasSelection },
-      { label: 'Paste', role: 'paste' },
-      { type: 'separator' },
-      { label: 'Select All', role: 'selectAll' },
-    );
-  } else {
-    if (hasLink) {
-      template.push(
-        {
-          label: 'Open Link',
-          click: () => {
-            if (isAllowedExternalUrl(params.linkURL)) shell.openExternal(params.linkURL);
-          },
-        },
-        {
-          label: 'Copy Link',
-          click: () => clipboard.writeText(params.linkURL),
-        },
-      );
-    }
-
-    if (hasImage) {
-      if (template.length > 0) template.push({ type: 'separator' });
-      template.push({
-        label: 'Copy Image Address',
-        click: () => clipboard.writeText(params.srcURL),
-      });
-    }
-
-    if (hasSelection) {
-      if (template.length > 0) template.push({ type: 'separator' });
-      template.push(
-        { label: 'Copy', role: 'copy' },
-        { label: 'Select All', role: 'selectAll' },
-      );
-    }
-  }
+  const template = buildContextMenu(params, {
+    openLink: url => { if (isAllowedExternalUrl(url)) shell.openExternal(url); },
+    copyText: text => clipboard.writeText(text),
+    print: () => {
+      if (!webContents.isDestroyed() && isSameOrigin(readHost(), webContents.getURL())) {
+        webContents.send('mailflow:print:context');
+      }
+    },
+  });
 
   if (template.length === 0) return;
 
   Menu.buildFromTemplate(template).popup({
     window: BrowserWindow.fromWebContents(webContents) || mainWindow,
+    frame: params.frame || undefined,
   });
 }
 
@@ -1692,6 +1660,7 @@ function createWindow() {
     getHost: readHost,
     isAllowedExternalUrl,
     openExternal: (url) => shell.openExternal(url),
+    onPrintWindow: (child, name) => printPreview.register(mainWindow.webContents, child, name),
   });
 
   mainWindow.webContents.on('context-menu', (_event, params) => {
