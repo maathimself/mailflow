@@ -38,11 +38,29 @@ export { PROVIDERS, providerProfile };
 // Shorthand for log lines — keeps domain visible while masking the local part.
 const logAccount = (account) => redactEmail(account?.email_address || '');
 
+// IMAP_RESOLVE_VIA="outlook.office365.com=HND-efz.ms-acdc.office.com" connects to the addresses
+// of another name for a host, while TLS still authenticates the host itself. It is for a provider
+// whose nearest front ends cannot serve a mailbox. On 2026-11-17 every front end in the
+// outlook.office365.com pool a Singapore server's DNS returned (SIN-efz) answered a hotmail.com
+// mailbox's login with "User is authenticated but not connected.", while every Tokyo one
+// (HND-efz) served it, with the same token from the same server.
+export function resolveViaFor(host, value = process.env.IMAP_RESOLVE_VIA) {
+  const want = String(host || '').trim().toLowerCase();
+  for (const pair of String(value || '').split(',')) {
+    const [from, via] = pair.split('=').map(s => (s || '').trim().toLowerCase());
+    if (from && via && from === want) return via;
+  }
+  return null;
+}
+
 // Resolves the IMAP host for an account, applying server-level connection policy.
 // Returns { resolved, policy } so callers can pass policy to makeClientCfg.
-const resolveAccountHost = async (account) => {
+// Exported for imapMailboxSessions.test.js.
+export const resolveAccountHost = async (account) => {
   const policy = await getConnectionPolicy();
-  const resolved = await resolveForConnection(account.imap_host, { allowPrivate: policy.allowPrivateHosts });
+  const via = resolveViaFor(account.imap_host);
+  const resolved = await resolveForConnection(via || account.imap_host, { allowPrivate: policy.allowPrivateHosts });
+  if (via && resolved.servername) resolved.servername = account.imap_host.trim();
   return { resolved, policy };
 };
 
@@ -269,7 +287,16 @@ export function isConnectionRefusal(detail) {
   // Note this is only reachable because extractImapError now surfaces the server's text:
   // while every refusal was flattened to "Command failed", nothing here ever matched and
   // no cooldown was ever armed against a provider that was actively refusing us.
-  return /\[LIMIT\]|connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout/i.test(String(detail || ''));
+  //
+  // "User is authenticated but not connected." is Outlook's answer to a login it will not serve:
+  // IMAP is off (accountErrorCode.js classifies that from the same text), or the front end that
+  // answered cannot reach the mailbox. A hotmail.com mailbox was refused by every front end in
+  // some regions and served by every one in another (see IMAP_RESOLVE_VIA), and a session already
+  // open on a serving front end kept working. Its reconnect logged the bare text (the
+  // "Authentication failed: …" shape already reads as an auth failure), and unmatched, it was
+  // retried on every health check, about 40 times an hour for as long as the refusal lasted, while
+  // every background job kept logging in.
+  return /\[LIMIT\]|connection not available|too many|maximum number|number of connections|rate.?limit|temporarily|try again|connection limit|over quota|throttl|connect timeout|authenticated but not connected/i.test(String(detail || ''));
 }
 
 // A FETCH failure that is the server limiting us or having trouble, not the message the FETCH
@@ -1743,6 +1770,15 @@ export const POOL_SIZE = 4;
 // first 10s of a stall gives up before the stalled connection closes, so the replacement
 // that the next caller grows and then releases cannot serve it.
 export const ACQUIRE_TIMEOUT_MS = 35000;
+
+// How long a click's body fetch on the IDLE session may take, inside the body route's 40s
+// deadline. It can queue behind a sync tick there, so the wait for the mailbox lock is bounded
+// below it, as setFlag's store on that session is.
+const PERSISTENT_BODY_TIMEOUT_MS = 15000;
+const PERSISTENT_BODY_LOCK_MS = 12000;
+// INBOX's message count on an IDLE session when a body fetch last found it selected, so mail that
+// arrives while the fetch has another folder selected is noticed (_reselectIdleInbox).
+const idleInboxExists = new WeakMap();
 
 // How long a leased pooled connection may wait on a reply, with nothing arriving, before
 // it is closed. imapflow has no per-command timeout. The `commandTimeout` this file
@@ -3887,7 +3923,9 @@ export class ImapManager {
     // crosses the threshold on its next attempt rather than being silently swallowed.
     const streak = (this._accountErrorStreak.get(account.id) || 0) + 1;
     this._accountErrorStreak.set(account.id, streak);
-    if (isConnectionRefusal(detail) && streak < ACCOUNT_ERROR_MIN_STREAK) return;
+    // Only a plain connection error waits: one that tells the user what to do (IMAP is off
+    // in Outlook.com) is shown on the first failure even when its text reads as a refusal.
+    if (code === 'connection' && isConnectionRefusal(detail) && streak < ACCOUNT_ERROR_MIN_STREAK) return;
     try {
       const forgets = this._errorForgets?.get(account.id);
       await query('UPDATE email_accounts SET sync_error = $1, sync_error_code = $3 WHERE id = $2', [detail, account.id, code]);
@@ -6084,6 +6122,8 @@ export class ImapManager {
     console.log(`Bulk flag refresh: ${nullResult.rows.length} unevaluated messages for ${logAccount(account)}`);
 
     for (const [folder, msgs] of byFolder) {
+      // One login per folder: a refusal stops the walk, as it does backfill's.
+      if (this._secondaryConnectBlocked(account.id)) return;
       let client = null;
       try {
         const row = (await query('SELECT * FROM email_accounts WHERE id = $1', [account.id])).rows[0];
@@ -6123,7 +6163,9 @@ export class ImapManager {
         }
         console.log(`Bulk flag refresh: ${updates.length}/${msgs.length} updated in ${folder} for ${logAccount(account)}`);
       } catch (err) {
-        console.warn(`Bulk flag refresh error for ${logAccount(account)}/${folder}: ${err.message}`);
+        const detail = extractImapError(err);
+        console.warn(`Bulk flag refresh error for ${logAccount(account)}/${folder}: ${detail}`);
+        if (isConnectionRefusal(detail) || isAuthFailure(detail)) this._noteSecondaryRefusal(account);
       } finally {
         if (client) { try { client.close(); } catch { /* ignore */ } }
       }
@@ -7016,12 +7058,58 @@ export class ImapManager {
     }
   }
 
+  // An acquire for fetchMessageBody that runs the fetch on the account's persistent IDLE session,
+  // or null without a usable one. ImapFlow breaks and resumes IDLE around the commands, as it does
+  // for setFlag's store. A fetch from another folder SELECTs that folder, so INBOX is selected
+  // again once the fetch settles (also one that outlived the timeout): otherwise IDLE would watch
+  // that folder and miss new mail until the next sync tick.
+  _persistentBodySession(account) {
+    const client = this.connections.get(account.id);
+    if (!client || client.usable === false) return null;
+    return (_acct, fn) => {
+      if (client.mailbox?.path === 'INBOX') idleInboxExists.set(client, client.mailbox.exists);
+      // A fetch given up on must not run later for nobody, ahead of the sync tick: its lock wait
+      // is bounded, and a lock granted after the deadline is released unused.
+      let expired = false;
+      const run = fn(client, { acquireTimeout: PERSISTENT_BODY_LOCK_MS, expired: () => expired });
+      run.catch(() => {}).then(() => this._reselectIdleInbox(account, client));
+      return raceTimeout(run, PERSISTENT_BODY_TIMEOUT_MS, 'Body fetch on the IDLE session')
+        .catch(err => { expired = true; throw err; });
+    };
+  }
+
+  async _reselectIdleInbox(account, client) {
+    // Also when no mailbox is selected: a failed SELECT leaves none, and imapflow does not IDLE
+    // without one.
+    if (client.usable === false || client.mailbox?.path === 'INBOX') return;
+    let count;
+    try {
+      const lock = await client.getMailboxLock('INBOX');
+      count = client.mailbox?.path === 'INBOX' ? client.mailbox.exists : undefined;
+      lock.release();
+    } catch (err) {
+      console.warn(`Could not select INBOX again on the IDLE session of ${logAccount(account)}: ${extractImapError(err)}`);
+      return;
+    }
+    // The SELECT reply carries mail that came while another folder was selected, and imapflow
+    // raises no 'exists' for it, so it would wait for the next sync tick. Raise it here.
+    const prevCount = idleInboxExists.get(client);
+    if (typeof count !== 'number') return;
+    idleInboxExists.set(client, count);
+    if (typeof prevCount === 'number' && count > prevCount) client.emit('exists', { path: 'INBOX', count, prevCount });
+  }
+
   // Uses a fresh connection to avoid lock contention with sync connection.
   // Auto-retries once on transient connection errors (stale pool connection, NAT
   // timeout, half-open TCP, etc.) so a single click is enough in all common cases.
   // `background`: a prefetch nobody is waiting on, which leaves the pool's last idle session to
   // the user (see acquirePooledClient).
   async fetchMessageBody(account, uid, folder, { background = false } = {}) {
+    // A message someone opened can be read over the persistent IDLE session, which costs no
+    // login. It is used while the provider refuses other logins and no pooled session is idle:
+    // a session already open can still be served when every new one is refused. Background
+    // prefetch never uses it.
+    const onPersistent = background ? null : this._persistentBodySession(account);
     // While the provider is refusing secondary logins, a body click can only succeed over a
     // session that already exists. If the pool holds an idle client, use it (no new LOGIN);
     // otherwise fail fast with a typed error the route turns into a clear 503, instead of
@@ -7029,17 +7117,17 @@ export class ImapManager {
     // red raw-error box the reporter screenshotted). The wording deliberately does not
     // match isConnectionRefusal, so surfacing it can never re-arm the backoff it reports.
     const blocked = this._secondaryConnectBlocked(account.id);
-    if (blocked && !hasIdlePooledClient(connectionPools, account.id)) {
-      const gateErr = new Error('Mail server is limiting connections for this account');
-      gateErr.providerRefusing = true;
-      gateErr.retryAfterMs = Math.max(0, blocked.until - Date.now());
-      throw gateErr;
-    }
+    const idlePooled = hasIdlePooledClient(connectionPools, account.id);
+    const gateError = () => Object.assign(new Error('Mail server is limiting connections for this account'), {
+      providerRefusing: true, retryAfterMs: Math.max(0, blocked.until - Date.now()),
+    });
+    if (blocked && !idlePooled && !onPersistent) throw gateError();
     // Inner fetch — called up to twice. `acquire` selects how the connection is obtained:
     // the first attempt uses the pool (withFreshClient); the retry uses a genuinely fresh
     // login (withFreshLogin) so a frozen/half-open pooled connection can't hang or return
     // a blank body for recently-arrived mail.
-    const doFetch = (acquire) => acquire(account, async (client) => {
+    // `idleSession`: set when the fetch runs on the persistent IDLE session (_persistentBodySession).
+    const doFetch = (acquire) => acquire(account, async (client, idleSession) => {
       let html = null;
       let text = null;
       let attachments;
@@ -7056,7 +7144,11 @@ export class ImapManager {
       // quota is hit.
       const uidStr = String(uid);
 
-      const lock = await client.getMailboxLock(folder);
+      const lock = await client.getMailboxLock(folder, idleSession && { acquireTimeout: idleSession.acquireTimeout });
+      if (idleSession?.expired()) {
+        lock.release();
+        throw new Error('Body fetch on the IDLE session expired');
+      }
       try {
         let structure = null;
         const prefetched = new Map(); // part number -> Buffer
@@ -7346,10 +7438,27 @@ export class ImapManager {
     const firstAcquire = providerProfile(account).preferFreshBodyFetch
       ? withFreshLogin
       : (acct, fn) => withFreshClient(acct, fn, { background });
+    let triedPersistent = false;
+    const viaPersistent = () => { triedPersistent = true; return doFetch(onPersistent); };
+    // Whether the IDLE session should serve the click after the pool failed it.
+    const persistentNext = () => !!onPersistent && !triedPersistent && !!this._secondaryConnectBlocked(account.id);
+    if (onPersistent && !idlePooled && blocked) {
+      try {
+        return await viaPersistent();
+      } catch (err) {
+        console.warn(`fetchMessageBody: uid=${uid} folder=${folder} account=${logAccount(account)}: the IDLE session could not serve it: ${extractImapError(err)}`);
+        throw gateError();
+      }
+    }
     try {
       return await doFetch(firstAcquire);
     } catch (firstErr) {
       const detail = extractImapError(firstErr);
+      // A refused login armed the backoff: the IDLE session can still serve the click. If it
+      // cannot, the pool's error is the one reported.
+      if (persistentNext() && (firstErr.providerRefusing || firstErr.poolExhausted || isConnectionRefusal(detail))) {
+        try { return await viaPersistent(); } catch { /* reported below */ }
+      }
       // Retry once on any transient connection-level error (dead pool connection,
       // half-open TCP, NAT expiry, the pool's stall timeout, socket reset, or an empty
       // UID FETCH from a frozen mailbox view). withFreshClient already evicted the bad pooled
@@ -7371,14 +7480,16 @@ export class ImapManager {
         // retrying over a brand-new LOGIN is exactly the doomed request the gate exists to
         // prevent, and it bypassed the gate entirely (review of d3597f5 rated this above
         // the acquire race). Rethrow instead; the route maps refusals to the friendly 503.
-        if (this._secondaryConnectBlocked(account.id)) {
+        // The IDLE session needs no login, so it is the retry whenever it may serve the click.
+        const retryOnPersistent = persistentNext();
+        if (!retryOnPersistent && this._secondaryConnectBlocked(account.id)) {
           const wrapped = new Error(detail);
           wrapped.imapError = true;
           if (firstErr.poolExhausted) wrapped.poolExhausted = true;
           throw wrapped;
         }
         try {
-          return await doFetch(withFreshLogin);
+          return await (retryOnPersistent ? viaPersistent() : doFetch(withFreshLogin));
         } catch (retryErr) {
           const retryDetail = extractImapError(retryErr);
           // 'Command failed' on the retry means the UID FETCH returned nothing both
