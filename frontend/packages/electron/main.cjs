@@ -1485,6 +1485,15 @@ function showContextMenu(webContents, params) {
   const hasImage = params.mediaType === 'image' && Boolean(params.srcURL);
 
   if (params.isEditable) {
+    if (params.misspelledWord && params.dictionarySuggestions?.length) {
+      for (const suggestion of params.dictionarySuggestions) {
+        template.push({
+          label: suggestion,
+          click: () => webContents.replaceMisspelling(suggestion),
+        });
+      }
+      template.push({ type: 'separator' });
+    }
     template.push(
       { label: 'Cut', role: 'cut' },
       { label: 'Copy', role: 'copy', enabled: hasSelection },
