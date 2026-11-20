@@ -152,6 +152,28 @@ export const PROVIDERS = {
     skipFolderNames: [],
     disableIMAP4rev2: true,
   },
+  zoho: {
+    // Like generic, except for Zoho's per-account session ceiling. Measured Nov 20, 2026 on a
+    // Zoho Mail account (imappro.zoho.com): with MailFlow holding its two sessions, one more login
+    // was accepted and the next was closed straight after the TLS handshake, while six quick
+    // login/logout cycles in a row all succeeded. So the limit is about three sessions at once,
+    // shared with the user's other mail apps, not a login rate. The generic profile went past it:
+    // a pool of up to four plus a fresh login for each folder status, integrity and staleness pass,
+    // which failed around 50 times a day with "Unexpected close" (and the startup pre-warm with
+    // it). Yahoo's budget fits (#474): one pooled session that the periodic work shares, and no
+    // pre-warm, which leaves the persistent connection plus one.
+    batchSize: 100, batchDelay: 1500, errorDelay: 15000, batchesPerConn: 15,
+    connectStaggerMs: 500,
+    fetchBody: false,
+    pushesFlags: true,
+    snippetIndex: true,
+    speculativeFetch: true,
+    skipFolderPatterns: [],
+    skipFolderNames: [],
+    poolSize: 1,
+    poolPrewarm: false,
+    secondaryOverPool: true,
+  },
   generic: {
     batchSize: 100, batchDelay: 1500, errorDelay: 15000, batchesPerConn: 15,
     connectStaggerMs: 500, // unknown provider — moderate connect spacing (#218)
@@ -172,5 +194,7 @@ export function providerProfile(account) {
   if (host.includes('.outlook.com') || host.includes('office365.com') || host.includes('.hotmail.com') || host.includes('.live.com') || (account.oauth_provider === 'microsoft')) return PROVIDERS.microsoft;
   if (host.includes('purelymail.com')) return PROVIDERS.purelymail;
   if (host.includes('.strato.')) return PROVIDERS.strato;
+  // imap.zoho.com, imappro.zoho.com and Zoho's regional data centers (imap.zoho.eu and so on).
+  if (/(^|\.)zoho\.(com|eu|in|com\.au|jp|com\.cn|ca|sa|uk)$/.test(host)) return PROVIDERS.zoho;
   return PROVIDERS.generic;
 }
