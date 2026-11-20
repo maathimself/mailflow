@@ -19,6 +19,7 @@ import { pluginRegistry } from '../plugins/registry.js';
 import { PROVIDERS } from './providers.js';
 import { ensureFreshToken, clearChangedSinceIgnored, isServerLimitFailure } from './imapManager.js';
 import { fetchSnippetBatch, structureParts } from './imapManager.js';
+import { withFreshClient } from './imapManager.js';
 import { clearCarries, hasCarries, rememberDroppedRows } from './movedRowCarry.js';
 import { clearRefreshFailure, noteFreshToken, noteRefreshFailure, refreshFailureFor } from './accountErrorCode.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
@@ -211,6 +212,7 @@ describe('providerProfile — host detection', () => {
     ['imap.zoho.eu'],
     ['imappro.zoho.in'],
     ['imap.zoho.com.au'],
+    ['imap.zohocloud.ca'],
   ])('detects zoho for %s, with its session budget', host => {
     const profile = providerProfile(account(host));
     expect(profile).toBe(PROVIDERS.zoho);
@@ -6173,6 +6175,60 @@ describe('secondary work over the pool (#474 round 5)', () => {
     expect(ImapFlow).toHaveBeenCalledTimes(1);
     expect(seen[1]).toBe(seen[0]);
     expect(seen[0].close).not.toHaveBeenCalled();
+  });
+
+  // The integrity pass holds the one pooled session; new INBOX mail it takes in runs the inbox
+  // rules, whose move asks the pool again. That waited for its own caller until it timed out
+  // as busy and the rule was not applied. Now it gets a one-off login.
+  it('zoho: work holding the pooled session that asks for another gets a one-off login, not a wait', async () => {
+    const { mgr, account } = arrange({ host: 'imappro.zoho.com' });
+    let outer;
+    let inner;
+    const started = Date.now();
+    await mgr._withCountClient(account, async c => {
+      outer = c;
+      await withFreshClient(account, async c2 => { inner = c2; });
+    });
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(ImapFlow).toHaveBeenCalledTimes(2);
+    expect(inner).not.toBe(outer);
+    expect(inner.close).toHaveBeenCalled();     // the one-off login is closed at once
+    expect(outer.close).not.toHaveBeenCalled(); // the pooled session stays pooled
+    // Afterwards the pool is used as before: the next request reuses the pooled session.
+    let after;
+    await withFreshClient(account, async c => { after = c; });
+    expect(after).toBe(outer);
+    expect(ImapFlow).toHaveBeenCalledTimes(2);
+  });
+
+  it('gmail: a nested request takes the second pooled session while one is free', async () => {
+    const { mgr, account } = arrange({ host: 'imap.gmail.com' });
+    let outer;
+    let inner;
+    await mgr._withCountClient(account, async c => {
+      outer = c;
+      await withFreshClient(account, async c2 => { inner = c2; });
+    });
+    expect(ImapFlow).toHaveBeenCalledTimes(2);
+    expect(inner).not.toBe(outer);
+    expect(inner.close).not.toHaveBeenCalled(); // pooled, not a one-off
+  });
+
+  it('two separate requests that do not hold the session still queue for the one pooled session', async () => {
+    const { account } = arrange({ host: 'imappro.zoho.com' });
+    let release;
+    const first = withFreshClient(account, () => new Promise(r => { release = r; }));
+    await new Promise(r => setTimeout(r, 30));
+    let second = null;
+    const queued = withFreshClient(account, async c => { second = c; });
+    await new Promise(r => setTimeout(r, 60));
+    expect(ImapFlow).toHaveBeenCalledTimes(1); // no extra login for unrelated work
+    expect(second).toBe(null);
+    release();
+    await first;
+    await queued;
+    expect(second).not.toBe(null);
+    expect(ImapFlow).toHaveBeenCalledTimes(1);
   });
 
   it('a reused pooled session does not clear the secondary ladder', async () => {

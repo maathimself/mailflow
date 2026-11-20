@@ -202,7 +202,8 @@ export function providerProfile(account) {
   if (host.includes('.outlook.com') || host.includes('office365.com') || host.includes('.hotmail.com') || host.includes('.live.com') || (account.oauth_provider === 'microsoft')) return PROVIDERS.microsoft;
   if (host.includes('purelymail.com')) return PROVIDERS.purelymail;
   if (host.includes('.strato.')) return PROVIDERS.strato;
-  // imap.zoho.com, imappro.zoho.com and Zoho's regional data centers (imap.zoho.eu and so on).
-  if (/(^|\.)zoho\.(com|eu|in|com\.au|jp|com\.cn|ca|sa|uk)$/.test(host)) return PROVIDERS.zoho;
+  // imap.zoho.com, imappro.zoho.com and Zoho's regional data centers (imap.zoho.eu, imap.zohocloud.ca
+  // in Canada, and so on).
+  if (/(^|\.)(zoho\.(com|eu|in|com\.au|jp|com\.cn|sa|uk)|zohocloud\.ca)$/.test(host)) return PROVIDERS.zoho;
   return PROVIDERS.generic;
 }

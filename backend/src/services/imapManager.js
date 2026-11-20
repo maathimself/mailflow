@@ -2,6 +2,7 @@ import { notifyMessageRowsDeleted } from './messageRowsDeleted.js';
 import { FolderStatusMonitor, checkpointFolderStatus } from './folderStatus.js';
 import { extractImapError } from './imapError.js';
 import { recordUnfetchable, suppressedUids, clearUnfetchable, hasRealGap } from './unfetchableUids.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { ImapFlow } from 'imapflow';
 import { query } from './db.js';
 import { parseMessage, parseMailboxList, snippetFromBody, detectBulkFromParsedHeaders, ALIAS_FORWARDER_HEADERS, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata, renderCalendarInvite, MAX_HEADER_FIELD } from './messageParser.js';
@@ -2339,13 +2340,34 @@ function guardPoolLease(client) {
   return lease;
 }
 
+// The accounts whose pooled session the current async work holds (see withFreshClient).
+const pooledHolds = new AsyncLocalStorage();
+
+// No pooled session of the account is free and none can be added.
+function poolIsFull(account) {
+  const pool = connectionPools.get(account.id);
+  if (!pool || hasIdlePooledClient(connectionPools, account.id)) return false;
+  return pool.clients.length + (pool.pending || 0) >= Math.min(POOL_SIZE, providerProfile(account).poolSize ?? POOL_SIZE);
+}
+
 // Exported for imapPoolStall.test.js. stallTimeout: false keeps the lease on the normal
 // timeout, for an operation the stall timer cannot judge (appendToFolder).
 export async function withFreshClient(account, fn, { stallTimeout = true, background = false } = {}) {
+  // Work that already holds this account's pooled session and asks for another while the pool
+  // is full would wait for itself: the session is released only when that work finishes. With
+  // a pool of one (Yahoo, Zoho) this is certain. The folder integrity pass holds the pooled
+  // session (secondaryOverPool), and new INBOX mail it takes in runs the inbox rules, whose
+  // move then waited out ACQUIRE_TIMEOUT_MS and failed as busy, leaving the mail unfiled.
+  // Such a nested request gets a one-off login instead, closed when it is done.
+  if (pooledHolds.getStore()?.has(account.id) && poolIsFull(account)) {
+    return withFreshLogin(account, fn);
+  }
   const client = await acquirePooledClient(account, { background });
   const lease = stallTimeout ? guardPoolLease(client) : { stalled: false, end() {} };
   try {
-    return await fn(client);
+    const held = new Set(pooledHolds.getStore() || []);
+    held.add(account.id);
+    return await pooledHolds.run(held, () => fn(client));
   } catch (err) {
     // On error, evict this client from pool so next call gets a fresh one.
     // Do not logout here — releasePooledClient in finally detects the client is
