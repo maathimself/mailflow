@@ -32,7 +32,7 @@ const STUBS = {
   '/components/InboxReplyDraftObserver.js': 'export default function InboxReplyDraftObserver() { return null; }',
   '/plugins/PluginSlot.jsx': 'export const usePluginSlot = () => []; export const usePluginCollected = () => []; export function PluginSlot() { return null; } export function PluginRuntime() { return null; }',
   // An open socket, so the fallback list refresh for a socket that is down stays quiet.
-  '/hooks/useWebSocket.js': 'export const useWebSocket = () => ({ current: { readyState: 1 } });',
+  '/hooks/useWebSocket.js': 'export const useWebSocket = () => ({ current: { readyState: 1 } }); export const PUSH_RECEIVED_EVENT = "mailflow:push_received";',
 };
 
 registerHooks({
