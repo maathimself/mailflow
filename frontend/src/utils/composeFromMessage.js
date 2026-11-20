@@ -109,41 +109,41 @@ export function resolveReplyRecipients(message, account, folders) {
   return { to: replyTo, cc: extras, originalFrom: replyTo, allRecipients: extras };
 }
 
-// `aiReply` opens the composer with "Reply with AI" ready for the user's instruction.
-export async function openReplyFromMessage(message, { accounts, folders, openCompose, getMessageBody, replyAll = false, aiReply = false }) {
+export function formatAddressStrings(list = []) {
+  if (!Array.isArray(list) || !list.length) return [];
+  return list.map(t => {
+    if (typeof t === 'string') return t;
+    if (t && (t.email || t.name)) {
+      if (t.name && t.email) {
+        const name = /[",<>]/.test(t.name) ? `"${t.name.replace(/"/g, '')}"` : t.name;
+        return `${name} <${t.email}>`;
+      }
+      return t.email || t.name;
+    }
+    return '';
+  }).filter(Boolean);
+}
+
+export function plainToComposeBody(text, plaintext = false) {
+  if (!text) return '';
+  if (plaintext) return text;
+  const escaped = String(text).replace(/\r\n?/g, '\n')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return escaped.split('\n').map(line => `<p>${line}</p>`).join('');
+}
+
+export function buildReplyMetadata(message, { accounts = [], folders = {}, replyAll = false } = {}) {
   const myAccount = accounts.find(a => a.id === message.account_id);
   const { to: sender, allRecipients } = resolveReplyRecipients(message, myAccount, folders);
-
   const replyAliasId = pickMessageReplyAlias(message, myAccount);
-
   const referencesChain = [message.in_reply_to, message.message_id]
     .filter(Boolean).join(' ').trim() || null;
   const rawSubject = (message.subject || '').trim();
-
-  const replyBody = await getMessageBody(message.id).catch(() => null);
-  const replyDate = message.date ? new Date(message.date).toLocaleString() : '';
-  const replyAuthor = replySender(message);
-  const replyEmail = replyAuthor.email || '';
-  const replySafeName = replyAuthor.name.replace(/[\r\n]+/g, ' ');
-  const replyFromStr = replySafeName
-    ? `${replySafeName} <${replyEmail}>`
-    : replyEmail;
-  const quotedText = replyBody?.text
-    ? `\n\n---\nOn ${replyDate}, ${replyFromStr} wrote:\n${replyBody.text.split('\n').map(l => '> ' + l).join('\n')}`
-    : '';
-  // Quoted as shown, images through MailFlow's proxy, so opening the composer never loads them
-  // from the sender; ComposeModal puts the email's own references back when it saves or sends.
-  const quotedBodyHtml = replyBody?.html
-    ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${escapeHtml(replyDate)}, ${escapeHtml(replyFromStr)} wrote:</p>${replyBody.html}</div>`
-    : null;
-
-  openCompose({
+  return {
+    myAccount,
     to: sender,
     cc: replyAll ? allRecipients : [],
     subject: rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:',
-    body: '',
-    quotedBody: quotedText,
-    quotedBodyHtml,
     inReplyTo: message.message_id,
     references: referencesChain,
     accountId: message.account_id,
@@ -153,8 +153,55 @@ export async function openReplyFromMessage(message, { accounts, folders, openCom
     originalFrom: sender,
     allRecipients,
     threadId: message.thread_id,
+  };
+}
+
+export function buildQuotedReply(message, replyBody) {
+  const replyDate = message.date ? new Date(message.date).toLocaleString() : '';
+  const replyAuthor = replySender(message);
+  const replyEmail = replyAuthor.email || '';
+  const replySafeName = replyAuthor.name.replace(/[\r\n]+/g, ' ');
+  const replyFromStr = replySafeName
+    ? `${replySafeName} <${replyEmail}>`
+    : replyEmail;
+  const quotedBody = replyBody?.text
+    ? `\n\n---\nOn ${replyDate}, ${replyFromStr} wrote:\n${replyBody.text.split('\n').map(l => '> ' + l).join('\n')}`
+    : '';
+  // Quoted as shown, images through MailFlow's proxy, so opening the composer never loads them
+  // from the sender; ComposeModal puts the email's own references back when it saves or sends.
+  const quotedBodyHtml = replyBody?.html
+    ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${escapeHtml(replyDate)}, ${escapeHtml(replyFromStr)} wrote:</p>${replyBody.html}</div>`
+    : null;
+  return { quotedBody, quotedBodyHtml };
+}
+
+export async function buildReplyDraftData(message, { accounts, folders, getMessageBody, replyAll = false, aiReply = false, body = '' }) {
+  const meta = buildReplyMetadata(message, { accounts, folders, replyAll });
+  const replyBody = await getMessageBody(message.id).catch(() => null);
+  const { quotedBody, quotedBodyHtml } = buildQuotedReply(message, replyBody);
+  return {
+    to: meta.to,
+    cc: meta.cc,
+    subject: meta.subject,
+    body,
+    quotedBody,
+    quotedBodyHtml,
+    inReplyTo: meta.inReplyTo,
+    references: meta.references,
+    accountId: meta.accountId,
+    aliasId: meta.aliasId,
+    isReply: meta.isReply,
+    isReplyAll: meta.isReplyAll,
+    originalFrom: meta.originalFrom,
+    allRecipients: meta.allRecipients,
+    threadId: meta.threadId,
     ...(aiReply ? { aiReply: true } : {}),
-  });
+  };
+}
+
+// `aiReply` opens the composer with "Reply with AI" ready for the user's instruction.
+export async function openReplyFromMessage(message, { accounts, folders, openCompose, getMessageBody, replyAll = false, aiReply = false, body = '' }) {
+  openCompose(await buildReplyDraftData(message, { accounts, folders, getMessageBody, replyAll, aiReply, body }));
 }
 
 export async function openForwardFromMessage(row, { openCompose, getMessageBody }) {

@@ -23,6 +23,8 @@ export default function ReadingPane() {
   const selectedFolder = useStore(s => s.selectedFolder);
   const selectedAccountId = useStore(s => s.selectedAccountId);
   const searchQuery = useStore(s => s.searchQuery);
+  const threadedSearch = useStore(s => s.threadedSearch);
+  const searchAllFolders = useStore(s => s.searchAllFolders);
   const threadMessages = useStore(s => s.threadMessages);
 
   const replyDraft = useStore(state => state.replyDrafts[selectedMessageId]);
@@ -52,13 +54,16 @@ export default function ReadingPane() {
   }
   shownRef.current = selected;
 
-  // A message with no thread of its own is just a message, and a search deliberately shows
-  // the one matched message rather than its conversation.
-  const pane = !shouldUseConversationPane({ mode, searchQuery, message: selected }) ? <MessagePane /> : (
+  // A message with no thread of its own is just a message; search opens the conversation pane
+  // when threaded search is active, or falls back to the single-message pane otherwise.
+  const isCrossFolderSearch = Boolean(searchQuery.trim())
+    && (!selectedAccountId || searchAllFolders || /(?:^|\s)-?in:(?:"[^"]*"|\S+)/i.test(searchQuery));
+  const paneFolder = isCrossFolderSearch ? (selected?.folder || selectedFolder) : selectedFolder;
+  const pane = !shouldUseConversationPane({ mode, searchQuery, message: selected, threadedSearch }) ? <MessagePane /> : (
 
     <ConversationPane
       threadId={selected.thread_id}
-      folder={selectedFolder}
+      folder={paneFolder}
       unified={!selectedAccountId}
       // The account whose copies the conversation's actions take. In a single-account view a list
       // row speaks for its own account, as the list's actions on it do: the selected account,

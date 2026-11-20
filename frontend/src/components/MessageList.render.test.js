@@ -1720,3 +1720,63 @@ describe('MessageList: a resync waits for the list to reload', () => {
     assert.equal(done, true);
   });
 });
+
+describe('MessageList — Sent-in-Inbox threading', () => {
+  test('requests includeSent=true when enabled and renders "To:" for Sent-initiated rows while refusing Sent-only archive', async () => {
+    const sentRow = {
+      ...MESSAGE,
+      id: 'sent-row-1',
+      message_id: '<sent-row-1@example.com>',
+      folder: 'Sent',
+      thread_folder: 'Sent',
+      from_email: ACCOUNT.email_address,
+      from_name: 'Me',
+      thread_to_addresses: [{ name: 'Bob', email: 'bob@example.test' }],
+      to_addresses: [{ name: 'Bob', email: 'bob@example.test' }],
+      date: '2026-10-02T12:00:00Z',
+      thread_id: 'thr-sent-1',
+      message_count: 1,
+      unread_count: 0,
+    };
+    const inboxFromSelf = {
+      ...MESSAGE,
+      id: 'inbox-self-row',
+      message_id: '<inbox-self-row@example.com>',
+      folder: 'INBOX',
+      thread_folder: 'INBOX',
+      from_email: ACCOUNT.email_address,
+      from_name: 'Sender Self',
+      date: '2026-10-01T12:00:00Z',
+      thread_id: 'thr-inb-self',
+      message_count: 2,
+      unread_count: 0,
+    };
+
+    useStore.setState({ threadInboxSent: true, hoverQuickActions: true, hoverActionSet: ['archive'], notifications: [] });
+    CALLS = [];
+    await mount({ rows: [sentRow, inboxFromSelf], threadedView: true });
+    assert.ok(CALLS.some(c => c.path.includes('/mail/messages?') && c.path.includes('includeSent=true')), 'sends includeSent=true');
+    const sentEl = container.querySelector('[data-msgid="sent-row-1"]');
+    assert.ok(sentEl.textContent.includes('message.to Bob'), 'displays recipient for Sent-initiated thread');
+    const inboxEl = container.querySelector('[data-msgid="inbox-self-row"]');
+    assert.ok(inboxEl.textContent.includes('Sender Self'), 'keeps sender display for INBOX threads');
+
+    // Hover Archive on Sent-only 1-message row stays in Inbox and shows notice without hitting bulk-archive
+    CALLS = [];
+    const header = sentEl.querySelector('[draggable]');
+    await React.act(async () => { header.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true })); });
+    const archBtn = sentEl.querySelector('button[title="shortcuts.actions.archive.label"]');
+    assert.ok(archBtn);
+    await React.act(async () => { archBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    await React.act(async () => { await new Promise(r => setTimeout(r, 30)); });
+    assert.equal(CALLS.some(c => c.path.includes('bulk-archive')), false, 'never archives Sent-only row from Inbox');
+    assert.ok(container.querySelector('[data-msgid="sent-row-1"]'), 'Sent-only row remains listed');
+    assert.ok(useStore.getState().notifications.some(n => n.title === 'message.archived.sentOnlyNotice'), 'shows sent-only notice');
+
+    // Disabling threadInboxSent omits includeSent from query params
+    CALLS = [];
+    await React.act(async () => { useStore.setState({ threadInboxSent: false }); await new Promise(r => setTimeout(r, 30)); });
+    assert.equal(CALLS.filter(c => c.path.includes('/mail/messages?')).at(-1).path.includes('includeSent=true'), false);
+    useStore.setState({ threadInboxSent: true, notifications: [] });
+  });
+});

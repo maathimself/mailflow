@@ -29,7 +29,9 @@ test('already-seen arrivals do not inflate badges; count events update without r
   const original = api.getUnreadCounts;
   api.getUnreadCounts = async () => ({ ...counts, byAccount: { a: 2 }, snapshots: { a: { ...counts.snapshots.a, revision: '2' } } });
   let listRefreshes = 0;
+  const threadRefreshes = [];
   window.addEventListener('mailflow:refresh', () => listRefreshes++);
+  window.addEventListener('mailflow:thread_refresh', (e) => threadRefreshes.push(e.detail));
   try {
     await React.act(async () => { root.render(React.createElement(App)); });
     await React.act(async () => { socket.onmessage({ data: JSON.stringify({ type: 'exists_hint', accountId: 'a', delta: 5 }) }); });
@@ -37,6 +39,10 @@ test('already-seen arrivals do not inflate badges; count events update without r
     await React.act(async () => { socket.onmessage({ data: JSON.stringify({ type: 'folder_counts', accountId: 'a' }) }); });
     assert.equal(useStore.getState().unreadCounts.byAccount.a,2);
     assert.equal(listRefreshes,0);
+    await React.act(async () => { socket.onmessage({ data: JSON.stringify({ type: 'flags_synced', accountId: 'a' }) }); });
+    assert.equal(listRefreshes, 1, 'flags_synced refreshes the message list');
+    assert.deepEqual(threadRefreshes, [{ accountId: 'a' }], 'flags_synced notifies open threads');
+    listRefreshes = 0;
     useStore.setState({ selectedAccountId: 'a', selectedFolder: 'INBOX', replyDrafts: { selected: { exists: false } },
       folders: { a: [{ path: 'ServerDrafts', special_use: '\\Drafts' }] } });
     const revision = useStore.getState().replyDraftRevision;

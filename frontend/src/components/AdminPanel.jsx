@@ -2067,7 +2067,7 @@ function ChoiceChips({ options, isActive, onSelect, wrap = false }) {
 function LayoutsTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, conversationMode, setConversationMode, hoverQuickActions, setHoverQuickActions, hoverActionSet, setHoverActionSet, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews } = useStore();
+  const { layout, setLayout, pageSize, setPageSize, scrollMode, setScrollMode, conversationMode, setConversationMode, threadInboxSent, setThreadInboxSent, threadedSearch, setThreadedSearch, inlineQuickReply, setInlineQuickReply, hoverQuickActions, setHoverQuickActions, hoverActionSet, setHoverActionSet, showMobileAvatars, setShowMobileAvatars, gravatarAvatars, setGravatarAvatars, senderFavicons, senderFaviconsSaving, setSenderFavicons, showMessagePreviews, setShowMessagePreviews } = useStore();
   const [senderFaviconsError, setSenderFaviconsError] = useState('');
 
   const handleSelect = (key) => {
@@ -2133,6 +2133,26 @@ function LayoutsTab() {
             { id: 'list', label: t('admin.messageList.threadingOn'),   desc: t('admin.messageList.threadingOnDesc') },
             { id: 'pane', label: t('admin.messageList.threadingPane'), desc: t('admin.messageList.threadingPaneDesc') },
           ]} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+            <ToggleRow
+              label={t('admin.messageList.threadInboxSent')}
+              desc={t('admin.messageList.threadInboxSentDesc')}
+              checked={threadInboxSent}
+              onChange={setThreadInboxSent}
+            />
+            <ToggleRow
+              label={t('admin.messageList.threadedSearch')}
+              desc={t('admin.messageList.threadedSearchDesc')}
+              checked={threadedSearch}
+              onChange={setThreadedSearch}
+            />
+            <ToggleRow
+              label={t('admin.messageList.inlineQuickReply')}
+              desc={t('admin.messageList.inlineQuickReplyDesc')}
+              checked={inlineQuickReply}
+              onChange={setInlineQuickReply}
+            />
+          </div>
         </SettingRow>
 
         <SettingRow label={t('admin.messageList.showMessagePreviews')}>
@@ -8938,6 +8958,9 @@ function makeSearchIndex(t) {
       tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb,
     },
     { label: t('admin.messageList.threadingMode'), keywords: ['thread', 'conversation', 'grouping', 'threading', 'group'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
+    { label: t('admin.messageList.threadInboxSent'), keywords: ['sent', 'inbox', 'thread', 'follow up', 'sent initiated'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
+    { label: t('admin.messageList.threadedSearch'), keywords: ['search', 'thread', 'conversation', 'search results'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
+    { label: t('admin.messageList.inlineQuickReply'), keywords: ['quick reply', 'inline reply', 'modal reply', 'reply', 'composer'], tab: 'appearance', subtab: 'layout', breadcrumb: layoutCrumb },
     // Behavior
     { label: t('admin.messageList.swipeActions'), keywords: ['swipe', 'gesture', 'mobile', 'swipe left', 'swipe right', 'touch'], tab: 'behavior', breadcrumb: behaviorCrumb },
     { label: t('admin.messageList.syncFrequency'), keywords: ['sync', 'interval', 'frequency', 'refresh', 'poll', 'check mail', '15s', '30s', '60s'], tab: 'behavior', breadcrumb: behaviorCrumb },

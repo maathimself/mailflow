@@ -568,7 +568,8 @@
       "conversationTitle": "Konverzace archivována",
       "nothingFromAccount": "V této konverzaci není z tohoto účtu nic k archivaci",
       "otherAccountMessage": "Nic nebylo archivováno: otevřená zpráva je z jiného účtu",
-      "otherAccountDraft": "Nic nebylo archivováno: otevřený koncept je z jiného účtu"
+      "otherAccountDraft": "Nic nebylo archivováno: otevřený koncept je z jiného účtu",
+      "sentOnlyNotice": "Nic nebylo archivováno: tato konverzace obsahuje pouze odeslané zprávy"
     },
     "moved": {
       "title": "Zpráva přesunuta",
@@ -1708,6 +1709,12 @@
       "threadingOnDesc": "Odpovědi se seskupují do konverzací",
       "threadingPane": "Podokno čtení",
       "threadingPaneDesc": "Celá konverzace se otevře najednou",
+      "threadInboxSent": "Zobrazovat odeslané konverzace v Doručené poště",
+      "threadInboxSentDesc": "Zahrnout vlákna zahájená v Odeslaných a vaše následné odpovědi do seznamu Doručené při zapnutém seskupování",
+      "threadedSearch": "Seskupovat výsledky vyhledávání do konverzací",
+      "threadedSearchDesc": "Zobrazovat nalezená vlákna jako konverzace místo jednotlivých zpráv při zapnutém seskupování",
+      "inlineQuickReply": "Rychlá odpověď přímo v konverzaci",
+      "inlineQuickReplyDesc": "Zobrazovat rychlou odpověď v dolní části konverzace místo otevírání okna pro psaní",
       "composeFormat": "Formát zpráv",
       "composeRichText": "Formátovaný text",
       "composeRichTextDesc": "Odesílá HTML — podporuje formátování a stylované podpisy",
@@ -2574,5 +2581,11 @@
     "adminEnable": "Povolit uživatelům webhooky oznámení",
     "origins": "Povolené soukromé zdroje (jeden na řádek)",
     "originsHelp": "Zadejte přesné zdroje včetně protokolu, hostitele a portu, bez cesty. Veřejné cíle vyžadují HTTPS. Povolené soukromé cíle mohou používat HTTP; adresy zpětné smyčky, link-local a vyhrazené adresy zůstávají blokované."
+  },
+  "quickReply": {
+    "regionLabel": "Rychlá odpověď",
+    "placeholder": "Napsat rychlou odpověď…",
+    "popOut": "Otevřít v plném editoru",
+    "signatureIncluded": "Podpis bude připojen"
   }
 }

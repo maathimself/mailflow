@@ -176,6 +176,7 @@ export const useStore = create((set, get) => ({
         imageWhitelist: { addresses: [], domains: [] }, shortcuts: {}, aiActions: null,
         hiddenFolders: {}, categorizationEnabled: false, gtdPetSlug: null,
         autoOpenReplyDrafts: false, afterRemove: 'next', darkEmailBodies: true,
+        threadInboxSent: true, threadedSearch: true, inlineQuickReply: true,
         // Folder shortcuts name the previous user's accounts and folders. Left in place, the
         // next user's first favorite saved them into that user's own preferences.
         favoriteFolders: [], recentFolders: [], defaultSender: '', listSort: {},
@@ -919,6 +920,31 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ darkEmailBodies: Boolean(value) });
   },
 
+  // Thread enhancements (#spark-style): on by default when Conversation threading is active.
+  threadInboxSent: localStorage.getItem('mailflow_thread_inbox_sent') !== 'false',
+  setThreadInboxSent: (value) => {
+    const v = Boolean(value);
+    localStorage.setItem('mailflow_thread_inbox_sent', String(v));
+    set({ threadInboxSent: v });
+    schedulePrefSave({ threadInboxSent: v });
+  },
+
+  threadedSearch: localStorage.getItem('mailflow_threaded_search') !== 'false',
+  setThreadedSearch: (value) => {
+    const v = Boolean(value);
+    localStorage.setItem('mailflow_threaded_search', String(v));
+    set({ threadedSearch: v });
+    schedulePrefSave({ threadedSearch: v });
+  },
+
+  inlineQuickReply: localStorage.getItem('mailflow_inline_quick_reply') !== 'false',
+  setInlineQuickReply: (value) => {
+    const v = Boolean(value);
+    localStorage.setItem('mailflow_inline_quick_reply', String(v));
+    set({ inlineQuickReply: v });
+    schedulePrefSave({ inlineQuickReply: v });
+  },
+
   markReadBehavior: localStorage.getItem('mailflow_mark_read_behavior') || 'immediate',
   setMarkReadBehavior: (val) => {
     localStorage.setItem('mailflow_mark_read_behavior', val);
@@ -1518,6 +1544,18 @@ export const useStore = create((set, get) => ({
       if (typeof prefs.darkEmailBodies === 'boolean') {
         localStorage.setItem('mailflow_dark_email_bodies', String(prefs.darkEmailBodies));
         set({ darkEmailBodies: prefs.darkEmailBodies });
+      }
+      if (typeof prefs.threadInboxSent === 'boolean') {
+        localStorage.setItem('mailflow_thread_inbox_sent', String(prefs.threadInboxSent));
+        set({ threadInboxSent: prefs.threadInboxSent });
+      }
+      if (typeof prefs.threadedSearch === 'boolean') {
+        localStorage.setItem('mailflow_threaded_search', String(prefs.threadedSearch));
+        set({ threadedSearch: prefs.threadedSearch });
+      }
+      if (typeof prefs.inlineQuickReply === 'boolean') {
+        localStorage.setItem('mailflow_inline_quick_reply', String(prefs.inlineQuickReply));
+        set({ inlineQuickReply: prefs.inlineQuickReply });
       }
       if (['next', 'previous', 'list'].includes(prefs.afterRemove)) {
         localStorage.setItem('mailflow_after_remove', prefs.afterRemove);

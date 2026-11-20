@@ -177,7 +177,7 @@ const sparingDrafts = (resolve, anchorId, accountId) => resolve
 const inArchiveScope = (list, { anchorId, folder, accountId }) => {
   if (!folder) return list;
   const anchor = list.find(message => message?.id === anchorId) || newestConversationMessage(list);
-  return anchor ? archiveTargetsForFolder(anchor, list, folder, true, accountId) : list;
+  return anchor ? archiveTargetsForFolder(anchor, list, folder, true, accountId, { excludeSentOnly: folder === 'INBOX' }) : list;
 };
 
 export function archiveThread(messages, { t, addNotification, fetchThread, anchorId, folder, accountId, beforeRemove }) {

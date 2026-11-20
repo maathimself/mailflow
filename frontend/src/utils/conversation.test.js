@@ -129,8 +129,11 @@ describe('shouldUseConversationPane', () => {
     }), true);
   });
 
-  it('keeps search results and single messages in the single-message pane', () => {
+  it('keeps search results in the single-message pane unless threadedSearch is enabled', () => {
     assert.equal(shouldUseConversationPane({ mode: 'pane', searchQuery: 'invoice', message: threadedMessage }), false);
+    assert.equal(shouldUseConversationPane({ mode: 'pane', searchQuery: 'invoice', message: threadedMessage, threadedSearch: false }), false);
+    assert.equal(shouldUseConversationPane({ mode: 'pane', searchQuery: 'invoice', message: threadedMessage, threadedSearch: true }), true);
+    assert.equal(shouldUseConversationPane({ mode: 'pane', searchQuery: 'invoice', message: { ...threadedMessage, message_count: 1 }, threadedSearch: true }), false);
     assert.equal(shouldUseConversationPane({ mode: 'pane', searchQuery: '', message: { ...threadedMessage, message_count: 1 } }), false);
   });
 

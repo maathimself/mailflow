@@ -34,6 +34,8 @@ const TRASH_FOLDER_SQL = `(special_use = '\\Trash'
   OR (lower(name) IN ('trash', 'deleted', 'deleted items', 'deleted messages') AND ${TOP_LEVEL_FOLDER_SQL}))`;
 const DRAFTS_FOLDER_SQL = `(special_use = '\\Drafts'
   OR (lower(name) IN ('drafts', 'draft') AND ${TOP_LEVEL_FOLDER_SQL}))`;
+const SENT_FOLDER_SQL = `(special_use = '\\Sent'
+  OR (lower(name) IN ('sent', 'sent items', 'sent mail', 'sent messages') AND ${TOP_LEVEL_FOLDER_SQL}))`;
 // Spam has no top-level rule: providers file it under many localized names (see resolveSpamFolder).
 const SPAM_FOLDER_SQL = `(special_use = '\\Junk'
   OR lower(name) ~ '(spam|junk|bulk|indesiderata|spamverdacht|courrier ind|posta indesiderata)')`;
@@ -63,6 +65,88 @@ export const trashMessageSql = (m = 'm') => `EXISTS (
         WHERE uf.account_id = ${m}.account_id AND uf.path = ea.folder_mappings->>'trash' AND uf.no_select = false
       ), ${TRASH_FOLDER_SQL})
   )`;
+
+const SENT_FALLBACK_NAMES = `('sent', 'sent items', 'sent mail', 'sent messages', '[gmail]/sent mail', '[google mail]/sent mail', 'inbox.sent', 'inbox/sent')`;
+
+// True for a message held in an account's Sent folder, via the folders table (respecting
+// folder_mappings->>'sent' when selectable, else special_use / top-level Sent names) or by
+// path fallback when the folders row is absent.
+export const sentFolderSql = (m = 'm') => `(EXISTS (
+    SELECT 1 FROM folders sf
+    WHERE sf.account_id = ${m}.account_id AND sf.path = ${m}.folder AND sf.no_select = false
+      AND COALESCE(sf.path = (
+        SELECT uf.path FROM folders uf JOIN email_accounts ea ON ea.id = uf.account_id
+        WHERE uf.account_id = ${m}.account_id AND uf.path = ea.folder_mappings->>'sent' AND uf.no_select = false
+      ), ${SENT_FOLDER_SQL})
+  ) OR (
+    NOT EXISTS (SELECT 1 FROM folders sf2 WHERE sf2.account_id = ${m}.account_id AND sf2.path = ${m}.folder)
+    AND (
+      lower(${m}.folder) IN ${SENT_FALLBACK_NAMES}
+      OR ${m}.folder = (SELECT ea.folder_mappings->>'sent' FROM email_accounts ea WHERE ea.id = ${m}.account_id)
+    )
+  ))`;
+
+// Materialized folder-role lookup CTEs for queries that check Sent/Drafts membership across
+// multiple subqueries (avoids nested correlated subplans and PostgreSQL JIT overhead).
+export const sentInboxRoleCtes = (accountScopeSql = 'ea.id = ANY($1)') => `_folder_roles AS MATERIALIZED (
+  SELECT f.account_id, f.path,
+    (NOT f.no_select AND COALESCE(
+      f.path = (SELECT uf.path FROM folders uf WHERE uf.account_id = ea.id AND uf.path = ea.folder_mappings->>'sent' AND uf.no_select = false LIMIT 1),
+      (f.special_use = '\\Sent' OR (lower(f.name) IN ('sent', 'sent items', 'sent mail', 'sent messages') AND (f.path = f.name OR upper(f.path) = ('INBOX' || f.delimiter || upper(f.name)))))
+    )) AS is_sent,
+    (f.special_use = '\\Drafts'
+      OR (lower(f.name) IN ('drafts', 'draft') AND (f.path = f.name OR upper(f.path) = ('INBOX' || f.delimiter || upper(f.name))))
+      OR f.path = (ea.folder_mappings->>'drafts')) AS is_draft
+  FROM folders f
+  JOIN email_accounts ea ON ea.id = f.account_id
+  WHERE ${accountScopeSql}
+),
+_acct_sent AS MATERIALIZED (
+  SELECT ea.id AS account_id, ea.folder_mappings->>'sent' AS mapped_sent
+  FROM email_accounts ea
+  WHERE ${accountScopeSql}
+)`;
+
+export const draftMessageFromRolesSql = (m = 'm') => `(COALESCE(${m}.flags ? '\\Draft', false)
+  OR EXISTS (SELECT 1 FROM _folder_roles fr WHERE fr.account_id = ${m}.account_id AND fr.path = ${m}.folder AND fr.is_draft))`;
+
+export const sentFolderFromRolesSql = (m = 'm') => `(EXISTS (
+    SELECT 1 FROM _folder_roles fr WHERE fr.account_id = ${m}.account_id AND fr.path = ${m}.folder AND fr.is_sent
+  ) OR (
+    NOT EXISTS (SELECT 1 FROM _folder_roles fr WHERE fr.account_id = ${m}.account_id AND fr.path = ${m}.folder)
+    AND (
+      lower(${m}.folder) IN ${SENT_FALLBACK_NAMES}
+      OR EXISTS (SELECT 1 FROM _acct_sent ac WHERE ac.account_id = ${m}.account_id AND ac.mapped_sent = ${m}.folder)
+    )
+  ))`;
+
+// Record dismissed (account_id, thread_key) pairs when INBOX copies are deleted directly during
+// Gmail All-Mail archiving, preventing Sent-initiated rows from resurfacing in Inbox.
+export async function dismissSentInboxThreads(rows) {
+  if (!Array.isArray(rows) || !rows.length) return;
+  const pairs = new Map();
+  for (const row of rows) {
+    if (!row?.account_id || !row?.thread_key) continue;
+    pairs.set(`${row.account_id}\0${row.thread_key}`, [row.account_id, row.thread_key]);
+  }
+  if (!pairs.size) return;
+  const accountIds = [];
+  const threadKeys = [];
+  for (const [accountId, threadKey] of pairs.values()) {
+    accountIds.push(accountId);
+    threadKeys.push(threadKey);
+  }
+  try {
+    await query(
+      `INSERT INTO sent_inbox_dismissed (account_id, thread_key)
+       SELECT * FROM unnest($1::uuid[], $2::text[])
+       ON CONFLICT (account_id, thread_key) DO UPDATE SET dismissed_at = NOW()`,
+      [accountIds, threadKeys]
+    );
+  } catch (err) {
+    if (err?.code !== '42P01') throw err;
+  }
+}
 
 // Resolve the canonical trash folder path for an account (used as move destination).
 // folder_mappings.trash (user-configured) takes priority over special_use and name heuristics,

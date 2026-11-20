@@ -16,11 +16,15 @@ import { useSwipeBack } from '../hooks/useSwipeBack.js';
 import SwipePager from './SwipePager.jsx';
 import { buildPrintDocument, openPrintWindow, printInWindow } from '../utils/printMessage.js';
 import ConversationMessageCard from './ConversationMessageCard.jsx';
+import InlineQuickReply from './InlineQuickReply.jsx';
 import { aiReplyAvailable } from '../utils/aiReply.js';
 import ContextMenu from './ContextMenu.jsx';
-import { prefetchBody } from '../utils/bodyCache.js';
+import { bodyCache, prefetchBody } from '../utils/bodyCache.js';
 import { applyReadGuard } from '../utils/pendingReads.js';
 import { applyDeleteGuard } from '../utils/pendingDeletes.js';
+import { openReplyFromMessage } from '../utils/composeFromMessage.js';
+import { topOpenMessageWindow } from '../utils/messageHotkeys.js';
+import { shortcutBus } from '../utils/shortcutBus.js';
 import { ActionBtn, ArchiveIcon, MoveIcon, SnoozeIcon, SpamIcon, PrintIcon, TrashIcon, useShortcutTitle } from './MessageActions.jsx';
 import { PluginSlot } from '../plugins/PluginSlot.jsx';
 
@@ -68,7 +72,10 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   });
   const setSelectedMessage = useStore(s => s.setSelectedMessage);
   const updateMessage = useStore(s => s.updateMessage);
+  const openCompose = useStore(s => s.openCompose);
   const plaintextEmail = useStore(s => s.plaintextEmail);
+  const inlineQuickReply = useStore(s => s.inlineQuickReply);
+  const replyDefault = useStore(s => s.replyDefault);
   const [messages, setMessages] = useState([]);
   const [expanded, setExpanded] = useState(() => new Set());
   const [error, setError] = useState(null);
@@ -77,6 +84,8 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   // into the relevant sub-view rather than reimplemented here. message is the copy they open on.
   const [picker, setPicker] = useState(null);
   const [openedOnNewest, setOpenedOnNewest] = useState(null);
+  const [quickReplyTarget, setQuickReplyTarget] = useState(null);
+  const quickReplyTokenRef = useRef(0);
   // The conversation the cards on screen belong to, set when its fetch lands (the stack's key).
   const [loadedConversation, setLoadedConversation] = useState(null);
   const [aiStatus, setAiStatus] = useState(null);
@@ -149,11 +158,37 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
     return () => { cancelled = true; };
   }, [threadId, folder, unified, accountId, listedVersion]);
 
+  useEffect(() => {
+    if (!threadId) return undefined;
+    let active = true;
+    const onThreadRefresh = (e) => {
+      const evAccountId = e?.detail?.accountId;
+      if (accountId && evAccountId && evAccountId !== accountId) return;
+      api.getThread(threadId, folder, unified)
+        .then(data => {
+          if (!active) return;
+          setMessages(prev => {
+            if (!prev.length) return prev;
+            return normalizeConversation(applyReadGuard(applyDeleteGuard(data?.messages || []), prev));
+          });
+        })
+        .catch(() => {});
+    };
+    window.addEventListener('mailflow:thread_refresh', onThreadRefresh);
+    return () => {
+      active = false;
+      window.removeEventListener('mailflow:thread_refresh', onThreadRefresh);
+    };
+  }, [threadId, folder, unified, accountId]);
+
   // The pane stays mounted from one conversation to the next, so an open picker would
   // otherwise apply its pick to a conversation it was not opened on. The previous
   // conversation's cards and buttons stay on screen until the next one lands, so a picker can
   // still be opened on them after this runs; the fetch above closes that one when it lands.
-  useEffect(() => { setPicker(null); }, [threadId, accountId]);
+  useEffect(() => {
+    setPicker(null);
+    setQuickReplyTarget(null);
+  }, [threadId, accountId]);
 
   // Opening a message from the list opens it here too. Picking a different message in the
   // same thread leaves threadId untouched, so the pane used to re-render with identical
@@ -170,6 +205,53 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
     ? (openedOnNewest && messages.some(message => message.id === openedOnNewest) ? openedOnNewest : null)
       ?? newestConversationMessage(inAccount(messages, accountId))?.id ?? selectedMessageId
     : selectedMessageId;
+  const nonDraftMessages = messages.filter(message => !message?.is_draft);
+  const defaultQuickReplyTarget = newestConversationMessage(inAccount(nonDraftMessages, accountId))
+    || newestConversationMessage(nonDraftMessages)
+    || null;
+  const explicitQuickReplyMessage = quickReplyTarget?.messageId
+    ? nonDraftMessages.find(message => message.id === quickReplyTarget.messageId) || null
+    : null;
+  const activeQuickReplyTarget = explicitQuickReplyMessage || defaultQuickReplyTarget;
+  const focusedReplyMessage = (focusedId ? nonDraftMessages.find(message => message.id === focusedId) : null)
+    || defaultQuickReplyTarget;
+
+  const handleInlineReply = (message, replyAll) => {
+    if (!message || message.is_draft) return;
+    quickReplyTokenRef.current += 1;
+    setQuickReplyTarget({
+      messageId: message.id,
+      replyAll: Boolean(replyAll),
+      token: quickReplyTokenRef.current,
+    });
+  };
+
+  const shortcutReplyRef = useRef(null);
+  shortcutReplyRef.current = (replyAll) => {
+    if (!focusedReplyMessage) return;
+    if (inlineQuickReply) {
+      handleInlineReply(focusedReplyMessage, replyAll);
+      return;
+    }
+    openReplyFromMessage(focusedReplyMessage, {
+      accounts,
+      folders: useStore.getState().folders,
+      openCompose,
+      getMessageBody: id => Promise.resolve(bodyCache.get(id) || api.getMessageBody(id)),
+      replyAll,
+    });
+  };
+  useEffect(() => {
+    const active = () => topOpenMessageWindow(useStore.getState()) == null;
+    const onReply = () => { if (active()) shortcutReplyRef.current?.(useStore.getState().replyDefault === 'replyAll'); };
+    const onReplyAll = () => { if (active()) shortcutReplyRef.current?.(true); };
+    shortcutBus.on('reply', onReply);
+    shortcutBus.on('replyAll', onReplyAll);
+    return () => {
+      shortcutBus.off('reply', onReply);
+      shortcutBus.off('replyAll', onReplyAll);
+    };
+  }, []);
   useEffect(() => {
     if (!selectedHere || !focusedId) return;
     setExpanded(prev => (prev.has(focusedId) ? prev : new Set(prev).add(focusedId)));
@@ -199,10 +281,22 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
   // reader sent to report as spam, or, for Archive and Move, the other account's draft picked under
   // the row. Moving on as if it had worked would hide that, and so would staying put without a word:
   // the conversation stays open and a notice says so.
-  const sayNothingTaken = (name) => addNotification({
-    title: t((otherAccountsDraft(messages, selectedMessageId, accountId) && NOTHING_TO_TAKE_DRAFT[name])
-      || (!accountId && NOTHING_TO_TAKE_UNIFIED[name]) || NOTHING_TO_TAKE[name]),
-  });
+  const sayNothingTaken = (name) => {
+    const effectiveFolder = folder || (unified ? 'INBOX' : folder);
+    if (
+      name === 'archive'
+      && effectiveFolder === 'INBOX'
+      && !otherAccountsDraft(messages, selectedMessageId, accountId)
+      && inAccount(messages, accountId).length > 0
+    ) {
+      addNotification({ title: t('message.archived.sentOnlyNotice') });
+      return;
+    }
+    addNotification({
+      title: t((otherAccountsDraft(messages, selectedMessageId, accountId) && NOTHING_TO_TAKE_DRAFT[name])
+        || (!accountId && NOTHING_TO_TAKE_UNIFIED[name]) || NOTHING_TO_TAKE[name]),
+    });
+  };
 
   const runAction = (name, action) => {
     const taken = action(messages, {
@@ -216,7 +310,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
       anchorId: selectedMessageId,
       // Archive moves only the copies in the folder being viewed, as the list's archive does: the
       // unified inbox is every account's INBOX, an account view is that account's folder.
-      folder: unified ? 'INBOX' : folder,
+      folder: folder || (unified ? 'INBOX' : folder),
       // Whose copies every action takes, Archive's included, as ReadingPane decides: in one
       // account's view the row's account even when the reader picked the other account's copy
       // under the row, and null in the unified inbox.
@@ -414,7 +508,7 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
         // half, since a flex item defaults to min-width:auto and a wide email would
         // otherwise push the pane past its share of the row.
         style={{
-          flex: 1, minWidth: 0,
+          flex: 1, minWidth: 0, minHeight: 0,
           padding: 12, overflowY: 'auto',
           background: 'var(--bg-primary)',
         }}
@@ -429,10 +523,21 @@ export default function ConversationPane({ threadId, folder, unified = false, ac
             onUpdate={updateConversationMessage}
             aiEnabled={aiEnabled}
             aiReplyEnabled={aiReplyEnabled}
+            onInlineReply={inlineQuickReply && !message?.is_draft ? handleInlineReply : undefined}
           />
         ))}
       </div>
       </SwipePager>
+      {inlineQuickReply && activeQuickReplyTarget && (
+        <InlineQuickReply
+          key={loadedConversation ?? ''}
+          conversationKey={loadedConversation ?? ''}
+          targetMessage={activeQuickReplyTarget}
+          mode={quickReplyTarget?.token ? quickReplyTarget.replyAll : (replyDefault === 'replyAll')}
+          focusToken={quickReplyTarget?.token || 0}
+          isMobile={isMobile}
+        />
+      )}
     </div>
   );
 }

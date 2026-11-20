@@ -362,7 +362,8 @@
       "conversationTitle": "Conversación archivada",
       "nothingFromAccount": "No hay nada de esta cuenta que archivar en esta conversación",
       "otherAccountMessage": "No se archivó nada: el mensaje abierto es de otra cuenta",
-      "otherAccountDraft": "No se archivó nada: el borrador abierto es de otra cuenta"
+      "otherAccountDraft": "No se archivó nada: el borrador abierto es de otra cuenta",
+      "sentOnlyNotice": "No se archivó nada: esta conversación solo contiene mensajes enviados"
     },
     "moved": {
       "title": "Mensaje movido",
@@ -1372,6 +1373,12 @@
       "threadingOnDesc": "Las respuestas se agrupan en conversaciones",
       "threadingPane": "Panel de lectura",
       "threadingPaneDesc": "La conversación completa se abre junta",
+      "threadInboxSent": "Mostrar conversaciones enviadas en Recibidos",
+      "threadInboxSentDesc": "Incluir los hilos iniciados en Enviados y tus respuestas salientes en Recibidos cuando esté activada la agrupación",
+      "threadedSearch": "Agrupar resultados de búsqueda en conversaciones",
+      "threadedSearchDesc": "Mostrar los hilos coincidentes como conversaciones en lugar de mensajes sueltos cuando la vista de conversación esté activa",
+      "inlineQuickReply": "Respuesta rápida integrada en conversaciones",
+      "inlineQuickReplyDesc": "Mostrar un cuadro de respuesta rápida acoplado dentro de la conversación en lugar de abrir la ventana de redacción",
       "composeFormat": "Formato de redacción",
       "composeRichText": "Texto enriquecido",
       "composeRichTextDesc": "Envía HTML — admite formato y firmas con estilo",
@@ -2551,5 +2558,11 @@
     "adminEnable": "Permitir webhooks de notificación a los usuarios",
     "origins": "Orígenes privados permitidos (uno por línea)",
     "originsHelp": "Introduce orígenes exactos con protocolo, host y puerto, sin ruta. Los destinos públicos requieren HTTPS. Los destinos privados permitidos pueden usar HTTP; las direcciones de bucle local, enlace local y reservadas siguen bloqueadas."
+  },
+  "quickReply": {
+    "regionLabel": "Respuesta rápida",
+    "placeholder": "Escribe una respuesta rápida…",
+    "popOut": "Abrir en el editor completo",
+    "signatureIncluded": "Se añadirá la firma"
   }
 }
