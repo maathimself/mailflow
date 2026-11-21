@@ -79,6 +79,13 @@ self.addEventListener('push', (event) => {
           })
         );
 
+        // Tell every open MailFlow tab a push came. The push did not use the tab's socket, so a
+        // tab whose socket died without closing (a VPN or proxy dropping an idle stream) learns
+        // of the new mail here, and checks its socket (useWebSocket's PUSH_RECEIVED_EVENT).
+        for (const client of clients) {
+          try { client.postMessage({ type: 'mailflow_push' }); } catch (_) {}
+        }
+
         return Promise.all(promises);
       })
   );

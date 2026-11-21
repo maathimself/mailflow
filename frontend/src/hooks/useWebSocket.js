@@ -44,6 +44,8 @@ const STABLE_MS = 10000;
 // How long a socket that still says OPEN has to answer a ping when the tab comes back. A
 // connection that died while the device slept leaves the socket OPEN with no close to come.
 const PROBE_MS = 8000;
+// A push reached this browser: MailApp dispatches it when the service worker says so.
+export const PUSH_RECEIVED_EVENT = 'mailflow:push_received';
 
 export function useWebSocket() {
   const { t } = useTranslation();
@@ -422,8 +424,7 @@ export function useWebSocket() {
       reconnectAttempt.current = 0;
       connect();
     };
-    const revive = () => {
-      if (document.visibilityState !== 'visible') return;
+    const probe = () => {
       const ws = wsRef.current;
       if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
         reviveNow();
@@ -438,11 +439,33 @@ export function useWebSocket() {
         if ((ws._lastActivity || 0) < askedAt) reviveNow();
       }, PROBE_MS);
     };
+    const revive = () => {
+      if (document.visibilityState !== 'visible') return;
+      probe();
+    };
+    // A push reached this browser (MailApp forwards the service worker's note). The push travels
+    // through the browser's push service, not this socket, so it still arrives when the socket
+    // died without closing, which a VPN or proxy dropping an idle stream does. The polled counts
+    // then rose while the list never got the new mail. A healthy socket already delivered it, so
+    // only the socket is checked, hidden tab or not: a dead one is replaced, and the reconnect
+    // reloads the list and counts. One that is not open is reconnected, and the list and counts
+    // are reloaded now as well, in case the socket cannot come back but the API can.
+    const onPush = () => {
+      const state = wsRef.current?.readyState;
+      recordDiagEvent({ category: 'push', type: 'received', socketOpen: state === WebSocket.OPEN });
+      if (state !== WebSocket.OPEN) {
+        window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('mailflow:counts_refresh'));
+      }
+      probe();
+    };
     document.addEventListener('visibilitychange', revive);
     window.addEventListener('online', revive);
+    window.addEventListener(PUSH_RECEIVED_EVENT, onPush);
     return () => {
       document.removeEventListener('visibilitychange', revive);
       window.removeEventListener('online', revive);
+      window.removeEventListener(PUSH_RECEIVED_EVENT, onPush);
     };
   }, [connect]);
 

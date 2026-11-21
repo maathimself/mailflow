@@ -6,8 +6,9 @@
 //     restore that recreates rows, gives it a new id, so it loses its tags.
 //   - Different messages that share a Message-ID in one account share their tags.
 //   - Tags of an email that is gone are pruned after a 7-day grace period; mail that comes back later
-//     starts untagged.
+//     starts untagged. Not on Gmail, where a missing row does not mean the email is gone (below).
 import { query } from '../db.js';
+import { providerProfile } from '../providers.js';
 
 const DEF_COLUMNS = 'id, name, color';
 
@@ -125,18 +126,32 @@ const ORPHAN_GRACE = "interval '7 days'";
 const PRUNE_EVERY_MS = 6 * 60 * 60 * 1000;
 let lastPrune = 0;
 
+// Accounts whose tags are never pruned. On a label store (Gmail) archiving removes the only row
+// MailFlow keeps of a message, since All Mail is not synced, so a tag with no row is usually on
+// archived mail rather than on mail that is gone. Kept tags cost a row each and go with the account.
+async function labelStoreAccountIds() {
+  const { rows } = await query('SELECT id, imap_host, oauth_provider FROM email_accounts');
+  return rows.filter((account) => providerProfile(account)?.labelStore).map((account) => account.id);
+}
+
 // Tags whose email no longer exists (permanently deleted) are removed after a grace period. A move is a
 // delete followed by an insert, so a row is only marked when no message matches, unmarked if one comes
-// back, and deleted when it has stayed marked for the whole grace period.
+// back, and deleted when it has stayed marked for the whole grace period. Tags of label-store accounts
+// are never marked, and a mark already on one is cleared.
 export async function pruneOrphanTags() {
+  const kept = await labelStoreAccountIds();
   // Compare the uuid, not 'row:' || id::text, so both halves can use an index. The CASE keeps the
   // cast away from Message-ID keys, which an AND would not guarantee.
   const exists = `EXISTS (SELECT 1 FROM messages m WHERE m.account_id = message_tags.account_id
                            AND (m.message_id = message_tags.email_key
                                 OR m.id = CASE WHEN message_tags.email_key LIKE 'row:%' THEN substr(message_tags.email_key, 5)::uuid END))`;
-  await query(`UPDATE message_tags SET orphaned_at = NOW() WHERE orphaned_at IS NULL AND NOT ${exists}`);
-  await query(`UPDATE message_tags SET orphaned_at = NULL WHERE orphaned_at IS NOT NULL AND ${exists}`);
-  const { rowCount } = await query(`DELETE FROM message_tags WHERE orphaned_at IS NOT NULL AND orphaned_at < NOW() - ${ORPHAN_GRACE}`);
+  await query(`UPDATE message_tags SET orphaned_at = NOW()
+                WHERE orphaned_at IS NULL AND NOT (account_id = ANY($1::uuid[])) AND NOT ${exists}`, [kept]);
+  await query(`UPDATE message_tags SET orphaned_at = NULL
+                WHERE orphaned_at IS NOT NULL AND (account_id = ANY($1::uuid[]) OR ${exists})`, [kept]);
+  const { rowCount } = await query(`DELETE FROM message_tags
+                                     WHERE orphaned_at IS NOT NULL AND orphaned_at < NOW() - ${ORPHAN_GRACE}
+                                       AND NOT (account_id = ANY($1::uuid[]))`, [kept]);
   return rowCount;
 }
 

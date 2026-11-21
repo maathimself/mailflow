@@ -496,7 +496,8 @@
       "title_other": "{{count}} messages moved",
       "failTitle": "Move failed",
       "failBody_one": "Could not move {{count}} message.",
-      "failBody_other": "Could not move {{count}} messages."
+      "failBody_other": "Could not move {{count}} messages.",
+      "otherAccount": "Mail from another account was left in place: it can only move within its own account"
     },
     "bulkArchived": {
       "title_one": "{{count}} message archived",
@@ -1153,7 +1154,7 @@
       "errorLabelEmpty": "Enter a label name.",
       "errorLabelInvalid": "Label names can't use *, % or \\, can't start or end with /, can't be INBOX and can be at most 100 characters.",
       "labelFailed": "Couldn't apply “{{label}}” in {{account}} ({{when}}): {{error}}",
-      "labelFailedRetry": "Run rules now to try again.",
+      "labelFailedRetry": "Run rules on inbox to try again.",
       "actionSetCategorySelect": "Select a category…",
       "actionMovePlaceholder": "Exact IMAP folder path (e.g. Work or INBOX/Work)",
       "actionMoveSelectFolder": "Select a folder…",

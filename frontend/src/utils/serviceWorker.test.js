@@ -10,7 +10,7 @@ const SOURCE = readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf
 const ID = '11111111-1111-4111-8111-111111111111';
 
 // Load sw.js against a fake service worker scope. `respond(path, init)` answers fetch.
-function loadWorker(respond = () => ({ ok: true, json: async () => ({}) })) {
+function loadWorker(respond = () => ({ ok: true, json: async () => ({}) }), windows = []) {
   const listeners = {};
   const shown = [];
   const opened = [];
@@ -18,7 +18,7 @@ function loadWorker(respond = () => ({ ok: true, json: async () => ({}) })) {
   const self = {
     addEventListener: (type, fn) => { listeners[type] = fn; },
     registration: { showNotification: async (title, options) => { shown.push(JSON.parse(JSON.stringify({ title, options }))); } },
-    clients: { matchAll: async () => [], openWindow: async url => { opened.push(url); } },
+    clients: { matchAll: async () => windows, openWindow: async url => { opened.push(url); } },
     location: { origin: 'https://mail.example' },
   };
   const fetch = async (path, init) => {
@@ -100,4 +100,17 @@ test('a plain tap opens the message as before, and sends nothing', async () => {
   await sw.run('notificationclick', click('', { url: `/?m=${ID}`, messageId: ID }));
   assert.deepEqual(sw.fetches, []);
   assert.deepEqual(sw.opened, [`/?m=${ID}`]);
+});
+
+test('a push tells every open tab, so one whose socket died still hears of the new mail', async () => {
+  const posted = [];
+  const tab = name => ({ postMessage: data => posted.push({ name, data }) });
+  const broken = { postMessage: () => { throw new Error('detached'); } };
+  const sw = loadWorker(undefined, [tab('a'), broken, tab('b')]);
+  await sw.run('push', push({ title: 'Ann', body: 'Hi', url: `/?m=${ID}`, messageId: ID, unreadCount: 3 }));
+  assert.equal(sw.shown.length, 1, 'the notification is still shown');
+  assert.deepEqual(JSON.parse(JSON.stringify(posted)), [
+    { name: 'a', data: { type: 'mailflow_push' } },
+    { name: 'b', data: { type: 'mailflow_push' } },
+  ], 'a tab that cannot be reached does not stop the others');
 });

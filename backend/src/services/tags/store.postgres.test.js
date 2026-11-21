@@ -13,6 +13,7 @@ const U1 = '00000000-0000-4000-8000-000000000001';
 const U2 = '00000000-0000-4000-8000-000000000002';
 const A1 = '00000000-0000-4000-8000-0000000000a1';
 const A2 = '00000000-0000-4000-8000-0000000000a2';
+const GMAIL = '00000000-0000-4000-8000-0000000000a3';
 const M1 = '00000000-0000-4000-8000-0000000000b1';
 const M2 = '00000000-0000-4000-8000-0000000000b2';
 
@@ -28,7 +29,7 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('tags store (PostgreSQL
     await db.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE; CREATE SCHEMA ${schema}; SET search_path TO ${schema}, public`);
     await db.query(`
       CREATE TABLE users (id uuid PRIMARY KEY);
-      CREATE TABLE email_accounts (id uuid PRIMARY KEY, user_id uuid REFERENCES users(id));
+      CREATE TABLE email_accounts (id uuid PRIMARY KEY, user_id uuid REFERENCES users(id), imap_host text, oauth_provider text);
       CREATE TABLE messages (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), account_id uuid REFERENCES email_accounts(id), folder text, uid bigint,
         message_id text, UNIQUE (account_id, uid, folder));
       INSERT INTO users VALUES ('${U1}'), ('${U2}');
@@ -105,11 +106,11 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('tags follow the email 
     await db.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE; CREATE SCHEMA ${schema}; SET search_path TO ${schema}, public`);
     await db.query(`
       CREATE TABLE users (id uuid PRIMARY KEY);
-      CREATE TABLE email_accounts (id uuid PRIMARY KEY, user_id uuid REFERENCES users(id));
+      CREATE TABLE email_accounts (id uuid PRIMARY KEY, user_id uuid REFERENCES users(id), imap_host text, oauth_provider text);
       CREATE TABLE messages (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), account_id uuid REFERENCES email_accounts(id), folder text, uid bigint,
         message_id text, UNIQUE (account_id, uid, folder));
       INSERT INTO users VALUES ('${U1}');
-      INSERT INTO email_accounts VALUES ('${A1}', '${U1}');`);
+      INSERT INTO email_accounts VALUES ('${A1}', '${U1}', 'imap.x.example'), ('${GMAIL}', '${U1}', 'imap.gmail.com');`);
     await db.query(migration);
     query.mockImplementation((sql, params) => db.query(sql, params));
     urgent = await store.createDefinition(U1, { name: 'Urgent' });
@@ -169,6 +170,23 @@ describe.skipIf(!process.env.MAILFLOW_TEST_DATABASE_URL)('tags follow the email 
     await db.query("UPDATE message_tags SET orphaned_at = NOW() - interval '30 days' WHERE email_key = $1", [key]);
     await store.pruneOrphanTags();
     expect((await db.query('SELECT 1 FROM message_tags WHERE email_key = $1', [key])).rowCount).toBe(1);
+  });
+
+  it('on Gmail, tags of archived mail (no row left, All Mail is not synced) are never pruned, and an old mark is cleared', async () => {
+    const key = '<archived@gmail.example>';
+    await db.query('INSERT INTO messages (account_id, folder, uid, message_id) VALUES ($1, $2, $3, $4)', [GMAIL, 'INBOX', 90, key]);
+    await store.setManualTag(U1, await idOf(key), urgent.id, true);
+    await db.query('DELETE FROM messages WHERE message_id = $1', [key]); // the Gmail archive: the INBOX row goes, nothing replaces it
+    await store.pruneOrphanTags();
+    const row = async () => (await db.query('SELECT orphaned_at FROM message_tags WHERE email_key = $1', [key])).rows[0];
+    expect((await row()).orphaned_at).toBeNull();
+    // a mark written before this rule (as 4.5.0's first prunes could) is cleared, not acted on
+    await db.query("UPDATE message_tags SET orphaned_at = NOW() - interval '30 days' WHERE email_key = $1", [key]);
+    await store.pruneOrphanTags();
+    expect((await row()).orphaned_at).toBeNull();
+    // and the mail coming back to the inbox has its tag
+    await db.query('INSERT INTO messages (account_id, folder, uid, message_id) VALUES ($1, $2, $3, $4)', [GMAIL, 'INBOX', 91, key]);
+    expect(await namesOf(await idOf(key))).toEqual(['Urgent']);
   });
 
   it('setting a tag on a message again clears an orphan mark on it', async () => {

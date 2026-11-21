@@ -16,8 +16,10 @@ vi.mock('./mailAccess.js', () => ({ getAccountAddresses: vi.fn(async () => []) }
 
 import { ImapManager, PREFETCH_MAX_CONSECUTIVE_ERRORS, INLINE_IMAGE_REPEAT_BUDGET, hasIdlePooledClient, shouldPrewarmPool, acquirePooledClient, releasePooledClient, MIN_SYNC_INTERVAL_MS, AUTO_IDLE_DELAY_MS, countMissingInboxCopies, fetchBackfillBatch, providerProfile, makeClientCfg, relocateExemptGuard, insertCopiedSibling, rollbackCopiedMessageOnInsertFailure, deleteMessageCopyRow, emitSectionsChanged, ensureMailbox, createdPathFor, createKeyedSemaphore, isConnectionRefusal, connectCooldownMs, effectiveSyncIntervalMs, folderSyncDue, planModseqSync, connectStaggerFor, walkStructure, extractBodyFromMsg, attachmentsFromStructure, contentLocationFromMimeHeader, bodyFallbackApplies, parsePersistentCap, resolvePersistentCap, persistentEligible, shouldRetryIPv4, classifyMoveBySearch, pairMovedCopies, computeThreadId, noteDraftsChanged } from './imapManager.js';
 import { pluginRegistry } from '../plugins/registry.js';
+import { PROVIDERS } from './providers.js';
 import { ensureFreshToken, clearChangedSinceIgnored, isServerLimitFailure } from './imapManager.js';
 import { fetchSnippetBatch, structureParts } from './imapManager.js';
+import { withFreshClient } from './imapManager.js';
 import { clearCarries, hasCarries, rememberDroppedRows } from './movedRowCarry.js';
 import { clearRefreshFailure, noteFreshToken, noteRefreshFailure, refreshFailureFor } from './accountErrorCode.js';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
@@ -187,8 +189,9 @@ describe('providerProfile — host detection', () => {
     expect(providerProfile(account(host)).pushesFlags).toBe(false);
     expect(providerProfile(account(host)).speculativeFetch).toBe(false);
     expect(providerProfile(account(host)).snippetIndex).toBe(false);
-    // secondaryOverPool is a session-limited-provider knob, not a global flip.
-    expect(providerProfile(account(host)).secondaryOverPool).toBeUndefined();
+    // Gmail's 15-session limit: a pool of two, and folder status and the staleness probe ride it.
+    expect(providerProfile(account(host)).poolSize).toBe(2);
+    expect(providerProfile(account(host)).secondaryOverPool).toBe(true);
   });
 
   it.each([
@@ -201,6 +204,29 @@ describe('providerProfile — host detection', () => {
     expect(providerProfile(account(host)).snippetIndex).toBe(true);
     // Round 5 (#474): periodic secondary work rides the pool instead of fresh logins.
     expect(providerProfile(account(host)).secondaryOverPool).toBe(true);
+  });
+
+  it.each([
+    ['imap.zoho.com'],
+    ['imappro.zoho.com'],
+    ['imap.zoho.eu'],
+    ['imappro.zoho.in'],
+    ['imap.zoho.com.au'],
+    ['imap.zohocloud.ca'],
+  ])('detects zoho for %s, with its session budget', host => {
+    const profile = providerProfile(account(host));
+    expect(profile).toBe(PROVIDERS.zoho);
+    // Zoho allows about three sessions at once: one pooled session the periodic work shares,
+    // no pre-warm. Everything else as generic.
+    expect(profile).toEqual({ ...PROVIDERS.generic, poolSize: 1, poolPrewarm: false, secondaryOverPool: true });
+  });
+
+  it.each([
+    ['zoho.example.org'],
+    ['mail.notzoho.com'],
+    ['imap.zoho.com.example.net'],
+  ])('does not take %s for zoho', host => {
+    expect(providerProfile(account(host))).toBe(PROVIDERS.generic);
   });
 
   it.each([
@@ -6108,8 +6134,8 @@ describe('CONDSTORE-less full sync (#495)', () => {
 // Each test uses its own account id because the pool is module-level.
 describe('secondary work over the pool (#474 round 5)', () => {
   let seq = 900;
-  function arrange({ connect } = {}) {
-    const account = { id: `acct-r5-${++seq}`, user_id: 'u1', imap_host: 'imap.mail.yahoo.com', email_address: 'y@example.test', auth_user: 'y', auth_pass: 'enc' };
+  function arrange({ connect, host = 'imap.mail.yahoo.com' } = {}) {
+    const account = { id: `acct-r5-${++seq}`, user_id: 'u1', imap_host: host, email_address: 'y@example.test', auth_user: 'y', auth_pass: 'enc' };
     ImapFlow.mockImplementation(function () {
       const client = new EventEmitter();
       client.usable = true;
@@ -6139,6 +6165,70 @@ describe('secondary work over the pool (#474 round 5)', () => {
     expect(ImapFlow).toHaveBeenCalledTimes(1);    // the second cycle reused the session
     expect(seen[1]).toBe(seen[0]);
     expect(seen[0].close).not.toHaveBeenCalled(); // still pooled, not torn down per cycle
+  });
+
+  it('zoho: folder status shares the one pooled session too, no login per cycle', async () => {
+    const { mgr, account } = arrange({ host: 'imappro.zoho.com' });
+    const seen = [];
+    await mgr._withCountClient(account, async c => { seen.push(c); });
+    await mgr._withCountClient(account, async c => { seen.push(c); });
+    expect(ImapFlow).toHaveBeenCalledTimes(1);
+    expect(seen[1]).toBe(seen[0]);
+    expect(seen[0].close).not.toHaveBeenCalled();
+  });
+
+  // The integrity pass holds the one pooled session; new INBOX mail it takes in runs the inbox
+  // rules, whose move asks the pool again. That waited for its own caller until it timed out
+  // as busy and the rule was not applied. Now it gets a one-off login.
+  it('zoho: work holding the pooled session that asks for another gets a one-off login, not a wait', async () => {
+    const { mgr, account } = arrange({ host: 'imappro.zoho.com' });
+    let outer;
+    let inner;
+    const started = Date.now();
+    await mgr._withCountClient(account, async c => {
+      outer = c;
+      await withFreshClient(account, async c2 => { inner = c2; });
+    });
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(ImapFlow).toHaveBeenCalledTimes(2);
+    expect(inner).not.toBe(outer);
+    expect(inner.close).toHaveBeenCalled();     // the one-off login is closed at once
+    expect(outer.close).not.toHaveBeenCalled(); // the pooled session stays pooled
+    // Afterwards the pool is used as before: the next request reuses the pooled session.
+    let after;
+    await withFreshClient(account, async c => { after = c; });
+    expect(after).toBe(outer);
+    expect(ImapFlow).toHaveBeenCalledTimes(2);
+  });
+
+  it('gmail: a nested request takes the second pooled session while one is free', async () => {
+    const { mgr, account } = arrange({ host: 'imap.gmail.com' });
+    let outer;
+    let inner;
+    await mgr._withCountClient(account, async c => {
+      outer = c;
+      await withFreshClient(account, async c2 => { inner = c2; });
+    });
+    expect(ImapFlow).toHaveBeenCalledTimes(2);
+    expect(inner).not.toBe(outer);
+    expect(inner.close).not.toHaveBeenCalled(); // pooled, not a one-off
+  });
+
+  it('two separate requests that do not hold the session still queue for the one pooled session', async () => {
+    const { account } = arrange({ host: 'imappro.zoho.com' });
+    let release;
+    const first = withFreshClient(account, () => new Promise(r => { release = r; }));
+    await new Promise(r => setTimeout(r, 30));
+    let second = null;
+    const queued = withFreshClient(account, async c => { second = c; });
+    await new Promise(r => setTimeout(r, 60));
+    expect(ImapFlow).toHaveBeenCalledTimes(1); // no extra login for unrelated work
+    expect(second).toBe(null);
+    release();
+    await first;
+    await queued;
+    expect(second).not.toBe(null);
+    expect(ImapFlow).toHaveBeenCalledTimes(1);
   });
 
   it('a reused pooled session does not clear the secondary ladder', async () => {
