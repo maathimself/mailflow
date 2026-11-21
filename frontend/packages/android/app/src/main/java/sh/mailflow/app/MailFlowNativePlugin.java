@@ -66,6 +66,10 @@ public class MailFlowNativePlugin extends Plugin {
     private static final String TAG = "MailFlowUpdater";
     private static final String CHANNEL_NEW_MAIL = "mailflow_new_mail";
     private static final String CHANNEL_UPDATES = "mailflow_updates";
+    private static final String CHANNEL_CONNECTION = "mailflow_connection";
+    // Tagged, so the id cannot collide with the random new-mail ids or 1002.
+    private static final String TAG_CLIENT_CERT_MISSING = "client_certificate_missing";
+    private static final int ID_CLIENT_CERT_MISSING = 1004;
     private static final String PREFS_NAME = "mailflow-native";
     private static final String PREF_HOST = "host";
     private static final String PREF_INTENT_SECRET = "intent_secret";
@@ -403,6 +407,40 @@ public class MailFlowNativePlugin extends Plugin {
         try {
             NotificationManagerCompat.from(context).notify(notificationId, builder.build());
         } catch (SecurityException ignored) {}
+    }
+
+    // Posted from a worker, which can run before the plugin has loaded in this process, so the
+    // channel is ensured here. The caller sets its flag whether or not this can post.
+    static void postClientCertificateMissingNotification(Context context) {
+        if (!hasNotificationPermission(context)) return;
+        createNotificationChannel(context);
+
+        Intent openIntent = new Intent(context, MainActivity.class);
+        openIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent openPendingIntent = PendingIntent.getActivity(
+            context,
+            ID_CLIENT_CERT_MISSING,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        String body = "The client certificate for your MailFlow server is missing. Open MailFlow to choose one.";
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_CONNECTION)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("MailFlow can't reach your server")
+            .setContentText(body)
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(openPendingIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT);
+
+        try {
+            NotificationManagerCompat.from(context).notify(TAG_CLIENT_CERT_MISSING, ID_CLIENT_CERT_MISSING, builder.build());
+        } catch (SecurityException ignored) {}
+    }
+
+    static void cancelClientCertificateMissingNotification(Context context) {
+        NotificationManagerCompat.from(context).cancel(TAG_CLIENT_CERT_MISSING, ID_CLIENT_CERT_MISSING);
     }
 
     private static PendingIntent messageActionPendingIntent(Context context, int notificationId, String action, String messageId, String accountId, String folder, JSObject message) {
@@ -1247,6 +1285,14 @@ public class MailFlowNativePlugin extends Plugin {
             );
             updatesChannel.setDescription("MailFlow app update notifications.");
             manager.createNotificationChannel(updatesChannel);
+
+            NotificationChannel connectionChannel = new NotificationChannel(
+                CHANNEL_CONNECTION,
+                "Connection problems",
+                NotificationManager.IMPORTANCE_DEFAULT
+            );
+            connectionChannel.setDescription("Problems reaching your MailFlow server, such as a missing client certificate.");
+            manager.createNotificationChannel(connectionChannel);
         }
     }
 
