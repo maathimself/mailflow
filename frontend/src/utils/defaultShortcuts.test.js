@@ -1,7 +1,18 @@
 // Run with: node --test src/utils/defaultShortcuts.test.js
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildKeyMap, buildModKeyMap, getShortcutConflicts, resolveShortcutAction, shortcutBindingFromEvent } from './defaultShortcuts.js';
+
+// defaultShortcuts.js reads navigator.platform once, when it loads, and Node 22 has a global
+// navigator: on a Mac it says MacIntel, Ctrl resolved as Cmd, and five tests failed there only
+// (#783). So the platform is set before the module is loaded, Linux for these tests; the Mac
+// binding gets its own copy of the module below.
+const setPlatform = platform => Object.defineProperty(globalThis, 'navigator', { value: { platform }, configurable: true, writable: true });
+const realNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+setPlatform('Linux x86_64');
+const { buildKeyMap, buildModKeyMap, getShortcutConflicts, resolveShortcutAction, shortcutBindingFromEvent } = await import('./defaultShortcuts.js');
+setPlatform('MacIntel');
+const mac = await import('./defaultShortcuts.js?platform=mac');
+if (realNavigator) Object.defineProperty(globalThis, 'navigator', realNavigator); else delete globalThis.navigator;
 
 const keyEvent = (key, modifiers = {}) => ({ key, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, ...modifiers });
 
@@ -135,5 +146,13 @@ describe('modifier shortcuts', () => {
     assert.deepEqual(getShortcutConflicts({ toggleStar: 'shift+ctrl+U' }), [
       { key: 'ctrl+shift+u', loser: 'unsubscribe', winner: 'toggleStar' },
     ]);
+  });
+});
+
+describe('on a Mac', () => {
+  it('Cmd is the command modifier and Ctrl is not', () => {
+    assert.equal(mac.resolveShortcutAction(keyEvent('U', { metaKey: true, shiftKey: true })), 'unsubscribe');
+    assert.notEqual(mac.resolveShortcutAction(keyEvent('U', { ctrlKey: true, shiftKey: true })), 'unsubscribe');
+    assert.notEqual(resolveShortcutAction(keyEvent('U', { metaKey: true, shiftKey: true })), 'unsubscribe', 'and Cmd is not it elsewhere');
   });
 });
