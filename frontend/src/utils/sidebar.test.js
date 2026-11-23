@@ -234,6 +234,30 @@ describe('folder ordering', () => {
     assert.equal(reorderFolderPaths(folders, [], 'INBOX', 'Archive', 'middle'), null);
   });
 
+  it('reorders Gmail special-use folders among the folders they are drawn beside (#801)', () => {
+    const gmail = [
+      { path: 'INBOX', delimiter: '/', special_use: '\\Inbox' },
+      { path: '[Gmail]', delimiter: '/', special_use: null },
+      { path: '[Gmail]/Drafts', delimiter: '/', special_use: '\\Drafts' },
+      { path: '[Gmail]/Sent Mail', delimiter: '/', special_use: '\\Sent' },
+      { path: '[Gmail]/Starred', delimiter: '/', special_use: null },
+      { path: 'Receipts', delimiter: '/', special_use: null },
+    ];
+    const drawnRoots = buildFolderTree(gmail).map(node => node.path);
+    assert.ok(drawnRoots.includes('[Gmail]/Drafts') && drawnRoots.includes('INBOX'), 'drawn side by side');
+    const order = reorderFolderPaths(gmail, [], '[Gmail]/Drafts', 'INBOX', 'before');
+    assert.ok(order, 'Drafts above Inbox is accepted');
+    assert.ok(order.indexOf('[Gmail]/Drafts') < order.indexOf('INBOX'));
+    const roots = buildFolderTree(gmail, order).map(node => node.path);
+    assert.equal(roots.indexOf('[Gmail]/Drafts'), roots.indexOf('INBOX') - 1, `drawn just above Inbox: ${roots}`);
+    assert.ok(reorderFolderPaths(gmail, [], 'INBOX', '[Gmail]/Sent Mail', 'after'), 'Inbox after Sent');
+    assert.ok(reorderFolderPaths(gmail, [], 'Receipts', '[Gmail]/Drafts', 'before'), 'a label beside Drafts');
+    assert.equal(reorderFolderPaths(gmail, [], '[Gmail]/Starred', 'INBOX', 'before'), null,
+      'a plain [Gmail] child is still drawn under [Gmail], so not beside Inbox');
+    assert.equal(reorderFolderPaths(gmail, [], '[Gmail]/Drafts', '[Gmail]/Starred', 'before'), null,
+      'nor is Drafts beside it any more');
+  });
+
   it('selects a before or after drop edge from the row midpoint', () => {
     assert.equal(folderDropPosition(110, { top: 100, height: 40 }), 'before');
     assert.equal(folderDropPosition(130, { top: 100, height: 40 }), 'after');

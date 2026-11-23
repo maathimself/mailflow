@@ -204,6 +204,17 @@ export function buildFolderTree(folders, savedOrder = []) {
   return roots;
 }
 
+// The parent a folder is drawn under in the sidebar, as buildFolderTree places it: '' for the
+// top level. A special-use folder (Drafts, Sent, Trash...) is drawn at the top level wherever it
+// is on the server, as is a folder whose parent does not exist, so for Gmail's [Gmail]/Drafts that
+// is '', not '[Gmail]' (#801).
+function drawnParent(folderPath, folders, delimiter, knownPaths) {
+  const folder = folders.find(f => f?.path === folderPath);
+  if (isRootSpecialUse(folder)) return '';
+  const parentPath = folderParent(folderPath, delimiter);
+  return parentPath && parentPath !== folderPath && knownPaths.has(parentPath) ? parentPath : '';
+}
+
 export function reorderFolderPaths(
   folders,
   savedOrder,
@@ -216,11 +227,14 @@ export function reorderFolderPaths(
   const delimiter = delimiterFor(safeFolders);
   const current = normalizeFolderOrder(safeFolders, savedOrder);
   const known = new Set(current);
+  // Siblings as drawn, not as stored: the sidebar offers a drop between any two folders it shows
+  // side by side, and refusing one it offered did nothing, with no error (#801).
+  const drawn = new Set(folderPathsWithAncestors(safeFolders));
   if (
     draggedPath === targetPath
     || !known.has(draggedPath)
     || !known.has(targetPath)
-    || folderParent(draggedPath, delimiter) !== folderParent(targetPath, delimiter)
+    || drawnParent(draggedPath, safeFolders, delimiter, drawn) !== drawnParent(targetPath, safeFolders, delimiter, drawn)
   ) return null;
 
   const next = current.filter(folderPath => folderPath !== draggedPath);
