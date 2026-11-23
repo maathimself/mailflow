@@ -400,3 +400,43 @@ describe('Sidebar: dropping mail on a folder of another account (#785)', () => {
     }
   });
 });
+
+// #784: a favorite whose folder was deleted had no menu at all, so it could not be removed.
+describe('Sidebar: a favorite whose folder is gone', () => {
+  const rightClick = async el => {
+    await React.act(async () => {
+      el.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+    });
+  };
+  const rowLabel = text => [...dom.window.document.querySelectorAll('span')].find(s => s.textContent === text);
+  // SidebarCtxMenu's entries (CtxMenuItem): a flex row of icon and label, 9px apart.
+  const menuItems = () => [...dom.window.document.querySelectorAll('div')].filter(el => el.style.gap === '9px' && el.style.display === 'flex');
+  const menuEntries = () => menuItems().map(el => el.textContent.trim()).filter(Boolean);
+
+  test('right-click offers Remove from Favorites alone, and it removes the favorite', async () => {
+    await mount({ state: { favoriteFolders: [{ accountId: 'acct-1', path: 'Gone', label: 'Old receipts' }, { accountId: 'acct-1', path: 'Banking' }] } });
+    const label = rowLabel('Old receipts');
+    assert.ok(label, 'the favorite is listed');
+    await rightClick(label);
+    const entries = menuEntries();
+    assert.ok(entries.includes('Remove from Favorites'), entries.join(' | '));
+    assert.ok(!entries.includes('sidebar.folderMenu.rename') && !entries.includes('sidebar.folderMenu.markAllRead'), entries.join(' | '));
+    const remove = menuItems().find(el => el.textContent.trim() === 'Remove from Favorites');
+    await React.act(async () => { remove.click(); });
+    assert.deepEqual(useStore.getState().favoriteFolders.map(f => f.path), ['Banking']);
+  });
+
+  test('a favorite whose folder exists keeps the whole menu', async () => {
+    await mount({ state: { favoriteFolders: [{ accountId: 'acct-1', path: 'Banking', label: 'Bank' }] } });
+    await rightClick(rowLabel('Bank'));
+    const entries = menuEntries();
+    assert.ok(entries.includes('Remove from Favorites') && entries.includes('sidebar.folderMenu.markAllRead'), entries.join(' | '));
+  });
+
+  test('no menu before the account\'s folders are loaded: the folder is not known to be gone', async () => {
+    await mount({ state: { folders: {}, favoriteFolders: [{ accountId: 'acct-1', path: 'Banking', label: 'Bank' }] } });
+    const label = rowLabel('Bank');
+    if (label) await rightClick(label);
+    assert.ok(!menuEntries().includes('Remove from Favorites'));
+  });
+});

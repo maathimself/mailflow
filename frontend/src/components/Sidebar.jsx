@@ -738,6 +738,14 @@ export default function Sidebar() {
 
   // ── Folder context menu items ──────────────────────────────────────────────
   const buildFolderMenuItems = (accountId, folderObj) => {
+    // A favorite whose folder no longer exists: removing it is the one thing left to do (#784).
+    if (folderObj.missing) {
+      return [{
+        label: t('sidebar.folderMenu.unfavorite', 'Remove from Favorites'),
+        icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--amber)" stroke="var(--amber)" strokeWidth="1.75"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+        action: () => removeFavoriteFolder({ accountId, path: folderObj.path }),
+      }];
+    }
     const accountForFolder = accounts.find(a => a.id === accountId);
     const isProtected = isProtectedFolder(folderObj, accountForFolder?.folder_mappings);
     const isHidden = (hiddenFolders[accountId] || []).includes(folderObj.path);
@@ -1039,6 +1047,11 @@ export default function Sidebar() {
                 if (!account) return null;
                 const accountFolders = folders[accountId] || [];
                 const folderObj = accountFolders.find(f => f.path === path);
+                // A favorite whose folder is gone (deleted, renamed elsewhere) still gets a menu, with
+                // Remove from Favorites alone: without one it could not be removed at all (#784).
+                // Only once the account's folders are loaded, or every favorite is "gone" at start.
+                const menuFolder = folderObj
+                  || (Array.isArray(folders[accountId]) ? { path, name: label || path, missing: true } : null);
                 const isActive = selectedAccountId === accountId && selectedFolder === path;
                 const favBadge = folderBadge(folderObj, account.folder_mappings, t);
                 const isRenamingThis = renamingFav?.accountId === accountId && renamingFav?.path === path;
@@ -1100,8 +1113,8 @@ export default function Sidebar() {
                         favLongPressTimer.current = null;
                         favTouchStart.current = null;
                         window.getSelection()?.removeAllRanges();
-                        if (folderObj) {
-                          setFolderCtxMenu({ x, y, accountId, folderObj });
+                        if (menuFolder) {
+                          setFolderCtxMenu({ x, y, accountId, folderObj: menuFolder });
                           setAccountCtxMenu(null);
                         }
                       }, 500);
@@ -1135,8 +1148,8 @@ export default function Sidebar() {
                       e.preventDefault();
                       e.stopPropagation();
                       // Desktop right-click only — touch is fully handled above
-                      if (e.pointerType !== 'touch' && folderObj) {
-                        setFolderCtxMenu({ x: e.clientX, y: e.clientY, accountId, folderObj });
+                      if (e.pointerType !== 'touch' && menuFolder) {
+                        setFolderCtxMenu({ x: e.clientX, y: e.clientY, accountId, folderObj: menuFolder });
                         setAccountCtxMenu(null);
                       }
                     }}
