@@ -3,7 +3,7 @@ import { resolveConversationMode, groupsMessageList, conversationModeTransition,
 import { applyMessageUpdate } from '../utils/readState.js';
 import { api } from '../utils/api.js';
 import { signOut as signOutAndLeave } from '../utils/signOut.js';
-import { mergeCountSnapshots, adjustCountPending, expireCountPending, settleCountPending, displayCountSnapshot, mergeFolderSnapshots } from '../utils/countSnapshots.js';
+import { mergeCountSnapshots, adjustCountPending, expireCountPending, nextCountDeadline, settleCountPending, displayCountSnapshot, mergeFolderSnapshots } from '../utils/countSnapshots.js';
 import { resolveSelectedAccount, pruneFolders } from '../utils/accountScope.js';
 import { UNDO_COMMIT_DELAY_MS } from '../utils/undoableAction.js';
 import { aiRuns } from '../utils/aiRunRegistry.js';
@@ -98,20 +98,24 @@ let pendingCountTimer;
 const SCHEDULED_RESET = {
   scheduledCount: 0, scheduledAttention: 0, scheduledList: null, scheduledSummaries: {}, scheduledHighlight: null,
 };
+// Looks at the optimistic windows at their next deadline (utils/countSnapshots.js): retires the
+// ones that are done and asks the server for its count again, which is what settles the rest. A
+// window the server has not counted since its change is held past its backstop, so this keeps
+// asking every PENDING_COUNT_MS until a count comes back or the hold ends.
 function expirePendingCounts() {
   clearTimeout(pendingCountTimer);
-  const deadlines = Object.values(useStore.getState().pendingCounts).map(p => p.expiresAt);
-  if (!deadlines.length) { pendingCountTimer = null; return; }
+  const deadline = nextCountDeadline(useStore.getState().pendingCounts);
+  if (deadline == null) { pendingCountTimer = null; return; }
   pendingCountTimer = setTimeout(() => {
     pendingCountTimer = null;
     const state = useStore.getState();
     if (state.isLocked) return;
-    const pending = expireCountPending(state.pendingCounts);
+    const pending = expireCountPending(state.pendingCounts, Date.now(), state.serverUnreadCounts);
     useStore.setState({ pendingCounts: pending,
       unreadCounts: displayCountSnapshot(state.serverUnreadCounts, pending, state.accounts) });
     if (Object.keys(pending).length) expirePendingCounts();
     window.dispatchEvent(new CustomEvent('mailflow:counts_refresh'));
-  }, Math.max(1, Math.min(...deadlines) - Date.now()));
+  }, Math.max(1, deadline - Date.now()));
 }
 
 // The list a message was taken out of, by id, until it is put back (#630). An Undo, or a failed

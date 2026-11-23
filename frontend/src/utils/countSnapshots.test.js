@@ -1,6 +1,6 @@
 import { test, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mergeCountSnapshots, adjustCountPending, expireCountPending, settleCountPending, displayCountSnapshot, mergeFolderSnapshots, PENDING_COUNT_MS, PENDING_SETTLE_MS } from './countSnapshots.js';
+import { mergeCountSnapshots, adjustCountPending, expireCountPending, settleCountPending, displayCountSnapshot, mergeFolderSnapshots, nextCountDeadline, PENDING_COUNT_MS, PENDING_SETTLE_MS, PENDING_HOLD_MS } from './countSnapshots.js';
 import { UNDO_COMMIT_DELAY_MS } from './undoableAction.js';
 const accounts = [{ id: 'a', enabled: true }, { id: 'b', enabled: true }, { id: 'x', enabled: true, include_in_unified_inbox: false }];
 const sample = (a, b, revision = '1') => ({ byAccount: { a, b, x: 7 }, snapshots: Object.fromEntries(['a', 'b', 'x'].map(id => [id, { revision, known: true, stale: false, observedAt: new Date(0).toISOString() }])) });
@@ -42,13 +42,13 @@ test('an observation of the first read cannot settle a window a second read join
   const afterSecond = mergeCountSnapshots(afterFirst, sample(1, 20, '3'));
   assert.deepEqual(settleCountPending(pending, afterSecond, 6500 + PENDING_SETTLE_MS), {});
 });
-test('rollback cancels the deduction; a delayed rollback is bounded by its own fixed window', () => {
+test('rollback cancels the deduction; a delayed rollback is bounded by its own window', () => {
   const initial = sample(10, 20);
   let pending = adjustCountPending({}, initial, 'a', -1, 0);
   pending = adjustCountPending(pending, initial, 'a', 1, 50);
   assert.equal(displayCountSnapshot(initial, pending, accounts, 51).byAccount.a, 10);
   pending = adjustCountPending({}, initial, 'a', 1, 6000);
-  assert.equal(displayCountSnapshot(initial, pending, accounts, 6000 + PENDING_COUNT_MS).byAccount.a, 10);
+  assert.equal(displayCountSnapshot(initial, pending, accounts, 6000 + PENDING_HOLD_MS).byAccount.a, 10);
 });
 test('ordering uses per-account integer revisions without losing 64-bit precision', () => {
   const newer = sample(9, 17, '9007199254740993');
@@ -170,11 +170,88 @@ test('a held change still has a backstop, counted from when it is sent', () => {
   assert.deepEqual(expireCountPending(pending, UNDO_COMMIT_DELAY_MS + PENDING_COUNT_MS), {});
 });
 
-test('the backstop still applies when the observation never arrives', () => {
+test('a window the server has not counted since holds the change, for PENDING_HOLD_MS at most', () => {
+  // The count the server last gave is from before the change, so falling back to it at the
+  // backstop shows a number known to be wrong.
   const initial = sample(10, 20);
   const pending = adjustCountPending({}, initial, 'a', -1, 0);
-  assert.deepEqual(settleCountPending(pending, initial, PENDING_COUNT_MS), {},
-    'a window whose replacement never came must not survive its deadline');
+  assert.deepEqual(settleCountPending(pending, initial, PENDING_COUNT_MS), pending);
+  assert.equal(displayCountSnapshot(initial, pending, accounts, PENDING_COUNT_MS).byAccount.a, 9);
+  assert.equal(displayCountSnapshot(initial, pending, accounts, PENDING_HOLD_MS - 1).byAccount.a, 9);
+  assert.deepEqual(settleCountPending(pending, initial, PENDING_HOLD_MS), {},
+    'a window whose replacement never came must not outlive its hold');
+  assert.equal(displayCountSnapshot(initial, pending, accounts, PENDING_HOLD_MS).byAccount.a, 10);
+  assert.ok(PENDING_HOLD_MS > PENDING_COUNT_MS);
+});
+
+test('past the backstop, a window the server has counted since retires', () => {
+  const initial = sample(10, 20);
+  const pending = adjustCountPending({}, initial, 'a', -1, 0);
+  const counted = mergeCountSnapshots(initial, sample(9, 20, '2'));
+  assert.deepEqual(expireCountPending(pending, PENDING_COUNT_MS, counted), {});
+  assert.equal(displayCountSnapshot(counted, pending, accounts, PENDING_COUNT_MS).byAccount.a, 9);
+});
+
+test('a failed STATUS cannot settle the window, and its count from before the change never shows', () => {
+  const initial = sample(10, 20);
+  const pending = adjustCountPending({}, initial, 'a', -1, 0);
+  const failed = sample(10, 20);
+  failed.snapshots.a = { ...failed.snapshots.a, attemptRevision: '2', stale: true };
+  const server = mergeCountSnapshots(initial, failed);
+  assert.deepEqual(settleCountPending(pending, server, PENDING_SETTLE_MS + 1000), pending);
+  assert.equal(displayCountSnapshot(server, pending, accounts, PENDING_SETTLE_MS + 1000).byAccount.a, 9);
+  assert.deepEqual(settleCountPending(pending, server, PENDING_COUNT_MS + 1), pending);
+  assert.equal(displayCountSnapshot(server, pending, accounts, PENDING_COUNT_MS + 1).byAccount.a, 9);
+  const counted = mergeCountSnapshots(server, sample(9, 20, '3'));
+  assert.deepEqual(settleCountPending(pending, counted, PENDING_COUNT_MS + 2), {});
+});
+
+test('reading mail while the server cannot be counted keeps the badge going down (Nov 23)', () => {
+  // Prod, 09:04:10 to 09:07:58: ten reads in one PurelyMail inbox. Its STATUS failed with a
+  // connect timeout at 09:04:37, then a provider cooldown, and next succeeded at 09:07:58. The
+  // failed attempt settled the first reads' windows and the backstop the later ones, so the badge
+  // went back to the count from before any of them and stayed there for three minutes.
+  const accountsA = [{ id: 'a', enabled: true }];
+  const attempt = (count, rev, attemptRev) => {
+    const s = sample(count, 0, rev);
+    if (attemptRev) s.snapshots.a = { ...s.snapshots.a, attemptRevision: attemptRev, stale: true };
+    return s;
+  };
+  let server = mergeCountSnapshots(sample(10, 0), sample(10, 0));
+  let pending = {};
+  let read = 0;
+  const shown = now => displayCountSnapshot(server, pending, accountsA, now).byAccount.a;
+  const readOne = now => {
+    pending = adjustCountPending(pending, displayCountSnapshot(server, pending, accountsA, now), 'a', -1, now);
+    read++;
+  };
+  const poll = (snapshot, now) => {
+    server = mergeCountSnapshots(server, snapshot);
+    pending = settleCountPending(pending, server, now);
+  };
+  for (const at of [0, 2000, 4000, 6000]) readOne(at);
+  poll(attempt(10, '1', '2'), 27000); // connect timeout
+  assert.equal(shown(27000), 10 - read);
+  readOne(28000);
+  poll(attempt(10, '1', '3'), 33000); // provider cooldown
+  for (const at of [66000, 67000, 67500, 68000, 68500]) readOne(at);
+  for (let now = 69000; now < 228000; now += 15000) {
+    pending = expireCountPending(pending, now, server);
+    poll(attempt(10, '1', '3'), now);
+    assert.equal(shown(now), 0, `shown at ${now}ms`);
+  }
+  poll(sample(0, 0, '4'), 228000); // the STATUS that got through
+  assert.deepEqual(pending, {});
+  assert.equal(shown(228000), 0);
+});
+
+test('the next look at a held window comes every PENDING_COUNT_MS until its hold ends', () => {
+  const initial = sample(10, 20);
+  const pending = adjustCountPending({}, initial, 'a', -1, 0);
+  assert.equal(nextCountDeadline({}, 0), null);
+  assert.equal(nextCountDeadline(pending, 0), PENDING_COUNT_MS);
+  assert.equal(nextCountDeadline(pending, PENDING_COUNT_MS), 2 * PENDING_COUNT_MS);
+  assert.equal(nextCountDeadline(pending, PENDING_HOLD_MS - 1000), PENDING_HOLD_MS);
 });
 
 test('a window missing its watermark falls back to the backstop rather than settling early', () => {

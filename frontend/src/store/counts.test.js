@@ -7,7 +7,7 @@ registerHooks({ load(url, context, nextLoad) {
 } });
 globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 const { useStore } = await import('./index.js');
-const { PENDING_COUNT_MS, PENDING_SETTLE_MS } = await import('../utils/countSnapshots.js');
+const { PENDING_COUNT_MS, PENDING_SETTLE_MS, PENDING_HOLD_MS } = await import('../utils/countSnapshots.js');
 globalThis.window = new EventTarget();
 const accounts = [{ id: 'a', enabled: true }, { id: 'b', enabled: true }];
 const snapshot = (a, b, revision = '1') => ({ byAccount: { a, b }, snapshots: Object.fromEntries(['a','b'].map(id => [id, { revision, known: true, stale: false, observedAt: new Date().toISOString() }])) });
@@ -19,7 +19,7 @@ beforeEach(() => {
   useStore.getState().setUnreadCounts(snapshot(10,20));
 });
 afterEach(() => { useStore.getState().setLocked(true); mock.timers.reset(); });
-test('actual store retires each account window on its own backstop when no observation arrives', () => {
+test('actual store holds each window past its backstop, asking again, until the server counts it', () => {
   let refreshes = 0;
   const refresh = () => refreshes++;
   window.addEventListener('mailflow:counts_refresh', refresh);
@@ -29,13 +29,36 @@ test('actual store retires each account window on its own backstop when no obser
   store.decrementUnread('b', 2);
   assert.equal(useStore.getState().unreadCounts.total,27);
   mock.timers.tick(PENDING_COUNT_MS - 4000);
-  assert.equal(useStore.getState().pendingCounts.a,undefined);
-  assert.ok(useStore.getState().pendingCounts.b,'a later mutation keeps its own full window');
-  mock.timers.tick(4000);
-  assert.deepEqual(useStore.getState().pendingCounts,{});
-  assert.equal(useStore.getState().unreadCounts.total,30,'adopts the server value it never heard back about');
-  assert.equal(refreshes,2);
+  assert.equal(refreshes,1,'the backstop asks the server again');
+  assert.ok(useStore.getState().pendingCounts.a,'held: the server has not counted a since the read');
+  assert.equal(useStore.getState().unreadCounts.total,27);
+  // A failed STATUS: a newer attempt, the count from before the reads.
+  const failed = snapshot(10,20);
+  failed.snapshots.a = { ...failed.snapshots.a, attemptRevision: '2', stale: true };
+  failed.snapshots.b = { ...failed.snapshots.b, attemptRevision: '2', stale: true };
+  store.setUnreadCounts(failed);
+  assert.equal(useStore.getState().unreadCounts.total,27,'a failed STATUS puts nothing back');
+  // One tick per look: the mock clock does not run a timer armed during the same tick.
+  for (let i = 0; i < 6; i++) mock.timers.tick(PENDING_COUNT_MS / 2);
+  assert.equal(useStore.getState().unreadCounts.total,27);
+  assert.equal(refreshes,4,'keeps asking, once each PENDING_COUNT_MS, while it holds');
+  store.setUnreadCounts(snapshot(9,18,'3'));
+  assert.deepEqual(useStore.getState().pendingCounts,{},'the first count that comes back retires them');
+  assert.equal(useStore.getState().unreadCounts.total,27);
+  const asked = refreshes;
+  mock.timers.tick(PENDING_HOLD_MS);
+  assert.equal(refreshes,asked,'and stops asking');
   window.removeEventListener('mailflow:counts_refresh',refresh);
+});
+
+test('actual store adopts the server count once a hold ends with nothing counted', () => {
+  const store = useStore.getState();
+  store.decrementUnread('a');
+  mock.timers.tick(PENDING_HOLD_MS - 1);
+  assert.equal(useStore.getState().unreadCounts.byAccount.a,9);
+  mock.timers.tick(1);
+  assert.deepEqual(useStore.getState().pendingCounts,{});
+  assert.equal(useStore.getState().unreadCounts.byAccount.a,10,'adopts the server value it never heard back about');
 });
 
 test('actual store settles on the observation the mutation triggered, without a visible bounce', () => {
@@ -98,7 +121,7 @@ test('changing unified scope does not turn the displayed optimistic count into a
   useStore.getState().updateAccount('b',{ include_in_unified_inbox: false });
   assert.equal(useStore.getState().unreadCounts.total,9);
   assert.equal(useStore.getState().serverUnreadCounts.byAccount.a,10);
-  mock.timers.tick(PENDING_COUNT_MS);
+  mock.timers.tick(PENDING_HOLD_MS);
   assert.equal(useStore.getState().unreadCounts.total,10);
 });
 test('a change of nothing opens no window, so an arrival still reaches the badge', () => {
