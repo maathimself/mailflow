@@ -21,6 +21,7 @@ import { useHoverPrefetch } from '../hooks/useHoverPrefetch.js';
 import ContextMenu from './ContextMenu.jsx';
 import RowHoverActions from './RowHoverActions.jsx';
 import UndoBar from './UndoBar.jsx';
+import { useUndoBarHost } from '../hooks/useUndoBarHost.js';
 import ScheduledList from './ScheduledList.jsx';
 import { SCHEDULED_VIEW } from '../utils/scheduledCompose.js';
 import { applyListOrder, isSortableList, listOrderFor } from '../utils/listSort.js';
@@ -231,6 +232,7 @@ function MailboxList() {
   const searchFolder = (!isUnified && !searchAllFolders) ? selectedFolder : undefined;
   const searchPageSize = Math.max(1, Math.min(Number(pageSize) || 50, 200));
   const undoableNotifications = notifications.filter(n => n.onUndo);
+  const undoBarHost = useUndoBarHost();
 
   const currentLayout = LAYOUTS[layout] || LAYOUTS.comfortable;
   const isColumn = currentLayout.direction === 'column';
@@ -4548,8 +4550,8 @@ function MailboxList() {
         )}
       </div>
 
-      {/* Undo bar — anchored to the bottom of the list panel on desktop */}
-      {!isMobile && undoableNotifications.map((n, i) => (
+      {/* Undo bar — anchored to the bottom of the list panel on desktop, while it is on screen */}
+      {undoBarHost === 'list' && undoableNotifications.map((n, i) => (
         <UndoBar
           key={n.id}
           notification={n}

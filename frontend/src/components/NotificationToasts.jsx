@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { useMobile } from '../hooks/useMobile.js';
 import { UNDO_WINDOW_MS } from '../utils/undoableAction.js';
+import { undoWindowLeft } from '../utils/undoBarHost.js';
+import { useUndoBarHost } from '../hooks/useUndoBarHost.js';
 
 // Kept off screen but readable, for the live regions.
 const offScreen = {
@@ -53,6 +55,8 @@ function Announcer({ notifications }) {
 export default function NotificationToasts() {
   const { notifications, removeNotification } = useStore();
   const isMobile = useMobile();
+  // On a desktop the list shows the Undo bars while it is on screen; otherwise they float here.
+  const floatUndo = useUndoBarHost() === 'floating';
 
   const undoable = notifications.filter(n => n.onUndo);
   const regular  = notifications.filter(n => !n.onUndo);
@@ -85,6 +89,9 @@ export default function NotificationToasts() {
           zIndex: 3000, pointerEvents: 'none',
           alignItems: 'flex-end',
         }}>
+          {floatUndo && undoable.map(n => (
+            <ActionBar key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} isMobile={false} />
+          ))}
           {regular.map(n => (
             <Toast key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} isMobile={false} />
           ))}
@@ -108,10 +115,12 @@ function ActionBar({ notification, onDismiss, isMobile }) {
     dismiss();
   };
 
-  // Undo send brings its own window; everything else uses the standard one.
-  const windowMs = notification.undoMs ?? UNDO_WINDOW_MS;
+  // Undo send brings its own window; everything else uses the standard one. What is left of it is
+  // counted from when the notification was raised: on a desktop this bar may be taking over from
+  // the list's (utils/undoBarHost.js).
+  const [{ windowMs, leftMs }] = useState(() => undoWindowLeft(notification));
   useEffect(() => {
-    const timer = setTimeout(dismiss, windowMs);
+    const timer = setTimeout(dismiss, leftMs);
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -138,7 +147,7 @@ function ActionBar({ notification, onDismiss, isMobile }) {
         bottom: 0, left: 0,
         height: 2,
         background: 'var(--accent)',
-        animation: `action-bar-progress ${windowMs}ms linear forwards`,
+        animation: `action-bar-progress ${windowMs}ms linear ${leftMs - windowMs}ms forwards`,
       }} />
 
       <span style={{

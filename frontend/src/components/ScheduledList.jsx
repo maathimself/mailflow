@@ -6,6 +6,7 @@ import { useMobile } from '../hooks/useMobile.js';
 import { LAYOUTS } from '../layouts.js';
 import AccountMark from './AccountMark.jsx';
 import UndoBar from './UndoBar.jsx';
+import { useUndoBarHost } from '../hooks/useUndoBarHost.js';
 import { ComposeQuestion, SendLaterMenu, SendLaterSheet, SendLaterIcon, trapTab } from './SendLater.jsx';
 import { shortcutBus } from '../utils/shortcutBus.js';
 import { scheduledFeed } from '../utils/scheduledFeed.js';
@@ -413,6 +414,7 @@ export default function ScheduledList() {
   );
 
   const undoable = notifications.filter(n => n.onUndo);
+  const undoBarHost = useUndoBarHost();
   const title = t('sidebar.scheduled');
 
   return (
@@ -484,7 +486,7 @@ export default function ScheduledList() {
         )}
       </div>
 
-      {!isMobile && undoable.map((n, i) => (
+      {undoBarHost === 'list' && undoable.map((n, i) => (
         <UndoBar key={n.id} notification={n} onDismiss={() => removeNotification(n.id)} showTopBorder={i === 0} />
       ))}
 

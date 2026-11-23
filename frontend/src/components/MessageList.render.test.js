@@ -331,7 +331,12 @@ describe('MessageList — undo bar length', () => {
     const progress = [...container.querySelectorAll('div')]
       .map(el => el.style.animation)
       .filter(a => a.startsWith('action-bar-progress'));
-    assert.deepEqual(progress.sort(), ['action-bar-progress 4500ms linear forwards', 'action-bar-progress 9876ms linear forwards']);
+    // "<duration> linear <delay> forwards": the delay is what of the window has already gone
+    // (negative), which for a bar raised just now is nothing, or a millisecond or two.
+    const parsed = progress.map(a => a.match(/^action-bar-progress (\d+)ms linear (-?\d+)ms forwards$/));
+    assert.ok(parsed.every(Boolean), progress.join(' | '));
+    assert.deepEqual(parsed.map(m => Number(m[1])).sort((a, b) => a - b), [4500, 9876]);
+    assert.ok(parsed.every(m => Number(m[2]) <= 0 && Number(m[2]) > -50), progress.join(' | '));
     await React.act(async () => { useStore.setState({ notifications: [] }); });
   });
 });

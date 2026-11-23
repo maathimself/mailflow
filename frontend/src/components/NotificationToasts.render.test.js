@@ -120,3 +120,54 @@ test('on a phone the action bars and toasts are said the same way', async () => 
   assert.deepEqual(said('alert'), ['Could not restore it']);
   assert.deepEqual([...document.querySelectorAll('[role="status"], [role="alert"]')].map(el => el.dataset.announce), ['status', 'alert']);
 });
+
+// #813: on a desktop the list draws the Undo bars, so a hidden list hid them. With the list off
+// screen they float here instead, and only then.
+const undoButtons = () => [...document.querySelectorAll('button')].filter(b => /undo/i.test(b.textContent));
+async function mountDesktop(state) {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1280 });
+  useStore.setState({ notifications: [], layout: 'comfortable', selectedMessageId: null, showContacts: false, ...state });
+  root = createRoot(document.getElementById('root'));
+  await React.act(async () => { root.render(React.createElement(NotificationToasts)); });
+}
+
+test('desktop: the Undo bar floats while a message is open in List first (#813)', async () => {
+  await mountDesktop({ layout: 'list', selectedMessageId: 'm1' });
+  await add({ title: 'Sending "Q4 numbers"', onUndo: () => {}, undoMs: 10_000 });
+  assert.equal(undoButtons().length, 1);
+  assert.match(document.body.textContent, /Sending "Q4 numbers"/);
+});
+
+test('desktop: the Undo bar floats while Contacts is open (#813)', async () => {
+  await mountDesktop({ showContacts: true });
+  await add({ title: 'Deleted', onUndo: () => {} });
+  assert.equal(undoButtons().length, 1);
+});
+
+test('desktop: with the list on screen the list draws the Undo bar, not this', async () => {
+  await mountDesktop({ layout: 'list', selectedMessageId: null });
+  await add({ title: 'Deleted', onUndo: () => {} });
+  assert.equal(undoButtons().length, 0, 'List first showing the list');
+  await React.act(async () => root.unmount());
+  await mountDesktop({ layout: 'comfortable', selectedMessageId: 'm1' });
+  await add({ title: 'Deleted', onUndo: () => {} });
+  assert.equal(undoButtons().length, 0, 'a split layout: the list is beside the message');
+});
+
+test('desktop: opening a message hands a running Undo bar over to the floating one', async () => {
+  let undone = 0;
+  await mountDesktop({ layout: 'list', selectedMessageId: null });
+  await add({ title: 'Archived', onUndo: () => { undone++; } });
+  assert.equal(undoButtons().length, 0);
+  await React.act(async () => { useStore.setState({ selectedMessageId: 'm1' }); });
+  assert.equal(undoButtons().length, 1);
+  await React.act(async () => { undoButtons()[0].click(); });
+  assert.equal(undone, 1);
+});
+
+test('a bar for a notification whose window has run out leaves at once', async () => {
+  await mountDesktop({ layout: 'list', selectedMessageId: 'm1' });
+  await add({ title: 'Deleted', onUndo: () => {}, createdAt: Date.now() - 60_000 });
+  await React.act(async () => { await new Promise(r => setTimeout(r, 300)); });
+  assert.equal(useStore.getState().notifications.length, 0);
+});

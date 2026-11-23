@@ -756,7 +756,8 @@ export const useStore = create((set, get) => ({
   // Notifications
   notifications: [],
   addNotification: (n) => set(state => ({
-    notifications: [{ ...n, id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}` }, ...state.notifications].slice(0, 5)
+    // createdAt: an Undo bar counts its window from here, wherever it shows (utils/undoBarHost.js).
+    notifications: [{ createdAt: Date.now(), ...n, id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}` }, ...state.notifications].slice(0, 5)
   })),
   dismissUndoNotifications: (matches = () => true) => set(state => ({
     notifications: state.notifications.filter(n => typeof n.onUndo !== 'function' || !matches(n)),
