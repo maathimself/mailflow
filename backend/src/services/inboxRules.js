@@ -270,7 +270,13 @@ export async function applyInboxRules(messages, account, imapManager) {
   // Lazy resolver cache shared across the message loop. Populated on first actual use
   // inside applyAction so resolvers are never called for actions that are deduped or
   // skipped, but results are reused across messages to avoid N+1 DB queries.
-  const resolverCache = {};
+  // The folders a rule changed (#818): where each message it acted on was and is now, and the
+  // folders labels were copied into (resolverCache.countFolders, see apply_label). Their counts
+  // come from the server's STATUS, which otherwise reaches a folder only on its turn in the
+  // rotation: 10-30 minutes on an account with a hundred folders, all that time without the badge
+  // of the mail a rule filed there. A user's own move asks for them at once; so do the rules now.
+  const countFolders = new Set();
+  const resolverCache = { countFolders };
 
   const remaining = [...messages];
   const removedIds = new Set();
@@ -298,6 +304,7 @@ export async function applyInboxRules(messages, account, imapManager) {
   for (const msg of messages) {
     const deferredDestinations = [];
     let forwardBarrierPassed = lastForwardRuleIndex === -1;
+    const startFolder = msg.folder;
 
     const executeNonForwardAction = async (action, ruleId, isDest) => {
       try {
@@ -309,6 +316,11 @@ export async function applyInboxRules(messages, account, imapManager) {
           ruleId,
           resolverCache
         );
+        // Moved, archived, deleted or marked read: the folder it left and the one it is in.
+        if (action.type !== 'star' && action.type !== 'set_category') {
+          if (startFolder) countFolders.add(startFolder);
+          if (msg.folder) countFolders.add(msg.folder);
+        }
         if (isDest && acted) removedIds.add(msg.id);
         if (action.type === 'delete' && acted) deletedIds.add(msg.id);
         // mark_read: add to mutedIds so caller suppresses sound/push.
@@ -423,6 +435,7 @@ export async function applyInboxRules(messages, account, imapManager) {
   }
 
   await recordLabelOutcomes(rules, resolverCache);
+  if (countFolders.size) imapManager.scheduleCountRefresh?.(account.id, [...countFolders]);
 
   // Asked for explicitly, so a notify rule's alert wins over a mark_read rule's silence.
   for (const id of notifyIds) mutedIds.delete(id);
@@ -580,6 +593,7 @@ async function applyAction(action, msg, account, imapManager, ruleId, resolverCa
       if (!messageId) throw new Error('it has no Message-ID, so MailFlow cannot tell whether it is already labelled');
       const folder = await labelFolderFor(imapManager, account, name, resolverCache);
       await applyLabel(imapManager, account, { uid: msg.uid, folder: msg.folder, message_id: messageId, account_id: account.id }, folder);
+      resolverCache.countFolders?.add(folder);
       return false;
     }
 

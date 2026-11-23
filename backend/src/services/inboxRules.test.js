@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('./db.js', () => ({ query: vi.fn() }));
 vi.mock('../utils/mailUtils.js', () => ({
@@ -47,6 +47,7 @@ const mockImap = {
   _guardMoveUid: vi.fn(),
   _unguardMoveUid: vi.fn(),
   syncFolderOnDemand: vi.fn(),
+  scheduleCountRefresh: vi.fn(),
 };
 
 beforeEach(() => {
@@ -771,6 +772,57 @@ describe('applyInboxRules — adjustFolderCounts on action', () => {
     await applyInboxRules([mkMsg({ is_read: true })], account, mockImap);
 
     expect(adjustFolderCounts).not.toHaveBeenCalled();
+  });
+});
+
+describe('applyInboxRules — asks the server for the counts of the folders it changed (#818)', () => {
+  // clearAllMocks keeps queued answers; a rule that matched nothing leaves its second one behind.
+  afterEach(() => {
+    for (const m of [query, mockImap.bulkMoveMessages, resolveArchiveFolder, isAllMailFolder]) m.mockReset();
+  });
+  const run = async (actions, msgs = [mkMsg()]) => {
+    query
+      .mockResolvedValueOnce({ rows: [mkRule(actions)] })
+      .mockResolvedValueOnce({ rows: [] });
+    mockImap.bulkMoveMessages.mockResolvedValue({ failed: [], uidMap: new Map([[100, 200], [101, 201]]) });
+    return applyInboxRules(msgs, account, mockImap);
+  };
+
+  it('a move: the folder it left and the one it was filed in, once for the batch', async () => {
+    await run([{ type: 'move', value: 'INBOX/Receipts' }], [mkMsg(), mkMsg({ id: 'msg-2', uid: 101 })]);
+    expect(mockImap.scheduleCountRefresh).toHaveBeenCalledTimes(1);
+    expect(mockImap.scheduleCountRefresh).toHaveBeenCalledWith('acc-1', ['INBOX', 'INBOX/Receipts']);
+  });
+
+  it('an archive: the inbox and the archive folder', async () => {
+    resolveArchiveFolder.mockResolvedValue('Archive');
+    isAllMailFolder.mockResolvedValue(false);
+    await run([{ type: 'archive', value: '' }]);
+    expect(mockImap.scheduleCountRefresh).toHaveBeenCalledWith('acc-1', ['INBOX', 'Archive']);
+  });
+
+  it('mark_read: the folder whose unread count it changed', async () => {
+    await run([{ type: 'mark_read', value: '' }]);
+    expect(mockImap.scheduleCountRefresh).toHaveBeenCalledWith('acc-1', ['INBOX']);
+  });
+
+  it('nothing when no rule matched, or a rule changed no count', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [mkRule([{ type: 'move', value: 'INBOX/Receipts' }])] })
+      .mockResolvedValueOnce({ rows: [] });
+    await applyInboxRules([mkMsg({ fromEmail: 'someone-else@example.org', fromName: 'Else' })], account, mockImap);
+    await run([{ type: 'star', value: '' }]);
+    await run([{ type: 'set_category', value: 'promotions' }]);
+    expect(mockImap.scheduleCountRefresh).not.toHaveBeenCalled();
+  });
+
+  it('a failed move asks for nothing', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [mkRule([{ type: 'move', value: 'INBOX/Receipts' }])] })
+      .mockResolvedValueOnce({ rows: [] });
+    mockImap.bulkMoveMessages.mockResolvedValue({ failed: [100], uidMap: new Map() });
+    await applyInboxRules([mkMsg()], account, mockImap);
+    expect(mockImap.scheduleCountRefresh).not.toHaveBeenCalled();
   });
 });
 
