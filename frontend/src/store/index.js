@@ -612,7 +612,25 @@ export const useStore = create((set, get) => ({
   },
   replyDrafts: {},
   replyDraftRevision: 0,
-  invalidateReplyDrafts: () => set(state => ({ replyDrafts: {}, replyDraftRevision: state.replyDraftRevision + 1 })),
+  // A draft changed: every status is looked up again. What is known stays on screen until its new
+  // status arrives, marked stale (source 'stale', which a cached result replaces): emptied, the
+  // Reply draft marker disappeared and came back on every autosave of a reply, and the reading
+  // pane jumped with it (#810). A status the new lookup does not answer for is dropped after it
+  // (dropStaleReplyDrafts), so a marker never outlives its draft.
+  invalidateReplyDrafts: () => set(state => ({
+    replyDrafts: Object.fromEntries(Object.entries(state.replyDrafts)
+      .filter(([, status]) => status?.exists === true)
+      .map(([id, status]) => [id, { ...status, source: 'stale' }])),
+    replyDraftRevision: state.replyDraftRevision + 1,
+  })),
+  dropStaleReplyDrafts: (ids, revision) => set(state => {
+    if (revision !== state.replyDraftRevision) return {};
+    const stale = ids.filter(id => state.replyDrafts[id]?.source === 'stale');
+    if (!stale.length) return {};
+    const next = { ...state.replyDrafts };
+    for (const id of stale) delete next[id];
+    return { replyDrafts: next };
+  }),
   setReplyDraftStatus: (id, status, source, revision) => set(state => {
     if (revision !== undefined && revision !== state.replyDraftRevision) return {};
     if (source === 'cached' && state.replyDrafts[id]?.source === 'live') return {};

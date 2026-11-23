@@ -42,6 +42,8 @@ export default function InboxReplyDraftObserver({ lookupDelayMs = 350 }) {
           for (const [id, status] of Object.entries(result.indicators || {}))
             useStore.getState().setReplyDraftStatus(id, status, 'cached', replyDraftRevision);
         }
+        // Whatever this lookup did not answer for is not known to have a draft any more.
+        useStore.getState().dropStaleReplyDrafts(ids, replyDraftRevision);
       } catch { /* Synced indicators are hints; explicit opening reports lookup errors. */ }
     };
     load();
