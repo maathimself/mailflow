@@ -38,19 +38,21 @@ function searchLimiter(req, res, next) {
 
 // Parses a raw search string into structured operator filters and free-text
 // terms. Supports from: to: subject: has: is: after: before: in:, quoted values
-// (from:"John Smith"), and a leading '-' that negates either an operator
-// (-from:smith) or a bare word (-invoice). Filters are a list (not a map) so
-// repeated/negated operators like `from:a -from:b` are all preserved.
+// with escaped quotes and backslashes (from:"John \"Jr.\" Smith"), and a leading
+// '-' that negates either an operator (-from:smith) or a bare word (-invoice).
+// Filters are a list (not a map) so repeated/negated operators like `from:a -from:b`
+// are all preserved.
 export function parseSearchQuery(raw) {
   const filters = [];
   const terms = [];
 
   // The leading (-?) captures optional negation. \b sits between an optional '-'
   // and the operator name, so both `from:` and `-from:` match.
-  const opPattern = /(-?)\b(from|to|subject|has|is|after|before|in):("([^"]*)"|([\S]+))/gi;
-  const remaining = raw.replace(opPattern, (_, neg, key, _v, quoted, unquoted) => {
+  const opPattern = /(-?)\b(from|to|subject|has|is|after|before|in):(?:"((?:\\.|[^"\\])*)"|([\S]+))/gi;
+  const remaining = raw.replace(opPattern, (_, neg, key, quoted, unquoted) => {
     const k = key.toLowerCase();
-    const v = (quoted !== undefined ? quoted : (unquoted || '')).toLowerCase().trim();
+    const value = quoted !== undefined ? quoted.replace(/\\(["\\])/g, '$1') : (unquoted || '');
+    const v = value.toLowerCase().trim();
     if (v) filters.push({ key: k, value: v, negate: neg === '-' });
     return ' ';
   }).trim();

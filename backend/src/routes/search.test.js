@@ -40,6 +40,15 @@ describe('parseSearchQuery', () => {
     expect(terms).toEqual([{ value: 'report', negate: false }]);
   });
 
+  it('supports escaped quotes and backslashes in quoted operator values', () => {
+    const { filters, terms } = parseSearchQuery('in:all subject:"A \\"quoted\\" \\\\ path"');
+    expect(filters).toEqual([
+      { key: 'in', value: 'all', negate: false },
+      { key: 'subject', value: 'a "quoted" \\ path', negate: false },
+    ]);
+    expect(terms).toEqual([]);
+  });
+
   it('negates an operator when prefixed with -', () => {
     const { filters, terms } = parseSearchQuery('-from:Smith report');
     expect(filters).toEqual([{ key: 'from', value: 'smith', negate: true }]);

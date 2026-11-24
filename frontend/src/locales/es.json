@@ -803,6 +803,7 @@
   },
   "contextMenu": {
     "find": "Buscar",
+    "findAllBy": "Buscar todos los correos por",
     "open": "Abrir",
     "openInNewWindow": "Abrir en ventana nueva",
     "markRead": "Marcar como leído",

@@ -802,6 +802,7 @@
     "serverReply": "서버 응답: {{detail}}"
   },
   "contextMenu": {
+    "findAllBy": "기준별로 모든 메일 찾기",
     "openInNewWindow": "새 창에서 열기",
     "open": "열기",
     "markRead": "읽음으로 표시",

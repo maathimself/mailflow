@@ -871,6 +871,7 @@
   },
   "contextMenu": {
     "find": "Najít",
+    "findAllBy": "Najít všechny e-maily podle",
     "open": "Otevřít",
     "openInNewWindow": "Otevřít v novém okně",
     "markRead": "Označit jako přečtené",
