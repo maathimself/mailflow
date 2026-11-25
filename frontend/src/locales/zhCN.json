@@ -803,6 +803,7 @@
   },
   "contextMenu": {
     "find": "查找",
+    "findAllBy": "按条件查找所有邮件",
     "open": "打开",
     "openInNewWindow": "在新窗口中打开",
     "markRead": "标为已读",

@@ -803,6 +803,7 @@
   },
   "contextMenu": {
     "find": "Localizar",
+    "findAllBy": "Encontrar todos os e-mails por",
     "open": "Abrir",
     "openInNewWindow": "Abrir em nova janela",
     "markRead": "Marcar como lida",

@@ -819,6 +819,7 @@
   },
   "contextMenu": {
     "find": "Znajdź",
+    "findAllBy": "Znajdź wszystkie wiadomości według",
     "open": "Otwórz",
     "openInNewWindow": "Otwórz w nowym oknie",
     "markRead": "Oznacz jako przeczytane",

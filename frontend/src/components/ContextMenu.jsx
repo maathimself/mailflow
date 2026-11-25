@@ -23,6 +23,7 @@ import { spamFolderPaths as spamFolderPathsFor } from '../utils/spamFolders.js';
 
 // ─── Context Menu ─────────────────────────────────────────────────────────────
 const CATEGORIES = ['primary', 'newsletter', 'promotion', 'automated', 'social'];
+const quoteSearchValue = value => `"${String(value).replace(/[\\"]/g, '\\$&')}"`;
 
 export default function ContextMenu({ x, y, message, onClose, onAction, defaultMoveView = false, defaultSnoozeView = false, variant = 'inbox', selectedText = '' }) {
   const { t } = useTranslation();
@@ -53,6 +54,7 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
   const [customSnoozeView, setCustomSnoozeView] = useState(false);
   const [customDate, setCustomDate] = useState('');
   const [customTime, setCustomTime] = useState(SNOOZE_DEFAULT_TIME);
+  const [findAllByView, setFindAllByView] = useState(false);
   // false, or which category list is open: 'message' (this message), 'sender' or 'domain' (#490).
   const [categorizeView, setCategorizeView] = useState(false);
   const [folderSearch, setFolderSearch] = useState('');
@@ -122,6 +124,15 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
     } finally {
       setMoveFoldersLoading(false);
     }
+  };
+
+  const handleFindAllBy = field => {
+    const value = String((field === 'from' ? message.from_email : message.subject) || '').trim();
+    if (!message.account_id || !value) return;
+    const state = useStore.getState();
+    if (state.selectedAccountId !== message.account_id) state.setSelectedAccount(message.account_id);
+    state.setSearchQuery(`in:all ${field}:${quoteSearchValue(value)}`);
+    onClose();
   };
 
   // Close on Escape. Outside-click/tap dismissal is handled by the transparent full-screen
@@ -220,6 +231,16 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
         }]),
       ]
     },
+    ...(!isMessagePane && message.account_id ? [{
+      group: 'Find',
+      actions: [{
+        label: t('contextMenu.findAllBy'),
+        icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>,
+        action: () => setFindAllByView(true),
+        keepOpen: true,
+        hasSubmenu: true,
+      }],
+    }] : []),
     {
       group: 'Actions',
       actions: [
@@ -461,6 +482,35 @@ export default function ContextMenu({ x, y, message, onClose, onAction, defaultM
           // A plugin item opened its own submenu (e.g. GTD's classify/remove list). It renders its
           // own back row; onBack returns to the item list.
           pluginSubmenu(() => setPluginSubmenu(null))
+        ) : findAllByView ? (
+          <>
+            <div
+              onClick={() => setFindAllByView(false)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '8px 14px', cursor: 'pointer',
+                borderBottom: '1px solid var(--border-subtle)',
+                color: 'var(--text-secondary)', fontSize: 12,
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+              {t('contextMenu.findAllBy')}
+            </div>
+            <MenuItem
+              label={t('messageList.sortSender')}
+              disabled={!message.account_id || !String(message.from_email || '').trim()}
+              onClick={() => handleFindAllBy('from')}
+            />
+            <MenuItem
+              label={t('messageList.sortSubject')}
+              disabled={!message.account_id || !String(message.subject || '').trim()}
+              onClick={() => handleFindAllBy('subject')}
+            />
+          </>
         ) : categorizeView ? ((() => {
           // "Always for this sender/domain" needs an address to match on (#490).
           const sender = String(message.from_email || '').trim().toLowerCase();

@@ -119,6 +119,38 @@ describe('ContextMenu — Forward as attachment (#466)', () => {
   });
 });
 
+describe('ContextMenu — find all mails by (#673)', () => {
+  test('searches all folders in the message account and escapes quotes in the subject', async () => {
+    await React.act(async () => {
+      useStore.setState({ selectedAccountId: null, selectedFolder: 'INBOX', searchQuery: '' });
+    });
+    await openMenu({
+      id: 'm673', account_id: 'acct-1', folder: 'INBOX',
+      from_email: 'sender@example.com', subject: 'A "quoted" subject', is_read: true,
+    });
+    await click('contextMenu.findAllBy');
+    assert.ok(byText('messageList.sortSender'));
+    assert.ok(byText('messageList.sortSubject'));
+    await click('messageList.sortSubject');
+    assert.equal(useStore.getState().selectedAccountId, 'acct-1');
+    assert.equal(useStore.getState().searchQuery, 'in:all subject:"A \\"quoted\\" subject"');
+  });
+
+  test('searches by sender and escapes quotes and backslashes', async () => {
+    await React.act(async () => {
+      useStore.setState({ selectedAccountId: null, selectedFolder: 'INBOX', searchQuery: '' });
+    });
+    await openMenu({
+      id: 'm673', account_id: 'acct-1', folder: 'INBOX',
+      from_email: 'odd"sender\\box@example.com', subject: 'Subject', is_read: true,
+    });
+    await click('contextMenu.findAllBy');
+    await click('messageList.sortSender');
+    assert.equal(useStore.getState().selectedAccountId, 'acct-1');
+    assert.equal(useStore.getState().searchQuery, 'in:all from:"odd\\"sender\\\\box@example.com"');
+  });
+});
+
 describe('ContextMenu — a snoozed message (#269)', () => {
   // Picker rows are an icon and their text: matched by their own text, not their whole content.
   const ownText = text => [...dom.window.document.querySelectorAll('div, span')].find(el =>
