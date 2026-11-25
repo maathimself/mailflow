@@ -4880,6 +4880,18 @@ export class ImapManager {
     });
   }
 
+  // The account's own new-mail notification toggle, read fresh from the DB so a change takes
+  // effect on the next arrival without a reconnect. Defaults to enabled on any error, so a
+  // transient DB failure never silently drops notifications.
+  async _notificationsEnabled(accountId) {
+    try {
+      const r = await query('SELECT notifications_enabled FROM email_accounts WHERE id = $1', [accountId]);
+      return r.rows[0]?.notifications_enabled !== false;
+    } catch {
+      return true;
+    }
+  }
+
   async syncMessages(account, client, folder = 'INBOX', limit = 50, prefetchBody = true, noBodyParts = false) {
     const provider = providerProfile(account);
 
@@ -5435,7 +5447,15 @@ export class ImapManager {
           }
           // alertMessages: remaining messages not silenced by a mark_read rule, and mail a "Notify
           // me" rule filed elsewhere. A push for one of those opens it by id, in its new folder.
-          const { alertMessages, alertCount, send } = newMailAlerts({ remaining: newMessages, mutedIds, notifyMessages });
+          // notifications_enabled is read fresh here, not from the sync's account object: an IDLE
+          // connection captures that object at connect time, and a per-account notifications toggle
+          // must take effect without forcing a reconnect (reconnects churn the IMAP connection and
+          // some providers throttle them). Only for new INBOX mail — where the alerts live — so
+          // other folder syncs and quiet syncs add no query.
+          const notificationsEnabled = (folder === 'INBOX' && newMessages.length > 0)
+            ? await this._notificationsEnabled(account.id)
+            : true;
+          const { alertMessages, alertCount, send } = newMailAlerts({ remaining: newMessages, mutedIds, notifyMessages, notificationsEnabled });
           if (send) this.broadcast({
             type: 'new_messages', accountId: account.id,
             folder, messages: newMessages.slice(-5), count: newMessages.length,

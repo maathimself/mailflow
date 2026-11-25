@@ -436,8 +436,15 @@ export async function applyInboxRules(messages, account, imapManager) {
 // What a sync alerts for (push, toast, sound) after the rules ran: new Inbox mail no rule silenced
 // with mark_read, and mail a "Notify me" rule filed elsewhere (#588). `send` is whether there is
 // anything to tell the client at all: new Inbox mail to list, or an alert.
-export function newMailAlerts({ remaining, mutedIds = new Set(), notifyMessages = [] }) {
-  const alertMessages = [...remaining.filter(m => !mutedIds.has(m.id)), ...notifyMessages];
+//
+// notificationsEnabled is the account's own toggle. When it is off, the account's new mail raises
+// no alert on any channel — push, desktop and in-app toast all read this one list — while the
+// inbox list, unread counts and rules keep working: `send` still fires so the client updates. An
+// explicit "Notify me" rule still alerts (its matches arrive as notifyMessages), so a muted work
+// account can still surface one specific sender.
+export function newMailAlerts({ remaining, mutedIds = new Set(), notifyMessages = [], notificationsEnabled = true }) {
+  const unmuted = notificationsEnabled ? remaining.filter(m => !mutedIds.has(m.id)) : [];
+  const alertMessages = [...unmuted, ...notifyMessages];
   return { alertMessages, alertCount: alertMessages.length, send: remaining.length > 0 || notifyMessages.length > 0 };
 }
 

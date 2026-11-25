@@ -981,6 +981,12 @@ describe('newMailAlerts', () => {
   it('still lists silenced inbox mail, without an alert', () => {
     expect(newMailAlerts({ remaining: [a], mutedIds: new Set(['a']) })).toEqual({ alertMessages: [], alertCount: 0, send: true });
   });
+  it('raises no alert for a muted account, but still lists the mail', () => {
+    expect(newMailAlerts({ remaining: [a, b], notificationsEnabled: false })).toEqual({ alertMessages: [], alertCount: 0, send: true });
+  });
+  it('still alerts a muted account for mail a notify rule filed', () => {
+    expect(newMailAlerts({ remaining: [a], notifyMessages: [filed], notificationsEnabled: false })).toEqual({ alertMessages: [filed], alertCount: 1, send: true });
+  });
 });
 
 describe('newMailPushPayload', () => {
