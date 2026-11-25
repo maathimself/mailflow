@@ -258,6 +258,31 @@ describe('PATCH /auth/preferences listSort', () => {
   }
 });
 
+describe('PATCH /auth/preferences quoteStyle (#817)', () => {
+  for (const value of ['indented', 'outlook']) it(`persists ${value}`, async () => {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await patchPreferences({ session: { userId: 'user-1' }, body: { quoteStyle: value } }, res);
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toContain("jsonb_build_object('quoteStyle', $51::text)");
+    expect(params[50]).toBe(value);
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it('leaves the preference unchanged when the key is absent', async () => {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await patchPreferences({ session: { userId: 'user-1' }, body: { theme: 'dark' } }, res);
+    expect(query.mock.calls[0][1][50]).toBeNull();
+  });
+
+  it.each(['outlookish', '', null, true])('rejects invalid quoteStyle %p', async (value) => {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    await patchPreferences({ session: { userId: 'user-1' }, body: { quoteStyle: value } }, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: 'quoteStyle must be "indented" or "outlook"' });
+    expect(query).not.toHaveBeenCalled();
+  });
+});
+
 describe('PATCH /auth/preferences timeFormat (#758)', () => {
   const res = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn() });
 

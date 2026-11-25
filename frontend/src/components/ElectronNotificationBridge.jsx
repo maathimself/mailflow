@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.js';
 import { api } from '../utils/api.js';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.js';
 import { createBoundedActionIdTracker, isTrustedNativeMessage } from '../utils/nativeActionSecurity.js';
+import { subjectWithPrefix } from '../utils/composeSubject.js';
 
 function linuxInstructionPath(filePath) {
   const normalized = String(filePath || '').replace(/\\/g, '/');
@@ -29,6 +31,7 @@ function isLinuxPackagePath(filePath) {
 }
 
 export default function ElectronNotificationBridge() {
+  const { t } = useTranslation();
   const addNotification = useStore(state => state.addNotification);
   const openCompose = useStore(state => state.openCompose);
   const setSelectedAccount = useStore(state => state.setSelectedAccount);
@@ -232,8 +235,7 @@ export default function ElectronNotificationBridge() {
             email: message.from_email || message.fromEmail || '',
           };
       const sender = replyTarget.email ? [replyTarget] : [];
-      const rawSubject = (message.subject || '').trim();
-      const subject = rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:';
+      const subject = subjectWithPrefix(message.subject, 'reply', t);
       const originalMessageId = message.message_id || message.messageId;
       const priorInReplyTo = message.in_reply_to || message.inReplyTo;
 
@@ -362,7 +364,7 @@ export default function ElectronNotificationBridge() {
       window.removeEventListener('message', handleNativeMessage);
       if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, [addNotification, nativeBridgeReady, openCompose, setSearchQuery, setSelectedAccount, setSelectedMessage]);
+  }, [addNotification, nativeBridgeReady, openCompose, setSearchQuery, setSelectedAccount, setSelectedMessage, t]);
 
   return null;
 }

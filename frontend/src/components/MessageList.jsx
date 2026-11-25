@@ -38,6 +38,7 @@ import { formatDate, formatDateTime, formatSnoozeUntil } from '../utils/formatDa
 import { SNOOZED_FOLDER, unsnooze, changeSnooze, refreshCounts } from '../utils/snoozeActions.js';
 import { advanceSelectionAfterRemoval, registerRowOpener } from '../utils/listSelection.js';
 import { pickMessageReplyAlias, resolveReplyRecipients, openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFromMessage } from '../utils/composeFromMessage.js';
+import { subjectWithPrefix } from '../utils/composeSubject.js';
 import { selectedMessage, markMessageUnread } from '../utils/messageHotkeys.js';
 import { cancelScheduledMarkRead, cancelScheduledMarkReadFor, scheduleMarkReadTimer } from '../utils/markRead.js';
 import { saveSenderCategory } from '../utils/senderCategory.js';
@@ -1492,7 +1493,7 @@ function MailboxList() {
     openCompose({
       to: sender,
       cc: replyAll ? allRecipients : [],
-      subject: rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:',
+      subject: subjectWithPrefix(rawSubject, 'reply', t),
       body: '',
       quotedBody: '',
       inReplyTo: message.message_id,
@@ -1505,7 +1506,7 @@ function MailboxList() {
       allRecipients,
       threadId: message.thread_id,
     });
-  }, [accounts, openCompose]);
+  }, [accounts, openCompose, t]);
   
   const runSwipeAction = useCallback((action, message) => {
     switch (action) {
@@ -2274,7 +2275,7 @@ function MailboxList() {
       const state = getState();
       const message = selectedMessage(state);
       if (message) void openForwardFromMessage(message, {
-        openCompose: state.openCompose, getMessageBody: api.getMessageBody,
+        openCompose: state.openCompose, getMessageBody: api.getMessageBody, quoteStyle: state.quoteStyle, t,
       });
     };
 
@@ -2283,7 +2284,7 @@ function MailboxList() {
       const message = selectedMessage(state);
       if (message) void openReplyFromMessage(message, {
         accounts: state.accounts, folders: state.folders, openCompose: state.openCompose,
-        getMessageBody: api.getMessageBody, replyAll: true,
+        getMessageBody: api.getMessageBody, replyAll: true, quoteStyle: state.quoteStyle, t,
       });
     };
 
@@ -2336,7 +2337,7 @@ function MailboxList() {
       shortcutBus.off('focusSearch',   onFocusSearch);
       shortcutBus.off('undoAction',    onUndoAction);
     };
-  }, []);
+  }, [t]);
 
   // Scroll the selected message row into view whenever selection changes.
   // block:'nearest' is a no-op when the row is already visible, so mouse clicks don't cause jumps.
@@ -2410,16 +2411,20 @@ function MailboxList() {
           openCompose,
           getMessageBody: api.getMessageBody,
           replyAll: action === 'replyAll',
+          quoteStyle: useStore.getState().quoteStyle,
+          t,
         });
         break;
       case 'forward':
         await openForwardFromMessage(message, {
           openCompose,
           getMessageBody: api.getMessageBody,
+          quoteStyle: useStore.getState().quoteStyle,
+          t,
         });
         break;
       case 'forwardAsAttachment':
-        openForwardAsAttachmentFromMessage(message, { openCompose });
+        openForwardAsAttachmentFromMessage(message, { openCompose, t });
         break;
       case 'bulkSelect':
         setSelectedIds(new Set([message.id]));

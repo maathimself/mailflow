@@ -1567,6 +1567,46 @@ describe('pasting into the signature and the quoted message', () => {
   });
 });
 
+describe('Outlook quote separator in the compose preview', () => {
+  const posted = [];
+  let root;
+  let originalPost;
+  before(async () => {
+    posted.length = 0;
+    originalPost = api.post;
+    api.post = async (path, payload) => { posted.push({ path, payload }); return { ok: true }; };
+    useStore.setState({
+      plaintextEmail: false, notifications: [], composing: false, composeData: null,
+      accounts: [{ id: 'acct', enabled: true, email_address: 'me@example.invalid', name: 'Me', color: '#fff' }],
+    });
+    useStore.getState().openCompose({
+      accountId: 'acct', isReply: true, to: ['Bob <bob@example.invalid>'], cc: [], subject: 'Re: Topic', body: '',
+      quotedBodyHtml: '<div><hr class="mailflow-quote-separator"><p>Original message</p></div>',
+    });
+    root = createRoot(document.getElementById('root'));
+    await React.act(async () => { root.render(React.createElement(ComposeModal)); });
+    await React.act(async () => {});
+  });
+  after(async () => {
+    await React.act(async () => root.unmount());
+    api.post = originalPost;
+  });
+
+  test('hides the separator only in the compose view and keeps it in the sent HTML', async () => {
+    const quoted = document.querySelector('.compose-quoted-html');
+    assert.ok(quoted, 'the quoted HTML is shown in its separate editor area');
+    assert.ok(quoted.querySelector('.mailflow-quote-separator'), 'the divider remains in the editable quoted content');
+    const css = readFileSync(new URL('../index.css', import.meta.url), 'utf8');
+    assert.match(css, /\.compose-quoted-html\s+\.mailflow-quote-separator\s*\{\s*display:\s*none\s*!important;/);
+
+    const send = [...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'compose.send');
+    await React.act(async () => { send.click(); });
+    await React.act(async () => {});
+    assert.equal(posted.length, 1);
+    assert.match(posted[0].payload.quotedBodyHtml, /<hr class="mailflow-quote-separator"/);
+  });
+});
+
 // Locking swaps the mail view for the lock screen, which unmounts the composer. It reopens on
 // unlock from the store, so it has to leave its current state there, not what it was opened with.
 describe('locking the screen while composing', () => {

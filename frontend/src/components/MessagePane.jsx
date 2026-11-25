@@ -601,12 +601,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handleReply = (replyAll = false, { aiReply = false } = {}) => {
     if (!message) return;
-    openReplyFromMessage(message, { accounts, folders: useStore.getState().folders, openCompose, getMessageBody: loadedBody, replyAll, aiReply });
+    const state = useStore.getState();
+    openReplyFromMessage(message, { accounts, folders: state.folders, openCompose, getMessageBody: loadedBody, replyAll, aiReply, quoteStyle: state.quoteStyle, t });
   };
 
   const handleForward = () => {
     if (!message) return;
-    openForwardFromMessage(message, { openCompose, getMessageBody: loadedBody });
+    openForwardFromMessage(message, { openCompose, getMessageBody: loadedBody, quoteStyle: useStore.getState().quoteStyle, t });
   };
 
   // The star fills at once, as in the list: the server answers only once the mail server has
@@ -1095,7 +1096,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         handleForward();
         break;
       case 'forwardAsAttachment':
-        if (message) openForwardAsAttachmentFromMessage(message, { openCompose });
+        if (message) openForwardAsAttachmentFromMessage(message, { openCompose, t });
         break;
       case 'archive':
         handleArchive();

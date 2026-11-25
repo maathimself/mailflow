@@ -110,6 +110,8 @@ body, #root {
 /* Selection */
 ::selection { background: var(--selection-bg, var(--accent-dim)); color: var(--text-primary); }
 
+.compose-quoted-html .mailflow-quote-separator { display: none !important; }
+
 /* Sync icon rotation */
 @keyframes spin {
   from { transform: rotate(0deg); }

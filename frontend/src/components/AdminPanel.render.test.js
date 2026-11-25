@@ -206,3 +206,35 @@ describe('account form: icon (#376, #624)', () => {
     assert.equal(sent[0].updates.icon, '💼');
   });
 });
+
+describe('Behavior > Writing quote style (#817)', () => {
+  let root;
+
+  before(() => {
+    api.admin.getSettings = async () => ({ settings: {} });
+    api.getUnreadCounts = async () => ({});
+  });
+  afterEach(() => React.act(async () => root?.unmount()));
+
+  const click = (el) => React.act(async () => { el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
+
+  test('shows both styles and saves the selected Outlook-style preference', async () => {
+    useStore.setState({ user: { id: 'u1' }, accounts: [], adminTab: 'behavior', quoteStyle: 'indented' });
+    root = createRoot(document.getElementById('root'));
+    await React.act(async () => { root.render(React.createElement(AdminPanel)); });
+
+    const button = (key) => [...document.querySelectorAll('button')].find(b => b.textContent.includes(key));
+    const indented = button('admin.messageList.quoteStyleIndented');
+    const outlook = button('admin.messageList.quoteStyleOutlook');
+    assert.ok(indented);
+    assert.ok(outlook);
+    assert.equal(indented.getAttribute('aria-pressed'), 'true');
+    assert.equal(outlook.getAttribute('aria-pressed'), 'false');
+
+    await click(outlook);
+
+    assert.equal(useStore.getState().quoteStyle, 'outlook');
+    assert.equal(localStorage.getItem('mailflow_quote_style'), 'outlook');
+    assert.equal(outlook.getAttribute('aria-pressed'), 'true');
+  });
+});

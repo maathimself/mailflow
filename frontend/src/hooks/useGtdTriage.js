@@ -256,7 +256,7 @@ export function useGtdTriage() {
       case 'forwardAsAttachment': {
         try {
           const message = await resolveContextMenuMessage(thread, 'gtdSidebar', api.resolveMessage);
-          openForwardAsAttachmentFromMessage(message, { openCompose });
+          openForwardAsAttachmentFromMessage(message, { openCompose, t });
         } catch (err) {
           console.error('GTD forward as attachment failed:', err.message);
           scheduleGtdSectionsFetch();
@@ -272,6 +272,8 @@ export function useGtdTriage() {
             await openForwardFromMessage(message, {
               openCompose,
               getMessageBody: api.getMessageBody,
+              quoteStyle: useStore.getState().quoteStyle,
+              t,
             });
           } else {
             await openReplyFromMessage(message, {
@@ -280,6 +282,8 @@ export function useGtdTriage() {
               openCompose,
               getMessageBody: api.getMessageBody,
               replyAll: action === 'replyAll',
+              quoteStyle: useStore.getState().quoteStyle,
+              t,
             });
           }
         } catch (err) {

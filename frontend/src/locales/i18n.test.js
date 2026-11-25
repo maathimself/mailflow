@@ -115,6 +115,7 @@ const dir = dirname(fileURLToPath(import.meta.url));
 // Two locales sharing a value is only allowed if both appear in the same group.
 // Any unlisted pair will still fail.
 const SAME_VALUE_ALLOWED = {
+  'compose.replySubjectPrefix': [['en', 'es'], ['cs', 'pl']],
   // Spanish and Portuguese share the word.
   'admin.ai.headerValue': [['es', 'ptBR']],
   'admin.ai.headerValueFor': [['es', 'ptBR']],

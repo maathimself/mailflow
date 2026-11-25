@@ -1,6 +1,7 @@
 import { pickReplyAlias } from './replyAlias.js';
 import { api } from './api.js';
 import { folderRole } from './folderDisplay.js';
+import { subjectWithPrefix, translated } from './composeSubject.js';
 
 export function initialComposeFocus({ isReply = false, isForward = false } = {}) {
   return isReply && !isForward ? 'editor' : 'to';
@@ -20,7 +21,12 @@ export function isSendLaterShortcut(event) {
 function parseAddressField(raw) {
   try {
     const arr = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');
-    return arr.map(a => a.name ? `${a.name} <${a.email}>` : a.email).filter(Boolean).join(', ');
+    return arr.map(a => {
+      const email = cleanHeaderValue(a?.email);
+      if (!email) return '';
+      const name = cleanHeaderValue(a?.name);
+      return name ? `${name} <${email}>` : email;
+    }).filter(Boolean).join(', ');
   } catch { return ''; }
 }
 
@@ -31,6 +37,29 @@ function parseAddressField(raw) {
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[c]));
+
+const cleanHeaderValue = value => String(value ?? '').replace(/[\r\n]+/g, ' ').trim();
+
+function quoteHeaderLines(fields) {
+  return Object.entries(fields)
+    .map(([label, value]) => [label, cleanHeaderValue(value)])
+    .filter(([, value]) => value)
+    .map(([label, value]) => `${label}: ${value}`);
+}
+
+function outlookQuoteText(fields, body, title) {
+  return `\n\n---------- ${title} ----------\n${quoteHeaderLines(fields).join('\n')}\n\n${body}`;
+}
+
+function outlookQuoteHtml(fields, bodyHtml) {
+  const rows = Object.entries(fields)
+    .map(([label, value]) => [label, cleanHeaderValue(value)])
+    .filter(([, value]) => value)
+    .map(([label, value]) => `<div><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</div>`)
+    .join('');
+  const header = rows ? `<div style="font-size:12px;line-height:1.5;margin-bottom:8px">${rows}</div>` : '';
+  return `<div style="margin-top:12px;color:var(--text-secondary,#666)"><hr class="mailflow-quote-separator" style="border:0;border-top:1px solid var(--border,#ccc);margin:12px 0">${header}${bodyHtml}</div>`;
+}
 
 const emailKey = value => typeof value === 'string' ? value.trim().toLowerCase() : '';
 
@@ -82,7 +111,6 @@ export function pickMessageReplyAlias(message, account) {
     fromEmail: typeof email === 'string' ? email : '',
   });
 }
-
 export function resolveReplyRecipients(message, account, folders) {
   const owned = new Set([account?.email_address, ...(account?.aliases || []).map(a => a?.email)].map(emailKey).filter(Boolean));
   const unique = (list, excluded = new Set()) => list.filter(a => {
@@ -110,7 +138,7 @@ export function resolveReplyRecipients(message, account, folders) {
 }
 
 // `aiReply` opens the composer with "Reply with AI" ready for the user's instruction.
-export async function openReplyFromMessage(message, { accounts, folders, openCompose, getMessageBody, replyAll = false, aiReply = false }) {
+export async function openReplyFromMessage(message, { accounts, folders, openCompose, getMessageBody, replyAll = false, aiReply = false, quoteStyle = 'indented', t }) {
   const myAccount = accounts.find(a => a.id === message.account_id);
   const { to: sender, allRecipients } = resolveReplyRecipients(message, myAccount, folders);
 
@@ -121,26 +149,38 @@ export async function openReplyFromMessage(message, { accounts, folders, openCom
   const rawSubject = (message.subject || '').trim();
 
   const replyBody = await getMessageBody(message.id).catch(() => null);
-  const replyDate = message.date ? new Date(message.date).toLocaleString() : '';
+  const parsedDate = message.date ? new Date(message.date) : null;
+  const replyDate = parsedDate && Number.isFinite(parsedDate.getTime()) ? parsedDate.toLocaleString() : '';
   const replyAuthor = replySender(message);
-  const replyEmail = replyAuthor.email || '';
-  const replySafeName = replyAuthor.name.replace(/[\r\n]+/g, ' ');
-  const replyFromStr = replySafeName
+  const replyEmail = cleanHeaderValue(replyAuthor.email);
+  const replySafeName = cleanHeaderValue(replyAuthor.name);
+  const replyFromStr = replySafeName && replyEmail
     ? `${replySafeName} <${replyEmail}>`
-    : replyEmail;
+    : replySafeName || replyEmail;
+  const replyHeaders = {
+    [translated('compose.from', t, 'From')]: replyFromStr,
+    [translated('compose.sentHeader', t, 'Sent')]: replyDate,
+    [translated('compose.to', t, 'To')]: parseAddressField(message.to_addresses),
+    [translated('compose.cc', t, 'Cc')]: parseAddressField(message.cc_addresses),
+    [translated('compose.subject', t, 'Subject')]: cleanHeaderValue(message.subject),
+  };
   const quotedText = replyBody?.text
-    ? `\n\n---\nOn ${replyDate}, ${replyFromStr} wrote:\n${replyBody.text.split('\n').map(l => '> ' + l).join('\n')}`
+    ? quoteStyle === 'outlook'
+      ? outlookQuoteText(replyHeaders, replyBody.text, translated('compose.quoteOriginalMessage', t, 'Original Message'))
+      : `\n\n---\nOn ${replyDate}, ${replyFromStr} wrote:\n${replyBody.text.split('\n').map(l => '> ' + l).join('\n')}`
     : '';
   // Quoted as shown, images through MailFlow's proxy, so opening the composer never loads them
   // from the sender; ComposeModal puts the email's own references back when it saves or sends.
   const quotedBodyHtml = replyBody?.html
-    ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${escapeHtml(replyDate)}, ${escapeHtml(replyFromStr)} wrote:</p>${replyBody.html}</div>`
+    ? quoteStyle === 'outlook'
+      ? outlookQuoteHtml(replyHeaders, replyBody.html)
+      : `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">On ${escapeHtml(replyDate)}, ${escapeHtml(replyFromStr)} wrote:</p>${replyBody.html}</div>`
     : null;
 
   openCompose({
     to: sender,
     cc: replyAll ? allRecipients : [],
-    subject: rawSubject.startsWith('Re:') ? rawSubject : rawSubject ? `Re: ${rawSubject}` : 'Re:',
+    subject: subjectWithPrefix(rawSubject, 'reply', t),
     body: '',
     quotedBody: quotedText,
     quotedBodyHtml,
@@ -157,29 +197,42 @@ export async function openReplyFromMessage(message, { accounts, folders, openCom
   });
 }
 
-export async function openForwardFromMessage(row, { openCompose, getMessageBody }) {
+export async function openForwardFromMessage(row, { openCompose, getMessageBody, quoteStyle = 'indented', t }) {
   const message = rowOwnMessage(row);
   let fwdBody = await getMessageBody(message.id).catch(() => null);
   // Large inline images are fitted for reading; a recipient gets them as they were sent.
   if (fwdBody?.inlineImagesFitted) {
     fwdBody = await api.getMessageBody(message.id, Boolean(fwdBody.remoteImagesProxied), { original: true }).catch(() => fwdBody);
   }
-  const fwdDate = message.date ? new Date(message.date).toLocaleString() : '';
-  const fwdSafeName = (message.from_name || '').replace(/[\r\n]+/g, ' ');
-  const fwdFromStr = fwdSafeName
-    ? `${fwdSafeName} <${message.from_email}>`
-    : message.from_email || '';
-  const safeSubject = (message.subject || '').replace(/[\r\n]+/g, ' ');
+  const parsedDate = message.date ? new Date(message.date) : null;
+  const fwdDate = parsedDate && Number.isFinite(parsedDate.getTime()) ? parsedDate.toLocaleString() : '';
+  const fwdSafeName = cleanHeaderValue(message.from_name);
+  const fwdEmail = cleanHeaderValue(message.from_email);
+  const fwdFromStr = fwdSafeName && fwdEmail
+    ? `${fwdSafeName} <${fwdEmail}>`
+    : fwdSafeName || fwdEmail;
+  const safeSubject = cleanHeaderValue(message.subject);
   const toStr = parseAddressField(message.to_addresses);
   const ccStr = parseAddressField(message.cc_addresses);
 
-  const fwdText = `\n\n---------- Forwarded message ----------\nFrom: ${fwdFromStr}\nDate: ${fwdDate}\nSubject: ${safeSubject}${toStr ? `\nTo: ${toStr}` : ''}${ccStr ? `\nCc: ${ccStr}` : ''}\n\n${fwdBody?.text || ''}`;
+  const fwdHeaders = {
+    [translated('compose.from', t, 'From')]: fwdFromStr,
+    [translated('compose.sentHeader', t, 'Sent')]: fwdDate,
+    [translated('compose.to', t, 'To')]: toStr,
+    [translated('compose.cc', t, 'Cc')]: ccStr,
+    [translated('compose.subject', t, 'Subject')]: safeSubject,
+  };
+  const fwdText = quoteStyle === 'outlook'
+    ? outlookQuoteText(fwdHeaders, fwdBody?.text || '', translated('compose.quoteForwardedMessage', t, 'Forwarded message'))
+    : `\n\n---------- Forwarded message ----------\nFrom: ${fwdFromStr}\nDate: ${fwdDate}\nSubject: ${safeSubject}${toStr ? `\nTo: ${toStr}` : ''}${ccStr ? `\nCc: ${ccStr}` : ''}\n\n${fwdBody?.text || ''}`;
   const fwdHtml = fwdBody?.html
-    ? `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">---------- Forwarded message ----------<br>From: ${escapeHtml(fwdFromStr)}<br>Date: ${escapeHtml(fwdDate)}<br>Subject: ${escapeHtml(safeSubject)}${toStr ? `<br>To: ${escapeHtml(toStr)}` : ''}${ccStr ? `<br>Cc: ${escapeHtml(ccStr)}` : ''}</p>${fwdBody.html}</div>`
+    ? quoteStyle === 'outlook'
+      ? outlookQuoteHtml(fwdHeaders, fwdBody.html)
+      : `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">---------- Forwarded message ----------<br>From: ${escapeHtml(fwdFromStr)}<br>Date: ${escapeHtml(fwdDate)}<br>Subject: ${escapeHtml(safeSubject)}${toStr ? `<br>To: ${escapeHtml(toStr)}` : ''}${ccStr ? `<br>Cc: ${escapeHtml(ccStr)}` : ''}</p>${fwdBody.html}</div>`
     : null;
 
   openCompose({
-    subject: message.subject?.startsWith('Fwd:') ? message.subject : `Fwd: ${message.subject}`,
+    subject: subjectWithPrefix(message.subject, 'forward', t),
     body: '',
     quotedBody: fwdText,
     quotedBodyHtml: fwdHtml,
@@ -200,10 +253,10 @@ export async function openForwardFromMessage(row, { openCompose, getMessageBody 
 // "Forward as attachment" (#466): the original goes as an .eml attachment with every header
 // intact, which is what abuse desks such as SpamCop and IT teams need; an inline forward keeps
 // only the body. The server fetches the raw source at send time, so its size is not known here.
-export function openForwardAsAttachmentFromMessage(message, { openCompose }) {
+export function openForwardAsAttachmentFromMessage(message, { openCompose, t }) {
   const subject = (message.subject || '').replace(/[\r\n]+/g, ' ');
   openCompose({
-    subject: subject.startsWith('Fwd:') ? subject : `Fwd: ${subject}`,
+    subject: subjectWithPrefix(subject, 'forward', t),
     body: '',
     accountId: message.account_id,
     isForward: true,

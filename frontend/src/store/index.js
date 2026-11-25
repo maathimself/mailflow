@@ -921,6 +921,14 @@ export const useStore = create((set, get) => ({
     schedulePrefSave({ replyDefault: val });
   },
 
+  quoteStyle: localStorage.getItem('mailflow_quote_style') === 'outlook' ? 'outlook' : 'indented',
+  setQuoteStyle: (val) => {
+    if (val !== 'indented' && val !== 'outlook') return;
+    localStorage.setItem('mailflow_quote_style', val);
+    set({ quoteStyle: val });
+    schedulePrefSave({ quoteStyle: val });
+  },
+
   // What opens when the open message leaves the list by delete, archive, move, spam or snooze
   // (#572): 'next' (the default, which the list's own actions always did), 'previous', or 'list'
   // to go back to the list. See utils/listSelection.js.
@@ -1537,6 +1545,10 @@ export const useStore = create((set, get) => ({
       if (prefs.replyDefault === 'reply' || prefs.replyDefault === 'replyAll') {
         localStorage.setItem('mailflow_reply_default', prefs.replyDefault);
         set({ replyDefault: prefs.replyDefault });
+      }
+      if (prefs.quoteStyle === 'indented' || prefs.quoteStyle === 'outlook') {
+        localStorage.setItem('mailflow_quote_style', prefs.quoteStyle);
+        set({ quoteStyle: prefs.quoteStyle });
       }
       if (typeof prefs.darkEmailBodies === 'boolean') {
         localStorage.setItem('mailflow_dark_email_bodies', String(prefs.darkEmailBodies));
