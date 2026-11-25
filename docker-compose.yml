@@ -70,6 +70,7 @@ services:
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       IMAP_MAX_PERSISTENT_PER_HOST: ${IMAP_MAX_PERSISTENT_PER_HOST:-}
+      IMAP_RESOLVE_VIA: ${IMAP_RESOLVE_VIA:-}
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-}
       SESSION_IDLE_DAYS: ${SESSION_IDLE_DAYS:-}
       # false stops offering MailFlow's built-in Microsoft app for personal accounts (#674).
