@@ -2769,6 +2769,7 @@ export default function ComposeModal() {
             !plaintextEmail && quotedBodyHtml ? (
               <div
                 ref={quotedHtmlRef}
+                className="compose-quoted-html"
                 contentEditable
                 suppressContentEditableWarning
                 spellCheck={false}
@@ -3406,6 +3407,7 @@ export default function ComposeModal() {
           !plaintextEmail && quotedBodyHtml ? (
             <div
               ref={quotedHtmlRef}
+              className="compose-quoted-html"
               contentEditable
               suppressContentEditableWarning
               spellCheck={false}

@@ -155,7 +155,13 @@ describe('openReplyFromMessage reply-all recipients', () => {
 
 describe('subject prefixing', () => {
   it('adds Re: unless already present', async () => {
-    for (const [subject, expected] of [['Hello', 'Re: Hello'], ['Re: Hello', 'Re: Hello'], ['', 'Re:']]) {
+    for (const [subject, expected] of [
+      ['Hello', 'Re: Hello'],
+      ['Re: Hello', 'Re: Hello'],
+      ['FW: AW: Hello', 'Re: Hello'],
+      ['Re:search results', 'Re: Re:search results'],
+      ['', 'Re:'],
+    ]) {
       const h = harness();
       await openReplyFromMessage(
         { account_id: 'a', reply_to: [], from_email: 'f@example.com', subject },
@@ -166,7 +172,12 @@ describe('subject prefixing', () => {
   });
 
   it('adds Fwd: unless already present', async () => {
-    for (const [subject, expected] of [['Hello', 'Fwd: Hello'], ['Fwd: Hello', 'Fwd: Hello']]) {
+    for (const [subject, expected] of [
+      ['Hello', 'Fwd: Hello'],
+      ['Fwd: Hello', 'Fwd: Hello'],
+      ['Re: WG: FW: Hello', 'Fwd: Hello'],
+      ['', 'Fwd:'],
+    ]) {
       const h = harness({ text: '', html: null, attachments: [] });
       await openForwardFromMessage(
         { account_id: 'a', subject },
@@ -174,6 +185,45 @@ describe('subject prefixing', () => {
       );
       assert.equal(h.payload().subject, expected);
     }
+  });
+
+  it('uses the active language for subject prefixes and Outlook quote headers', async () => {
+    const labels = {
+      'compose.from': 'Von',
+      'compose.sentHeader': 'Gesendet',
+      'compose.to': 'An',
+      'compose.cc': 'Cc',
+      'compose.subject': 'Betreff',
+      'compose.quoteOriginalMessage': 'Ursprüngliche Nachricht',
+      'compose.quoteForwardedMessage': 'Weitergeleitete Nachricht',
+      'compose.replySubjectPrefix': 'AW:',
+      'compose.forwardSubjectPrefix': 'WG:',
+    };
+    const t = key => labels[key] || key;
+    const reply = harness({ text: 'Original text', html: '<p>Original HTML</p>' });
+    await openReplyFromMessage(
+      { account_id: 'a', reply_to: [], from_email: 'f@example.com', subject: 'WG: Re: Topic', date: '2026-11-25T10:00:00Z' },
+      { accounts: [], openCompose: reply.openCompose, getMessageBody: reply.getMessageBody, quoteStyle: 'outlook', t },
+    );
+    assert.equal(reply.payload().subject, 'AW: Topic');
+    assert.match(reply.payload().quotedBody, /Ursprüngliche Nachricht/);
+    for (const label of ['Von', 'Gesendet', 'Betreff']) assert.match(reply.payload().quotedBody, new RegExp(`${label}:`));
+    assert.doesNotMatch(reply.payload().quotedBody, /\nFrom:|\nSent:|\nSubject:/);
+
+    const forward = harness({ text: 'Forwarded text', html: '<p>Forwarded HTML</p>' });
+    await openForwardFromMessage(
+      {
+        account_id: 'a', subject: 'AW: Re: Topic', from_email: 'f@example.com',
+        date: '2026-11-25T10:00:00Z',
+        to_addresses: [{ email: 'to@example.com' }],
+        cc_addresses: [{ email: 'cc@example.com' }],
+      },
+      { openCompose: forward.openCompose, getMessageBody: forward.getMessageBody, quoteStyle: 'outlook', t },
+    );
+    assert.equal(forward.payload().subject, 'WG: Topic');
+    assert.match(forward.payload().quotedBody, /---------- Weitergeleitete Nachricht ----------/);
+    for (const label of ['Von', 'Gesendet', 'An', 'Cc', 'Betreff']) assert.match(forward.payload().quotedBody, new RegExp(`${label}:`));
+    assert.match(forward.payload().quotedBodyHtml, /class="mailflow-quote-separator"/);
   });
 });
 
@@ -257,7 +307,7 @@ describe('openForwardFromMessage', () => {
     assert.match(h.payload().quotedBodyHtml, /From: Latest &lt;latest@example\.com&gt;<br>/);
     assert.doesNotMatch(h.payload().quotedBody + h.payload().quotedBodyHtml, /first@example/);
     assert.match(h.payload().quotedBody, /\nSubject: Re: S\n/);
-    assert.equal(h.payload().subject, 'Fwd: Re: S');
+    assert.equal(h.payload().subject, 'Fwd: S');
   });
 
   it('maps fetched attachments into forwardedAttachments', async () => {
@@ -338,6 +388,28 @@ describe('quoted body templates', () => {
     );
   });
 
+  it('builds Outlook-style reply quotes with safe, optional header fields', async () => {
+    const h = harness({ text: 'Original reply', html: '<p>Original reply</p>' });
+    await openReplyFromMessage(
+      {
+        account_id: 'a', date, from_name: '<img src=x>', from_email: 'f@example.com',
+        to_addresses: [{ name: 'Bob', email: 'b@example.com' }], subject: '<script>subject</script>',
+      },
+      { accounts: [], openCompose: h.openCompose, getMessageBody: h.getMessageBody, quoteStyle: 'outlook' },
+    );
+
+    assert.equal(
+      h.payload().quotedBody,
+      `\n\n---------- Original Message ----------\nFrom: <img src=x> <f@example.com>\nSent: ${when}\nTo: Bob <b@example.com>\nSubject: <script>subject</script>\n\nOriginal reply`,
+    );
+    const html = h.payload().quotedBodyHtml;
+    assert.match(html, /<hr class="mailflow-quote-separator" style=/);
+    assert.match(html, /&lt;img src=x&gt; &lt;f@example\.com&gt;/);
+    assert.match(html, /&lt;script&gt;subject&lt;\/script&gt;/);
+    assert.doesNotMatch(html, /border-left|padding-left|<img src=x>|<script>/);
+    assert.doesNotMatch(h.payload().quotedBody, /\n>/, 'plain-text Outlook quotes are not indented');
+  });
+
   it('reply falls back per part', async () => {
     const htmlOnly = harness({ html: '<p>Hi</p>' });
     await openReplyFromMessage(
@@ -371,6 +443,35 @@ describe('quoted body templates', () => {
       h.payload().quotedBodyHtml,
       `<div style="border-left:3px solid var(--border,#ccc);padding-left:12px;margin-top:12px;color:var(--text-secondary,#666)"><p style="margin:0 0 6px;font-size:12px">---------- Forwarded message ----------<br>From: Ann &lt;ann@example.com&gt;<br>Date: ${when}<br>Subject: Hello<br>To: Bob &lt;bob@example.com&gt;<br>Cc: cc@example.com</p><p>body</p></div>`,
     );
+  });
+
+  it('builds Outlook-style forwards and omits unavailable headers', async () => {
+    const h = harness({ text: 'Forwarded body', html: '<p>Forwarded body</p>' });
+    await openForwardFromMessage(
+      {
+        id: 'm1', from_name: 'Ann', from_email: 'ann@example.com', subject: 'Hello',
+        to_addresses: [{ name: 'Bob', email: 'bob@example.com' }], cc_addresses: [{ email: 'cc@example.com' }],
+      },
+      { openCompose: h.openCompose, getMessageBody: h.getMessageBody, quoteStyle: 'outlook' },
+    );
+    assert.equal(
+      h.payload().quotedBody,
+      '\n\n---------- Forwarded message ----------\nFrom: Ann <ann@example.com>\nTo: Bob <bob@example.com>\nCc: cc@example.com\nSubject: Hello\n\nForwarded body',
+    );
+    const html = h.payload().quotedBodyHtml;
+    assert.match(html, /<hr class="mailflow-quote-separator" style=/);
+    assert.match(html, /<strong>From:<\/strong> Ann &lt;ann@example\.com&gt;/);
+    assert.match(html, /<strong>To:<\/strong> Bob &lt;bob@example\.com&gt;/);
+    assert.doesNotMatch(html, /border-left|padding-left|<strong>Sent:|<strong>Date:/);
+
+    const missing = harness({ text: 'Body', html: '<p>Body</p>' });
+    await openForwardFromMessage(
+      { id: 'm2', from_email: 'ann@example.com' },
+      { openCompose: missing.openCompose, getMessageBody: missing.getMessageBody, quoteStyle: 'outlook' },
+    );
+    assert.equal(missing.payload().quotedBody, '\n\n---------- Forwarded message ----------\nFrom: ann@example.com\n\nBody');
+    assert.doesNotMatch(missing.payload().quotedBody, /\n(?:Sent|To|Cc|Subject):/);
+    assert.doesNotMatch(missing.payload().quotedBodyHtml, /<strong>(?:Sent|To|Cc|Subject):/);
   });
 
   // Proxied images (MailFlow's image proxy) go out as the email's own references: recipients cannot
@@ -433,6 +534,15 @@ describe('openForwardAsAttachmentFromMessage (#466)', () => {
     assert.equal(opened.forwardedAttachments[0].filename, 'message.eml');
     compose.openForwardAsAttachmentFromMessage({ id: 'm4', account_id: 'a', subject: 'Q3/Q4 figures' }, { openCompose: d => { opened = d; } });
     assert.equal(opened.forwardedAttachments[0].filename, 'Q3_Q4 figures.eml'); // as the server names the file
+  });
+
+  it('collapses existing localized reply and forward prefixes before adding one forward prefix', () => {
+    let opened;
+    compose.openForwardAsAttachmentFromMessage(
+      { id: 'm5', account_id: 'a', subject: 'Re: WG: FW: Project update' },
+      { openCompose: data => { opened = data; }, t: key => key === 'compose.forwardSubjectPrefix' ? 'WG:' : key },
+    );
+    assert.equal(opened.subject, 'WG: Project update');
   });
 });
 

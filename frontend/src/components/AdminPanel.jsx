@@ -2229,7 +2229,7 @@ function LayoutsTab() {
 function BehaviorTab() {
   const { t } = useTranslation();
   const isMobile = useMobile();
-  const { swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, autoOpenReplyDrafts, setAutoOpenReplyDrafts, plaintextEmail, setPlaintextEmail, replyDefault, setReplyDefault, afterRemove, setAfterRemove, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, accounts, defaultSender, setDefaultSender } = useStore();
+  const { swipeActions, setSwipeAction, syncInterval, setSyncInterval, folderSyncInterval, setFolderSyncInterval, autoOpenReplyDrafts, setAutoOpenReplyDrafts, plaintextEmail, setPlaintextEmail, replyDefault, setReplyDefault, quoteStyle, setQuoteStyle, afterRemove, setAfterRemove, markReadBehavior, setMarkReadBehavior, markReadDelay, setMarkReadDelay, accounts, defaultSender, setDefaultSender } = useStore();
 
   // "Set MailFlow as your default email app": registerProtocolHandler is the
   // cross-browser path (works in Firefox and non-installed Chromium) and must be
@@ -2345,6 +2345,13 @@ function BehaviorTab() {
           <ChoiceCards value={replyDefault} onChange={setReplyDefault} options={[
             { id: 'reply',    label: t('admin.messageList.defaultReply'),    desc: t('admin.messageList.defaultReplyDesc') },
             { id: 'replyAll', label: t('admin.messageList.defaultReplyAll'), desc: t('admin.messageList.defaultReplyAllDesc') },
+          ]} />
+        </SettingRow>
+
+        <SettingRow label={t('admin.messageList.quoteStyle')} desc={t('admin.messageList.quoteStyleDesc')}>
+          <ChoiceCards value={quoteStyle} onChange={setQuoteStyle} options={[
+            { id: 'indented', label: t('admin.messageList.quoteStyleIndented'), desc: t('admin.messageList.quoteStyleIndentedDesc') },
+            { id: 'outlook', label: t('admin.messageList.quoteStyleOutlook'), desc: t('admin.messageList.quoteStyleOutlookDesc') },
           ]} />
         </SettingRow>
 
