@@ -101,6 +101,7 @@ public class MailFlowWebViewClient extends BridgeWebViewClient {
         super.onReceivedError(view, request, error);
 
         if (request.isForMainFrame() && isConfiguredHost(request.getUrl().toString())) {
+            MailFlowClientCertificate.forgetDecline(context);
             loadFallback(view);
         }
     }

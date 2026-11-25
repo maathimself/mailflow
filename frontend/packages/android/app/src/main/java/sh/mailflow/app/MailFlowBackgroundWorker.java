@@ -38,6 +38,8 @@ public class MailFlowBackgroundWorker extends Worker {
         Context context = getApplicationContext();
         String host = MailFlowNativePlugin.getSavedHost(context);
         if (host == null || host.isEmpty()) return Result.success();
+        // The certificate is missing and the user has been told once: no retries until the app is opened.
+        if (MailFlowClientCertificate.isMissing(context, host)) return Result.success();
 
         String cookie = CookieManager.getInstance().getCookie(host);
         if (cookie == null || cookie.trim().isEmpty()) return Result.success();
@@ -71,6 +73,9 @@ public class MailFlowBackgroundWorker extends Worker {
             }
 
             updateUnreadBaseline(context, unreadTotal);
+            return Result.success();
+        } catch (MailFlowClientCertificate.MissingCertificateException error) {
+            MailFlowClientCertificate.reportMissing(context, host);
             return Result.success();
         } catch (Exception ignored) {
             return Result.retry();
