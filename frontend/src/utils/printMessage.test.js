@@ -7,7 +7,8 @@ import { JSDOM } from 'jsdom';
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
-const { buildPrintDocument, openPrintWindow, printInWindow } = await import('./printMessage.js');
+const { buildPrintDocument, buildPrintSelection, capturePrintSelection, openPrintWindow, printInWindow } = await import('./printMessage.js');
+const { buildFrameDoc } = await import('./emailFrameDoc.js');
 
 const A = {
   subject: 'Invoice <42> & receipt', from_name: 'Ana', from_email: 'ana@example.test',
@@ -84,11 +85,140 @@ function fakeWindow() {
   return {
     writes, closed: false, printed: 0,
     document: { open() { writes.length = 0; }, write(h) { writes.push(h); }, close() {} },
+    close() { this.closed = true; },
     focus() {}, print() { this.printed++; },
   };
 }
 
 describe('print window', () => {
+  it('keeps selection available when a full HTML email is parsed in the reading frame', () => {
+    const original = '<!doctype html><html><head>\n<style>p { color: #111; }</style>\n</head><body>\n<p>Selected original text</p>\n</body></html>';
+    document.body.innerHTML = '<div id="email"><iframe></iframe></div>';
+    const root = document.getElementById('email');
+    const doc = root.querySelector('iframe').contentDocument;
+    doc.open(); doc.write(buildFrameDoc({ html: original })); doc.close();
+    const range = doc.createRange();
+    range.selectNodeContents(doc.querySelector('p'));
+    doc.getSelection().addRange(range);
+    const html = buildPrintSelection(capturePrintSelection(root), [{ message: A, body: { html: original } }]);
+    assert.match(html, /Selected original text/);
+    doc.getSelection().removeAllRanges();
+    document.body.replaceChildren();
+  });
+
+  it('captures selected email HTML and the current accent before opening a desktop preview', async () => {
+    document.body.innerHTML = '<div id="email"><p>Keep <b>this part</b></p></div><p id="other">Other content</p>';
+    const root = document.getElementById('email');
+    const range = document.createRange();
+    range.selectNodeContents(root.querySelector('b'));
+    document.getSelection().removeAllRanges();
+    document.getSelection().addRange(range);
+    document.documentElement.style.setProperty('--accent', '#123abc');
+    const win = fakeWindow();
+    let context;
+    dom.window.open = () => { document.getSelection().removeAllRanges(); return win; };
+    dom.window.mailflowNative = { printing: { preview: async (_name, metadata) => { context = metadata; } } };
+    try {
+      await printInWindow(openPrintWindow('', root), '<html>full email</html>', [{ message: A, body: { html: '<p>Keep <b>this part</b></p>' } }]);
+      assert.equal(context.selectionHtml, '<p><b>this part</b></p>');
+      assert.equal(context.accent, '#123abc');
+      range.selectNodeContents(document.getElementById('other'));
+      document.getSelection().addRange(range);
+      assert.equal(capturePrintSelection(root), null, 'selection elsewhere is excluded');
+    } finally {
+      delete dom.window.mailflowNative;
+      document.getSelection().removeAllRanges();
+      document.body.replaceChildren();
+      document.documentElement.style.removeProperty('--accent');
+    }
+  });
+
+  it('captures iframe selections, strips handlers, and preserves plain-text whitespace', () => {
+    document.body.innerHTML = '<div id="email"><iframe></iframe><pre>first\nsecond</pre></div>';
+    const root = document.getElementById('email');
+    const frameDoc = root.querySelector('iframe').contentDocument;
+    frameDoc.body.innerHTML = '<p onclick="bad()">Selected <b>email</b><script>bad()</script></p>';
+    const range = frameDoc.createRange();
+    range.selectNodeContents(frameDoc.body);
+    frameDoc.getSelection().addRange(range);
+    const html = buildPrintSelection(capturePrintSelection(root), [{ message: A, body: { html: '<p onclick="bad()">Selected <b>email</b><script>bad()</script></p>' } }]);
+    assert.match(html, /Selected <b>email<\/b>/);
+    assert.doesNotMatch(html, /onclick|script/);
+    frameDoc.getSelection().removeAllRanges();
+    const textRange = document.createRange();
+    textRange.selectNodeContents(root.querySelector('pre'));
+    document.getSelection().addRange(textRange);
+    assert.match(buildPrintSelection(capturePrintSelection(root), [{ message: A, body: { text: 'first\nsecond' } }]), /<pre[^>]*>first\nsecond<\/pre>/);
+    document.getSelection().removeAllRanges();
+    document.body.replaceChildren();
+  });
+
+  it('reconstructs a dark recolored selection from the original message HTML', () => {
+    document.body.innerHTML = '<div data-message-id="second"><iframe></iframe></div>';
+    const frame = document.querySelector('iframe');
+    const doc = frame.contentDocument;
+    doc.body.innerHTML = '<div id="mf-scale-wrapper"><p><span style="color:white;background:black">Repeated text</span> and <b style="color:white">selected text</b></p></div>';
+    const range = doc.createRange();
+    range.selectNodeContents(doc.querySelector('p'));
+    doc.getSelection().addRange(range);
+    const selection = capturePrintSelection(document.body);
+    doc.getSelection().removeAllRanges();
+    const original = '<p><span style="color:#222;background:#fff">Repeated text</span> and <b style="color:#111">selected text</b></p>';
+    const html = buildPrintSelection(selection, [
+      { message: { id: 'first' }, body: { html: '<p>Wrong email</p>' } },
+      { message: { id: 'second' }, body: { html: original } },
+    ]);
+    assert.match(html, /color:#222/);
+    assert.match(html, /color:#111/);
+    assert.doesNotMatch(html, /color:white|background:black|Wrong email/);
+    assert.equal(buildPrintSelection(selection, [{ message: A, body: { text: 'Different content' } }]), '', 'a changed body cannot select the wrong text');
+    document.body.replaceChildren();
+  });
+
+  it('maps partial repeated text and image-only selections to the original body', () => {
+    const original = '<p style="background:#eee;color:#111">Repeat<br>Repeat<img src="/original.png"></p>';
+    document.body.innerHTML = '<div data-print-body><p style="color:white">Repeat<br>Repeat<img src="/reading-pane.png"></p></div>';
+    const root = document.querySelector('[data-print-body]');
+    const range = document.createRange();
+    range.setStart(root.querySelector('br').nextSibling, 1);
+    range.setEnd(root.querySelector('br').nextSibling, 4);
+    const selection = document.getSelection();
+    selection.addRange(range);
+    const entries = [{ message: A, body: { html: original } }];
+    assert.equal(buildPrintSelection(capturePrintSelection(root), entries), '<p style="background:#eee;color:#111">epe</p>');
+    selection.removeAllRanges();
+    range.selectNode(root.querySelector('img'));
+    selection.addRange(range);
+    const html = buildPrintSelection(capturePrintSelection(root), entries);
+    assert.match(html, /original.png/);
+    assert.doesNotMatch(html, /reading-pane.png|color:white/);
+    selection.removeAllRanges();
+    document.body.replaceChildren();
+  });
+
+  it('uses the desktop preview without focusing or printing the hidden document', async () => {
+    const win = fakeWindow();
+    win.name = 'mailflow-print-42';
+    let previewName;
+    dom.window.mailflowNative = { printing: { preview: async name => { previewName = name; } } };
+    try {
+      await printInWindow(win, '<html>email</html>');
+      assert.equal(previewName, win.name);
+      assert.deepEqual(win.writes, ['<html>email</html>']);
+      assert.equal(win.printed, 0);
+    } finally { delete dom.window.mailflowNative; }
+  });
+
+  it('closes the hidden window if opening the desktop preview fails', async () => {
+    const win = fakeWindow();
+    dom.window.mailflowNative = { printing: { preview: async () => { throw new Error('Unavailable'); } } };
+    try {
+      await printInWindow(win, '<html>email</html>');
+      assert.equal(win.closed, true);
+      assert.equal(win.printed, 0);
+    } finally { delete dom.window.mailflowNative; }
+  });
+
   it('opens uniquely named blank windows permitted by the desktop shell', () => {
     const calls = [];
     dom.window.open = (...args) => { calls.push(args); return fakeWindow(); };

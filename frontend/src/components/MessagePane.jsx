@@ -626,7 +626,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handlePrint = () => {
     if (!message) return;
-    printInWindow(openPrintWindow(), buildPrintDocument([{ message, body }]));
+    const entries = [{ message, body }];
+    printInWindow(openPrintWindow('', paneRef.current), buildPrintDocument(entries), entries);
   };
 
   // In-flight runs are deliberately not aborted when the reader moves on: they persist their own
@@ -2005,6 +2006,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
             // and React writes this body in one piece, so the translator has nothing of React's
             // to break in here.
             translate="yes"
+            data-print-body=""
             dangerouslySetInnerHTML={{ __html: linkifyText(body.text) }}
           />
         </div>

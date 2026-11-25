@@ -32,6 +32,10 @@ contextBridge.exposeInMainWorld('mailflowNative', {
   getHost: () => ipcRenderer.invoke('mailflow:getHost'),
   saveHost: (host) => ipcRenderer.invoke('mailflow:saveHost', host),
   resetHost: () => ipcRenderer.invoke('mailflow:resetHost'),
+  printing: {
+    preview: (name, context) => ipcRenderer.invoke('mailflow:print:open', name, context),
+    onContextPrint: (callback) => subscribe('mailflow:print:context', callback),
+  },
   badges: {
     setUnreadCount: (count) => ipcRenderer.invoke('mailflow:badge:set-unread-count', count),
   },

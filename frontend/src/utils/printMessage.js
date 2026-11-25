@@ -82,10 +82,101 @@ ${bodyHtml(body)}
 
 // Opened from the click itself, before any await: browsers block a window opened later.
 let printWindowId = 0;
-export function openPrintWindow(placeholder = '') {
+const printContext = new WeakMap();
+
+function selectionNodes(root) {
+  const walker = root.ownerDocument.createTreeWalker(root, 5, {
+    acceptNode: node => node.parentElement?.closest('style, script') ? 2
+      : node.nodeType === 3 || /^(IMG|BR|HR)$/.test(node.nodeName) ? 1 : 3,
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  return nodes;
+}
+// Images and line breaks count as one position, so an image-only selection is preserved too.
+const nodeText = node => node.nodeType === 3 ? node.textContent : '\uFFFC';
+const textOf = root => selectionNodes(root).map(nodeText).join('');
+
+export function capturePrintSelection(root = document.body) {
+  const capture = (doc, scope, messageId) => {
+    const selection = doc.getSelection?.();
+    if (!selection?.rangeCount || selection.isCollapsed) return null;
+    const range = selection.getRangeAt(0);
+    if (!scope?.contains(range.startContainer) || !scope.contains(range.endContainer)) return null;
+    const prefix = doc.createRange();
+    prefix.selectNodeContents(scope);
+    prefix.setEnd(range.startContainer, range.startOffset);
+    const start = textOf(prefix.cloneContents());
+    const selected = textOf(range.cloneContents());
+    if (!selected) return null;
+    // Only offsets cross the reading/printing boundary; recolored DOM markup never does.
+    return { messageId, start: start.length, end: start.length + selected.length, fullText: textOf(scope) };
+  };
+  for (const frame of root?.querySelectorAll('iframe') || []) {
+    try {
+      const doc = frame.contentDocument;
+      const selection = capture(doc, doc.getElementById('mf-scale-wrapper') || doc.body, frame.closest('[data-message-id]')?.dataset.messageId);
+      if (selection) return selection;
+    } catch { /* A cross-origin frame cannot supply printable selection. */ }
+  }
+  const bodies = root?.querySelectorAll('[data-print-body], [data-mailflow-email]');
+  for (const scope of bodies || []) {
+    const selection = capture(document, scope, scope.closest('[data-message-id]')?.dataset.messageId);
+    if (selection) return selection;
+  }
+  return bodies?.length ? null : capture(document, root, root?.closest('[data-message-id]')?.dataset.messageId);
+}
+
+export function buildPrintSelection(selection, entries) {
+  if (!selection) return '';
+  const entry = entries.length === 1 ? entries[0] : entries.find(({ message }) => String(message.id) === selection.messageId);
+  if (!entry) return '';
+  // Match the frame's parsing before sanitization changes head/body whitespace. This
+  // detached document is inert; only the sanitized selection leaves it below.
+  const source = document.implementation.createHTMLDocument('').createElement('div');
+  source.innerHTML = entry.body?.html || bodyHtml(entry.body);
+  if (textOf(source) !== selection.fullText) return '';
+  const range = source.ownerDocument.createRange();
+  let offset = 0;
+  for (const node of selectionNodes(source)) {
+    const end = offset + nodeText(node).length;
+    if (selection.start >= offset && selection.start < end) {
+      if (node.nodeType === 3) range.setStart(node, selection.start - offset);
+      else range.setStartBefore(node);
+    }
+    if (selection.end > offset && selection.end <= end) {
+      if (node.nodeType === 3) range.setEnd(node, selection.end - offset);
+      else range.setEndAfter(node);
+      break;
+    }
+    offset = end;
+  }
+  const ancestor = range.commonAncestorContainer;
+  const element = ancestor.nodeType === 1 ? ancestor : ancestor.parentElement;
+  const fragment = document.createElement('div');
+  let content = range.cloneContents();
+  for (let parent = element; parent !== source; parent = parent.parentElement) {
+    const wrapper = parent.cloneNode(false);
+    wrapper.append(content);
+    content = wrapper;
+  }
+  for (const style of source.querySelectorAll('style')) fragment.append(style.cloneNode(true));
+  fragment.append(content);
+  return DOMPurify.sanitize(fragment.innerHTML);
+}
+
+export function openPrintWindow(placeholder = '', root = document.body) {
+  // Capture before window.open changes focus, and before conversation loading can change it.
+  const context = window.mailflowNative?.printing?.preview ? {
+    selection: capturePrintSelection(root),
+    language: document.documentElement.lang || 'en',
+    accent: window.getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),
+    accentText: window.getComputedStyle(document.documentElement).getPropertyValue('--accent-text').trim(),
+  } : null;
   // The desktop shell permits only these blank print windows. A unique name keeps a new
   // print from replacing a document that is still open in another print dialog.
   const win = window.open('', `mailflow-print-${++printWindowId}`);
+  if (win && context) printContext.set(win, context);
   // The parent can still populate the document, but the email cannot reach its native bridge.
   if (win) win.opener = null;
   if (win && placeholder) {
@@ -94,11 +185,20 @@ export function openPrintWindow(placeholder = '') {
   return win;
 }
 
-export function printInWindow(win, html) {
+export function printInWindow(win, html, entries = []) {
   if (!win || win.closed) return;
   win.document.open();
   win.document.write(html);
   win.document.close();
+  if (window.mailflowNative?.printing?.preview) {
+    // The desktop shell keeps this document hidden and opens its own PDF preview.
+    // Errors are displayed by the shell, so event handlers need no async plumbing.
+    const context = printContext.get(win) || {};
+    const { selection, ...metadata } = context;
+    return window.mailflowNative.printing.preview(win.name, {
+      ...metadata, selectionHtml: buildPrintSelection(selection, entries),
+    }).catch(() => { if (!win.closed) win.close(); });
+  }
   win.focus();
   win.print();
 }
