@@ -251,8 +251,11 @@ router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const updates = { ...req.body };
 
-  // Verify ownership.
-  const owned = await findOwnedAccount(req.session.userId, id, { columns: 'id, oauth_provider' });
+  // Verify ownership. The connection/credential columns come along so a reconnect can be decided
+  // by whether one actually changed, not merely by its presence in the posted form (see below).
+  const owned = await findOwnedAccount(req.session.userId, id, {
+    columns: 'id, oauth_provider, enabled, auth_user, imap_host, imap_port, imap_tls, imap_skip_tls_verify',
+  });
   if (!owned) return res.status(404).json({ error: 'Account not found' });
   if (owned.oauth_provider) {
     for (const field of OAUTH_OWNED_FIELDS) delete updates[field];
@@ -402,15 +405,24 @@ router.put('/:id', async (req, res) => {
   // are the connection/credential/host fields; a plugin can also require a reconnect for its own
   // field change (GTD: a gtd_enabled toggle re-arms the tick, a folder remap backfills the newly
   // designated folder) via validateAccountSettings' requiresReconnect.
+  // Reconnect only when a connection/credential field actually CHANGES — not merely when the
+  // settings form re-sends its current value. The form posts the whole account on every save, so
+  // treating "field present in updates" as "field changed" reconnected the live IMAP connection
+  // on any edit (toggling notifications, changing a colour). An unnecessary reconnect is wasteful
+  // and, on providers that throttle logins (web.de, GMX), can briefly drop the account.
+  // auth_pass is compared by presence, not value: it is encrypted at rest and only ever sent when
+  // the user typed a new password. imap_port is coerced because the form may send it as a string.
+  const changed = (field) => field in updates && updates[field] !== owned[field];
+  const portChanged = 'imap_port' in updates && Number(updates.imap_port) !== Number(owned.imap_port);
   const isDisabling = 'enabled' in updates && !updates.enabled;
   const needsReconnect = !isDisabling && (
-    'enabled' in updates ||
-    'auth_user' in updates ||
+    changed('enabled') ||
+    changed('auth_user') ||
     'auth_pass' in updates ||
-    'imap_host' in updates ||
-    'imap_port' in updates ||
-    'imap_tls' in updates ||
-    'imap_skip_tls_verify' in updates ||
+    changed('imap_host') ||
+    portChanged ||
+    changed('imap_tls') ||
+    changed('imap_skip_tls_verify') ||
     pluginRequiresReconnect
   );
 

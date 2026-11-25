@@ -219,7 +219,7 @@ const CONTACT_VIEW = `c.id, c.uid, c.display_name, c.first_name, c.last_name, c.
   c.notes, c.photo_data, c.is_auto, c.send_count, c.last_sent, c.etag, c.vcard, c.created_at, c.updated_at,
   (ab.source = 'carddav') AS read_only`;
 const LOOKUPS = {
-  'PUT /accounts/:id': ['findOwnedAccount', ACCOUNT_ID, { columns: 'id, oauth_provider' }],
+  'PUT /accounts/:id': ['findOwnedAccount', ACCOUNT_ID, { columns: 'id, oauth_provider, enabled, auth_user, imap_host, imap_port, imap_tls, imap_skip_tls_verify' }],
   'DELETE /accounts/:id': ['findOwnedAccount', ACCOUNT_ID, { columns: 'id' }],
   'POST /accounts/:id/reconnect': ['findOwnedAccount', ACCOUNT_ID],
   'GET /accounts/:id/aliases': ['findOwnedAccount', ACCOUNT_ID, { columns: 'id' }],
