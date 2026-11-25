@@ -7972,6 +7972,15 @@ describe('_startStatusWatcher — new mail over STATUS', () => {
     }
   });
 
+  it('leaves a poll-only account alone, since its tick already refreshes INBOX', () => {
+    const acct = { ...baseAccount, id: 'status-watch-3', user_id: 'user-1', email_address: 'me@example.test', imap_host: 'imap.qq.com' };
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._folderStatusTimer);
+    mgr._pollOnlyAccounts.add(acct.id);
+    mgr._startStatusWatcher(acct);
+    expect(mgr.statusWatchers.has(acct.id)).toBe(false);
+  });
+
   it('stops polling once the account is disconnected', async () => {
     vi.useFakeTimers();
     const acct = { ...baseAccount, id: 'status-watch-2', user_id: 'user-1', email_address: 'me@example.test', imap_host: 'imap.126.com' };

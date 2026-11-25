@@ -3372,6 +3372,9 @@ export class ImapManager {
   _startStatusWatcher(account) {
     const intervalMs = providerProfile(account).statusWatchMs;
     if (!intervalMs) return;
+    // A poll-only account already refreshes INBOX on every tick; a STATUS watch would only add
+    // a second connection to the same provider.
+    if (this._pollOnlyAccounts.has(account.id)) return;
     this._stopStatusWatcher(account.id);
     const state = { client: null, timer: null, busy: false, stopped: false, lastMessages: null };
     this.statusWatchers.set(account.id, state);
