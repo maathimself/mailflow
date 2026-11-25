@@ -195,6 +195,7 @@ export function useWebSocket() {
           if (isRelevant && folderVisible) {
             window.dispatchEvent(new CustomEvent('mailflow:refresh'));
           }
+          window.dispatchEvent(new CustomEvent('mailflow:thread_refresh', { detail: { accountId } }));
         }
 
         // Fetch the latest independently observed server count.
@@ -288,6 +289,7 @@ export function useWebSocket() {
 
       case 'sync_complete': {
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('mailflow:thread_refresh', { detail: { accountId: data.accountId } }));
         window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
         // Re-fetch unread counts so sidebar badges reflect messages marked read
         // in external clients (the message list refresh alone doesn't update counts).
@@ -356,10 +358,11 @@ export function useWebSocket() {
       }
 
       case 'flags_synced': {
-        // Lightweight flag update (read/starred changed on another client).
-        // Refresh the message list and unread counts, and blip the sync icon so background
-        // sync activity stays visible now that sync_complete no longer fires every tick.
+        // Lightweight flag update (read/starred changed on another client) or quiet Sent/seen arrival.
+        // Refresh the message list, open conversation pane, and unread counts, and blip the sync icon
+        // so background sync activity stays visible now that sync_complete no longer fires every tick.
         window.dispatchEvent(new CustomEvent('mailflow:refresh'));
+        window.dispatchEvent(new CustomEvent('mailflow:thread_refresh', { detail: { accountId: data.accountId } }));
         window.dispatchEvent(new CustomEvent('mailflow:sync_done'));
         api.getUnreadCounts().then(_applyServerCounts).catch(() => {});
         break;

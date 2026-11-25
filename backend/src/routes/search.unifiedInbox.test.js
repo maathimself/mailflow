@@ -90,4 +90,28 @@ describe('GET /api/search unified account scope', () => {
     expect(draft.threadId).toBe(row.thread_id);
   });
 
+  it('groups search results by thread_key and returns threaded: true only when requested', async () => {
+    const threadRow = {
+      id: 'reply-2', account_id: 'included', folder: 'Sent', message_id: '<r2@example.test>',
+      thread_id: 'thr-1', subject: 'Invoice April', from_name: 'Vendor', from_email: 'v@example.test',
+      reply_from_name: 'Me', reply_from_email: 'owner@example.test', reply_subject: 'Re: Invoice April',
+      message_count: 2, unread_count: 1,
+    };
+    query.mockResolvedValueOnce({ rows: [{ id: 'included' }] }).mockResolvedValueOnce({ rows: [threadRow] });
+
+    const threadedRes = await fetch(`${base}/api/search?q=invoice&threaded=true`);
+    expect(threadedRes.status).toBe(200);
+    const threadedSql = query.mock.calls[1][0];
+    expect(threadedSql).toContain('paged_threads AS');
+    expect(threadedSql).toContain('thread_totals AS');
+    expect(threadedSql).toContain('m.thread_key AS thread_id');
+    expect(await threadedRes.json()).toEqual({ messages: [threadRow], query: 'invoice', threaded: true });
+
+    query.mockReset();
+    query.mockResolvedValueOnce({ rows: [{ id: 'included' }] }).mockResolvedValueOnce({ rows: [{ id: 'flat-1' }] });
+    const flatRes = await fetch(`${base}/api/search?q=invoice`);
+    expect(flatRes.status).toBe(200);
+    expect(query.mock.calls[1][0]).not.toContain('paged_threads AS');
+    expect(await flatRes.json()).toEqual({ messages: [{ id: 'flat-1' }], query: 'invoice' });
+  });
 });

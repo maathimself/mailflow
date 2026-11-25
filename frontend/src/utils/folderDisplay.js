@@ -79,6 +79,23 @@ export function folderRole(folder, folderMappings) {
   return null;
 }
 
+const SENT_FOLDER_PATHS = new Set([
+  'sent', 'sent items', 'sent mail', 'sent messages',
+  '[gmail]/sent mail', '[google mail]/sent mail', 'inbox.sent', 'inbox/sent',
+]);
+
+// True when folderPath identifies a Sent mailbox on the account (by folder mapping,
+// folders metadata, or canonical IMAP Sent path fallback).
+export function isSentFolderPath(folderPath, accountFolders, folderMappings) {
+  if (!folderPath) return false;
+  if (folderMappings?.sent && folderMappings.sent === folderPath) return true;
+  const folderObj = Array.isArray(accountFolders)
+    ? accountFolders.find(f => f?.path === folderPath)
+    : null;
+  if (folderObj) return folderRole(folderObj, folderMappings) === 'sent';
+  return SENT_FOLDER_PATHS.has(String(folderPath).trim().toLowerCase());
+}
+
 // Display name of a folder: the translated role label when it has one, else
 // its server name (or path). `t` is the i18next translate function.
 // `folders`, the account's folder list, keeps a role label to one row (#623):

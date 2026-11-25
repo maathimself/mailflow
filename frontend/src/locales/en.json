@@ -362,7 +362,8 @@
       "conversationTitle": "Conversation archived",
       "nothingFromAccount": "Nothing from this account to archive in this conversation",
       "otherAccountMessage": "Nothing archived: the open message is from another account",
-      "otherAccountDraft": "Nothing archived: the open draft is from another account"
+      "otherAccountDraft": "Nothing archived: the open draft is from another account",
+      "sentOnlyNotice": "Nothing archived: this conversation only contains Sent messages"
     },
     "moved": {
       "title": "Message moved",
@@ -1372,6 +1373,12 @@
       "threadingOnDesc": "Replies grouped into conversations",
       "threadingPane": "Reading pane",
       "threadingPaneDesc": "The whole conversation opens together",
+      "threadInboxSent": "Show sent conversations in Inbox",
+      "threadInboxSentDesc": "Include Sent-initiated threads and your outgoing follow-ups in the Inbox list when threading is enabled",
+      "threadedSearch": "Group search results into conversations",
+      "threadedSearchDesc": "Display matching threads as conversations instead of individual messages when threading is enabled",
+      "inlineQuickReply": "Inline quick-reply in conversations",
+      "inlineQuickReplyDesc": "Show a docked quick-reply box inside conversations instead of opening the reply modal",
       "composeFormat": "Compose format",
       "composeRichText": "Rich text",
       "composeRichTextDesc": "Sends HTML — supports formatting and styled signatures",
@@ -2551,5 +2558,11 @@
     "adminEnable": "Allow notification webhooks for users",
     "origins": "Allowed private origins (one per line)",
     "originsHelp": "Enter exact origins including scheme, host and port, without a path. Public endpoints require HTTPS. Allowed private destinations may use HTTP; loopback, link-local and reserved addresses remain blocked."
+  },
+  "quickReply": {
+    "regionLabel": "Quick reply",
+    "placeholder": "Write a quick reply…",
+    "popOut": "Open in full composer",
+    "signatureIncluded": "Signature will be added"
   }
 }

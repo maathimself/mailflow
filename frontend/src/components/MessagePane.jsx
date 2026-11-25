@@ -1006,6 +1006,13 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handleArchive = () => {
     const archived = message;
+    if (!windowMode) {
+      const { selectedAccountId, selectedFolder, searchQuery } = useStore.getState();
+      if (!searchQuery?.trim() && (!selectedAccountId || selectedFolder === 'INBOX') && archived.folder && archived.folder !== 'INBOX') {
+        addNotification({ title: t('message.archived.sentOnlyNotice') });
+        return;
+      }
+    }
     advanceSelectionAfterRemoval(archived.id);
     removeMessage(archived.id);
     closeWindowIfWindowed();

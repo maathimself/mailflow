@@ -423,4 +423,23 @@ describe('repairing read state from the server', () => {
     expect(searches.some(c => c.seen === false)).toBe(false);
     expect(heal()).toBeUndefined();
   });
+
+  it('broadcasts flags_synced when quiet seen messages are inserted without new_messages (e.g. external Sent replies)', async () => {
+    const { run, mgr } = healing({
+      rows: [{ uid: 1, is_read: true }, { uid: 2, is_read: true }], unseen: 0, unseenOnServer: [],
+    });
+    mgr.syncMessages.mockResolvedValueOnce({ insertedCount: 1, broadcastedNewMessages: false });
+    await run();
+    expect(mgr.broadcast).toHaveBeenCalledWith({ type: 'flags_synced', accountId: acct.id }, acct.user_id);
+
+    mgr.broadcast.mockClear();
+    mgr.syncMessages.mockResolvedValueOnce({ insertedCount: 1, broadcastedNewMessages: true });
+    await run();
+    expect(mgr.broadcast).not.toHaveBeenCalledWith({ type: 'flags_synced', accountId: acct.id }, acct.user_id);
+
+    mgr.broadcast.mockClear();
+    mgr.syncMessages.mockResolvedValueOnce({ insertedCount: 0, broadcastedNewMessages: false });
+    await run();
+    expect(mgr.broadcast).not.toHaveBeenCalled();
+  });
 });

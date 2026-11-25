@@ -362,7 +362,8 @@
       "conversationTitle": "Conversation archivée",
       "nothingFromAccount": "Aucun message de ce compte à archiver dans cette conversation",
       "otherAccountMessage": "Rien n'a été archivé : le message ouvert provient d'un autre compte",
-      "otherAccountDraft": "Rien n'a été archivé : le brouillon ouvert provient d'un autre compte"
+      "otherAccountDraft": "Rien n'a été archivé : le brouillon ouvert provient d'un autre compte",
+      "sentOnlyNotice": "Rien n'a été archivé : cette conversation ne contient que des messages envoyés"
     },
     "moved": {
       "title": "Message déplacé",
@@ -1372,6 +1373,12 @@
       "threadingOnDesc": "Les réponses sont regroupées en conversations",
       "threadingPane": "Volet de lecture",
       "threadingPaneDesc": "Toute la conversation s'ouvre ensemble",
+      "threadInboxSent": "Afficher les échanges envoyés dans la boîte de réception",
+      "threadInboxSentDesc": "Inclure les fils démarrés depuis Envoyés et vos réponses sortantes dans la boîte de réception lorsque le regroupement est activé",
+      "threadedSearch": "Regrouper les résultats de recherche par conversation",
+      "threadedSearchDesc": "Afficher les fils correspondants sous forme de conversations plutôt que de messages isolés",
+      "inlineQuickReply": "Réponse rapide intégrée aux conversations",
+      "inlineQuickReplyDesc": "Afficher une zone de réponse rapide ancrée dans la conversation au lieu d'ouvrir la fenêtre de rédaction",
       "composeFormat": "Format de rédaction",
       "composeRichText": "Texte enrichi",
       "composeRichTextDesc": "Envoie du HTML — prend en charge la mise en forme et les signatures stylisées",
@@ -2551,5 +2558,11 @@
     "adminEnable": "Autoriser les webhooks de notification pour les utilisateurs",
     "origins": "Origines privées autorisées (une par ligne)",
     "originsHelp": "Saisissez les origines exactes avec protocole, hôte et port, sans chemin. Les destinations publiques exigent HTTPS. Les destinations privées autorisées peuvent utiliser HTTP ; les adresses de boucle locale, de liaison locale et réservées restent bloquées."
+  },
+  "quickReply": {
+    "regionLabel": "Réponse rapide",
+    "placeholder": "Écrire une réponse rapide…",
+    "popOut": "Ouvrir dans l’éditeur complet",
+    "signatureIncluded": "La signature sera ajoutée"
   }
 }

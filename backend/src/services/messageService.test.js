@@ -343,3 +343,88 @@ describe('listMessages — ghost row suppression (#407)', () => {
     expect(query.mock.calls[3][0]).toContain('NOT (m.message_id IS NULL');
   });
 });
+
+describe('listMessages — includeSent in threaded Inbox', () => {
+  it('adds Sent eligibility predicate and projects opener folder/recipients when includeSent=true', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', include_in_unified_inbox: true }] })
+      .mockResolvedValueOnce({ rows: [{ n: 2 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await listMessages({ userId: 'user-1', threaded: 'true', includeSent: 'true' });
+
+    const sql = query.mock.calls[2][0];
+    expect(sql).toContain('sent_inbox_dismissed');
+    expect(sql).toContain('thread_to_addresses');
+    expect(sql).toContain('thread_folder');
+  });
+
+  it('ignores includeSent on non-INBOX specific account folders', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total_count: 2, unread_count: 0 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ total: 0 }] });
+
+    await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'Archive', threaded: 'true', includeSent: 'true' });
+
+    expect(query.mock.calls[2][0]).not.toContain('sent_inbox_dismissed');
+  });
+
+  it('skips full-mailbox COUNT(DISTINCT) on large unfiltered threaded mailboxes when more pages exist', async () => {
+    const rows = Array.from({ length: 51 }, (_, i) => ({
+      id: `msg-${i}`,
+      thread_id: `t-${i}`,
+      _strict_total: 250,
+      _window_exhausted: false,
+    }));
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', include_in_unified_inbox: true }] })
+      .mockResolvedValueOnce({ rows: [{ n: 411501 }] })
+      .mockResolvedValueOnce({ rows });
+
+    const result = await listMessages({ userId: 'user-1', limit: 50, offset: 0, threaded: 'true', includeSent: 'true' });
+
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(result.messages).toHaveLength(50);
+    expect(result.total).toBe(411501);
+    expect(result.messages[0]).not.toHaveProperty('_strict_total');
+    expect(result.messages[0]).not.toHaveProperty('_window_exhausted');
+  });
+
+  it('uses exact strict_total without an extra count query when the fast window exhausts the mailbox', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', include_in_unified_inbox: true }] })
+      .mockResolvedValueOnce({ rows: [{ n: 12 }] })
+      .mockResolvedValueOnce({
+        rows: [
+          { id: 'msg-1', thread_id: 't-1', _strict_total: 2, _window_exhausted: true },
+          { id: 'msg-2', thread_id: 't-2', _strict_total: 2, _window_exhausted: true },
+        ],
+      });
+
+    const result = await listMessages({ userId: 'user-1', limit: 50, offset: 0, threaded: 'true', includeSent: 'true' });
+
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(result.messages).toHaveLength(2);
+    expect(result.total).toBe(2);
+  });
+
+  it('falls back to the full threaded query when the fast window hits cap without enough threads', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'acc-1', include_in_unified_inbox: true }] })
+      .mockResolvedValueOnce({ rows: [{ n: 500 }] })
+      .mockResolvedValueOnce({
+        rows: [{ id: null, _strict_total: 0, _window_exhausted: false }],
+      })
+      .mockResolvedValueOnce({ rows: [{ id: 'msg-1', thread_id: 't-1' }] })
+      .mockResolvedValueOnce({ rows: [{ total: 1 }] });
+
+    const result = await listMessages({ userId: 'user-1', limit: 50, offset: 0, threaded: 'true' });
+
+    expect(query).toHaveBeenCalledTimes(5);
+    expect(result.messages).toEqual([{ id: 'msg-1', thread_id: 't-1' }]);
+    expect(result.total).toBe(1);
+  });
+});

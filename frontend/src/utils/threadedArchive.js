@@ -15,6 +15,8 @@ export function archiveViewKey({
   selectedFolder,
   searchQuery,
   threadedView,
+  threadInboxSent = false,
+  threadedSearch = false,
   unreadOnly,
   activeCategory,
   currentPage,
@@ -32,6 +34,8 @@ export function archiveViewKey({
     selectedFolder ?? null,
     String(searchQuery || '').trim(),
     Boolean(threadedView),
+    Boolean(threadInboxSent),
+    Boolean(threadedSearch),
     Boolean(unreadOnly),
     activeCategory ?? null,
     Number(currentPage) || 1,
@@ -46,9 +50,15 @@ export function archiveViewKey({
   ]);
 }
 
-export function archiveTargetsForFolder(message, resolvedMessages, folder, isThreadRow, accountId = null) {
+export function archiveTargetsForFolder(message, resolvedMessages, folder, isThreadRow, accountId = null, options = {}) {
   if (!message) return [];
-  if (!isThreadRow) return [message];
+  const excludeSentOnly = Boolean(options?.excludeSentOnly);
+  if (!isThreadRow) {
+    if (excludeSentOnly && folder === 'INBOX' && message.folder && message.folder !== 'INBOX') {
+      return [];
+    }
+    return [message];
+  }
 
   const seen = new Set();
   const targets = (Array.isArray(resolvedMessages) ? resolvedMessages : []).filter((candidate) => {
@@ -61,7 +71,8 @@ export function archiveTargetsForFolder(message, resolvedMessages, folder, isThr
     && message.folder === folder
     && (!accountId || message.account_id === accountId);
   if (visibleRowMatchesScope && !seen.has(message.id)) targets.push(message);
-  return targets.length > 0 ? targets : [message];
+  if (targets.length > 0) return targets;
+  return excludeSentOnly ? [] : [message];
 }
 
 export async function archiveTargetGroupsForRows(
@@ -70,16 +81,23 @@ export async function archiveTargetGroupsForRows(
   folder,
   isThreadRow,
   accountId = null,
-  concurrency = 8,
+  concurrencyOrOptions = 8,
+  maybeOptions = {},
 ) {
+  const concurrency = typeof concurrencyOrOptions === 'number' ? concurrencyOrOptions : 8;
+  const options = typeof concurrencyOrOptions === 'object' && concurrencyOrOptions !== null
+    ? concurrencyOrOptions
+    : maybeOptions;
   const rows = Array.isArray(messages) ? messages : [];
   const groups = [];
   for (let offset = 0; offset < rows.length; offset += concurrency) {
     const batch = await Promise.all(rows.slice(offset, offset + concurrency).map(async (row) => {
       const resolved = await resolveMessages(row);
+      const rowFolder = typeof folder === 'function' ? folder(row) : folder;
+      const rowOptions = typeof options === 'function' ? options(row) : options;
       return {
         row,
-        targets: archiveTargetsForFolder(row, resolved, folder, isThreadRow(row), accountId),
+        targets: archiveTargetsForFolder(row, resolved, rowFolder, isThreadRow(row), accountId, rowOptions),
       };
     }));
     groups.push(...batch);

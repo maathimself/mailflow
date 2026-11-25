@@ -19,12 +19,15 @@ export const pool = new Pool({
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
-  // Apply statement_timeout via PostgreSQL startup options so it is set during
-  // the connection handshake, before any queries can run. The alternative —
-  // pool.on('connect') + client.query('SET ...') — is racy: pg does not await
-  // the async handler before dispatching the client, so the SET command and the
-  // first application query can land on the same client concurrently.
-  options: '-c statement_timeout=30000',
+  // Apply statement_timeout and disable LLVM JIT via PostgreSQL startup options
+  // so they are set during the connection handshake, before any queries can run.
+  // The alternative — pool.on('connect') + client.query('SET ...') — is racy: pg
+  // does not await the async handler before dispatching the client, so the SET
+  // command and the first application query can land on the same client concurrently.
+  // JIT is disabled because complex OLTP CTE/LATERAL queries cross PostgreSQL's
+  // jit_optimize_above_cost threshold and spend 5–12s compiling LLVM IR for queries
+  // that execute in <50ms.
+  options: '-c statement_timeout=30000 -c jit=off',
 });
 
 // pg removes failed idle clients itself, then emits on the pool. Without a

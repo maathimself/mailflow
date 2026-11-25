@@ -60,6 +60,8 @@ describe('archiveViewKey', () => {
       { selectedFolder: 'Sent' },
       { searchQuery: 'from:alice' },
       { threadedView: false },
+      { threadInboxSent: true },
+      { threadedSearch: true },
       { unreadOnly: true },
       { activeCategory: 'updates' },
       { currentPage: 2 },
@@ -143,6 +145,18 @@ describe('archiveTargetsForFolder', () => {
         'account-1',
       ).map(message => message.id),
       ['oldest', 'head'],
+    );
+  });
+
+  it('excludes Sent-only rows when excludeSentOnly is true for INBOX', () => {
+    const sentRow = { id: 'sent-1', account_id: 'account-1', folder: 'Sent', thread_id: 's1', message_count: 2 };
+    assert.deepEqual(
+      archiveTargetsForFolder(sentRow, [{ id: 'sent-1', account_id: 'account-1', folder: 'Sent' }], 'INBOX', true, 'account-1', { excludeSentOnly: true }),
+      [],
+    );
+    assert.deepEqual(
+      archiveTargetsForFolder({ ...sentRow, message_count: 1 }, [], 'INBOX', false, 'account-1', { excludeSentOnly: true }),
+      [],
     );
   });
 });
