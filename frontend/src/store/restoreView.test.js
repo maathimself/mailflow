@@ -116,3 +116,38 @@ test('the saved sort orders stay under the server\'s limit, oldest dropped first
   assert.equal(keys.at(-1), 'a:F404');
   useStore.setState({ listSort: {} });
 });
+
+// A conversation row is keyed by its thread, and two rows with one key left one of them on screen
+// for good once the list reordered (utils/listRows.js). An Undo of a conversation acted on as a
+// whole puts it back message by message, and a refresh can have listed it again meanwhile.
+test('a list of conversations takes back one row per conversation', () => {
+  const older = { id: 'tb-1', account_id: 'a', folder: 'INBOX', thread_id: 't', date: '2026-11-20T11:55:16Z' };
+  const newer = { id: 'tb-2', account_id: 'a', folder: 'INBOX', thread_id: 't', date: '2026-11-25T14:42:54Z' };
+  const other = { id: 'o', account_id: 'a', folder: 'INBOX', thread_id: 'u', date: '2026-11-22T00:00:00Z' };
+  useStore.setState({ threadedView: true });
+  open('a', 'INBOX', [{ ...newer, message_count: 2 }, other]);
+  useStore.getState().removeMessages(['tb-2']);
+  useStore.getState().restoreMessages([older, newer]);
+  assert.deepEqual(ids(), ['tb-2', 'o'], 'the conversation is one row, its newest message');
+
+  open('a', 'INBOX', [{ ...newer, message_count: 2 }, other]);
+  useStore.getState().removeMessages(['tb-2']);
+  // A refresh listed the conversation again before the Undo.
+  useStore.setState({ messages: [{ ...newer, message_count: 2 }, other] });
+  useStore.getState().restoreMessages([older, newer]);
+  assert.deepEqual(ids(), ['tb-2', 'o'], 'nothing added beside the row the refresh listed');
+});
+
+test('a list of messages takes back every message of a conversation', () => {
+  const older = { id: 'f-1', account_id: 'a', folder: 'INBOX', thread_id: 'f', date: '2026-11-20T00:00:00Z' };
+  const newer = { id: 'f-2', account_id: 'a', folder: 'INBOX', thread_id: 'f', date: '2026-11-25T00:00:00Z' };
+  useStore.setState({ threadedView: false });
+  open('a', 'INBOX', [newer]);
+  useStore.getState().restoreMessages([older]);
+  assert.deepEqual(ids(), ['f-2', 'f-1']);
+  // The Snoozed view lists single messages even with conversations on.
+  useStore.setState({ threadedView: true });
+  open(null, 'Snoozed', [newer]);
+  useStore.getState().restoreMessages([older]);
+  assert.deepEqual(ids(), ['f-2', 'f-1']);
+});

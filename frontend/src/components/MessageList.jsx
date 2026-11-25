@@ -36,6 +36,7 @@ import {
 } from '../utils/gtd.js';
 import { formatDate, formatDateTime, formatSnoozeUntil } from '../utils/formatDate.js';
 import { SNOOZED_FOLDER, unsnooze, changeSnooze, refreshCounts } from '../utils/snoozeActions.js';
+import { listRowKey, uniqueListRows } from '../utils/listRows.js';
 import { advanceSelectionAfterRemoval, registerRowOpener } from '../utils/listSelection.js';
 import { pickMessageReplyAlias, resolveReplyRecipients, openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFromMessage } from '../utils/composeFromMessage.js';
 import { selectedMessage, markMessageUnread } from '../utils/messageHotkeys.js';
@@ -1554,7 +1555,11 @@ function MailboxList() {
   }, []);
 
   // Derived from store — must be declared before callbacks that use it in dependency arrays
-  const displayMessages = searchQuery.trim() ? searchResults : messages;
+  const listThreaded = threadedView && !searchQuery.trim();
+  const displayMessages = useMemo(
+    () => uniqueListRows(searchQuery.trim() ? searchResults : messages, listThreaded),
+    [searchQuery, searchResults, messages, listThreaded],
+  );
 
   // Folder search results — shown at the top when searching with a plain query
   // (no special operator prefixes like from:, to:, subject:, has:, is:)
@@ -4288,9 +4293,9 @@ function MailboxList() {
           </div>
         )}
 
-        {threadedView && !searchQuery.trim() ? (
+        {listThreaded ? (
           displayMessages.map(message => {
-            const tid = message.thread_id || message.id;
+            const tid = listRowKey(message, true);
             const swipeLeftAction = swipeActions?.left || 'archive';
             const swipeRightAction = swipeActions?.right || 'markRead';
             return (
@@ -4346,7 +4351,7 @@ function MailboxList() {
             const swipeRightAction = swipeActions?.right || 'markRead';
             return (
               <MessageRow
-                key={message.id}
+                key={listRowKey(message, false)}
                 message={message}
                 selected={isSelectedRow(message, selectedMessageId, selectedMid, selectedAcct)}
                 lastViewed={lastViewedMessageId === message.id && selectedMessageId !== message.id}

@@ -32,6 +32,7 @@ import { removeThreadCacheEntry } from '../utils/threadedArchive.js';
 import i18n, { initialLanguage } from '../i18n.js';
 import { createPrefSaveQueue } from '../utils/prefSaveQueue.js';
 import { compareListOrder, isDefaultListOrder, listOrderFor, listSortKey } from '../utils/listSort.js';
+import { isThreadedList, listRowKey, uniqueListRows } from '../utils/listRows.js';
 
 // Accumulate rapid preference changes and flush at most once per second. The queue itself
 // lives in prefSaveQueue.js so its behaviour is testable without a network or a DOM.
@@ -438,9 +439,16 @@ export const useStore = create((set, get) => ({
     // present, else id): if the message is already present — including re-added by a network
     // refresh under a regenerated id (matched via Message-ID) — skip it. The local copy carries the
     // freshest optimistic state, so we prefer it over the server view. See missingByIdentity.
-    const missing = missingByIdentity(state.messages, list);
+    // A list of conversations takes back one row per conversation, and none for a conversation it
+    // lists already: a conversation acted on as a whole is put back message by message, and a
+    // refresh can have listed it again meanwhile (utils/listRows.js).
+    const missingRows = (held, threaded) => {
+      const listed = new Set(held.map(m => listRowKey(m, threaded)));
+      return uniqueListRows(missingByIdentity(held, list).filter(m => !listed.has(listRowKey(m, threaded))), threaded);
+    };
+    const missing = missingRows(state.messages, isThreadedList(state));
     if (missing.length === 0 && !state.searchQuery.trim()) return {};
-    const missingFromSearch = missingByIdentity(state.searchResults, list);
+    const missingFromSearch = missingRows(state.searchResults, isThreadedList(state, { search: true }));
     return {
       messages: missing.length ? sortList([...state.messages, ...missing]) : state.messages,
       searchResults: state.searchQuery.trim() && missingFromSearch.length
