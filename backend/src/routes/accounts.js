@@ -79,11 +79,11 @@ export const SAFE_FIELDS = [
   'include_in_unified_inbox',
   'last_sync', 'sync_error', 'sync_error_code', 'sort_order', 'folder_mappings',
   'signature', 'signature_enabled', 'created_at', 'categorization_enabled', 'antispam_enabled',
-  'trusted_authserv_id', 'auto_cc_addresses', 'auto_bcc_addresses',
+  'trusted_authserv_id', 'auto_cc_addresses', 'auto_bcc_addresses', 'notifications_enabled',
 ];
 // Columns PUT /:id may write. The settings form sends back what GET returned, so every
 // non-secret one must be in SAFE_FIELDS or saving an unrelated edit would write it as empty.
-export const ACCOUNT_UPDATE_FIELDS = ['name', 'sender_name', 'color', 'icon', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'signature_enabled', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id', 'auto_cc_addresses', 'auto_bcc_addresses'];
+export const ACCOUNT_UPDATE_FIELDS = ['name', 'sender_name', 'color', 'icon', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'signature_enabled', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id', 'auto_cc_addresses', 'auto_bcc_addresses', 'notifications_enabled'];
 // What an API token sees of an account (#617): enough to name it, pick a From and draft as the
 // composer does (signature on or off, the automatic Cc and Bcc), and nothing of its settings:
 // no hosts, ports, TLS or login names, signatures, folder mappings or plugin configuration.

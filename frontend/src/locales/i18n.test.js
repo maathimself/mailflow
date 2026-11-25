@@ -237,6 +237,8 @@ const SAME_VALUE_ALLOWED = {
   'admin.accounts.smtpPort':  [['cs', 'de', 'en', 'fr'], ['it', 'ptBR']],
   'admin.systemEmail.port':   [['cs', 'de', 'en', 'fr'], ['it', 'ptBR']],
 
+  // "Notifications" (en/fr) — identical word in both
+  'admin.accounts.notificationsSection': [['en', 'fr']],
   // "Signature" (en/fr) and "Firma" (es/it) — two separate legitimate groups
   'admin.accounts.signatureSection': [['en', 'fr'], ['es', 'it'], ['cs', 'pl']],
   'admin.aliases.signatureSection':  [['en', 'fr'], ['es', 'it'], ['cs', 'pl']],
