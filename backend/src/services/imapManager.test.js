@@ -7902,3 +7902,110 @@ describe('UIDVALIDITY purge notifications', () => {
     expect(query.mock.calls.find(([sql]) => sql.startsWith('DELETE FROM messages'))[0]).toContain('RETURNING thread_key');
   });
 });
+
+
+describe('providerProfile — Tencent and NetEase are STATUS-polled', () => {
+  it.each([
+    ['imap.qq.com'],
+    ['imap.exmail.qq.com'],
+    ['imap.126.com'],
+    ['imap.163.com'],
+    ['imap.yeah.net'],
+  ])('detects status-polled for %s', host => {
+    const profile = providerProfile(account(host));
+    expect(profile).toBe(PROVIDERS.statusPolled);
+    // IDLE is what hands the push channel to another session and never gives it back on
+    // Tencent, and what NetEase answers with a NOOP loop that still claims idling.
+    expect(profile.usesIdle).toBe(false);
+    expect(profile.statusWatchMs).toBe(3000);
+  });
+
+  it.each([
+    ['qq.example.org'],
+    ['notqq.com'],
+    ['imap.qq.co'],
+    ['163.example.org'],
+  ])('does not take %s for status-polled', host => {
+    expect(providerProfile(account(host))).toBe(PROVIDERS.generic);
+  });
+});
+
+describe('_startStatusWatcher — new mail over STATUS', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('polls the INBOX count and hands a growth to the sync tick', async () => {
+    vi.useFakeTimers();
+    const acct = { ...baseAccount, id: 'status-watch-1', user_id: 'user-1', email_address: 'me@example.test', imap_host: 'imap.qq.com' };
+    let count = 10;
+    const client = Object.assign(new EventEmitter(), {
+      usable: true,
+      connect: vi.fn().mockResolvedValue(),
+      close: vi.fn(),
+      logout: vi.fn().mockResolvedValue(),
+      status: vi.fn(async () => ({ messages: count })),
+    });
+    ImapFlow.mockImplementation(function () { return client; });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    query.mockResolvedValue({ rows: [] });
+
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._folderStatusTimer);
+    mgr.broadcast = vi.fn();
+    mgr._syncTick = vi.fn().mockResolvedValue();
+    try {
+      mgr._startStatusWatcher(acct);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(client.status).toHaveBeenCalledWith('INBOX', { messages: true });
+      expect(mgr.broadcast).not.toHaveBeenCalled();
+
+      count = 11;
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(mgr.broadcast).toHaveBeenCalledWith(
+        { type: 'exists_hint', accountId: acct.id, delta: 1 },
+        acct.user_id
+      );
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mgr._syncTick).toHaveBeenCalledOnce();
+    } finally {
+      mgr._stopStatusWatcher(acct.id);
+    }
+  });
+
+  it('leaves a poll-only account alone, since its tick already refreshes INBOX', () => {
+    const acct = { ...baseAccount, id: 'status-watch-3', user_id: 'user-1', email_address: 'me@example.test', imap_host: 'imap.qq.com' };
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._folderStatusTimer);
+    mgr._pollOnlyAccounts.add(acct.id);
+    mgr._startStatusWatcher(acct);
+    expect(mgr.statusWatchers.has(acct.id)).toBe(false);
+  });
+
+  it('stops polling once the account is disconnected', async () => {
+    vi.useFakeTimers();
+    const acct = { ...baseAccount, id: 'status-watch-2', user_id: 'user-1', email_address: 'me@example.test', imap_host: 'imap.126.com' };
+    const client = Object.assign(new EventEmitter(), {
+      usable: true,
+      connect: vi.fn().mockResolvedValue(),
+      close: vi.fn(),
+      logout: vi.fn().mockResolvedValue(),
+      status: vi.fn(async () => ({ messages: 5 })),
+    });
+    ImapFlow.mockImplementation(function () { return client; });
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    query.mockResolvedValue({ rows: [] });
+
+    const mgr = new ImapManager({ clients: new Set() });
+    clearInterval(mgr._folderStatusTimer);
+    mgr.broadcast = vi.fn();
+    mgr._syncTick = vi.fn().mockResolvedValue();
+    mgr._startStatusWatcher(acct);
+    await vi.advanceTimersByTimeAsync(1);
+    const polls = client.status.mock.calls.length;
+    mgr._stopStatusWatcher(acct.id);
+    expect(client.close).toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(client.status.mock.calls.length).toBe(polls);
+  });
+});
