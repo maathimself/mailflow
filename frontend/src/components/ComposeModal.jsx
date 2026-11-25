@@ -4700,8 +4700,21 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   const clearSuggestions = () => { setSuggestions([]); setSuggIdx(-1); setDropStyle(null); };
 
   const commitInput = () => {
-    const trimmed = value.trim();
-    if (trimmed) { onChipsChange([...chips, trimmed]); onChange(''); }
+    const recipients = parseChips(value);
+    if (recipients.length) { onChipsChange([...chips, ...recipients]); onChange(''); }
+    clearSuggestions();
+  };
+
+  const handlePaste = (event) => {
+    const text = event.clipboardData?.getData('text/plain');
+    if (!text) return;
+    const input = event.currentTarget;
+    const combined = value.slice(0, input.selectionStart) + text + value.slice(input.selectionEnd);
+    const recipients = parseChips(combined);
+    if (recipients.length < 2) return;
+    event.preventDefault();
+    onChipsChange([...chips, ...recipients]);
+    onChange('');
     clearSuggestions();
   };
 
@@ -4725,7 +4738,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
         if (suggIdx >= 0) commitSuggestion(suggestions[suggIdx]);
-        else if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) commitInput();
+        else if (parseChips(value).length > 1 || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) commitInput();
         else commitSuggestion(suggestions[0]);
         return;
       }
@@ -4818,6 +4831,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
         onChange={e => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={commitInput}
+        onPaste={handlePaste}
         placeholder={chips.length ? '' : placeholder}
         autoFocus={autoFocus}
         style={{ ...inputStyle, flex: '1 1 80px', minWidth: 80 }}

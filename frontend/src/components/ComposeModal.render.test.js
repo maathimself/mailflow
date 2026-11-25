@@ -296,6 +296,47 @@ describe('automatic Cc and Bcc (#491)', () => {
   });
   after(() => { api.post = realPost; });
 
+  for (const label of ['compose.to', 'compose.cc', 'compose.bcc']) {
+    for (const method of ['paste', 'enter']) {
+      test(`${label} splits comma-separated recipients on ${method}`, async () => {
+        const existing = 'existing@example.invalid';
+        const close = await mountCompose({ to: [existing], cc: [existing], bcc: [existing] }, { accounts: [account('A')] });
+        try {
+          const input = rowOf(label).querySelector('input');
+          const text = 'Doug Coffin <doug@test.ca>, Megan Coffin <megan@test.ca>';
+          if (method === 'enter') {
+            await addChip(label, text);
+          } else {
+            await React.act(async () => {
+              const event = new window.Event('paste', { bubbles: true, cancelable: true });
+              Object.defineProperty(event, 'clipboardData', { value: { getData: () => text } });
+              input.dispatchEvent(event);
+              assert.equal(event.defaultPrevented, true);
+            });
+          }
+          assert.deepEqual(chips(label), [existing, 'Doug Coffin <doug@test.ca>', 'Megan Coffin <megan@test.ca>']);
+          assert.equal(input.value, '');
+        } finally { await close(); }
+      });
+    }
+  }
+
+  test('pasting a list preserves quoted commas and replaces only the selected input text', async () => {
+    const close = await mountCompose({}, { accounts: [account('A')] });
+    try {
+      const input = rowOf('compose.to').querySelector('input');
+      await typeInto(input, 'First <first@test.ca>, replace, Last <last@test.ca>');
+      input.setSelectionRange(input.value.indexOf('replace'), input.value.indexOf('replace') + 7);
+      await React.act(async () => {
+        const event = new window.Event('paste', { bubbles: true, cancelable: true });
+        Object.defineProperty(event, 'clipboardData', { value: { getData: () => '"Coffin, Doug" <doug@test.ca>, Megan <megan@test.ca>' } });
+        input.dispatchEvent(event);
+      });
+      assert.deepEqual(chips('compose.to'), ['First <first@test.ca>', '"Coffin, Doug" <doug@test.ca>', 'Megan <megan@test.ca>', 'Last <last@test.ca>']);
+      assert.equal(input.value, '');
+    } finally { await close(); }
+  });
+
   test('a new message shows the account\'s automatic Bcc in a visible Bcc row', async () => {
     const close = await mountCompose({}, { accounts: [account('A', { bcc: [ME] })] });
     try {
