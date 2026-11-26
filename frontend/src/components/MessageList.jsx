@@ -36,6 +36,7 @@ import {
 } from '../utils/gtd.js';
 import { formatDate, formatDateTime, formatSnoozeUntil } from '../utils/formatDate.js';
 import { SNOOZED_FOLDER, unsnooze, changeSnooze, refreshCounts } from '../utils/snoozeActions.js';
+import { listRowKey, uniqueListRows } from '../utils/listRows.js';
 import { advanceSelectionAfterRemoval, registerRowOpener } from '../utils/listSelection.js';
 import { pickMessageReplyAlias, resolveReplyRecipients, openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFromMessage } from '../utils/composeFromMessage.js';
 import { selectedMessage, markMessageUnread } from '../utils/messageHotkeys.js';
@@ -634,7 +635,14 @@ function MailboxList() {
             const activeId = useStore.getState().selectedMessageId;
             if (unreadOnly && activeId && !msgs.some(m => m.id === activeId)) {
               const kept = useStore.getState().messages.find(m => m.id === activeId);
-              if (kept) msgs = [kept, ...msgs];
+              // A conversation is listed under its newest unread message, so once the open one is
+              // read the server lists the conversation under another of its messages. The open row
+              // goes where that one is, and the newer of the two stays (utils/listRows.js).
+              if (kept) {
+                const threaded = params.threaded === 'true';
+                const at = Math.max(0, msgs.findIndex(m => listRowKey(m, threaded) === listRowKey(kept, threaded)));
+                msgs = uniqueListRows([...msgs.slice(0, at), kept, ...msgs.slice(at)], threaded);
+              }
             }
             setMessages(msgs);
             if (sm === 'paginated') {
@@ -1554,7 +1562,11 @@ function MailboxList() {
   }, []);
 
   // Derived from store — must be declared before callbacks that use it in dependency arrays
-  const displayMessages = searchQuery.trim() ? searchResults : messages;
+  const listThreaded = threadedView && !searchQuery.trim();
+  const displayMessages = useMemo(
+    () => uniqueListRows(searchQuery.trim() ? searchResults : messages, listThreaded),
+    [searchQuery, searchResults, messages, listThreaded],
+  );
 
   // Folder search results — shown at the top when searching with a plain query
   // (no special operator prefixes like from:, to:, subject:, has:, is:)
@@ -4288,9 +4300,9 @@ function MailboxList() {
           </div>
         )}
 
-        {threadedView && !searchQuery.trim() ? (
+        {listThreaded ? (
           displayMessages.map(message => {
-            const tid = message.thread_id || message.id;
+            const tid = listRowKey(message, true);
             const swipeLeftAction = swipeActions?.left || 'archive';
             const swipeRightAction = swipeActions?.right || 'markRead';
             return (
@@ -4346,7 +4358,7 @@ function MailboxList() {
             const swipeRightAction = swipeActions?.right || 'markRead';
             return (
               <MessageRow
-                key={message.id}
+                key={listRowKey(message, false)}
                 message={message}
                 selected={isSelectedRow(message, selectedMessageId, selectedMid, selectedAcct)}
                 lastViewed={lastViewedMessageId === message.id && selectedMessageId !== message.id}

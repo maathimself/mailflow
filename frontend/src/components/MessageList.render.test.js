@@ -1725,3 +1725,107 @@ describe('MessageList: a resync waits for the list to reload', () => {
     assert.equal(done, true);
   });
 });
+describe('MessageList — a conversation listed twice', () => {
+  // Two rows of one conversation share a React key (thread_id). When the list then reorders,
+  // React keeps only one of them in its key map and never removes the other's DOM, so that row
+  // stayed on screen through every mailbox the reader opened afterwards, until a reload.
+  const ACCOUNT_B = { ...ACCOUNT, id: 'acct-2', email_address: 'b@example.com', name: 'B' };
+  const at = hoursAgo => new Date(Date.now() - hoursAgo * 3_600_000).toISOString();
+  const row = (id, thread_id, hoursAgo, extra = {}) => ({
+    ...MESSAGE, id, thread_id, message_id: `<${id}@example.com>`, subject: `Subject ${id}`,
+    date: at(hoursAgo), message_count: 1, unread_count: 1, ...extra,
+  });
+  const settle = () => React.act(async () => { await new Promise(r => setTimeout(r, 30)); });
+  const refresh = async rows => {
+    SERVED = rows;
+    await React.act(async () => { window.dispatchEvent(new dom.window.CustomEvent('mailflow:refresh')); });
+    await settle();
+  };
+  const listedIds = () => [...container.querySelectorAll('[data-msgid]')].map(el => el.getAttribute('data-msgid'));
+
+  test('renders one row for it, and none is left behind in the next mailbox', async () => {
+    const other = row('other', 'thr-other', 5);
+    const stale = row('tb-1', 'thr-tb', 120);
+    const fresh = row('tb-2', 'thr-tb', 1, { message_count: 2, unread_count: 1 });
+    await mount({ rows: [fresh, other], threadedView: true, accounts: [ACCOUNT, ACCOUNT_B] });
+    // The stale row of the conversation, as an Undo or a failed request puts it back.
+    await React.act(async () => { useStore.setState({ messages: [fresh, other, stale] }); });
+    assert.deepEqual(listedIds(), ['tb-2', 'other'], 'one row for the conversation, the newer one');
+
+    // New mail on top reorders the list.
+    await refresh([row('new', 'thr-new', 0), fresh, other]);
+    assert.deepEqual(listedIds(), ['new', 'tb-2', 'other']);
+
+    SERVED = [];
+    await React.act(async () => { useStore.getState().setSelectedAccount('acct-2', 'INBOX'); });
+    await settle();
+    assert.deepEqual(listedIds(), [], 'no row of the last mailbox stays on screen');
+  });
+});
+
+describe('MessageList — the conversation open under the unread filter', () => {
+  // With the unread filter on, the server lists a conversation under its newest unread message. Once
+  // the reader opens it and that message is read, a refresh lists the conversation under the next
+  // unread one, and the list put the open row back beside it: the conversation was listed twice, on
+  // top of the list rather than where it belongs.
+  const at = hoursAgo => new Date(Date.now() - hoursAgo * 3_600_000).toISOString();
+  const row = (id, thread_id, hoursAgo, extra = {}) => ({
+    ...MESSAGE, id, thread_id, message_id: `<${id}@example.com>`, subject: `Subject ${id}`,
+    date: at(hoursAgo), message_count: 1, unread_count: 1, ...extra,
+  });
+  const settle = () => React.act(async () => { await new Promise(r => setTimeout(r, 30)); });
+  const refresh = async rows => {
+    SERVED = rows;
+    await React.act(async () => { window.dispatchEvent(new dom.window.CustomEvent('mailflow:refresh')); });
+    await settle();
+  };
+  const listedIds = () => [...container.querySelectorAll('[data-msgid]')].map(el => el.getAttribute('data-msgid'));
+  const storedIds = () => useStore.getState().messages.map(m => m.id);
+  const openUnreadOnly = async rows => {
+    await mount({ rows, threadedView: true });
+    await React.act(async () => { container.querySelector('button[title="messageList.unreadOnly"]').click(); });
+    await settle();
+  };
+  const read = async id => {
+    await React.act(async () => {
+      useStore.getState().setSelectedMessage(id);
+      useStore.getState().updateMessage(id, { is_read: true, unread_count: 0 });
+    });
+  };
+
+  test('stays one row, the one being read, where the server lists the conversation', async () => {
+    const opened = row('c-5', 'thr-c', 2, { message_count: 5, unread_count: 5 });
+    const next = row('c-4', 'thr-c', 3, { message_count: 5, unread_count: 4 });
+    const other = row('p', 'thr-p', 30);
+    await openUnreadOnly([opened, other]);
+    await read('c-5');
+
+    // New mail on top is what refreshes the list while the reader is in the conversation.
+    await refresh([row('new', 'thr-new', 0), next, other]);
+    assert.deepEqual(storedIds(), ['new', 'c-5', 'p'], 'the open row takes its conversation\'s place');
+    assert.deepEqual(listedIds(), ['new', 'c-5', 'p']);
+    assert.equal(useStore.getState().selectedMessageId, 'c-5');
+  });
+
+  test('a newer message in the conversation takes the row', async () => {
+    const opened = row('c-5', 'thr-c', 2, { message_count: 5, unread_count: 5 });
+    const other = row('p', 'thr-p', 30);
+    await openUnreadOnly([opened, other]);
+    await read('c-5');
+
+    await refresh([row('c-6', 'thr-c', 0, { message_count: 6, unread_count: 5 }), other]);
+    assert.deepEqual(storedIds(), ['c-6', 'p']);
+    assert.deepEqual(listedIds(), ['c-6', 'p']);
+  });
+
+  test('a conversation the server no longer lists stays on top while it is read', async () => {
+    const opened = row('c-5', 'thr-c', 2, { message_count: 5, unread_count: 1 });
+    const other = row('p', 'thr-p', 30);
+    await openUnreadOnly([opened, other]);
+    await read('c-5');
+
+    await refresh([other]);
+    assert.deepEqual(storedIds(), ['c-5', 'p']);
+    await React.act(async () => { useStore.getState().setSelectedMessage(null); });
+  });
+});
