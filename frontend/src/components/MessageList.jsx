@@ -635,7 +635,14 @@ function MailboxList() {
             const activeId = useStore.getState().selectedMessageId;
             if (unreadOnly && activeId && !msgs.some(m => m.id === activeId)) {
               const kept = useStore.getState().messages.find(m => m.id === activeId);
-              if (kept) msgs = [kept, ...msgs];
+              // A conversation is listed under its newest unread message, so once the open one is
+              // read the server lists the conversation under another of its messages. The open row
+              // goes where that one is, and the newer of the two stays (utils/listRows.js).
+              if (kept) {
+                const threaded = params.threaded === 'true';
+                const at = Math.max(0, msgs.findIndex(m => listRowKey(m, threaded) === listRowKey(kept, threaded)));
+                msgs = uniqueListRows([...msgs.slice(0, at), kept, ...msgs.slice(at)], threaded);
+              }
             }
             setMessages(msgs);
             if (sm === 'paginated') {
