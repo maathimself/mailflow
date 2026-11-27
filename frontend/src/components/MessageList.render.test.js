@@ -1725,3 +1725,48 @@ describe('MessageList: a resync waits for the list to reload', () => {
     assert.equal(done, true);
   });
 });
+
+describe('MessageList — opening a conversation reads all of it', () => {
+  // A conversation row is drawn unread while any message in it is (unread_count). Opening it marked
+  // the row's own message read on the server, nothing else, while the row showed 0 unread: the next
+  // refresh (the Sent copy of a reply arriving, typically) drew it unread again. With the reader's
+  // reply as the row's own message, already read, opening it marked nothing at all.
+  const settle = () => React.act(async () => { await new Promise(r => setTimeout(r, 30)); });
+  const readIds = () => CALLS.filter(c => /bulk-read/.test(c.path) && c.body.read).flatMap(c => c.body.ids).sort();
+  const at = hoursAgo => new Date(Date.now() - hoursAgo * 3_600_000).toISOString();
+  const openConversation = async (row, thread) => {
+    ROUTES[`/mail/thread?id=${row.thread_id}&folder=INBOX`] = [200, { messages: thread.map(m => ({ ...m, is_draft: false })) }];
+    await mount({ rows: [row], threadedView: true });
+    CALLS = [];
+    await React.act(async () => {
+      container.querySelector(`[data-msgid="${row.id}"] [draggable]`)
+        .dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await settle();
+  };
+  const conversation = (tag, replyRead) => {
+    const base = { ...MESSAGE, thread_id: `thr-${tag}` };
+    const older = { ...base, id: `${tag}-1`, uid: 71, message_id: `<${tag}-1@example.com>`, date: at(3) };
+    const middle = { ...base, id: `${tag}-2`, uid: 72, message_id: `<${tag}-2@example.com>`, date: at(2) };
+    const read = { ...base, id: `${tag}-3`, uid: 73, message_id: `<${tag}-3@example.com>`, date: at(1.5), is_read: true };
+    const newest = { ...base, id: `${tag}-4`, uid: 74, message_id: `<${tag}-4@example.com>`, date: at(1), folder: replyRead ? 'Sent' : 'INBOX', is_read: replyRead };
+    const row = { ...newest, message_count: 4, unread_count: replyRead ? 2 : 3 };
+    return { row, thread: [older, middle, read, newest] };
+  };
+
+  test('the newest message unread: every unread message in it is read', async () => {
+    const { row, thread } = conversation('ca', false);
+    await openConversation(row, thread);
+    assert.deepEqual(readIds(), ['ca-1', 'ca-2', 'ca-4']);
+    assert.equal(useStore.getState().messages[0].unread_count, 0);
+    await React.act(async () => { useStore.getState().setSelectedMessage(null); });
+  });
+
+  test('the newest message is the reader\'s own reply: the unread ones before it are read', async () => {
+    const { row, thread } = conversation('cb', true);
+    await openConversation(row, thread);
+    assert.deepEqual(readIds(), ['cb-1', 'cb-2']);
+    assert.equal(useStore.getState().messages[0].unread_count, 0);
+    await React.act(async () => { useStore.getState().setSelectedMessage(null); });
+  });
+});
