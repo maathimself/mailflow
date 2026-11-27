@@ -39,7 +39,7 @@ import { SNOOZED_FOLDER, unsnooze, changeSnooze, refreshCounts } from '../utils/
 import { advanceSelectionAfterRemoval, registerRowOpener } from '../utils/listSelection.js';
 import { pickMessageReplyAlias, resolveReplyRecipients, openReplyFromMessage, openForwardFromMessage, openForwardAsAttachmentFromMessage } from '../utils/composeFromMessage.js';
 import { selectedMessage, markMessageUnread } from '../utils/messageHotkeys.js';
-import { cancelScheduledMarkRead, cancelScheduledMarkReadFor, scheduleMarkReadTimer } from '../utils/markRead.js';
+import { applyMarkRead, cancelScheduledMarkRead, cancelScheduledMarkReadFor, scheduleMarkReadTimer } from '../utils/markRead.js';
 import { saveSenderCategory } from '../utils/senderCategory.js';
 import SenderAvatarImage from './SenderAvatarImage.jsx';
 import FolderPathLabel from './FolderPathLabel.jsx';
@@ -2771,10 +2771,23 @@ function MailboxList() {
   const markMessageReadOnOpen = (message) => {
     cancelScheduledMarkRead(autoMarkReadTimerRef.current);
     autoMarkReadTimerRef.current = null;
-    if (message.is_read || markReadBehavior === 'manual') return;
+    if (markReadBehavior === 'manual') return;
+    // A conversation row counts every unread message in it, and its own, the newest, is often the
+    // reader's reply, already read. Opening it reads them all: reading the row's own alone left the
+    // rest unread on the server while the row showed none, until the next refresh (a reply's Sent
+    // copy arriving, typically) drew it unread again.
+    const othersUnread = isThreadListRow(message)
+      && Number.parseInt(message.unread_count, 10) > (message.is_read ? 0 : 1);
+    if (message.is_read && !othersUnread) return;
     const prevUnread = message.unread_count;
     const doMarkRead = () => {
       updateMessage(message.id, { is_read: true, unread_count: 0 });
+      if (othersUnread) {
+        resolveMessagesForThreadAction(message)
+          .then(msgs => msgs.forEach(m => { if (m.id !== message.id) applyMarkRead(m); }))
+          .catch(e => console.error('Failed to load the conversation to mark it read:', e.message));
+      }
+      if (message.is_read) return;
       decrementUnread(message.account_id, inboxShare(message));
       adjustCategoryCount(message.category, -inboxShare(message));
       const token = setPending(message.id, message.account_id);
